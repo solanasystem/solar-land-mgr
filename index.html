@@ -1003,9 +1003,9 @@
         </select>
       </div>
     </div>
-    <div class="cases-table-header sticky-table-header" style="grid-template-columns:120px 1fr 120px 1fr 80px;padding:10px 24px">
-      <div>案件番号</div><div>所在</div>
-      <div>GoogleMAP</div><div>ハザード</div>
+    <div class="cases-table-header sticky-table-header" style="grid-template-columns:120px 1fr 200px 60px 80px;padding:10px 24px">
+      <div>案件番号</div><div>所在・面積</div>
+      <div>用途地域・地目</div><div>地図</div>
       <div style="text-align:right">操作</div>
     </div>
   </div>
@@ -1874,17 +1874,34 @@ function renderLands(lands) {
     el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🏔</div><div class="empty-state-text">土地情報が登録されていません</div></div>`;
     return;
   }
-  el.innerHTML = lands.map((land, i) => `
-    <div class="case-row" style="grid-template-columns:120px 1fr 120px 1fr 80px;animation-delay:${i*0.03}s">
+  el.innerHTML = lands.map((land, i) => {
+    // locationが数値っぽい場合（旧形式）はchibankに所在が入っている
+    const locIsNum = land.location && !isNaN(parseFloat(land.location)) && String(land.location).length < 15;
+    const chibanIsUrl = land.chiban && (land.chiban.startsWith('http') || land.chiban.startsWith('公簿'));
+    // 所在テキスト：location が文字列なら location、そうでなければ chiban
+    const soZai = locIsNum ? (chibanIsUrl ? land.chiban : land.chiban) : (land.location || land.chiban || '—');
+    // 面積テキスト：hazard に面積が入っている場合もある
+    const menseki = locIsNum ? '' : (land.area_sqm ? Number(land.area_sqm).toLocaleString() + ' ㎡' : '');
+    // 用途地域：locIsNum なら hazard（長文テキスト）か biko
+    const yoto = locIsNum ? (land.hazard && !land.hazard.startsWith('http') ? land.hazard : (land.biko || '—')) : (land.chiban || '—');
+    // 地図URL
+    const mapUrl = locIsNum
+      ? (land.hazard && land.hazard.startsWith('http') ? land.hazard : (land.google_map || null))
+      : (land.google_map || null);
+    return `
+    <div class="case-row" style="grid-template-columns:120px 1fr 200px 60px 80px;animation-delay:${i*0.03}s">
       <div class="case-no">${land.cases?.case_no || '—'}</div>
-      <div style="font-size:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${land.chiban || '—'}</div>
-      <div style="font-size:12px">${land.hazard ? `<a href="${land.hazard}" target="_blank" style="color:var(--blue)">🗺 地図</a>` : '—'}</div>
-      <div style="font-size:12px;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${land.biko || '—'}</div>
+      <div>
+        <div style="font-size:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${soZai}</div>
+        ${menseki ? `<div style="font-size:11px;color:var(--text-muted)">${menseki}</div>` : ''}
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${yoto}</div>
+      <div style="font-size:12px;text-align:center">${mapUrl ? `<a href="${mapUrl}" target="_blank" style="color:var(--blue)">🗺</a>` : '—'}</div>
       <div class="actions-cell">
         <button class="action-btn land" onclick="openDetail('${land.case_id}','land')">詳細</button>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 async function loadRealestateMaster() {
