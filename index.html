@@ -1011,7 +1011,7 @@
     <div class="modal-header">
       <div>
         <div class="modal-title">🏔 土地情報の編集</div>
-        <div class="modal-subtitle">緯度・経度を入力するとマップにピンが表示されます</div>
+        <div class="modal-subtitle">GoogleマップURLを貼り付けると緯度・経度が自動取得されます</div>
       </div>
       <button class="modal-close" onclick="closeModal('editLandModal')">✕</button>
     </div>
@@ -1035,19 +1035,23 @@
         </div>
         <div class="form-group full">
           <label class="form-label">Googleマップ URL</label>
-          <input class="form-input" type="text" id="eld_google_map" placeholder="https://maps.app.goo.gl/...">
+          <div style="display:flex;gap:8px;align-items:center">
+            <input class="form-input" type="text" id="eld_google_map" placeholder="https://www.google.com/maps/@36.1234,139.1234,17z" style="flex:1" oninput="autoExtractLatLng()">
+            <button class="btn btn-ghost" style="white-space:nowrap;font-size:12px" onclick="autoExtractLatLng()">📍 座標を抽出</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">※ Google マップで場所を開き、URLをそのままコピーして貼り付けてください</div>
         </div>
         <div class="form-group full">
           <label class="form-label">ハザード情報</label>
           <input class="form-input" type="text" id="eld_hazard" placeholder="例：浸水想定区域外・土砂災害警戒なし">
         </div>
         <div class="form-group">
-          <label class="form-label">緯度（lat）※マップ用</label>
-          <input class="form-input" type="number" step="0.000001" id="eld_lat" placeholder="例：36.1234">
+          <label class="form-label">緯度（lat）※自動取得</label>
+          <input class="form-input" type="number" step="0.000001" id="eld_lat" placeholder="URLから自動取得" style="background:var(--surface2);color:var(--accent)">
         </div>
         <div class="form-group">
-          <label class="form-label">経度（lng）※マップ用</label>
-          <input class="form-input" type="number" step="0.000001" id="eld_lng" placeholder="例：139.1234">
+          <label class="form-label">経度（lng）※自動取得</label>
+          <input class="form-input" type="number" step="0.000001" id="eld_lng" placeholder="URLから自動取得" style="background:var(--surface2);color:var(--accent)">
         </div>
         <div class="form-group full">
           <label class="form-label">備考</label>
@@ -1394,7 +1398,47 @@ function openEditModal() {
   else if (tabText.includes('不動産')) openRealestateEditModal();
 }
 
-async function openLandownerEditModal() {
+// ===== GoogleマップURLから緯度経度を自動抽出 =====
+function autoExtractLatLng() {
+  const url = document.getElementById('eld_google_map').value.trim();
+  if (!url) return;
+
+  let lat = null, lng = null;
+
+  // パターン1: @lat,lng,zoom  例: @36.1234,139.1234,17z
+  const p1 = url.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  if (p1) { lat = parseFloat(p1[1]); lng = parseFloat(p1[2]); }
+
+  // パターン2: /place/.../@lat,lng  または ?q=lat,lng
+  if (!lat) {
+    const p2 = url.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+    if (p2) { lat = parseFloat(p2[1]); lng = parseFloat(p2[2]); }
+  }
+
+  // パターン3: !3d lat !4d lng
+  if (!lat) {
+    const p3lat = url.match(/!3d(-?\d+\.?\d*)/);
+    const p3lng = url.match(/!4d(-?\d+\.?\d*)/);
+    if (p3lat && p3lng) { lat = parseFloat(p3lat[1]); lng = parseFloat(p3lng[1]); }
+  }
+
+  // パターン4: /maps/place/住所/@lat,lng
+  if (!lat) {
+    const p4 = url.match(/\/maps\/.*\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+    if (p4) { lat = parseFloat(p4[1]); lng = parseFloat(p4[2]); }
+  }
+
+  if (lat && lng) {
+    document.getElementById('eld_lat').value = lat;
+    document.getElementById('eld_lng').value = lng;
+    showToast(`📍 座標を取得しました（${lat}, ${lng}）`, 'success');
+  } else {
+    // 短縮URLや取得できない場合のガイド
+    showToast('座標を自動取得できませんでした。GoogleマップでURLをコピーする際、ブラウザのアドレスバーからコピーしてください', 'error');
+  }
+}
+
+
   const { data } = await db.from('landowner_info').select('*').eq('case_id', currentCaseId).single();
   document.getElementById('elo_name').value = data?.name || '';
   document.getElementById('elo_address').value = data?.address || '';
@@ -1447,38 +1491,4 @@ async function openRealestateEditModal() {
   document.getElementById('ere_staff_name').value = data?.staff_name || '';
   document.getElementById('ere_tel').value = data?.tel || '';
   document.getElementById('ere_address').value = data?.address || '';
-  document.getElementById('ere_reins_no').value = data?.reins_no || '';
-  document.getElementById('ere_registered_at').value = data?.registered_at || '';
-  document.getElementById('ere_contract_status').value = data?.contract_status || '';
-  document.getElementById('ere_price').value = data?.price || '';
-  document.getElementById('editRealestateModal').classList.add('open');
-}
-
-async function saveRealestate() {
-  const g = id => document.getElementById(id).value;
-  const payload = { case_id: currentCaseId, company_name: g('ere_company_name'), staff_name: g('ere_staff_name'), tel: g('ere_tel'), address: g('ere_address'), reins_no: g('ere_reins_no'), registered_at: g('ere_registered_at') || null, contract_status: g('ere_contract_status'), price: g('ere_price') ? Number(g('ere_price')) : null };
-  const { data: ex } = await db.from('realestate_info').select('id').eq('case_id', currentCaseId).single();
-  const { error } = ex ? await db.from('realestate_info').update(payload).eq('case_id', currentCaseId) : await db.from('realestate_info').insert(payload);
-  if (error) { showToast('保存エラー: ' + error.message, 'error'); return; }
-  showToast('不動産会社情報を保存しました', 'success');
-  closeModal('editRealestateModal');
-  await loadRealestateDetail(currentCaseId);
-}
-
-document.querySelectorAll('.modal-overlay').forEach(overlay => {
-  overlay.addEventListener('click', e => {
-    if (e.target === overlay) overlay.classList.remove('open');
-  });
-});
-
-function showToast(msg, type = 'success') {
-  const c = document.getElementById('toastContainer');
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  t.innerHTML = `<span>${type === 'success' ? '✓' : '✕'}</span><span>${msg}</span>`;
-  c.appendChild(t);
-  setTimeout(() => t.remove(), 3000);
-}
-</script>
-</body>
-</html>
+  document.getEle
