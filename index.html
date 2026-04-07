@@ -1078,9 +1078,21 @@
           <label class="form-label">価格（万円）</label>
           <input class="form-input" type="number" id="elo_price" placeholder="例：3000">
         </div>
-        <div class="form-group">
+        <div class="form-group full">
           <label class="form-label">Googleマップ URL</label>
-          <input class="form-input" type="text" id="elo_google_map" placeholder="https://maps.app.goo.gl/...">
+          <div style="display:flex;gap:8px;align-items:center">
+            <input class="form-input" type="text" id="elo_google_map" placeholder="https://www.google.com/maps/@36.1234,139.1234,17z" style="flex:1" oninput="autoExtractLoLatLng()">
+            <button class="btn btn-ghost" style="white-space:nowrap;font-size:12px" onclick="autoExtractLoLatLng()">📍 座標を抽出</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">※ ブラウザのアドレスバーからURLをコピーしてください</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">緯度（lat）※自動取得</label>
+          <input class="form-input" type="number" step="0.000001" id="elo_lat" placeholder="URLから自動取得" style="background:var(--surface2);color:var(--accent)">
+        </div>
+        <div class="form-group">
+          <label class="form-label">経度（lng）※自動取得</label>
+          <input class="form-input" type="number" step="0.000001" id="elo_lng" placeholder="URLから自動取得" style="background:var(--surface2);color:var(--accent)">
         </div>
         <div class="form-group full">
           <label class="form-label">メモ</label>
@@ -1586,8 +1598,32 @@ function openEditModal() {
   else if (tabText.includes('不動産')) openRealestateEditModal();
 }
 
-// ===== GoogleマップURLから緯度経度を自動抽出 =====
-function autoExtractLatLng() {
+// ===== 地権者GoogleマップURLから緯度経度を自動抽出 =====
+function autoExtractLoLatLng() {
+  const url = document.getElementById('elo_google_map').value.trim();
+  if (!url) return;
+  let lat = null, lng = null;
+  const p1 = url.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  if (p1) { lat = parseFloat(p1[1]); lng = parseFloat(p1[2]); }
+  if (!lat) {
+    const p3lat = url.match(/!3d(-?\d+\.?\d*)/);
+    const p3lng = url.match(/!4d(-?\d+\.?\d*)/);
+    if (p3lat && p3lng) { lat = parseFloat(p3lat[1]); lng = parseFloat(p3lng[1]); }
+  }
+  if (!lat) {
+    const p2 = url.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+    if (p2) { lat = parseFloat(p2[1]); lng = parseFloat(p2[2]); }
+  }
+  if (lat && lng) {
+    document.getElementById('elo_lat').value = lat;
+    document.getElementById('elo_lng').value = lng;
+    showToast(`📍 座標を取得しました（${lat}, ${lng}）`, 'success');
+  } else {
+    showToast('座標を自動取得できませんでした。ブラウザのアドレスバーからURLをコピーしてください', 'error');
+  }
+}
+
+
   const url = document.getElementById('eld_google_map').value.trim();
   if (!url) return;
 
@@ -1668,12 +1704,24 @@ async function openLandownerEditModal() {
   document.getElementById('elo_google_map').value = data?.google_map || '';
   document.getElementById('elo_price').value = data?.price || '';
   document.getElementById('elo_memo').value = data?.memo || '';
+  document.getElementById('elo_lat').value = data?.lat || '';
+  document.getElementById('elo_lng').value = data?.lng || '';
   document.getElementById('editLandownerModal').classList.add('open');
 }
 
 async function saveLandowner() {
   const g = id => document.getElementById(id).value;
-  const payload = { case_id: currentCaseId, name: g('elo_name'), address: g('elo_address'), tel: g('elo_tel'), google_map: g('elo_google_map'), price: g('elo_price') ? Number(g('elo_price')) : null, memo: g('elo_memo') };
+  const payload = {
+    case_id: currentCaseId,
+    name: g('elo_name'),
+    address: g('elo_address'),
+    tel: g('elo_tel'),
+    google_map: g('elo_google_map'),
+    price: g('elo_price') ? Number(g('elo_price')) : null,
+    memo: g('elo_memo'),
+    lat: g('elo_lat') ? Number(g('elo_lat')) : null,
+    lng: g('elo_lng') ? Number(g('elo_lng')) : null
+  };
   const { data: ex } = await db.from('landowner_info').select('id').eq('case_id', currentCaseId).single();
   const { error } = ex ? await db.from('landowner_info').update(payload).eq('case_id', currentCaseId) : await db.from('landowner_info').insert(payload);
   if (error) { showToast('保存エラー: ' + error.message, 'error'); return; }
