@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOLAR LAND MGR v2.0</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2333;
+    --border: #30363d;
+    --accent: #f0b429;
+    --accent2: #e85d04;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --font-main: 'Zen Kaku Gothic New', sans-serif;
+    --font-mono: 'Share Tech Mono', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-main);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ヘッダー */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo-icon {
+    width: 32px;
+    height: 32px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+  }
+
+  .logo-text {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--text);
+  }
+
+  .logo-version {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--accent);
+    background: rgba(240,180,41,0.1);
+    border: 1px solid rgba(240,180,41,0.3);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* ナビゲーション */
+  .nav {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    display: flex;
+    gap: 4px;
+  }
+
+  .nav-btn {
+    padding: 10px 16px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-family: var(--font-main);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .nav-btn:hover { color: var(--text); }
+  .nav-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  /* メインコンテンツ */
+  .main {
+    padding: 20px 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* ツールバー */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .search-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 12px;
+    color: var(--text);
+    font-family: var(--font-main);
+    font-size: 13px;
+    width: 240px;
+    transition: border-color 0.2s;
+  }
+
+  .search-box:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .filter-select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 12px;
+    color: var(--text);
+    font-family: var(--font-main);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .filter-select:focus { outline: none; border-color: var(--accent); }
+
+  .btn {
+    padding: 7px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    font-family: var(--font-main);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
+  }
+
+  .btn-primary:hover { background: #e0a820; }
+
+  .btn-ghost {
+    background: none;
+    color: var(--text-muted);
+  }
+
+  .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+
+  /* 案件カード一覧テーブル */
+  .cases-table {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .cases-table-header {
+    display: grid;
+    grid-template-columns: 120px 80px 100px 120px 80px 1fr 120px;
+    padding: 10px 16px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .case-row {
+    display: grid;
+    grid-template-columns: 120px 80px 100px 120px 80px 1fr 120px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    transition: background 0.15s;
+    animation: fadeIn 0.3s ease both;
+  }
+
+  .case-row:last-child { border-bottom: none; }
+  .case-row:hover { background: var(--surface2); }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .case-no {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .badge-solar { background: rgba(240,180,41,0.15); color: var(--accent); border: 1px solid rgba(240,180,41,0.3); }
+  .badge-battery { background: rgba(88,166,255,0.15); color: var(--blue); border: 1px solid rgba(88,166,255,0.3); }
+  .badge-both { background: rgba(232,93,4,0.15); color: var(--accent2); border: 1px solid rgba(232,93,4,0.3); }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+
+  .status-chosa { background: rgba(63,185,80,0.1); color: var(--green); }
+  .status-chosa .status-dot { background: var(--green); }
+  .status-kosho { background: rgba(240,180,41,0.1); color: var(--accent); }
+  .status-kosho .status-dot { background: var(--accent); }
+  .status-keiyaku { background: rgba(88,166,255,0.1); color: var(--blue); }
+  .status-keiyaku .status-dot { background: var(--blue); }
+  .status-danen { background: rgba(248,81,73,0.1); color: var(--red); }
+  .status-danen .status-dot { background: var(--red); }
+  .status-horyuu { background: rgba(139,148,158,0.1); color: var(--text-muted); }
+  .status-horyuu .status-dot { background: var(--text-muted); }
+
+  .price-cell {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .actions-cell {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+
+  .action-btn {
+    padding: 4px 10px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: none;
+    color: var(--text-muted);
+    font-family: var(--font-main);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .action-btn:hover { background: var(--surface2); color: var(--text); }
+  .action-btn.landowner { border-color: rgba(63,185,80,0.4); color: var(--green); }
+  .action-btn.landowner:hover { background: rgba(63,185,80,0.1); }
+  .action-btn.land { border-color: rgba(88,166,255,0.4); color: var(--blue); }
+  .action-btn.land:hover { background: rgba(88,166,255,0.1); }
+
+  .empty-state {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  .empty-state-icon { font-size: 40px; margin-bottom: 12px; }
+  .empty-state-text { font-size: 14px; }
+
+  /* モーダル共通 */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+
+  .modal-overlay.open {
+    opacity: 1;
+    pointer-events: all;
+  }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 680px;
+    max-height: 90vh;
+    overflow-y: auto;
+    transform: scale(0.95);
+    transition: transform 0.2s;
+  }
+
+  .modal-overlay.open .modal { transform: scale(1); }
+
+  .modal-lg { max-width: 900px; }
+
+  .modal-header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .modal-title {
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .modal-subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    border-radius: 4px;
+    transition: all 0.15s;
+  }
+
+  .modal-close:hover { background: var(--surface2); color: var(--text); }
+
+  .modal-body { padding: 20px 24px; }
+
+  .modal-footer {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  /* フォーム */
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-group.full { grid-column: 1 / -1; }
+
+  .form-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .form-input, .form-select, .form-textarea {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-family: var(--font-main);
+    font-size: 13px;
+    transition: border-color 0.2s;
+  }
+
+  .form-input:focus, .form-select:focus, .form-textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .form-textarea { resize: vertical; min-height: 80px; }
+
+  /* 詳細モーダル：タブ */
+  .detail-header {
+    padding: 20px 24px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .detail-case-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .detail-case-no {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .detail-tabs {
+    display: flex;
+    gap: 0;
+  }
+
+  .detail-tab {
+    padding: 10px 18px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-family: var(--font-main);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+  }
+
+  .detail-tab:hover { color: var(--text); }
+  .detail-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .detail-body { padding: 20px 24px; }
+
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  /* 情報グリッド */
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+
+  .info-item { display: flex; flex-direction: column; gap: 4px; }
+  .info-item.full { grid-column: 1 / -1; }
+
+  .info-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .info-value {
+    font-size: 14px;
+    color: var(--text);
+  }
+
+  .info-value a {
+    color: var(--blue);
+    text-decoration: none;
+    font-size: 12px;
+  }
+
+  .info-value a:hover { text-decoration: underline; }
+
+  /* 商談記録 */
+  .negotiation-section { margin-top: 8px; }
+
+  .negotiation-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .log-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .log-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    border-left: 3px solid var(--accent);
+  }
+
+  .log-date {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+
+  .log-content {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.6;
+    white-space: pre-wrap;
+  }
+
+  /* 折りたたみセクション */
+  .collapse-section {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+
+  .collapse-header {
+    padding: 12px 16px;
+    background: var(--surface2);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+  }
+
+  .collapse-header:hover { background: #252c3a; }
+
+  .collapse-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .collapse-arrow {
+    color: var(--text-muted);
+    font-size: 12px;
+    transition: transform 0.2s;
+  }
+
+  .collapse-arrow.open { transform: rotate(180deg); }
+
+  .collapse-body {
+    padding: 14px 16px;
+    display: none;
+    border-top: 1px solid var(--border);
+  }
+
+  .collapse-body.open { display: block; }
+
+  /* ローディング */
+  .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: var(--text-muted);
+    gap: 10px;
+    font-size: 13px;
+  }
+
+  .spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* トースト通知 */
+  .toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    min-width: 240px;
+    animation: slideIn 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error { border-left: 3px solid var(--red); }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  /* 統計バー */
+  .stats-bar {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 120px;
+    flex: 1;
+  }
+
+  .stat-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .stat-value {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .stat-value.accent { color: var(--accent); }
+  .stat-value.green { color: var(--green); }
+  .stat-value.blue { color: var(--blue); }
+
+  /* 商談記録追加フォーム */
+  .add-log-form {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    margin-top: 12px;
+  }
+
+  .add-log-form .form-grid {
+    grid-template-columns: 160px 1fr;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  /* レスポンシブ */
+  @media (max-width: 768px) {
+    .cases-table-header { display: none; }
+    .case-row {
+      grid-template-columns: 1fr;
+      gap: 6px;
+    }
+    .form-grid { grid-template-columns: 1fr; }
+    .info-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ヘッダー -->
+<header class="header">
+  <div class="logo">
+    <div class="logo-icon">☀️</div>
+    <span class="logo-text">SOLAR LAND MGR</span>
+    <span class="logo-version">v2.0</span>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-ghost" onclick="location.href='field-survey.html'">🗺 現地調査</button>
+    <button class="btn btn-ghost" onclick="location.href='landowner-visit.html'">🚗 地権者訪問</button>
+  </div>
+</header>
+
+<!-- ナビゲーション -->
+<nav class="nav">
+  <button class="nav-btn active" onclick="switchNav(this,'cases')">案件マスター</button>
+  <button class="nav-btn" onclick="switchNav(this,'landowners')">地権者マスター</button>
+  <button class="nav-btn" onclick="switchNav(this,'land')">土地情報マスター</button>
+  <button class="nav-btn" onclick="switchNav(this,'realestate')">不動産会社マスター</button>
+</nav>
+
+<!-- メインコンテンツ -->
+<main class="main">
+
+  <!-- 統計バー -->
+  <div class="stats-bar" id="statsBar">
+    <div class="stat-card">
+      <div class="stat-label">総案件数</div>
+      <div class="stat-value accent" id="statTotal">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">調査中</div>
+      <div class="stat-value green" id="statChosa">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">交渉中</div>
+      <div class="stat-value accent" id="statKosho">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">契約済</div>
+      <div class="stat-value blue" id="statKeiyaku">—</div>
+    </div>
+  </div>
+
+  <!-- ツールバー -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <input class="search-box" type="text" placeholder="案件番号・地名で検索..." id="searchInput" oninput="filterCases()">
+      <select class="filter-select" id="filterKubun" onchange="filterCases()">
+        <option value="">すべての区分</option>
+        <option value="太陽光">太陽光</option>
+        <option value="蓄電池">蓄電池</option>
+        <option value="太陽光+蓄電池">太陽光+蓄電池</option>
+      </select>
+      <select class="filter-select" id="filterStatus" onchange="filterCases()">
+        <option value="">すべてのステータス</option>
+        <option value="調査中">調査中</option>
+        <option value="交渉中">交渉中</option>
+        <option value="契約済">契約済</option>
+        <option value="断念">断念</option>
+        <option value="保留">保留</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" onclick="openNewCaseModal()">＋ 新規案件登録</button>
+  </div>
+
+  <!-- 案件テーブル -->
+  <div class="cases-table">
+    <div class="cases-table-header">
+      <div>案件番号</div>
+      <div>発電区分</div>
+      <div>ステータス</div>
+      <div>金額（万円）</div>
+      <div>エリア</div>
+      <div>登録日</div>
+      <div style="text-align:right">操作</div>
+    </div>
+    <div id="casesList">
+      <div class="loading"><div class="spinner"></div>読み込み中...</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ===== 新規案件登録モーダル ===== -->
+<div class="modal-overlay" id="newCaseModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">新規案件登録</div>
+        <div class="modal-subtitle">案件番号はエリア選択後に自動生成されます</div>
+      </div>
+      <button class="modal-close" onclick="closeModal('newCaseModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">エリア *</label>
+          <select class="form-select" id="newArea">
+            <option value="">選択してください</option>
+            <option>北海道</option><option>東北</option><option>関東</option>
+            <option>中部</option><option>関西</option><option>中国</option>
+            <option>四国</option><option>九州</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">発電区分 *</label>
+          <select class="form-select" id="newKubun">
+            <option value="">選択してください</option>
+            <option>太陽光</option>
+            <option>蓄電池</option>
+            <option>太陽光+蓄電池</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">ステータス</label>
+          <select class="form-select" id="newStatus">
+            <option value="調査中">調査中</option>
+            <option value="交渉中">交渉中</option>
+            <option value="契約済">契約済</option>
+            <option value="断念">断念</option>
+            <option value="保留">保留</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">金額（万円）</label>
+          <input class="form-input" type="number" id="newPrice" placeholder="例：3000">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('newCaseModal')">キャンセル</button>
+      <button class="btn btn-primary" onclick="createCase()">登録する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 詳細モーダル（地権者メイン） ===== -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal modal-lg">
+    <div class="detail-header">
+      <div class="detail-case-info" id="detailCaseInfo"></div>
+      <div class="detail-tabs">
+        <button class="detail-tab active" onclick="switchDetailTab(this,'tab-landowner')" id="tabLandowner">🧑 地権者情報</button>
+        <button class="detail-tab" onclick="switchDetailTab(this,'tab-land')" id="tabLand">🏔 土地情報</button>
+        <button class="detail-tab" onclick="switchDetailTab(this,'tab-realestate')" id="tabRealestate">🏢 不動産会社</button>
+      </div>
+    </div>
+    <div class="detail-body">
+
+      <!-- 地権者タブ -->
+      <div class="tab-pane active" id="tab-landowner">
+        <div class="info-grid" id="landownerInfo"></div>
+        <div class="negotiation-section">
+          <div class="negotiation-header">
+            <span class="section-title">📋 商談記録</span>
+            <button class="btn btn-ghost" style="font-size:12px" onclick="toggleAddLog()">＋ 記録追加</button>
+          </div>
+          <div class="add-log-form" id="addLogForm" style="display:none">
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label">日付</label>
+                <input class="form-input" type="date" id="logDate">
+              </div>
+              <div class="form-group">
+                <label class="form-label">内容</label>
+                <input class="form-input" type="text" id="logContent" placeholder="商談内容を入力...">
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+              <button class="btn btn-ghost" style="font-size:12px" onclick="toggleAddLog()">キャンセル</button>
+              <button class="btn btn-primary" style="font-size:12px" onclick="saveLog()">保存</button>
+            </div>
+          </div>
+          <div class="log-list" id="logList"></div>
+        </div>
+
+        <!-- 折りたたみ：土地情報 -->
+        <div class="collapse-section" style="margin-top:20px">
+          <div class="collapse-header" onclick="toggleCollapse(this)">
+            <span class="collapse-title">🏔 土地情報</span>
+            <span class="collapse-arrow">▼</span>
+          </div>
+          <div class="collapse-body">
+            <div class="info-grid" id="landInfoCollapse"></div>
+          </div>
+        </div>
+
+        <!-- 折りたたみ：不動産会社 -->
+        <div class="collapse-section">
+          <div class="collapse-header" onclick="toggleCollapse(this)">
+            <span class="collapse-title">🏢 不動産会社情報</span>
+            <span class="collapse-arrow">▼</span>
+          </div>
+          <div class="collapse-body">
+            <div class="info-grid" id="realestateInfoCollapse"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 土地タブ -->
+      <div class="tab-pane" id="tab-land">
+        <div class="info-grid" id="landInfoMain"></div>
+        <!-- 折りたたみ：地権者 -->
+        <div class="collapse-section">
+          <div class="collapse-header" onclick="toggleCollapse(this)">
+            <span class="collapse-title">🧑 地権者情報</span>
+            <span class="collapse-arrow">▼</span>
+          </div>
+          <div class="collapse-body">
+            <div class="info-grid" id="landownerInfoCollapse"></div>
+          </div>
+        </div>
+        <!-- 折りたたみ：不動産会社 -->
+        <div class="collapse-section">
+          <div class="collapse-header" onclick="toggleCollapse(this)">
+            <span class="collapse-title">🏢 不動産会社情報</span>
+            <span class="collapse-arrow">▼</span>
+          </div>
+          <div class="collapse-body">
+            <div class="info-grid" id="realestateInfoCollapse2"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 不動産会社タブ -->
+      <div class="tab-pane" id="tab-realestate">
+        <div class="info-grid" id="realestateInfoMain"></div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('detailModal')">閉じる</button>
+      <button class="btn btn-primary" onclick="openEditModal()">編集</button>
+    </div>
+  </div>
+</div>
+
+<!-- トースト -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+const SUPABASE_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let allCases = [];
+let currentCaseId = null;
+let currentLandownerId = null;
+
+// ===== 初期化 =====
+document.addEventListener('DOMContentLoaded', () => {
+  loadCases();
+  // 日付デフォルト
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('logDate').value = today;
+});
+
+// ===== 案件一覧読み込み =====
+async function loadCases() {
+  const { data, error } = await db.from('cases').select('*').order('created_at', { ascending: false });
+  if (error) { showToast('データ読み込みエラー', 'error'); return; }
+  allCases = data || [];
+  renderCases(allCases);
+  updateStats(allCases);
+}
+
+function updateStats(cases) {
+  document.getElementById('statTotal').textContent = cases.length;
+  document.getElementById('statChosa').textContent = cases.filter(c => c.status === '調査中').length;
+  document.getElementById('statKosho').textContent = cases.filter(c => c.status === '交渉中').length;
+  document.getElementById('statKeiyaku').textContent = cases.filter(c => c.status === '契約済').length;
+}
+
+function filterCases() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const kubun = document.getElementById('filterKubun').value;
+  const status = document.getElementById('filterStatus').value;
+  const filtered = allCases.filter(c => {
+    const matchQ = !q || (c.case_no||'').toLowerCase().includes(q) || (c.area_name||'').toLowerCase().includes(q);
+    const matchK = !kubun || c.kubun === kubun;
+    const matchS = !status || c.status === status;
+    return matchQ && matchK && matchS;
+  });
+  renderCases(filtered);
+}
+
+function renderCases(cases) {
+  const el = document.getElementById('casesList');
+  if (!cases.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-text">案件が登録されていません</div></div>`;
+    return;
+  }
+  el.innerHTML = cases.map((c, i) => `
+    <div class="case-row" style="animation-delay:${i * 0.03}s">
+      <div class="case-no">${c.case_no || '—'}</div>
+      <div>${kubunBadge(c.kubun)}</div>
+      <div>${statusBadge(c.status)}</div>
+      <div class="price-cell">${c.price ? Number(c.price).toLocaleString() + ' 万円' : '—'}</div>
+      <div style="font-size:13px;color:var(--text-muted)">${c.area_name || '—'}</div>
+      <div style="font-size:12px;color:var(--text-muted)">${formatDate(c.created_at)}</div>
+      <div class="actions-cell">
+        <button class="action-btn landowner" onclick="openDetail('${c.id}','landowner')">地権者</button>
+        <button class="action-btn land" onclick="openDetail('${c.id}','land')">土地</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function kubunBadge(k) {
+  if (!k) return '<span style="color:var(--text-muted);font-size:12px">—</span>';
+  const cls = k === '太陽光' ? 'solar' : k === '蓄電池' ? 'battery' : 'both';
+  return `<span class="badge badge-${cls}">${k}</span>`;
+}
+
+function statusBadge(s) {
+  const map = { '調査中':'chosa','交渉中':'kosho','契約済':'keiyaku','断念':'danen','保留':'horyuu' };
+  const cls = map[s] || 'horyuu';
+  return `<span class="status-badge status-${cls}"><span class="status-dot"></span>${s || '—'}</span>`;
+}
+
+function formatDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('ja-JP', { year:'numeric', month:'2-digit', day:'2-digit' });
+}
+
+// ===== 新規案件登録 =====
+function openNewCaseModal() {
+  document.getElementById('newCaseModal').classList.add('open');
+}
+
+async function createCase() {
+  const area = document.getElementById('newArea').value;
+  const kubun = document.getElementById('newKubun').value;
+  const status = document.getElementById('newStatus').value;
+  const price = document.getElementById('newPrice').value;
+
+  if (!area || !kubun) { showToast('エリアと発電区分は必須です', 'error'); return; }
+
+  // 案件番号自動生成
+  const { data: existing } = await db.from('cases').select('id').eq('area_name', area);
+  const seq = (existing?.length || 0) + 1;
+  const case_no = `${area}-${String(seq).padStart(3,'0')}`;
+
+  const { error } = await db.from('cases').insert({
+    case_no, kubun, status, area_name: area,
+    price: price ? Number(price) : null
+  });
+
+  if (error) { showToast('登録エラー: ' + error.message, 'error'); return; }
+
+  showToast(`案件 ${case_no} を登録しました`, 'success');
+  closeModal('newCaseModal');
+  loadCases();
+  // フォームリセット
+  ['newArea','newKubun','newPrice'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('newStatus').value = '調査中';
+}
+
+// ===== 詳細モーダル =====
+async function openDetail(caseId, mode) {
+  currentCaseId = caseId;
+  const c = allCases.find(x => x.id === caseId);
+  if (!c) return;
+
+  // ケース情報ヘッダー
+  document.getElementById('detailCaseInfo').innerHTML = `
+    <span class="detail-case-no">${c.case_no}</span>
+    ${kubunBadge(c.kubun)}
+    ${statusBadge(c.status)}
+    <span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price ? Number(c.price).toLocaleString() + ' 万円' : ''}</span>
+  `;
+
+  // タブ切り替え
+  const tab = mode === 'land' ? 'tab-land' : 'tab-landowner';
+  document.querySelectorAll('.detail-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(t => t.classList.remove('active'));
+  document.getElementById(tab).classList.add('active');
+  if (mode === 'land') document.getElementById('tabLand').classList.add('active');
+  else document.getElementById('tabLandowner').classList.add('active');
+
+  document.getElementById('detailModal').classList.add('open');
+
+  // データ読み込み
+  await Promise.all([loadLandownerDetail(caseId), loadLandDetail(caseId), loadRealestateDetail(caseId)]);
+}
+
+async function loadLandownerDetail(caseId) {
+  const { data } = await db.from('landowner_info').select('*').eq('case_id', caseId).single();
+  currentLandownerId = data?.id || null;
+
+  const html = data ? `
+    <div class="info-item"><div class="info-label">氏名</div><div class="info-value">${data.name || '—'}</div></div>
+    <div class="info-item"><div class="info-label">電話番号</div><div class="info-value">${data.tel || '—'}</div></div>
+    <div class="info-item full"><div class="info-label">住所</div><div class="info-value">${data.address || '—'}</div></div>
+    <div class="info-item"><div class="info-label">価格（万円）</div><div class="info-value">${data.price ? Number(data.price).toLocaleString() : '—'}</div></div>
+    <div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map ? `<a href="${data.google_map}" target="_blank">🗺 地図を開く</a>` : '—'}</div></div>
+    <div class="info-item full"><div class="info-label">メモ</div><div class="info-value">${data.memo || '—'}</div></div>
+  ` : '<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">地権者情報が未登録です</div>';
+
+  document.getElementById('landownerInfo').innerHTML = html;
+  document.getElementById('landownerInfoCollapse').innerHTML = html;
+
+  // 商談記録
+  if (data?.id) await loadNegotiationLogs(data.id);
+}
+
+async function loadNegotiationLogs(landownerId) {
+  const { data } = await db.from('negotiation_logs').select('*').eq('landowner_id', landownerId).order('log_date', { ascending: false });
+  const el = document.getElementById('logList');
+  if (!data || !data.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:12px 0">商談記録がありません</div>';
+    return;
+  }
+  el.innerHTML = data.map(log => `
+    <div class="log-item">
+      <div class="log-date">${log.log_date}</div>
+      <div class="log-content">${log.content || ''}</div>
+    </div>
+  `).join('');
+}
+
+async function loadLandDetail(caseId) {
+  const { data } = await db.from('land_info').select('*').eq('case_id', caseId).single();
+  const html = data ? `
+    <div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${data.area_sqm ? Number(data.area_sqm).toLocaleString() + ' ㎡' : '—'}</div></div>
+    <div class="info-item"><div class="info-label">用途地域・地目</div><div class="info-value">${data.chiban || '—'}</div></div>
+    <div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location || '—'}</div></div>
+    <div class="info-item full"><div class="info-label">法令上の制限</div><div class="info-value">${data.horeijo_seigen || '—'}</div></div>
+    <div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map ? `<a href="${data.google_map}" target="_blank">🗺 地図を開く</a>` : '—'}</div></div>
+    <div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard || '—'}</div></div>
+    <div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko || '—'}</div></div>
+  ` : '<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
+
+  document.getElementById('landInfoMain').innerHTML = html;
+  document.getElementById('landInfoCollapse').innerHTML = html;
+}
+
+async function loadRealestateDetail(caseId) {
+  const { data } = await db.from('realestate_info').select('*').eq('case_id', caseId).single();
+  const html = data ? `
+    <div class="info-item"><div class="info-label">会社名</div><div class="info-value">${data.company_name || '—'}</div></div>
+    <div class="info-item"><div class="info-label">担当者名</div><div class="info-value">${data.staff_name || '—'}</div></div>
+    <div class="info-item"><div class="info-label">電話番号</div><div class="info-value">${data.tel || '—'}</div></div>
+    <div class="info-item"><div class="info-label">REINS NO</div><div class="info-value">${data.reins_no || '—'}</div></div>
+    <div class="info-item full"><div class="info-label">住所</div><div class="info-value">${data.address || '—'}</div></div>
+    <div class="info-item"><div class="info-label">登録日</div><div class="info-value">${data.registered_at || '—'}</div></div>
+    <div class="info-item"><div class="info-label">契約状態</div><div class="info-value">${data.contract_status || '—'}</div></div>
+    <div class="info-item"><div class="info-label">価格（万円）</div><div class="info-value">${data.price ? Number(data.price).toLocaleString() : '—'}</div></div>
+  ` : '<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">不動産会社情報が未登録です</div>';
+
+  document.getElementById('realestateInfoMain').innerHTML = html;
+  document.getElementById('realestateInfoCollapse').innerHTML = html;
+  document.getElementById('realestateInfoCollapse2').innerHTML = html;
+}
+
+// ===== 商談記録保存 =====
+async function saveLog() {
+  if (!currentLandownerId) { showToast('地権者情報を先に登録してください', 'error'); return; }
+  const date = document.getElementById('logDate').value;
+  const content = document.getElementById('logContent').value;
+  if (!date || !content) { showToast('日付と内容を入力してください', 'error'); return; }
+
+  const { error } = await db.from('negotiation_logs').insert({
+    landowner_id: currentLandownerId, log_date: date, content
+  });
+
+  if (error) { showToast('保存エラー', 'error'); return; }
+  showToast('商談記録を保存しました', 'success');
+  document.getElementById('logContent').value = '';
+  toggleAddLog();
+  await loadNegotiationLogs(currentLandownerId);
+}
+
+// ===== UI ヘルパー =====
+function switchNav(btn, section) {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  // 今後：セクション切り替え実装
+}
+
+function switchDetailTab(btn, tabId) {
+  document.querySelectorAll('.detail-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(tabId).classList.add('active');
+}
+
+function toggleAddLog() {
+  const f = document.getElementById('addLogForm');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleCollapse(header) {
+  const body = header.nextElementSibling;
+  const arrow = header.querySelector('.collapse-arrow');
+  body.classList.toggle('open');
+  arrow.classList.toggle('open');
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function openEditModal() {
+  showToast('編集機能は近日実装予定です', 'success');
+}
+
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.classList.remove('open');
+  });
+});
+
+function showToast(msg, type = 'success') {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.innerHTML = `<span>${type === 'success' ? '✓' : '✕'}</span><span>${msg}</span>`;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+</script>
+</body>
+</html>
