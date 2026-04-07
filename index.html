@@ -1147,11 +1147,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ===== 案件一覧読み込み =====
 async function loadCases() {
-  const { data, error } = await db.from('cases').select('*').order('created_at', { ascending: false });
-  if (error) { showToast('データ読み込みエラー', 'error'); return; }
-  allCases = data || [];
-  renderCases(allCases);
-  updateStats(allCases);
+  try {
+    const { data, error } = await db.from('cases').select('*').order('created_at', { ascending: false });
+    if (error) {
+      showToast('データ読み込みエラー: ' + error.message, 'error');
+      document.getElementById('casesList').innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">読み込みエラー: ${error.message}</div></div>`;
+      return;
+    }
+    allCases = data || [];
+    renderCases(allCases);
+    updateStats(allCases);
+  } catch(e) {
+    showToast('接続エラー: ' + e.message, 'error');
+    document.getElementById('casesList').innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">接続エラー: ${e.message}</div></div>`;
+  }
 }
 
 function updateStats(cases) {
@@ -1433,12 +1442,11 @@ function autoExtractLatLng() {
     document.getElementById('eld_lng').value = lng;
     showToast(`📍 座標を取得しました（${lat}, ${lng}）`, 'success');
   } else {
-    // 短縮URLや取得できない場合のガイド
-    showToast('座標を自動取得できませんでした。GoogleマップでURLをコピーする際、ブラウザのアドレスバーからコピーしてください', 'error');
+    showToast('座標を自動取得できませんでした。ブラウザのアドレスバーからURLをコピーしてください', 'error');
   }
 }
 
-
+async function openLandownerEditModal() {
   const { data } = await db.from('landowner_info').select('*').eq('case_id', currentCaseId).single();
   document.getElementById('elo_name').value = data?.name || '';
   document.getElementById('elo_address').value = data?.address || '';
@@ -1491,4 +1499,38 @@ async function openRealestateEditModal() {
   document.getElementById('ere_staff_name').value = data?.staff_name || '';
   document.getElementById('ere_tel').value = data?.tel || '';
   document.getElementById('ere_address').value = data?.address || '';
-  document.getEle
+  document.getElementById('ere_reins_no').value = data?.reins_no || '';
+  document.getElementById('ere_registered_at').value = data?.registered_at || '';
+  document.getElementById('ere_contract_status').value = data?.contract_status || '';
+  document.getElementById('ere_price').value = data?.price || '';
+  document.getElementById('editRealestateModal').classList.add('open');
+}
+
+async function saveRealestate() {
+  const g = id => document.getElementById(id).value;
+  const payload = { case_id: currentCaseId, company_name: g('ere_company_name'), staff_name: g('ere_staff_name'), tel: g('ere_tel'), address: g('ere_address'), reins_no: g('ere_reins_no'), registered_at: g('ere_registered_at') || null, contract_status: g('ere_contract_status'), price: g('ere_price') ? Number(g('ere_price')) : null };
+  const { data: ex } = await db.from('realestate_info').select('id').eq('case_id', currentCaseId).single();
+  const { error } = ex ? await db.from('realestate_info').update(payload).eq('case_id', currentCaseId) : await db.from('realestate_info').insert(payload);
+  if (error) { showToast('保存エラー: ' + error.message, 'error'); return; }
+  showToast('不動産会社情報を保存しました', 'success');
+  closeModal('editRealestateModal');
+  await loadRealestateDetail(currentCaseId);
+}
+
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.classList.remove('open');
+  });
+});
+
+function showToast(msg, type = 'success') {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.innerHTML = `<span>${type === 'success' ? '✓' : '✕'}</span><span>${msg}</span>`;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+</script>
+</body>
+</html>
