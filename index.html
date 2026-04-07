@@ -960,6 +960,51 @@
   </div>
 </div>
 
+<!-- ===== 案件編集モーダル ===== -->
+<div class="modal-overlay" id="editCaseModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">✏️ 案件情報の編集</div>
+        <div class="modal-subtitle" id="editCaseNo"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal('editCaseModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">発電区分</label>
+          <select class="form-select" id="ec_kubun">
+            <option value="">選択してください</option>
+            <option>太陽光</option>
+            <option>蓄電池</option>
+            <option>太陽光+蓄電池</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">ステータス</label>
+          <select class="form-select" id="ec_status">
+            <option value="調査中">調査中</option>
+            <option value="交渉中">交渉中</option>
+            <option value="契約済">契約済</option>
+            <option value="断念">断念</option>
+            <option value="保留">保留</option>
+          </select>
+        </div>
+        <div class="form-group full">
+          <label class="form-label">金額（万円）</label>
+          <input class="form-input" type="number" id="ec_price" placeholder="例：3000">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" style="color:var(--red);border-color:var(--red)" onclick="deleteCase()">🗑 案件削除</button>
+      <button class="btn btn-ghost" onclick="closeModal('editCaseModal')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveCase()">保存する</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== 地権者編集モーダル ===== -->
 <div class="modal-overlay" id="editLandownerModal">
   <div class="modal">
@@ -1198,6 +1243,7 @@ function renderCases(cases) {
       <div style="font-size:13px;color:var(--text-muted)">${c.area_name || '—'}</div>
       <div style="font-size:12px;color:var(--text-muted)">${formatDate(c.created_at)}</div>
       <div class="actions-cell">
+        <button class="action-btn" onclick="openCaseEditModal('${c.id}')" title="案件編集">✏️</button>
         <button class="action-btn landowner" onclick="openDetail('${c.id}','landowner')">地権者</button>
         <button class="action-btn land" onclick="openDetail('${c.id}','land')">土地</button>
       </div>
@@ -1444,6 +1490,41 @@ function autoExtractLatLng() {
   } else {
     showToast('座標を自動取得できませんでした。ブラウザのアドレスバーからURLをコピーしてください', 'error');
   }
+}
+
+// ===== 案件編集 =====
+function openCaseEditModal(caseId) {
+  const c = allCases.find(x => x.id === caseId);
+  if (!c) return;
+  currentCaseId = caseId;
+  document.getElementById('editCaseNo').textContent = c.case_no;
+  document.getElementById('ec_kubun').value = c.kubun || '';
+  document.getElementById('ec_status').value = c.status || '調査中';
+  document.getElementById('ec_price').value = c.price || '';
+  document.getElementById('editCaseModal').classList.add('open');
+}
+
+async function saveCase() {
+  const kubun = document.getElementById('ec_kubun').value;
+  const status = document.getElementById('ec_status').value;
+  const price = document.getElementById('ec_price').value;
+  const { error } = await db.from('cases').update({
+    kubun, status, price: price ? Number(price) : null
+  }).eq('id', currentCaseId);
+  if (error) { showToast('保存エラー: ' + error.message, 'error'); return; }
+  showToast('案件情報を更新しました', 'success');
+  closeModal('editCaseModal');
+  await loadCases();
+}
+
+async function deleteCase() {
+  const c = allCases.find(x => x.id === currentCaseId);
+  if (!confirm(`案件「${c?.case_no}」を削除しますか？\n関連する地権者・土地・商談記録もすべて削除されます。`)) return;
+  const { error } = await db.from('cases').delete().eq('id', currentCaseId);
+  if (error) { showToast('削除エラー: ' + error.message, 'error'); return; }
+  showToast('案件を削除しました', 'success');
+  closeModal('editCaseModal');
+  await loadCases();
 }
 
 async function openLandownerEditModal() {
