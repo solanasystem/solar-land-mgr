@@ -72,7 +72,7 @@
   /* ② sticky ツールバー（各マスター共通） */
   .sticky-toolbar {
     position: sticky;
-    top: 98px;   /* header(56px) + nav(42px) */
+    top: 98px;
     z-index: 90;
     background: var(--bg);
     padding: 8px 0;
@@ -83,7 +83,7 @@
   /* sticky テーブルヘッダー行（ツールバーあり） */
   .sticky-table-header {
     position: sticky;
-    top: 146px;  /* header(56) + nav(42) + toolbar(48) */
+    top: 150px;
     z-index: 89;
     background: var(--surface2);
   }
@@ -91,7 +91,7 @@
   /* sticky テーブルヘッダー行（ツールバーなし：不動産会社マスター） */
   .sticky-table-header-notoolbar {
     position: sticky;
-    top: 98px;   /* header(56) + nav(42) */
+    top: 98px;
     z-index: 89;
     background: var(--surface2);
   }
@@ -404,6 +404,7 @@
     font-size: 11px;
     cursor: pointer;
     transition: all 0.15s;
+    white-space: nowrap;
   }
 
   .action-btn:hover { background: var(--surface2); color: var(--text); }
@@ -1450,7 +1451,28 @@ document.addEventListener('DOMContentLoaded', () => {
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('logDate').value = today;
   document.querySelector('.nav-btn.active').style.borderBottomColor = '#a371f7';
+  // sticky top を動的計算
+  setTimeout(fixStickyTops, 100);
 });
+
+function fixStickyTops() {
+  const headerH = document.querySelector('.header')?.offsetHeight || 56;
+  const navH = document.querySelector('.nav')?.offsetHeight || 42;
+  const base = headerH + navH;
+  // ツールバー
+  document.querySelectorAll('.sticky-toolbar').forEach(el => {
+    el.style.top = base + 'px';
+  });
+  // ツールバーあり用テーブルヘッダー
+  const toolbarH = document.querySelector('.sticky-toolbar')?.offsetHeight || 52;
+  document.querySelectorAll('.sticky-table-header').forEach(el => {
+    el.style.top = (base + toolbarH) + 'px';
+  });
+  // ツールバーなし用
+  document.querySelectorAll('.sticky-table-header-notoolbar').forEach(el => {
+    el.style.top = base + 'px';
+  });
+}
 
 // ===== 案件一覧読み込み =====
 async function loadCases() {
@@ -1778,6 +1800,7 @@ function switchNav(btn, section) {
   document.getElementById('landSection').style.display = section === 'land' ? 'block' : 'none';
   document.getElementById('realestateSection').style.display = section === 'realestate' ? 'block' : 'none';
 
+  setTimeout(fixStickyTops, 50);
   if (section === 'landowners') loadLandownersMaster();
   else if (section === 'land') loadLandMaster();
   else if (section === 'realestate') loadRealestateMaster();
