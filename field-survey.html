@@ -542,7 +542,7 @@
 
 <!-- 確認終了モーダル -->
 <div class="modal-overlay" id="confirmModal">
-  <div class="modal">
+  <div class="modal" style="max-width:560px">
     <div class="modal-header">
       <div>
         <div class="modal-title">✅ 現地確認終了</div>
@@ -551,14 +551,85 @@
       <button class="modal-close" onclick="closeModal('confirmModal')">✕</button>
     </div>
     <div class="modal-body">
+
+      <!-- コメント -->
       <div class="form-group">
         <label class="form-label">現地確認コメント</label>
         <textarea class="form-textarea" id="confirmComment" placeholder="確認した内容・状況・所感などを記入してください..."></textarea>
       </div>
+
+      <!-- 写真アップロード -->
+      <div style="margin-top:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">📸 現地写真（任意）</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+
+          <!-- 接道状況1 -->
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">接道状況 ①</div>
+            <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
+              <input type="file" accept="image/*" capture="environment" id="photo_road1" style="display:none" onchange="previewPhoto(this,'prev_road1')">
+              <img id="prev_road1" src="" style="width:100%;height:100%;object-fit:cover;display:none">
+              <div id="placeholder_road1" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px">
+                <span style="font-size:24px">📷</span>
+                <span>タップして撮影</span>
+              </div>
+            </label>
+          </div>
+
+          <!-- 接道状況2 -->
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">接道状況 ②</div>
+            <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
+              <input type="file" accept="image/*" capture="environment" id="photo_road2" style="display:none" onchange="previewPhoto(this,'prev_road2')">
+              <img id="prev_road2" src="" style="width:100%;height:100%;object-fit:cover;display:none">
+              <div id="placeholder_road2" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px">
+                <span style="font-size:24px">📷</span>
+                <span>タップして撮影</span>
+              </div>
+            </label>
+          </div>
+
+          <!-- 土地状態1 -->
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">土地状態 ①</div>
+            <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
+              <input type="file" accept="image/*" capture="environment" id="photo_land1" style="display:none" onchange="previewPhoto(this,'prev_land1')">
+              <img id="prev_land1" src="" style="width:100%;height:100%;object-fit:cover;display:none">
+              <div id="placeholder_land1" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px">
+                <span style="font-size:24px">📷</span>
+                <span>タップして撮影</span>
+              </div>
+            </label>
+          </div>
+
+          <!-- 土地状態2 -->
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">土地状態 ②</div>
+            <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
+              <input type="file" accept="image/*" capture="environment" id="photo_land2" style="display:none" onchange="previewPhoto(this,'prev_land2')">
+              <img id="prev_land2" src="" style="width:100%;height:100%;object-fit:cover;display:none">
+              <div id="placeholder_land2" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px">
+                <span style="font-size:24px">📷</span>
+                <span>タップして撮影</span>
+              </div>
+            </label>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- アップロード進捗 -->
+      <div id="uploadProgress" style="display:none;margin-top:12px">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px" id="uploadStatus">アップロード中...</div>
+        <div style="background:var(--bg);border-radius:4px;height:6px;overflow:hidden">
+          <div id="uploadBar" style="height:100%;background:var(--green);width:0%;transition:width 0.3s"></div>
+        </div>
+      </div>
+
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('confirmModal')">キャンセル</button>
-      <button class="btn btn-primary" onclick="saveConfirm()">確認終了・フラグを赤に変更</button>
+      <button class="btn btn-primary" id="confirmSaveBtn" onclick="saveConfirm()">確認終了・フラグを赤に変更</button>
     </div>
   </div>
 </div>
@@ -668,6 +739,7 @@ async function loadData() {
 function buildPopup(c, land, survey, landowner) {
   const confirmed = survey?.confirmed || false;
   const comment = survey?.comment || '';
+  const photos = [survey?.photo_road1, survey?.photo_road2, survey?.photo_land1, survey?.photo_land2].filter(Boolean);
 
   return `
     <div class="popup-body">
@@ -702,6 +774,16 @@ function buildPopup(c, land, survey, landowner) {
         </div>
       </div>
       ${comment ? `<hr class="popup-divider"><div class="popup-comment">💬 ${comment}</div>` : ''}
+      ${photos.length ? `
+        <hr class="popup-divider">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:8px">
+          ${photos.map((url, i) => `
+            <a href="${url}" target="_blank">
+              <img src="${url}" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:4px;border:1px solid var(--border)">
+            </a>
+          `).join('')}
+        </div>
+      ` : ''}
       <hr class="popup-divider">
       <div class="popup-actions">
         ${land?.google_map
@@ -720,34 +802,102 @@ function openConfirmModal(caseId, caseNo) {
   currentConfirmCaseId = caseId;
   document.getElementById('confirmCaseNo').textContent = caseNo;
   document.getElementById('confirmComment').value = '';
+  // 写真プレビューをリセット
+  ['road1','road2','land1','land2'].forEach(key => {
+    const input = document.getElementById(`photo_${key}`);
+    const img = document.getElementById(`prev_${key}`);
+    const ph = document.getElementById(`placeholder_${key}`);
+    if (input) input.value = '';
+    if (img) { img.src = ''; img.style.display = 'none'; }
+    if (ph) ph.style.display = 'flex';
+  });
+  document.getElementById('uploadProgress').style.display = 'none';
   document.getElementById('confirmModal').classList.add('open');
   map.closePopup();
+}
+
+// ===== 写真プレビュー =====
+function previewPhoto(input, previewId) {
+  const file = input.files[0];
+  if (!file) return;
+  const img = document.getElementById(previewId);
+  const ph = document.getElementById(previewId.replace('prev_', 'placeholder_'));
+  const reader = new FileReader();
+  reader.onload = e => {
+    img.src = e.target.result;
+    img.style.display = 'block';
+    if (ph) ph.style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+}
+
+// ===== 写真をSupabase Storageにアップロード =====
+async function uploadPhoto(file, caseId, label) {
+  if (!file) return null;
+  const ext = file.name.split('.').pop() || 'jpg';
+  const path = `${caseId}/${label}_${Date.now()}.${ext}`;
+  const { error } = await db.storage.from('survey-photos').upload(path, file, { upsert: true });
+  if (error) { console.error('upload error', error); return null; }
+  const { data } = db.storage.from('survey-photos').getPublicUrl(path);
+  return data.publicUrl;
 }
 
 async function saveConfirm() {
   const comment = document.getElementById('confirmComment').value.trim();
   const caseId = currentConfirmCaseId;
 
+  // ボタン無効化
+  const btn = document.getElementById('confirmSaveBtn');
+  btn.disabled = true;
+  btn.textContent = '保存中...';
+
+  // 写真アップロード
+  const progress = document.getElementById('uploadProgress');
+  const bar = document.getElementById('uploadBar');
+  const status = document.getElementById('uploadStatus');
+  progress.style.display = 'block';
+
+  const photoKeys = ['road1','road2','land1','land2'];
+  const photoUrls = {};
+  let done = 0;
+
+  for (const key of photoKeys) {
+    const input = document.getElementById(`photo_${key}`);
+    const file = input?.files[0];
+    status.textContent = `写真をアップロード中... (${done+1}/4)`;
+    bar.style.width = `${(done / 4) * 100}%`;
+    if (file) {
+      photoUrls[key] = await uploadPhoto(file, caseId, key);
+    }
+    done++;
+  }
+
+  bar.style.width = '100%';
+  status.textContent = 'データを保存中...';
+
   // field_survey_status をupsert
   const { data: existing } = await db.from('field_survey_status').select('id').eq('case_id', caseId).single();
+  const payload = {
+    confirmed: true,
+    confirmed_at: new Date().toISOString(),
+    flag_color: 'red',
+    comment,
+    photo_road1: photoUrls['road1'] || null,
+    photo_road2: photoUrls['road2'] || null,
+    photo_land1: photoUrls['land1'] || null,
+    photo_land2: photoUrls['land2'] || null,
+  };
 
   let error;
   if (existing) {
-    ({ error } = await db.from('field_survey_status').update({
-      confirmed: true,
-      confirmed_at: new Date().toISOString(),
-      flag_color: 'red',
-      comment
-    }).eq('case_id', caseId));
+    ({ error } = await db.from('field_survey_status').update(payload).eq('case_id', caseId));
   } else {
-    ({ error } = await db.from('field_survey_status').insert({
-      case_id: caseId,
-      confirmed: true,
-      confirmed_at: new Date().toISOString(),
-      flag_color: 'red',
-      comment
-    }));
+    ({ error } = await db.from('field_survey_status').insert({ case_id: caseId, ...payload }));
   }
+
+  btn.disabled = false;
+  btn.textContent = '確認終了・フラグを赤に変更';
+  progress.style.display = 'none';
 
   if (error) { showToast('保存エラー: ' + error.message, 'error'); return; }
 
@@ -760,13 +910,13 @@ async function saveConfirm() {
   document.getElementById('statUnchecked').textContent = Math.max(0, u);
   document.getElementById('statChecked').textContent = c2;
 
-  showToast('現地確認を記録しました', 'success');
+  showToast('現地確認・写真を保存しました', 'success');
   closeModal('confirmModal');
 
   // ポップアップ内容も更新
   const d = markers[caseId];
   if (d) {
-    d.survey = { confirmed: true, comment };
+    d.survey = { confirmed: true, comment, ...photoUrls };
     const newHtml = buildPopup(d.case, d.land, d.survey, d.landowner);
     d.marker.setPopupContent(newHtml);
   }
