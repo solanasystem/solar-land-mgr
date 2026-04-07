@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>地権者訪問マップ | SOLAR LAND MGR</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2333;
+    --border: #30363d;
+    --accent: #f0b429;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --font-main: 'Zen Kaku Gothic New', sans-serif;
+    --font-mono: 'Share Tech Mono', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-main);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    z-index: 1000;
+  }
+
+  .header-left { display: flex; align-items: center; gap: 12px; }
+
+  .logo {
+    display: flex; align-items: center; gap: 8px;
+    text-decoration: none; color: var(--text);
+  }
+
+  .logo-icon {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, #f0b429, #e85d04);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+
+  .logo-text { font-size: 14px; font-weight: 700; }
+
+  .page-title {
+    font-size: 13px; color: var(--text-muted);
+    display: flex; align-items: center; gap: 6px;
+  }
+
+  .page-title::before { content: '/'; color: var(--border); }
+
+  .legend {
+    display: flex; align-items: center; gap: 14px;
+    font-size: 12px; color: var(--text-muted);
+  }
+
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  .btn {
+    padding: 6px 14px; border-radius: 6px;
+    border: 1px solid var(--border);
+    font-family: var(--font-main); font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: all 0.15s;
+  }
+
+  .btn-ghost { background: none; color: var(--text-muted); }
+  .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+
+  .map-wrapper { flex: 1; position: relative; overflow: hidden; }
+  #map { width: 100%; height: 100%; }
+
+  .layer-control {
+    position: absolute; top: 12px; right: 12px;
+    z-index: 500;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px;
+    display: flex; flex-direction: column; gap: 8px;
+    min-width: 160px;
+  }
+
+  .layer-title {
+    font-size: 10px; font-weight: 700;
+    color: var(--text-muted); letter-spacing: 0.08em;
+    text-transform: uppercase; margin-bottom: 2px;
+  }
+
+  .layer-item {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--text); cursor: pointer;
+  }
+
+  .layer-item input[type=checkbox] { accent-color: var(--blue); }
+
+  .stats-overlay {
+    position: absolute; top: 12px; left: 12px;
+    z-index: 500;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+
+  .stat-pill {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 20px; padding: 6px 14px;
+    font-size: 12px; display: flex; align-items: center; gap: 6px;
+  }
+
+  .stat-pill-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ポップアップ */
+  .leaflet-popup-content-wrapper {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 10px !important;
+    color: var(--text) !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+    padding: 0 !important;
+    min-width: 280px;
+  }
+
+  .leaflet-popup-tip { background: var(--surface) !important; }
+  .leaflet-popup-content { margin: 0 !important; }
+
+  .popup-body { padding: 16px; font-family: var(--font-main); }
+
+  .popup-case-no {
+    font-family: var(--font-mono); font-size: 13px;
+    color: var(--blue); font-weight: 700;
+    margin-bottom: 10px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+
+  .popup-status {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  }
+
+  .popup-status.unvisited { background: rgba(88,166,255,0.15); color: var(--blue); }
+  .popup-status.visited { background: rgba(248,81,73,0.15); color: var(--red); }
+
+  .popup-info { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
+
+  .popup-row { display: flex; gap: 8px; font-size: 12px; line-height: 1.5; }
+
+  .popup-label { color: var(--text-muted); min-width: 72px; flex-shrink: 0; }
+  .popup-value { color: var(--text); }
+
+  .popup-land-link {
+    color: var(--accent); cursor: pointer; text-decoration: underline;
+  }
+
+  .popup-land-link:hover { color: var(--blue); }
+
+  .popup-divider { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+
+  .popup-actions { display: flex; gap: 6px; }
+
+  .popup-btn {
+    flex: 1; padding: 7px 10px; border-radius: 6px;
+    border: 1px solid var(--border); background: none;
+    color: var(--text); font-family: var(--font-main);
+    font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: all 0.15s; text-align: center;
+  }
+
+  .popup-btn:hover { background: var(--surface2); }
+
+  .popup-btn.visit {
+    background: var(--red); border-color: var(--red); color: #fff;
+  }
+
+  .popup-btn.visit:hover { background: #d9342b; }
+
+  .popup-btn.visited-label {
+    background: rgba(248,81,73,0.1); border-color: var(--red);
+    color: var(--red); cursor: default;
+  }
+
+  /* 訪問終了モーダル */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(4px);
+    z-index: 2000;
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+  }
+
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+
+  .modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; width: 100%; max-width: 520px;
+    max-height: 90vh; overflow-y: auto;
+    transform: scale(0.95); transition: transform 0.2s;
+  }
+
+  .modal-overlay.open .modal { transform: scale(1); }
+
+  .modal-header {
+    padding: 18px 20px 14px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+
+  .modal-title { font-size: 15px; font-weight: 700; }
+  .modal-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  .modal-close {
+    background: none; border: none; color: var(--text-muted);
+    font-size: 18px; cursor: pointer; padding: 4px; border-radius: 4px;
+  }
+
+  .modal-close:hover { background: var(--surface2); color: var(--text); }
+
+  .modal-body { padding: 18px 20px; }
+
+  .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+
+  .form-label {
+    font-size: 11px; font-weight: 700; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+
+  .form-input, .form-textarea {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 9px 12px;
+    color: var(--text); font-family: var(--font-main); font-size: 13px;
+    transition: border-color 0.2s;
+  }
+
+  .form-input:focus, .form-textarea:focus {
+    outline: none; border-color: var(--blue);
+  }
+
+  .form-textarea { resize: vertical; min-height: 100px; }
+
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .modal-footer {
+    padding: 14px 20px; border-top: 1px solid var(--border);
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+
+  .btn-primary {
+    background: var(--blue); color: #fff; border-color: var(--blue);
+  }
+
+  .btn-primary:hover { background: #4090e8; }
+
+  /* 土地情報サイドパネル */
+  .side-panel {
+    position: absolute; top: 0; right: 0;
+    width: 320px; height: 100%;
+    background: var(--surface); border-left: 1px solid var(--border);
+    z-index: 600;
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+    overflow-y: auto;
+    display: flex; flex-direction: column;
+  }
+
+  .side-panel.open { transform: translateX(0); }
+
+  .side-panel-header {
+    padding: 16px 18px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0;
+    background: var(--surface); z-index: 1;
+  }
+
+  .side-panel-title { font-size: 14px; font-weight: 700; }
+  .side-panel-body { padding: 16px 18px; flex: 1; }
+
+  .info-item { margin-bottom: 14px; }
+
+  .info-label {
+    font-size: 10px; font-weight: 700; color: var(--text-muted);
+    letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 3px;
+  }
+
+  .info-value { font-size: 13px; color: var(--text); line-height: 1.5; }
+
+  /* 既存ログ一覧（モーダル内） */
+  .log-history {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; margin-bottom: 14px;
+    max-height: 160px; overflow-y: auto;
+  }
+
+  .log-history-title {
+    font-size: 11px; font-weight: 700; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 8px;
+  }
+
+  .log-entry {
+    border-left: 2px solid var(--blue);
+    padding: 6px 10px; margin-bottom: 6px;
+    background: var(--surface);
+    border-radius: 0 4px 4px 0;
+  }
+
+  .log-entry-date {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--blue); margin-bottom: 2px;
+  }
+
+  .log-entry-content { font-size: 12px; color: var(--text); line-height: 1.4; }
+
+  /* トースト */
+  .toast-container {
+    position: fixed; bottom: 20px; right: 20px;
+    z-index: 3000;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+
+  .toast {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 11px 16px; font-size: 13px;
+    min-width: 220px; animation: slideIn 0.3s ease;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error { border-left: 3px solid var(--red); }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ヘッダー -->
+<header class="header">
+  <div class="header-left">
+    <a class="logo" href="index.html">
+      <div class="logo-icon">☀️</div>
+      <span class="logo-text">SOLAR LAND MGR</span>
+    </a>
+    <span class="page-title">🚗 地権者訪問マップ</span>
+  </div>
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#58a6ff"></div>
+      <span>未訪問</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#f85149"></div>
+      <span>訪問済</span>
+    </div>
+    <button class="btn btn-ghost" onclick="location.href='index.html'">← 案件一覧</button>
+  </div>
+</header>
+
+<!-- マップ -->
+<div class="map-wrapper">
+  <div id="map"></div>
+
+  <!-- 統計 -->
+  <div class="stats-overlay">
+    <div class="stat-pill">
+      <div class="stat-pill-dot" style="background:var(--blue)"></div>
+      <span id="statUnvisited">—</span> 件 未訪問
+    </div>
+    <div class="stat-pill">
+      <div class="stat-pill-dot" style="background:var(--red)"></div>
+      <span id="statVisited">—</span> 件 訪問済
+    </div>
+  </div>
+
+  <!-- レイヤーコントロール -->
+  <div class="layer-control">
+    <div class="layer-title">地図レイヤー</div>
+    <label class="layer-item">
+      <input type="checkbox" id="layerGsi" onchange="toggleLayer('gsi',this.checked)">
+      GSI 航空写真
+    </label>
+    <label class="layer-item">
+      <input type="checkbox" id="layerHazard" onchange="toggleLayer('hazard',this.checked)">
+      ハザードマップ
+    </label>
+  </div>
+
+  <!-- 土地情報サイドパネル -->
+  <div class="side-panel" id="sidePanel">
+    <div class="side-panel-header">
+      <span class="side-panel-title">🏔 土地情報</span>
+      <button class="modal-close" onclick="closeSidePanel()">✕</button>
+    </div>
+    <div class="side-panel-body" id="sidePanelBody"></div>
+  </div>
+</div>
+
+<!-- 訪問終了モーダル -->
+<div class="modal-overlay" id="visitModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">🚗 訪問終了・商談記録</div>
+        <div class="modal-subtitle" id="visitCaseInfo"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal('visitModal')">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- 既存商談記録 -->
+      <div class="log-history" id="existingLogs">
+        <div class="log-history-title">過去の商談記録</div>
+        <div id="logHistoryList" style="color:var(--text-muted);font-size:12px">読み込み中...</div>
+      </div>
+
+      <!-- 新規記録入力 -->
+      <div class="form-grid" style="margin-bottom:14px">
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">訪問日</label>
+          <input class="form-input" type="date" id="visitDate">
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <span style="font-size:12px;color:var(--text-muted)">今回の商談内容を記録してください</span>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">商談内容</label>
+        <textarea class="form-textarea" id="visitContent" placeholder="訪問結果・地権者の反応・次回アクションなどを記入..."></textarea>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('visitModal')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveVisit()">訪問終了・フラグを赤に変更</button>
+    </div>
+  </div>
+</div>
+
+<!-- トースト -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+const SUPABASE_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let map, gsiLayer, hazardLayer;
+let markers = {};
+let currentVisitCaseId = null;
+let currentLandownerId = null;
+
+// ===== マップ初期化 =====
+function initMap() {
+  map = L.map('map', { zoomControl: true }).setView([36.2048, 138.2529], 6);
+
+  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+    attribution: '© 国土地理院', maxZoom: 18
+  }).addTo(map);
+
+  gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', {
+    attribution: '© 国土地理院', maxZoom: 18, opacity: 0.85
+  });
+
+  hazardLayer = L.tileLayer('https://disaportaldata.gsi.go.jp/rastertile/suibouzoneL2/{z}/{x}/{y}.png', {
+    attribution: '© 国土地理院', maxZoom: 18, opacity: 0.6
+  });
+}
+
+function toggleLayer(type, enabled) {
+  if (type === 'gsi') { enabled ? gsiLayer.addTo(map) : map.removeLayer(gsiLayer); }
+  else if (type === 'hazard') { enabled ? hazardLayer.addTo(map) : map.removeLayer(hazardLayer); }
+}
+
+// ===== データ読み込み =====
+async function loadData() {
+  const { data: cases } = await db.from('cases').select('id, case_no, kubun, status');
+  const { data: landowners } = await db.from('landowner_info').select('*');
+  const { data: lands } = await db.from('land_info').select('*');
+  const { data: visits } = await db.from('visit_status').select('*');
+
+  if (!cases) return;
+
+  let unvisited = 0, visited = 0;
+
+  // 地権者の住所から座標を取るため、land_infoの座標を使用
+  // （地権者住所ベースのピンは将来拡張）
+  cases.forEach(c => {
+    const lo = landowners?.find(l => l.case_id === c.id);
+    const land = lands?.find(l => l.case_id === c.id);
+    const visit = visits?.find(v => v.case_id === c.id);
+
+    // 座標はland_infoのlat/lngを使用（地権者住所近辺として扱う）
+    if (!land?.lat || !land?.lng) return;
+
+    const isVisited = visit?.visited || false;
+    const color = isVisited ? '#f85149' : '#58a6ff';
+    if (isVisited) visited++; else unvisited++;
+
+    const iconHtml = makeIconHtml(color);
+    const icon = L.divIcon({
+      html: iconHtml, className: '',
+      iconSize: [24, 24], iconAnchor: [12, 24], popupAnchor: [0, -26]
+    });
+
+    const marker = L.marker([land.lat, land.lng], { icon });
+    const popupHtml = buildPopup(c, lo, land, visit);
+    marker.bindPopup(popupHtml, { maxWidth: 300, minWidth: 280 });
+    marker.addTo(map);
+
+    markers[c.id] = { marker, visit, land, lo, case: c };
+  });
+
+  document.getElementById('statUnvisited').textContent = unvisited;
+  document.getElementById('statVisited').textContent = visited;
+}
+
+function makeIconHtml(color) {
+  return `<div style="
+    width:24px; height:24px;
+    background:${color};
+    border-radius:50% 50% 50% 0;
+    transform:rotate(-45deg);
+    border:2px solid rgba(0,0,0,0.3);
+    box-shadow:0 2px 6px rgba(0,0,0,0.4);
+  "></div>`;
+}
+
+function buildPopup(c, lo, land, visit) {
+  const isVisited = visit?.visited || false;
+  const visitedAt = visit?.visited_at ? new Date(visit.visited_at).toLocaleDateString('ja-JP') : null;
+
+  return `
+    <div class="popup-body">
+      <div class="popup-case-no">
+        <span>${lo?.name || c.case_no}</span>
+        <span class="popup-status ${isVisited ? 'visited' : 'unvisited'}">${isVisited ? '訪問済' : '未訪問'}</span>
+      </div>
+      <div class="popup-info">
+        <div class="popup-row">
+          <span class="popup-label">案件番号</span>
+          <span class="popup-value" style="font-family:var(--font-mono);color:var(--accent)">${c.case_no}</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">住所</span>
+          <span class="popup-value">${lo?.address || '—'}</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">電話番号</span>
+          <span class="popup-value">${lo?.tel || '—'}</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">価格</span>
+          <span class="popup-value">${lo?.price ? Number(lo.price).toLocaleString() + ' 万円' : '—'}</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">土地所在</span>
+          <span class="popup-value">
+            ${land?.location
+              ? `<span class="popup-land-link" onclick="showLandPanel('${c.id}')">${land.location}</span>`
+              : '—'}
+          </span>
+        </div>
+        ${isVisited && visitedAt ? `
+        <div class="popup-row">
+          <span class="popup-label">最終訪問</span>
+          <span class="popup-value" style="color:var(--red)">${visitedAt}</span>
+        </div>` : ''}
+      </div>
+      <hr class="popup-divider">
+      <div class="popup-actions">
+        ${lo?.google_map
+          ? `<button class="popup-btn" onclick="window.open('${lo.google_map}','_blank')">🗺 地図</button>`
+          : ''}
+        ${isVisited
+          ? `<button class="popup-btn visited-label">✓ 訪問済み</button>`
+          : `<button class="popup-btn visit" onclick="openVisitModal('${c.id}','${c.case_no}','${lo?.name || ''}')">訪問終了</button>`}
+      </div>
+    </div>
+  `;
+}
+
+// ===== 訪問終了モーダル =====
+async function openVisitModal(caseId, caseNo, landownerName) {
+  currentVisitCaseId = caseId;
+
+  document.getElementById('visitCaseInfo').textContent = `${caseNo}　${landownerName}`;
+  document.getElementById('visitDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('visitContent').value = '';
+
+  // 地権者ID取得
+  const { data: lo } = await db.from('landowner_info').select('id').eq('case_id', caseId).single();
+  currentLandownerId = lo?.id || null;
+
+  // 既存の商談記録読み込み
+  const logEl = document.getElementById('logHistoryList');
+  if (lo?.id) {
+    const { data: logs } = await db.from('negotiation_logs')
+      .select('*').eq('landowner_id', lo.id).order('log_date', { ascending: false });
+
+    if (logs && logs.length) {
+      logEl.innerHTML = logs.map(log => `
+        <div class="log-entry">
+          <div class="log-entry-date">${log.log_date}</div>
+          <div class="log-entry-content">${log.content}</div>
+        </div>
+      `).join('');
+    } else {
+      logEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px">過去の記録はありません</span>';
+    }
+  } else {
+    logEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px">地権者情報が未登録です</span>';
+  }
+
+  document.getElementById('visitModal').classList.add('open');
+  map.closePopup();
+}
+
+async function saveVisit() {
+  const date = document.getElementById('visitDate').value;
+  const content = document.getElementById('visitContent').value.trim();
+  const caseId = currentVisitCaseId;
+
+  if (!date || !content) { showToast('日付と商談内容を入力してください', 'error'); return; }
+
+  // 商談記録保存
+  if (currentLandownerId) {
+    const { error: logErr } = await db.from('negotiation_logs').insert({
+      landowner_id: currentLandownerId,
+      log_date: date,
+      content
+    });
+    if (logErr) { showToast('記録エラー: ' + logErr.message, 'error'); return; }
+  }
+
+  // visit_status をupsert
+  const { data: existing } = await db.from('visit_status').select('id').eq('case_id', caseId).single();
+  let error;
+  if (existing) {
+    ({ error } = await db.from('visit_status').update({
+      visited: true,
+      visited_at: new Date().toISOString(),
+      flag_color: 'red'
+    }).eq('case_id', caseId));
+  } else {
+    ({ error } = await db.from('visit_status').insert({
+      case_id: caseId,
+      visited: true,
+      visited_at: new Date().toISOString(),
+      flag_color: 'red'
+    }));
+  }
+
+  if (error) { showToast('保存エラー: ' + error.message, 'error'); return; }
+
+  // マーカー色を赤に更新
+  const d = markers[caseId];
+  if (d) {
+    d.marker.setIcon(L.divIcon({
+      html: makeIconHtml('#f85149'), className: '',
+      iconSize: [24,24], iconAnchor: [12,24], popupAnchor: [0,-26]
+    }));
+    d.visit = { visited: true, visited_at: new Date().toISOString() };
+    const newHtml = buildPopup(d.case, d.lo, d.land, d.visit);
+    d.marker.setPopupContent(newHtml);
+  }
+
+  // 統計更新
+  const u = parseInt(document.getElementById('statUnvisited').textContent) - 1;
+  const v = parseInt(document.getElementById('statVisited').textContent) + 1;
+  document.getElementById('statUnvisited').textContent = Math.max(0, u);
+  document.getElementById('statVisited').textContent = v;
+
+  showToast('訪問記録を保存しました', 'success');
+  closeModal('visitModal');
+}
+
+// ===== 土地情報サイドパネル =====
+async function showLandPanel(caseId) {
+  const { data: land } = await db.from('land_info').select('*').eq('case_id', caseId).single();
+  const { data: c } = await db.from('cases').select('case_no, kubun, status, price').eq('id', caseId).single();
+
+  if (!land) { showToast('土地情報が登録されていません', 'error'); return; }
+
+  let html = `
+    <div class="info-item">
+      <div class="info-label">案件番号</div>
+      <div class="info-value" style="font-family:var(--font-mono);color:var(--accent)">${c?.case_no || '—'}</div>
+    </div>
+    <div class="info-item">
+      <div class="info-label">所在</div>
+      <div class="info-value">${land.location || '—'}</div>
+    </div>
+    <div class="info-item">
+      <div class="info-label">登記面積</div>
+      <div class="info-value">${land.area_sqm ? Number(land.area_sqm).toLocaleString() + ' ㎡' : '—'}</div>
+    </div>
+    <div class="info-item">
+      <div class="info-label">用途地域・地目</div>
+      <div class="info-value">${land.chiban || '—'}</div>
+    </div>
+    <div class="info-item">
+      <div class="info-label">法令上の制限</div>
+      <div class="info-value">${land.horeijo_seigen || '—'}</div>
+    </div>
+    <div class="info-item">
+      <div class="info-label">ハザード</div>
+      <div class="info-value">${land.hazard || '—'}</div>
+    </div>
+    <div class="info-item">
+      <div class="info-label">備考</div>
+      <div class="info-value">${land.biko || '—'}</div>
+    </div>
+  `;
+
+  if (land.google_map) {
+    html += `<div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value"><a href="${land.google_map}" target="_blank" style="color:var(--accent)">🗺 地図を開く</a></div></div>`;
+  }
+
+  document.getElementById('sidePanelBody').innerHTML = html;
+  document.getElementById('sidePanel').classList.add('open');
+}
+
+function closeSidePanel() {
+  document.getElementById('sidePanel').classList.remove('open');
+}
+
+// ===== ユーティリティ =====
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+});
+
+function showToast(msg, type = 'success') {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.innerHTML = `<span>${type === 'success' ? '✓' : '✕'}</span><span>${msg}</span>`;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// ===== 起動 =====
+initMap();
+loadData();
+</script>
+</body>
+</html>
