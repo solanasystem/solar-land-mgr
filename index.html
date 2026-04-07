@@ -737,16 +737,16 @@
 
 <!-- ナビゲーション -->
 <nav class="nav">
-  <button class="nav-btn active" onclick="switchNav(this,'cases')">案件マスター</button>
-  <button class="nav-btn" onclick="switchNav(this,'landowners')">地権者マスター</button>
-  <button class="nav-btn" onclick="switchNav(this,'land')">土地情報マスター</button>
-  <button class="nav-btn" onclick="switchNav(this,'realestate')">不動産会社マスター</button>
+  <button class="nav-btn active" onclick="switchNav(this,'cases')" style="color:#a371f7">案件マスター</button>
+  <button class="nav-btn" onclick="switchNav(this,'landowners')" style="color:#3fb950">地権者マスター</button>
+  <button class="nav-btn" onclick="switchNav(this,'land')" style="color:#58a6ff">土地情報マスター</button>
+  <button class="nav-btn" onclick="switchNav(this,'realestate')" style="color:#f0b429">不動産会社マスター</button>
 </nav>
 
 <!-- メインコンテンツ -->
 <main class="main">
 
-  <!-- 統計バー -->
+  <!-- 統計バー（案件マスターのみ表示） -->
   <div class="stats-bar" id="statsBar">
     <div class="stat-card">
       <div class="stat-label">総案件数</div>
@@ -767,7 +767,7 @@
   </div>
 
   <!-- ツールバー -->
-  <div class="toolbar">
+  <div class="toolbar" id="caseToolbar">
     <div class="toolbar-left">
       <input class="search-box" type="text" placeholder="案件番号・地名で検索..." id="searchInput" oninput="filterCases()">
       <select class="filter-select" id="filterKubun" onchange="filterCases()">
@@ -789,7 +789,7 @@
   </div>
 
   <!-- 案件テーブル -->
-  <div class="cases-table">
+  <div class="cases-table" id="casesSection">
     <div class="cases-table-header">
       <div>案件番号</div>
       <div>発電区分</div>
@@ -800,6 +800,50 @@
       <div style="text-align:right">操作</div>
     </div>
     <div id="casesList">
+      <div class="loading"><div class="spinner"></div>読み込み中...</div>
+    </div>
+  </div>
+
+  <!-- 地権者マスター一覧 -->
+  <div class="cases-table" id="landownersSection" style="display:none">
+    <div class="cases-table-header" style="grid-template-columns:120px 1fr 130px 100px 100px 80px">
+      <div>案件番号</div>
+      <div>氏名・住所</div>
+      <div>電話番号</div>
+      <div>価格（万円）</div>
+      <div>ステータス</div>
+      <div style="text-align:right">操作</div>
+    </div>
+    <div id="landownersList">
+      <div class="loading"><div class="spinner"></div>読み込み中...</div>
+    </div>
+  </div>
+
+  <!-- 土地情報マスター一覧 -->
+  <div class="cases-table" id="landSection" style="display:none">
+    <div class="cases-table-header" style="grid-template-columns:120px 1fr 120px 100px 80px">
+      <div>案件番号</div>
+      <div>所在</div>
+      <div>面積（㎡）</div>
+      <div>用途地域・地目</div>
+      <div style="text-align:right">操作</div>
+    </div>
+    <div id="landList">
+      <div class="loading"><div class="spinner"></div>読み込み中...</div>
+    </div>
+  </div>
+
+  <!-- 不動産会社マスター一覧 -->
+  <div class="cases-table" id="realestateSection" style="display:none">
+    <div class="cases-table-header" style="grid-template-columns:120px 1fr 130px 100px 100px 80px">
+      <div>案件番号</div>
+      <div>会社名・担当者</div>
+      <div>電話番号</div>
+      <div>契約状態</div>
+      <div>価格（万円）</div>
+      <div style="text-align:right">操作</div>
+    </div>
+    <div id="realestateList">
       <div class="loading"><div class="spinner"></div>読み込み中...</div>
     </div>
   </div>
@@ -1185,9 +1229,10 @@ let currentLandownerId = null;
 // ===== 初期化 =====
 document.addEventListener('DOMContentLoaded', () => {
   loadCases();
-  // 日付デフォルト
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('logDate').value = today;
+  // 初期タブのアンダーライン色を紫に
+  document.querySelector('.nav-btn.active').style.borderBottomColor = '#a371f7';
 });
 
 // ===== 案件一覧読み込み =====
@@ -1418,9 +1463,95 @@ async function saveLog() {
 
 // ===== UI ヘルパー =====
 function switchNav(btn, section) {
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    b.classList.remove('active');
+    b.style.borderBottomColor = 'transparent';
+  });
   btn.classList.add('active');
-  // 今後：セクション切り替え実装
+
+  // アンダーラインの色をタブごとに設定
+  const colorMap = { cases:'#a371f7', landowners:'#3fb950', land:'#58a6ff', realestate:'#f0b429' };
+  btn.style.borderBottomColor = colorMap[section] || 'var(--accent)';
+
+  // 全セクション非表示
+  document.getElementById('statsBar').style.display = section === 'cases' ? 'flex' : 'none';
+  document.getElementById('caseToolbar').style.display = section === 'cases' ? 'flex' : 'none';
+  document.getElementById('casesSection').style.display = section === 'cases' ? 'block' : 'none';
+  document.getElementById('landownersSection').style.display = section === 'landowners' ? 'block' : 'none';
+  document.getElementById('landSection').style.display = section === 'land' ? 'block' : 'none';
+  document.getElementById('realestateSection').style.display = section === 'realestate' ? 'block' : 'none';
+
+  if (section === 'landowners') loadLandownersMaster();
+  else if (section === 'land') loadLandMaster();
+  else if (section === 'realestate') loadRealestateMaster();
+}
+
+async function loadLandownersMaster() {
+  const { data: los } = await db.from('landowner_info').select('*, cases(case_no, status, kubun)');
+  const el = document.getElementById('landownersList');
+  if (!los || !los.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🧑</div><div class="empty-state-text">地権者情報が登録されていません</div></div>`;
+    return;
+  }
+  el.innerHTML = los.map((lo, i) => `
+    <div class="case-row" style="grid-template-columns:120px 1fr 130px 100px 100px 80px;animation-delay:${i*0.03}s">
+      <div class="case-no">${lo.cases?.case_no || '—'}</div>
+      <div>
+        <div style="font-size:13px;font-weight:500">${lo.name || '—'}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${lo.address || ''}</div>
+      </div>
+      <div style="font-size:13px">${lo.tel || '—'}</div>
+      <div class="price-cell">${lo.price ? Number(lo.price).toLocaleString() : '—'}</div>
+      <div>${statusBadge(lo.cases?.status)}</div>
+      <div class="actions-cell">
+        <button class="action-btn landowner" onclick="openDetail('${lo.case_id}','landowner')">詳細</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function loadLandMaster() {
+  const { data: lands } = await db.from('land_info').select('*, cases(case_no, status)');
+  const el = document.getElementById('landList');
+  if (!lands || !lands.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🏔</div><div class="empty-state-text">土地情報が登録されていません</div></div>`;
+    return;
+  }
+  el.innerHTML = lands.map((land, i) => `
+    <div class="case-row" style="grid-template-columns:120px 1fr 120px 100px 80px;animation-delay:${i*0.03}s">
+      <div class="case-no">${land.cases?.case_no || '—'}</div>
+      <div style="font-size:13px">${land.location || '—'}</div>
+      <div class="price-cell">${land.area_sqm ? Number(land.area_sqm).toLocaleString() : '—'}</div>
+      <div style="font-size:13px;color:var(--text-muted)">${land.chiban || '—'}</div>
+      <div class="actions-cell">
+        <button class="action-btn land" onclick="openDetail('${land.case_id}','land')">詳細</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function loadRealestateMaster() {
+  const { data: res } = await db.from('realestate_info').select('*, cases(case_no, status)');
+  const el = document.getElementById('realestateList');
+  if (!res || !res.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🏢</div><div class="empty-state-text">不動産会社情報が登録されていません</div></div>`;
+    return;
+  }
+  el.innerHTML = res.map((r, i) => `
+    <div class="case-row" style="grid-template-columns:120px 1fr 130px 100px 100px 80px;animation-delay:${i*0.03}s">
+      <div class="case-no">${r.cases?.case_no || '—'}</div>
+      <div>
+        <div style="font-size:13px;font-weight:500">${r.company_name || '—'}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.staff_name || ''}</div>
+      </div>
+      <div style="font-size:13px">${r.tel || '—'}</div>
+      <div style="font-size:13px;color:var(--text-muted)">${r.contract_status || '—'}</div>
+      <div class="price-cell">${r.price ? Number(r.price).toLocaleString() : '—'}</div>
+      <div class="actions-cell">
+        <button class="action-btn" onclick="openDetail('${r.case_id}','realestate')">詳細</button>
+      </div>
+    </div>
+  `).join('');
 }
 
 function switchDetailTab(btn, tabId) {
