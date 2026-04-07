@@ -898,6 +898,33 @@
     </div>
   </div>
 
+  <!-- 地権者マスター ツールバー -->
+  <div class="toolbar" id="landownerToolbar" style="display:none">
+    <div class="toolbar-left">
+      <select class="filter-select" id="filterLoStatus" onchange="filterLandowners()">
+        <option value="">すべてのステータス</option>
+        <option value="NG">NG</option>
+        <option value="検討中⇓">検討中⇓</option>
+        <option value="検討中⇒">検討中⇒</option>
+        <option value="検討中⇑">検討中⇑</option>
+        <option value="（仮）済">（仮）済</option>
+        <option value="済">済</option>
+        <option value="ー未登録ー">ー未登録ー</option>
+      </select>
+      <select class="filter-select" id="filterLoArea" onchange="filterLandowners()">
+        <option value="">すべてのエリア</option>
+        <option value="北海道">北海道</option>
+        <option value="東北">東北</option>
+        <option value="関東">関東</option>
+        <option value="中部">中部</option>
+        <option value="関西">関西</option>
+        <option value="中国">中国</option>
+        <option value="四国">四国</option>
+        <option value="九州">九州</option>
+      </select>
+    </div>
+  </div>
+
   <!-- 地権者マスター一覧 -->
   <div class="cases-table" id="landownersSection" style="display:none">
     <div class="cases-table-header" style="grid-template-columns:120px 1fr 130px 100px 100px 80px">
@@ -910,6 +937,23 @@
     </div>
     <div id="landownersList">
       <div class="loading"><div class="spinner"></div>読み込み中...</div>
+    </div>
+  </div>
+
+  <!-- 土地情報マスター ツールバー -->
+  <div class="toolbar" id="landToolbar" style="display:none">
+    <div class="toolbar-left">
+      <select class="filter-select" id="filterLandArea" onchange="filterLandMaster()">
+        <option value="">すべてのエリア</option>
+        <option value="北海道">北海道</option>
+        <option value="東北">東北</option>
+        <option value="関東">関東</option>
+        <option value="中部">中部</option>
+        <option value="関西">関西</option>
+        <option value="中国">中国</option>
+        <option value="四国">四国</option>
+        <option value="九州">九州</option>
+      </select>
     </div>
   </div>
 
@@ -1667,6 +1711,8 @@ function switchNav(btn, section) {
   document.getElementById('statsBar').style.display = section === 'cases' ? 'flex' : 'none';
   document.getElementById('caseToolbar').style.display = section === 'cases' ? 'flex' : 'none';
   document.getElementById('casesSection').style.display = section === 'cases' ? 'block' : 'none';
+  document.getElementById('landownerToolbar').style.display = section === 'landowners' ? 'flex' : 'none';
+  document.getElementById('landToolbar').style.display = section === 'land' ? 'flex' : 'none';
   document.getElementById('landownersSection').style.display = section === 'landowners' ? 'block' : 'none';
   document.getElementById('landSection').style.display = section === 'land' ? 'block' : 'none';
   document.getElementById('realestateSection').style.display = section === 'realestate' ? 'block' : 'none';
@@ -1676,8 +1722,26 @@ function switchNav(btn, section) {
   else if (section === 'realestate') loadRealestateMaster();
 }
 
+let allLandowners = [];
+
 async function loadLandownersMaster() {
-  const { data: los } = await db.from('landowner_info').select('*, cases(case_no, status, kubun)');
+  const { data: los } = await db.from('landowner_info').select('*, cases(case_no, status, kubun, area_name)');
+  allLandowners = los || [];
+  renderLandowners(allLandowners);
+}
+
+function filterLandowners() {
+  const status = document.getElementById('filterLoStatus').value;
+  const area = document.getElementById('filterLoArea').value;
+  const filtered = allLandowners.filter(lo => {
+    const matchS = !status || lo.cases?.status === status;
+    const matchA = !area || lo.cases?.area_name === area;
+    return matchS && matchA;
+  });
+  renderLandowners(filtered);
+}
+
+function renderLandowners(los) {
   const el = document.getElementById('landownersList');
   if (!los || !los.length) {
     el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🧑</div><div class="empty-state-text">地権者情報が登録されていません</div></div>`;
@@ -1700,8 +1764,24 @@ async function loadLandownersMaster() {
   `).join('');
 }
 
+let allLands = [];
+
 async function loadLandMaster() {
-  const { data: lands } = await db.from('land_info').select('*, cases(case_no, status)');
+  const { data: lands } = await db.from('land_info').select('*, cases(case_no, status, area_name)');
+  allLands = lands || [];
+  renderLands(allLands);
+}
+
+function filterLandMaster() {
+  const area = document.getElementById('filterLandArea').value;
+  const filtered = allLands.filter(land => {
+    const matchA = !area || land.cases?.area_name === area;
+    return matchA;
+  });
+  renderLands(filtered);
+}
+
+function renderLands(lands) {
   const el = document.getElementById('landList');
   if (!lands || !lands.length) {
     el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🏔</div><div class="empty-state-text">土地情報が登録されていません</div></div>`;
