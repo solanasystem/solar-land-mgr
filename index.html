@@ -909,7 +909,7 @@
 <!-- sticky ゾーン：ツールバー＋テーブルヘッダーをここにまとめて固定 -->
 <div id="stickyZone">
 
-  <!-- 案件マスター ツールバー＋ヘッダー -->
+  <!-- 案件マスター ツールバー -->
   <div id="casesStickyBlock">
     <div class="sticky-toolbar" id="caseToolbar">
       <div class="toolbar-left">
@@ -946,12 +946,9 @@
       </div>
       <button class="btn btn-primary" onclick="openNewCaseModal()">＋ 新規案件登録</button>
     </div>
-      <div>金額（万円）</div><div>エリア</div><div>登録日</div>
-      <div style="text-align:right">操作</div>
-    </div>
   </div>
 
-  <!-- 地権者マスター ツールバー＋ヘッダー -->
+  <!-- 地権者マスター ツールバー -->
   <div id="landownersStickyBlock" style="display:none">
     <div class="sticky-toolbar" id="landownerToolbar">
       <div class="toolbar-left">
@@ -978,12 +975,9 @@
         </select>
       </div>
     </div>
-      <div>電話番号</div><div>ステータス</div>
-      <div style="text-align:right">操作</div>
-    </div>
-  </div><!-- /landownersStickyBlock -->
+  </div>
 
-  <!-- 土地情報マスター ツールバー＋ヘッダー -->
+  <!-- 土地情報マスター ツールバー -->
   <div id="landStickyBlock" style="display:none">
     <div class="sticky-toolbar" id="landToolbar">
       <div class="toolbar-left">
@@ -1000,17 +994,10 @@
         </select>
       </div>
     </div>
-      <div>用途地域・地目</div><div>ハザード</div><div>地図</div>
-      <div style="text-align:right">操作</div>
-    </div>
   </div>
 
-  <!-- 不動産会社マスター ヘッダー -->
-  <div id="realestateStickyBlock" style="display:none">
-      <div>契約状態</div><div>価格（万円）</div>
-      <div style="text-align:right">操作</div>
-    </div>
-  </div>
+  <!-- 不動産会社マスター（ツールバーなし） -->
+  <div id="realestateStickyBlock" style="display:none"></div>
 
 </div><!-- /stickyZone -->
 
@@ -1902,16 +1889,21 @@ function renderLands(lands) {
     return;
   }
   el.innerHTML = lands.map((land, i) => {
-    // 正しいDBマッピング：
-    // chiban → 所在地テキスト
-    // location → 面積数値（㎡）
-    // horeijo_seigen → 用途地域・地目
-    // google_map → 地図URL（なければhazardのURL）
-    // hazard / biko → ハザード情報
-    const soZai = land.chiban || '—';
-    const menseki = land.location ? (isNaN(parseFloat(land.location)) ? land.location : parseFloat(land.location).toLocaleString() + ' ㎡') : (land.area_sqm ? Number(land.area_sqm).toLocaleString() + ' ㎡' : '—');
-    const yoto = land.horeijo_seigen || '—';
-    const haz = land.hazard || land.biko || '—';
+    // DBマッピング確定版（編集フォームで確認）：
+    // chiban = 用途地域・地目
+    // location = 所在（数値の場合は面積㎡）
+    // horeijo_seigen = 法令上の制限
+    // google_map = GoogleマップURL
+    // hazard = ハザード情報
+    // biko = 備考
+    const locVal = land.location ? String(land.location).trim() : '';
+    const locIsNum = locVal && !isNaN(parseFloat(locVal)) && parseFloat(locVal) > 0 && locVal.length < 12;
+    const soZai = locIsNum ? (land.chiban || '—') : (locVal || land.chiban || '—');
+    const menseki = locIsNum
+      ? parseFloat(locVal).toLocaleString() + ' ㎡'
+      : (land.area_sqm ? Number(land.area_sqm).toLocaleString() + ' ㎡' : '—');
+    const yoto = locIsNum ? (land.horeijo_seigen || '—') : (land.chiban || '—');
+    const haz = land.hazard || '—';
     const mapUrl = land.google_map || null;
     return `
     <div class="case-row" style="grid-template-columns:120px 1fr 100px 150px 150px 60px 80px;animation-delay:${i*0.03}s">
