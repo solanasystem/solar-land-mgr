@@ -55,7 +55,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    margin-top: 110px; /* 統計バー3行分の高さを確保 */
+    margin-top: 110px;
     transition: left 0.3s ease;
   }
   .control-panel.shifted { left: 272px; }
@@ -86,7 +86,6 @@
     transition: left 0.3s ease;
   }
   .stats-overlay.shifted { left: 272px; }
-  .stats-overlay.shifted + .control-panel, .control-panel.shifted { left: 272px; }
 
   .stat-pill { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
   .stat-pill-dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -217,6 +216,7 @@
 
 <div class="map-wrapper">
   <div id="map"></div>
+
   <!-- 調査リストパネル（左側） -->
   <div class="survey-list-panel" id="surveyListPanel">
     <div class="survey-list-header">
@@ -244,13 +244,11 @@
 
   <!-- 調査計画パネル（統計バーとは独立） -->
   <div class="control-panel" id="controlPanel">
-    <!-- 調査計画モード -->
     <div class="action-panel" id="planPanel">
       <div class="action-panel-title">現地調査計画モード</div>
       <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>調査予定を選択してください</div>
       <button class="btn btn-start" onclick="startSurveyMode()" id="startBtn" disabled>🗺 調査開始</button>
     </div>
-    <!-- 調査実行モード -->
     <div class="action-panel" id="surveyPanel" style="display:none">
       <div class="action-panel-title">調査実行モード</div>
       <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>現地確認を記録してください</div>
@@ -279,7 +277,8 @@
     </div>
     <div class="side-panel-body" id="sidePanelBody"></div>
   </div>
-</div>
+
+</div><!-- /.map-wrapper -->
 
 <!-- 確認終了モーダル -->
 <div class="modal-overlay" id="confirmModal">
@@ -357,8 +356,8 @@ const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let map, gsiLayer, hazardLayer;
 let markers = {};
-let planSet = new Set(); // 調査予定セット
-let surveyMode = false; // 調査実行モード
+let planSet = new Set();
+let surveyMode = false;
 let currentConfirmCaseId = null;
 
 function initMap() {
@@ -456,22 +455,19 @@ function buildPopup(c, land, survey, landowner) {
   `;
 }
 
-// 調査予定に追加
 function addPlan(caseId) {
   if (planSet.size >= 30) { showToast('調査予定は最大30件までです', 'error'); return; }
   planSet.add(caseId);
   const d = markers[caseId];
-  if (d && !d.confirmed) d.marker.setIcon(makeIcon('#3fb950')); // 緑
+  if (d && !d.confirmed) d.marker.setIcon(makeIcon('#3fb950'));
   if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
   updateSurveyUI();
   map.closePopup();
   showToast('調査予定に追加しました', 'success');
 }
 
-// 調査開始ボタン
 function startSurveyMode() {
   surveyMode = true;
-  // 調査予定以外のフラグを非表示
   Object.keys(markers).forEach(caseId => {
     const d = markers[caseId];
     if (!planSet.has(caseId) && !d.confirmed) map.removeLayer(d.marker);
@@ -482,7 +478,6 @@ function startSurveyMode() {
   showToast('調査実行モードに切り替えました', 'success');
 }
 
-// 計画リセット
 function resetSurvey() {
   if (!confirm('調査計画をリセットして計画モードに戻りますか？')) return;
   surveyMode = false;
@@ -499,11 +494,10 @@ function resetSurvey() {
   updateSurveyUI();
 }
 
-// 調査予定から解除
 function removePlan(caseId) {
   planSet.delete(caseId);
   const d = markers[caseId];
-  if (d && !d.confirmed) d.marker.setIcon(makeIcon('#f0b429')); // 黄色に戻す
+  if (d && !d.confirmed) d.marker.setIcon(makeIcon('#f0b429'));
   if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
   updateSurveyUI();
   map.closePopup();
@@ -550,7 +544,6 @@ function renderSurveyTable() {
   tbody.innerHTML = rows.join('') + empty.join('');
 }
 
-// 確認終了モーダル
 function openConfirmModal(caseId, caseNo) {
   currentConfirmCaseId = caseId;
   document.getElementById('confirmCaseNo').textContent = caseNo;
@@ -622,7 +615,6 @@ async function saveConfirm() {
   progress.style.display = 'none';
   if (error) { showToast('保存エラー: ' + error.message, 'error'); return; }
 
-  // フラグを赤に
   const d = markers[caseId];
   if (d) {
     d.confirmed = true;
@@ -631,7 +623,6 @@ async function saveConfirm() {
     d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
   }
 
-  // 調査予定から削除
   if (planSet.has(caseId)) { planSet.delete(caseId); updateSurveyUI(); }
 
   const u = parseInt(document.getElementById('statUnchecked').textContent) - 1;
@@ -669,8 +660,18 @@ async function showLandownerPanel(caseId) {
   document.getElementById('sidePanel').classList.add('open');
 }
 
+function showToast(msg, type = 'success') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+
 function closeSidePanel() { document.getElementById('sidePanel').classList.remove('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
 initMap();
 loadData();
 </script>
