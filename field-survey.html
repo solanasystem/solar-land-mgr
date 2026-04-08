@@ -46,6 +46,15 @@
   /* デフォルトズームを非表示 */
   .leaflet-top.leaflet-left { display: none; }
 
+  /* 調査計画パネル */
+  .action-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 200px; }
+  .action-panel-title { font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: .08em; text-transform: uppercase; }
+  .btn-start { background: var(--accent); color: #000; border: none; border-radius: 6px; padding: 8px 14px; font-family: var(--font-main); font-size: 12px; font-weight: 700; cursor: pointer; transition: background 0.15s; }
+  .btn-start:hover { background: #e0a820; }
+  .btn-start:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-reset { background: none; color: var(--red); border: 1px solid var(--red); border-radius: 6px; padding: 7px 14px; font-family: var(--font-main); font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+  .btn-reset:hover { background: rgba(248,81,73,0.1); }
+
   /* ズームボタン（右下） */
   .zoom-controls { position: absolute; bottom: 24px; right: 12px; z-index: 500; display: flex; flex-direction: column; gap: 2px; }
   .zoom-btn { width: 32px; height: 32px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 18px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
@@ -217,6 +226,20 @@
     <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--accent)"></div><span id="statUnchecked">—</span> 件 未確認</div>
     <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--green)"></div><span id="statPlanned">0</span> 件 調査予定</div>
     <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--red)"></div><span id="statChecked">—</span> 件 確認済</div>
+
+    <!-- 調査計画パネル -->
+    <div class="action-panel" id="planPanel">
+      <div class="action-panel-title">現地調査計画モード</div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>調査予定を選択してください</div>
+      <button class="btn btn-start" onclick="startSurveyMode()" id="startBtn" disabled>🗺 調査開始</button>
+    </div>
+
+    <!-- 調査実行パネル -->
+    <div class="action-panel" id="surveyPanel" style="display:none">
+      <div class="action-panel-title">調査実行モード</div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>現地確認を記録してください</div>
+      <button class="btn btn-reset" onclick="resetSurvey()">🔄 計画をリセット</button>
+    </div>
   </div>
 
   <!-- レイヤーコントロール -->
@@ -319,6 +342,7 @@ const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 let map, gsiLayer, hazardLayer;
 let markers = {};
 let planSet = new Set(); // 調査予定セット
+let surveyMode = false; // 調査実行モード
 let currentConfirmCaseId = null;
 
 function initMap() {
@@ -381,7 +405,7 @@ function buildPopup(c, land, survey, landowner) {
       : '<span class="popup-status unchecked">未確認</span>';
 
   let planBtnHtml = '';
-  if (!confirmed) {
+  if (!confirmed && !surveyMode) {
     planBtnHtml = planned
       ? `<button class="popup-btn planned-btn" onclick="removePlan('${c.id}')">✓ 予定済（解除）</button>`
       : `<button class="popup-btn plan-btn" onclick="addPlan('${c.id}')">＋ 調査予定に追加</button>`;
@@ -428,6 +452,37 @@ function addPlan(caseId) {
   showToast('調査予定に追加しました', 'success');
 }
 
+// 調査開始ボタン
+function startSurveyMode() {
+  surveyMode = true;
+  // 調査予定以外のフラグを非表示
+  Object.keys(markers).forEach(caseId => {
+    const d = markers[caseId];
+    if (!planSet.has(caseId) && !d.confirmed) map.removeLayer(d.marker);
+    if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
+  });
+  document.getElementById('planPanel').style.display = 'none';
+  document.getElementById('surveyPanel').style.display = 'flex';
+  showToast('調査実行モードに切り替えました', 'success');
+}
+
+// 計画リセット
+function resetSurvey() {
+  if (!confirm('調査計画をリセットして計画モードに戻りますか？')) return;
+  surveyMode = false;
+  planSet.clear();
+  Object.keys(markers).forEach(caseId => {
+    const d = markers[caseId];
+    const color = d.confirmed ? '#f85149' : '#f0b429';
+    d.marker.setIcon(makeIcon(color));
+    if (!map.hasLayer(d.marker)) d.marker.addTo(map);
+    if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
+  });
+  document.getElementById('planPanel').style.display = 'flex';
+  document.getElementById('surveyPanel').style.display = 'none';
+  updateSurveyUI();
+}
+
 // 調査予定から解除
 function removePlan(caseId) {
   planSet.delete(caseId);
@@ -441,6 +496,8 @@ function removePlan(caseId) {
 
 function updateSurveyUI() {
   document.getElementById('statPlanned').textContent = planSet.size;
+  const startBtn = document.getElementById('startBtn');
+  if (startBtn) startBtn.disabled = planSet.size === 0;
   renderSurveyTable();
 }
 
