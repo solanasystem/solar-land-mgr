@@ -252,6 +252,7 @@
     <div class="layer-title">地図レイヤー</div>
     <label class="layer-item"><input type="checkbox" id="layerGsi" onchange="toggleLayer('gsi',this.checked)"> GSI 航空写真</label>
     <label class="layer-item"><input type="checkbox" id="layerHazard" onchange="toggleLayer('hazard',this.checked)"> ハザードマップ</label>
+    <label class="layer-item"><input type="checkbox" id="layerFarmland" onchange="toggleLayer('farmland',this.checked)"> 農地フラグ</label>
   </div>
 
   <!-- ズームボタン（右下） -->
@@ -371,6 +372,77 @@ function toggleLayer(type, enabled) {
     enabled ? hazardLayer.addTo(map) : map.removeLayer(hazardLayer);
     if (enabled) hazardLayer.bringToFront();
   }
+  else if (type === 'farmland') {
+    if (enabled) {
+      if (!farmlandLayer) loadFarmland();
+      else farmlandLayer.addTo(map);
+    } else {
+      if (farmlandLayer) map.removeLayer(farmlandLayer);
+    }
+  }
+}
+
+let farmlandLayer = null;
+
+function getFarmlandColor(code) {
+  switch(String(code)) {
+    case '1': return '#3b82f6'; // 青地　→ 青
+    case '2': return '#ffffff'; // 白地　→ 白
+    case '3': return '#f472b6'; // 農振外 → ピンク
+    default:  return '#a855f7'; // 調査中 → 紫
+  }
+}
+
+function makeFlagIcon(color) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="28" viewBox="0 0 20 28">
+    <line x1="3" y1="0" x2="3" y2="28" stroke="${color}" stroke-width="2"/>
+    <polygon points="3,2 18,7 3,14" fill="${color}" stroke="none"/>
+  </svg>`;
+  return L.divIcon({
+    html: svg,
+    className: '',
+    iconSize: [20, 28],
+    iconAnchor: [3, 28],
+    popupAnchor: [8, -28]
+  });
+}
+
+async function loadFarmland() {
+  try {
+    const res = await fetch('farmland.geojson');
+    const data = await res.json();
+    farmlandLayer = L.geoJSON(data, {
+      pointToLayer: (feature, latlng) => {
+        const code = feature.properties.SectionOfNoushinhou;
+        return L.marker(latlng, { icon: makeFlagIcon(getFarmlandColor(code)) });
+      },
+      onEachFeature: (feature, layer) => {
+        const p = feature.properties;
+        const lat = feature.geometry.coordinates[1];
+        const lng = feature.geometry.coordinates[0];
+        layer.bindPopup(`
+          <div class="popup-body">
+            <div class="popup-case-no">
+              <span>${p.Address || '—'} ${p.Tiban || ''}</span>
+            </div>
+            <div class="popup-info">
+              <div class="popup-row"><span class="popup-label">農振区分</span><span class="popup-value">${p.SectionOfNoushinhouCodeName || '—'}</span></div>
+              <div class="popup-row"><span class="popup-label">地目</span><span class="popup-value">${p.ClassificationOfLandCodeName || '—'}</span></div>
+              <div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">${p.AreaOnRegistry ? Number(p.AreaOnRegistry).toLocaleString() + ' ㎡' : '—'}</span></div>
+              <div class="popup-row"><span class="popup-label">都市計画</span><span class="popup-value">${p.SectionOfToshikeikakuhouCodeName || '—'}</span></div>
+            </div>
+            <hr class="popup-divider">
+            <div style="display:flex;gap:6px">
+              <button class="popup-btn" style="border-color:var(--green);color:var(--green)" onclick="window.open('https://map.maff.go.jp/?zoom=16&lat=${lat}&lng=${lng}','_blank')">🌾 農地ナビで確認</button>
+            </div>
+          </div>
+        `, { maxWidth: 300, minWidth: 260 });
+      }
+    });
+    farmlandLayer.addTo(map);
+  } catch(e) {
+    showToast('農地データの読み込みに失敗しました', 'error');
+  }
 }
 
 async function loadData() {
@@ -446,6 +518,7 @@ function buildPopup(c, land, survey, landowner) {
       <div class="popup-actions" style="flex-direction:column;gap:6px">
         <div style="display:flex;gap:6px">
           ${land?.google_map ? `<button class="popup-btn" onclick="window.open('${land.google_map}','_blank')">🗺 地図</button>` : ''}
+          ${land?.lat && land?.lng ? `<button class="popup-btn" onclick="window.open('https://map.maff.go.jp/?zoom=16&lat=${land.lat}&lng=${land.lng}','_blank')" style="border-color:var(--green);color:var(--green)">🌾 農地ナビ</button>` : ''}
           ${confirmed
             ? `<button class="popup-btn confirmed-label">✓ 確認済み</button>`
             : `<button class="popup-btn confirm" onclick="openConfirmModal('${c.id}','${c.case_no}')">確認終了</button>`}
