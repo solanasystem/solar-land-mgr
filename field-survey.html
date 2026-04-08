@@ -46,6 +46,20 @@
   /* デフォルトズームを非表示 */
   .leaflet-top.leaflet-left { display: none; }
 
+  /* コントロールパネル（計画・実行モード切替） */
+  .control-panel {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 110px; /* 統計バー3行分の高さを確保 */
+    transition: left 0.3s ease;
+  }
+  .control-panel.shifted { left: 272px; }
+
   /* 調査計画パネル */
   .action-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 200px; }
   .action-panel-title { font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: .08em; text-transform: uppercase; }
@@ -72,6 +86,7 @@
     transition: left 0.3s ease;
   }
   .stats-overlay.shifted { left: 272px; }
+  .stats-overlay.shifted + .control-panel, .control-panel.shifted { left: 272px; }
 
   .stat-pill { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
   .stat-pill-dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -226,15 +241,17 @@
     <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--accent)"></div><span id="statUnchecked">—</span> 件 未確認</div>
     <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--green)"></div><span id="statPlanned">0</span> 件 調査予定</div>
     <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--red)"></div><span id="statChecked">—</span> 件 確認済</div>
+  </div>
 
-    <!-- 調査計画パネル -->
+  <!-- 調査計画パネル（統計バーとは独立） -->
+  <div class="control-panel" id="controlPanel">
+    <!-- 調査計画モード -->
     <div class="action-panel" id="planPanel">
       <div class="action-panel-title">現地調査計画モード</div>
       <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>調査予定を選択してください</div>
       <button class="btn btn-start" onclick="startSurveyMode()" id="startBtn" disabled>🗺 調査開始</button>
     </div>
-
-    <!-- 調査実行パネル -->
+    <!-- 調査実行モード -->
     <div class="action-panel" id="surveyPanel" style="display:none">
       <div class="action-panel-title">調査実行モード</div>
       <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>現地確認を記録してください</div>
@@ -517,6 +534,7 @@ function renderSurveyTable() {
 
   panel.classList.add('open');
   stats.classList.add('shifted');
+  document.getElementById('controlPanel')?.classList.add('shifted');
   countEl.textContent = `${planSet.size}件`;
 
   const rows = [...planSet].map((caseId, idx) => {
@@ -653,20 +671,4 @@ async function showLandownerPanel(caseId) {
 }
 
 function closeSidePanel() { document.getElementById('sidePanel').classList.remove('open'); }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-document.querySelectorAll('.modal-overlay').forEach(o => { o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); }); });
-
-function showToast(msg, type = 'success') {
-  const c = document.getElementById('toastContainer');
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  t.innerHTML = `<span>${type === 'success' ? '✓' : '✕'}</span><span>${msg}</span>`;
-  c.appendChild(t);
-  setTimeout(() => t.remove(), 3000);
-}
-
-initMap();
-loadData();
-</script>
-</body>
-</html>
+function closeModal(id) { document.getElementById(id).classLi
