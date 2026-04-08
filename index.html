@@ -275,7 +275,7 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 8px;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .cases-table-header {
@@ -289,14 +289,8 @@
     color: var(--text-muted);
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    position: sticky;
-    top: 150px;
-    z-index: 80;
   }
-  /* 不動産会社マスター：stickyZone内にヘッダーを置くためテーブル内は非表示 */
-  #realestateSection .cases-table-header {
-    display: none;
-  }
+
 
   .case-row {
     display: grid;
@@ -1001,9 +995,15 @@
 
   <!-- 不動産会社マスター（ツールバーなし） -->
   <div id="realestateStickyBlock" style="display:none">
-    <div class="cases-table-header" style="grid-template-columns:120px 220px 140px 120px 1fr 80px;position:static;">
+    <div class="cases-table-header" style="grid-template-columns:120px 220px 140px 120px 1fr 80px">
       <div>案件番号</div><div>会社名</div><div>電話番号</div>
-      <div>契約状態</div><div>価格（万円）</div><div>操作</div>
+      <div>契約状態</div>
+      <div>
+        <button onclick="sortRealestate()" style="background:none;border:none;color:var(--text-muted);font-family:var(--font-main);font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;gap:4px;padding:0;">
+          価格（万円） <span id="rePriceSortIcon2">↕</span>
+        </button>
+      </div>
+      <div>操作</div>
     </div>
   </div>
 
@@ -1049,7 +1049,13 @@
   <div class="cases-table" id="realestateSection" style="display:none">
     <div class="cases-table-header" style="grid-template-columns:120px 220px 140px 120px 1fr 80px">
       <div>案件番号</div><div>会社名</div><div>電話番号</div>
-      <div>契約状態</div><div>価格（万円）</div><div>操作</div>
+      <div>契約状態</div>
+      <div>
+        <button onclick="sortRealestate()" style="background:none;border:none;color:var(--text-muted);font-family:var(--font-main);font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;gap:4px;padding:0;" id="rePriceSortBtn">
+          価格（万円） <span id="rePriceSortIcon">↕</span>
+        </button>
+      </div>
+      <div>操作</div>
     </div>
     <div id="realestateList">
       <div class="loading"><div class="spinner"></div>読み込み中...</div>
@@ -1929,16 +1935,33 @@ function renderLands(lands) {
   }).join('');
 }
 
-async function loadRealestateMaster() {
-  const { data: res } = await db.from('realestate_info').select('*, cases(case_no, status)');
-  const sorted = (res || []).sort((a, b) => (a.cases?.case_no || '').localeCompare(b.cases?.case_no || '', 'ja'));
+let allRealestate = [];
+let reSortOrder = null; // null=case_no順, 'asc'=安い順, 'desc'=高い順
+
+function sortRealestate() {
+  if (reSortOrder === null || reSortOrder === 'desc') {
+    reSortOrder = 'asc';
+    document.querySelectorAll('#rePriceSortIcon, #rePriceSortIcon2').forEach(el => el.textContent = '↑');
+  } else {
+    reSortOrder = 'desc';
+    document.querySelectorAll('#rePriceSortIcon, #rePriceSortIcon2').forEach(el => el.textContent = '↓');
+  }
+  renderRealestate(allRealestate);
+}
+
+function renderRealestate(data) {
+  let list = [...data];
+  if (reSortOrder === 'asc') {
+    list.sort((a, b) => (a.price || 0) - (b.price || 0));
+  } else if (reSortOrder === 'desc') {
+    list.sort((a, b) => (b.price || 0) - (a.price || 0));
+  }
   const el = document.getElementById('realestateList');
-  if (!sorted.length) {
+  if (!list.length) {
     el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🏢</div><div class="empty-state-text">不動産会社情報が登録されていません</div></div>`;
     return;
   }
-  el.innerHTML = sorted.map((r, i) => {
-    // company_nameが住所っぽい（都道府県を含む）場合、contract_statusが会社名の可能性
+  el.innerHTML = list.map((r, i) => {
     const compIsAddr = r.company_name && (
       r.company_name.includes('県') || r.company_name.includes('府') ||
       r.company_name.includes('都') || r.company_name.includes('道') ||
@@ -1958,6 +1981,14 @@ async function loadRealestateMaster() {
       </div>
     </div>`;
   }).join('');
+}
+
+async function loadRealestateMaster() {
+  const { data: res } = await db.from('realestate_info').select('*, cases(case_no, status)');
+  allRealestate = (res || []).sort((a, b) => (a.cases?.case_no || '').localeCompare(b.cases?.case_no || '', 'ja'));
+  reSortOrder = null;
+  document.querySelectorAll('#rePriceSortIcon, #rePriceSortIcon2').forEach(el => el.textContent = '↕');
+  renderRealestate(allRealestate);
 }
 
 function switchDetailTab(btn, tabId) {
