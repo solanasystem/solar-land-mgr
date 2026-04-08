@@ -255,6 +255,17 @@
     <label class="layer-item"><input type="checkbox" id="layerFarmland" onchange="toggleLayer('farmland',this.checked)"> 農地フラグ</label>
   </div>
 
+  <!-- 農地フラグ凡例 -->
+  <div id="farmlandLegend" style="display:none;position:absolute;top:160px;right:12px;z-index:500;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;min-width:160px;">
+    <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;">農振区分</div>
+    <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
+      <div style="display:flex;align-items:center;gap:8px;"><div style="width:12px;height:12px;border-radius:50%;background:#3b82f6;border:1.5px solid rgba(0,0,0,0.3);flex-shrink:0"></div>青地（農振内・農用地内）</div>
+      <div style="display:flex;align-items:center;gap:8px;"><div style="width:12px;height:12px;border-radius:50%;background:#ffffff;border:1.5px solid #999;flex-shrink:0"></div>白地（農振内・農用地外）</div>
+      <div style="display:flex;align-items:center;gap:8px;"><div style="width:12px;height:12px;border-radius:50%;background:#f472b6;border:1.5px solid rgba(0,0,0,0.3);flex-shrink:0"></div>農振外</div>
+      <div style="display:flex;align-items:center;gap:8px;"><div style="width:12px;height:12px;border-radius:50%;background:#a855f7;border:1.5px solid rgba(0,0,0,0.3);flex-shrink:0"></div>調査中</div>
+    </div>
+  </div>
+
   <!-- ズームボタン（右下） -->
   <div class="zoom-controls">
     <button class="zoom-btn" onclick="map.zoomIn()">＋</button>
@@ -376,8 +387,10 @@ function toggleLayer(type, enabled) {
     if (enabled) {
       if (!farmlandLayer) loadFarmland();
       else farmlandLayer.addTo(map);
+      document.getElementById('farmlandLegend').style.display = 'block';
     } else {
       if (farmlandLayer) map.removeLayer(farmlandLayer);
+      document.getElementById('farmlandLegend').style.display = 'none';
     }
   }
 }
@@ -394,16 +407,13 @@ function getFarmlandColor(code) {
 }
 
 function makeFlagIcon(color) {
-  const border = color === '#ffffff' ? '#999' : color;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-    <circle cx="8" cy="8" r="7" fill="${color}" stroke="${border}" stroke-width="1.5"/>
-  </svg>`;
+  const border = color === '#ffffff' ? '#999999' : 'rgba(0,0,0,0.3)';
   return L.divIcon({
-    html: svg,
+    html: `<div style="width:12px;height:12px;background:${color};border-radius:50%;border:1.5px solid ${border};box-shadow:0 1px 3px rgba(0,0,0,0.4)"></div>`,
     className: '',
-    iconSize: [16, 16],
-    iconAnchor: [8, 8],
-    popupAnchor: [0, -10]
+    iconSize: [12, 12],
+    iconAnchor: [6, 6],
+    popupAnchor: [0, -8]
   });
 }
 
@@ -440,6 +450,7 @@ async function loadFarmland() {
       }
     });
     farmlandLayer.addTo(map);
+    document.getElementById('farmlandLegend').style.display = 'block';
   } catch(e) {
     showToast('農地データの読み込みに失敗しました', 'error');
   }
