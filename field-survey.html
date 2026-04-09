@@ -449,8 +449,20 @@ async function loadFarmland() {
         `, { maxWidth: 300, minWidth: 260 });
       }
     });
-    farmlandLayer.addTo(map);
-    document.getElementById('farmlandLegend').style.display = 'block';
+
+    // ズーム13以上の時のみ表示
+    const updateFarmlandVisibility = () => {
+      if (!farmlandLayer) return;
+      if (map.getZoom() >= 13) {
+        if (!map.hasLayer(farmlandLayer) && document.getElementById('layerFarmland').checked) {
+          farmlandLayer.addTo(map);
+        }
+      } else {
+        if (map.hasLayer(farmlandLayer)) map.removeLayer(farmlandLayer);
+      }
+    };
+    map.on('zoomend', updateFarmlandVisibility);
+    updateFarmlandVisibility();
   } catch(e) {
     showToast('農地データの読み込みに失敗しました', 'error');
   }
