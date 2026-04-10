@@ -6,7 +6,9 @@
 <title>現地調査マップ | SOLAR LAND MGR</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
@@ -185,6 +187,7 @@
   .toast.success { border-left: 3px solid var(--green); }
   .toast.error { border-left: 3px solid var(--red); }
   .base-tile { filter: saturate(0.5) brightness(1.05) opacity(0.95); }
+  .farmland-cluster { background: rgba(88,166,255,0.85); border-radius: 50%; border: 2px solid rgba(255,255,255,0.6); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-family: var(--font-mono); box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
   @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
 </style>
 </head>
@@ -419,6 +422,7 @@ function toggleLayer(type, enabled) {
 }
 
 let farmlandLayer = null;
+let farmlandClusterGroup = null;
 let farmlandAllFeatures = [];
 const farmlandCanvas = L.canvas();
 
@@ -440,7 +444,21 @@ function renderFarmlandInView() {
 
 function _doRenderFarmland() {
   if (!document.getElementById('layerFarmland').checked) return;
-  if (map.getZoom() < 14) return;
+  const zoom = map.getZoom();
+
+  if (zoom < 14) {
+    // クラスター表示
+    if (farmlandLayer) { map.removeLayer(farmlandLayer); farmlandLayer = null; }
+    if (farmlandClusterGroup && !map.hasLayer(farmlandClusterGroup)) {
+      farmlandClusterGroup.addTo(map);
+    }
+    return;
+  }
+
+  // ズーム14以上：個別circleMarker表示
+  if (farmlandClusterGroup && map.hasLayer(farmlandClusterGroup)) {
+    map.removeLayer(farmlandClusterGroup);
+  }
   const bounds = map.getBounds().pad(0.1);
   const visible = farmlandAllFeatures.filter(f => {
     const [lng, lat] = f.geometry.coordinates;
@@ -491,14 +509,33 @@ async function loadFarmland() {
     const res = await fetch('./farmland.geojson');
     const data = await res.json();
     farmlandAllFeatures = data.features || [];
-    map.on('moveend', renderFarmlandInView);
-    map.on('zoomend', () => {
-      if (map.getZoom() < 14) {
-        if (farmlandLayer) { map.removeLayer(farmlandLayer); farmlandLayer = null; }
-      } else {
-        renderFarmlandInView();
+
+    // クラスターグループ作成
+    farmlandClusterGroup = L.markerClusterGroup({
+      maxClusterRadius: 60,
+      disableClusteringAtZoom: 14,
+      iconCreateFunction: (cluster) => {
+        const count = cluster.getChildCount();
+        const size = count > 1000 ? 52 : count > 100 ? 42 : 32;
+        const fontSize = count > 1000 ? 13 : 11;
+        return L.divIcon({
+          html: `<div class="farmland-cluster" style="width:${size}px;height:${size}px;font-size:${fontSize}px">${count}</div>`,
+          className: '',
+          iconSize: [size, size],
+          iconAnchor: [size/2, size/2]
+        });
       }
     });
+
+    // 全点をクラスターに追加（透明マーカー）
+    const markers = farmlandAllFeatures.map(f => {
+      const [lng, lat] = f.geometry.coordinates;
+      return L.marker([lat, lng], { opacity: 0 });
+    });
+    farmlandClusterGroup.addLayers(markers);
+
+    map.on('moveend', renderFarmlandInView);
+    map.on('zoomend', renderFarmlandInView);
     renderFarmlandInView();
   } catch(e) {
     showToast('農地データの読み込みに失敗しました', 'error');
