@@ -399,32 +399,31 @@ let farmlandLayer = null;
 
 function getFarmlandColor(code) {
   switch(String(code)) {
-    case '1': return '#3b82f6'; // 青地　→ 青
-    case '2': return '#ffffff'; // 白地　→ 白
-    case '3': return '#f472b6'; // 農振外 → ピンク
-    default:  return '#a855f7'; // 調査中 → 紫
+    case '1': return '#3b82f6'; // 青地
+    case '2': return '#ffffff'; // 白地
+    case '3': return '#f472b6'; // 農振外
+    default:  return '#a855f7'; // 調査中
   }
-}
-
-function makeFlagIcon(color) {
-  const border = color === '#ffffff' ? '#999999' : 'rgba(0,0,0,0.3)';
-  return L.divIcon({
-    html: `<div style="width:6px;height:6px;background:${color};border-radius:50%;border:1px solid ${border};box-shadow:0 1px 3px rgba(0,0,0,0.4)"></div>`,
-    className: '',
-    iconSize: [6, 6],
-    iconAnchor: [3, 3],
-    popupAnchor: [0, -5]
-  });
 }
 
 async function loadFarmland() {
   try {
     const res = await fetch('./farmland.geojson');
     const data = await res.json();
+    const canvasRenderer = L.canvas();
     farmlandLayer = L.geoJSON(data, {
       pointToLayer: (feature, latlng) => {
         const code = feature.properties.SectionOfNoushinhou;
-        return L.marker(latlng, { icon: makeFlagIcon(getFarmlandColor(code)) });
+        const color = getFarmlandColor(code);
+        const borderColor = color === '#ffffff' ? '#999999' : 'rgba(0,0,0,0.5)';
+        return L.circleMarker(latlng, {
+          renderer: canvasRenderer,
+          radius: 4,
+          fillColor: color,
+          color: borderColor,
+          weight: 1,
+          fillOpacity: 1
+        });
       },
       onEachFeature: (feature, layer) => {
         const p = feature.properties;
@@ -450,7 +449,6 @@ async function loadFarmland() {
       }
     });
 
-    // ズーム14以上の時のみ表示
     const updateFarmlandVisibility = () => {
       if (!farmlandLayer) return;
       if (map.getZoom() >= 14) {
