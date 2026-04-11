@@ -554,11 +554,19 @@ async function _fetchAndRenderFude() {
   });
   if (error || !data) return;
   if (fudeLayer) { map.removeLayer(fudeLayer); fudeLayer = null; }
-  const features = data.map(row => ({
-    type: 'Feature',
-    geometry: row.geometry,
-    properties: { land_type: row.land_type, point_lat: row.lat, point_lng: row.lng }
-  }));
+  const features = data.map(row => {
+    let cLat = row.lat, cLng = row.lng;
+    try {
+      const coords = row.geometry.coordinates[0];
+      cLat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
+      cLng = coords.reduce((s, c) => s + c[0], 0) / coords.length;
+    } catch(e) {}
+    return {
+      type: 'Feature',
+      geometry: row.geometry,
+      properties: { land_type: row.land_type, cLat, cLng }
+    };
+  });
   fudeLayer = L.geoJSON({ type: 'FeatureCollection', features }, {
     style: (feature) => {
       const lt = feature.properties.land_type;
@@ -572,20 +580,20 @@ async function _fetchAndRenderFude() {
     onEachFeature: (feature, layer) => {
       const lt = feature.properties.land_type;
       const label = lt === 100 ? '田・畑' : '採草放牧地';
-      layer.bindPopup(() => {
-        const c = layer.getBounds().getCenter();
-        return `
-          <div class="popup-body">
-            <div class="popup-case-no"><span>🌾 筆ポリゴン</span></div>
-            <div class="popup-info">
-              <div class="popup-row"><span class="popup-label">土地種別</span><span class="popup-value">${label}</span></div>
-            </div>
-            <hr class="popup-divider">
-            <div style="display:flex;gap:6px">
-              <button class="popup-btn" style="border-color:var(--green);color:var(--green)" onclick="openNouchiNavi(${c.lat},${c.lng})">🌾 農地ナビで確認</button>
-            </div>
-          </div>`;
-      }, { maxWidth: 280, minWidth: 220 });
+      const cLat = feature.properties.cLat;
+      const cLng = feature.properties.cLng;
+      layer.bindPopup(`
+        <div class="popup-body">
+          <div class="popup-case-no"><span>🌾 筆ポリゴン</span></div>
+          <div class="popup-info">
+            <div class="popup-row"><span class="popup-label">土地種別</span><span class="popup-value">${label}</span></div>
+          </div>
+          <hr class="popup-divider">
+          <div style="display:flex;gap:6px">
+            <button class="popup-btn" style="border-color:var(--green);color:var(--green)" onclick="openNouchiNavi(${cLat},${cLng})">🌾 農地ナビで確認</button>
+          </div>
+        </div>
+      `, { maxWidth: 280, minWidth: 220 });
     }
   }).addTo(map);
   fudeLayer.bringToBack();
