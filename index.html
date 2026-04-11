@@ -527,17 +527,17 @@ async function quickUpdateKubun(id,val,el){
   const numId=Number(id);
   const{error}=await db.from('cases').update({kubun:val}).eq('id',numId);
   if(error){showToast('更新エラー: '+error.message,'error');return;}
-  const c=allCases.find(x=>String(x.id)===String(id));if(c)c.kubun=val;
   el.closest('.badge-select-wrap').className=`badge badge-select-wrap badge-${kubunClass(val)}`;
   showToast('発電区分を更新しました','success');
+  await refreshAll();
 }
 async function quickUpdateStatus(id,val,el){
   const numId=Number(id);
   const{error}=await db.from('cases').update({status:val}).eq('id',numId);
   if(error){showToast('更新エラー: '+error.message,'error');return;}
-  const c=allCases.find(x=>String(x.id)===String(id));if(c)c.status=val;
   el.closest('.status-select-wrap').className=`status-badge status-select-wrap status-${statusClass(val)}`;
   showToast('ステータスを更新しました','success');
+  await refreshAll();
 }
 function kubunBadge(k){if(!k)return '<span style="color:var(--text-muted);font-size:12px">—</span>';return `<span class="badge badge-${kubunClass(k)}">${k}</span>`;}
 function statusBadge(s){return `<span class="status-badge status-${s?statusClass(s):'mitoiroku'}"><span class="status-dot"></span>${s||'—'}</span>`;}
@@ -811,11 +811,14 @@ async function saveLandowner(){
   const payload={case_id:currentCaseId,name:g('elo_name'),address:g('elo_address'),tel:g('elo_tel'),google_map:g('elo_google_map'),price,memo:g('elo_memo'),lat:g('elo_lat')?Number(g('elo_lat')):null,lng:g('elo_lng')?Number(g('elo_lng')):null};
   const{data:ex}=await db.from('landowner_info').select('id').eq('case_id',currentCaseId).single();
   const{error}=ex?await db.from('landowner_info').update(payload).eq('case_id',currentCaseId):await db.from('landowner_info').insert(payload);
-  if(error){showToast('保存エラー','error');return;}
+  if(error){showToast('保存エラー: '+error.message,'error');return;}
   // 価格をcasesテーブルにも同期
-  if(price!==null)await db.from('cases').update({price}).eq('id',Number(currentCaseId));
-  showToast('地権者情報を保存しました');closeModal('editLandownerModal');
-  await Promise.all([loadLandownerDetail(currentCaseId),refreshAll()]);
+  const{error:priceErr}=await db.from('cases').update({price}).eq('id',currentCaseId);
+  if(priceErr)showToast('価格同期エラー: '+priceErr.message,'error');
+  closeModal('editLandownerModal');
+  await loadLandownerDetail(currentCaseId);
+  await refreshAll();
+  showToast('地権者情報を保存しました');
 }
 
 async function openLandEditModal(){
