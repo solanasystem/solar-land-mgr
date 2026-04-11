@@ -177,6 +177,7 @@
           <option>&#21271;&#28023;&#36947;</option><option>&#26481;&#21271;</option><option>&#38306;&#26481;</option><option>&#20013;&#37096;</option>
           <option>&#38306;&#35199;</option><option>&#20013;&#22269;</option><option>&#22235;&#22269;</option><option>&#20061;&#24030;</option>
         </select>
+        <button id="ngBlindBtn" class="btn" onclick="toggleNgBlind()" style="background:rgba(248,81,73,.4);color:#fff;border:1px solid rgba(248,81,73,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
       <button class="btn btn-primary" onclick="openNewCaseModal()">&#65291; &#26032;&#35215;&#26696;&#20214;&#30331;&#37682;</button>
     </div>
@@ -198,6 +199,7 @@
           <option>&#21271;&#28023;&#36947;</option><option>&#26481;&#21271;</option><option>&#38306;&#26481;</option><option>&#20013;&#37096;</option>
           <option>&#38306;&#35199;</option><option>&#20013;&#22269;</option><option>&#22235;&#22269;</option><option>&#20061;&#24030;</option>
         </select>
+        <button id="ngBlindBtnLo" class="btn" onclick="toggleNgBlind()" style="background:rgba(248,81,73,.4);color:#fff;border:1px solid rgba(248,81,73,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
     </div>
     <div class="cases-table-header" style="grid-template-columns:120px 160px 1fr 120px 140px 1fr 160px">
@@ -213,6 +215,7 @@
           <option>&#21271;&#28023;&#36947;</option><option>&#26481;&#21271;</option><option>&#38306;&#26481;</option><option>&#20013;&#37096;</option>
           <option>&#38306;&#35199;</option><option>&#20013;&#22269;</option><option>&#22235;&#22269;</option><option>&#20061;&#24030;</option>
         </select>
+        <button id="ngBlindBtnLd" class="btn" onclick="toggleNgBlind()" style="background:rgba(248,81,73,.4);color:#fff;border:1px solid rgba(248,81,73,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
     </div>
     <div class="cases-table-header" style="grid-template-columns:120px 1fr 120px 100px 150px 150px 60px 80px">
@@ -454,6 +457,7 @@ const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSI
 const{createClient}=supabase;
 const db=createClient(SUPABASE_URL,SUPABASE_KEY);
 let allCases=[],currentCaseId=null,currentLandownerId=null;
+let ngBlind=true;
 
 document.addEventListener('DOMContentLoaded',()=>{
   loadCases();
@@ -480,12 +484,25 @@ function updateStats(cases){
   document.getElementById('statKeiyaku').textContent=cases.filter(c=>c.status==='済').length;
 }
 
+function toggleNgBlind(){
+  ngBlind=!ngBlind;
+  const label=`NGブラインド ${ngBlind?'ON':'OFF'}`;
+  const style=ngBlind?'background:rgba(248,81,73,.4);color:#fff;border:1px solid rgba(248,81,73,.8);':'background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.4);';
+  ['ngBlindBtn','ngBlindBtnLo','ngBlindBtnLd'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){el.textContent=label;el.style.cssText=el.style.cssText.replace(/background:[^;]+;color:[^;]+;border:[^;]+;/,style);}
+  });
+  filterCases();
+  filterLandowners();
+  filterLandMaster();
+}
 function filterCases(){
   const q=document.getElementById('searchInput').value.toLowerCase();
   const kubun=document.getElementById('filterKubun').value;
   const status=document.getElementById('filterStatus').value;
   const area=document.getElementById('filterArea').value;
   renderCases(allCases.filter(c=>{
+    if(ngBlind&&c.status==='NG')return false;
     return(!q||(c.case_no||'').toLowerCase().includes(q)||(c.area_name||'').toLowerCase().includes(q))
       &&(!kubun||c.kubun===kubun)&&(!status||c.status===status)&&(!area||c.area_name===area);
   }));
@@ -629,7 +646,10 @@ async function loadLandownersMaster(){
 }
 function filterLandowners(){
   const status=document.getElementById('filterLoStatus').value,area=document.getElementById('filterLoArea').value;
-  renderLandowners(allLandowners.filter(lo=>(!status||lo.cases?.status===status)&&(!area||lo.cases?.area_name===area)));
+  renderLandowners(allLandowners.filter(lo=>{
+    if(ngBlind&&lo.cases?.status==='NG')return false;
+    return(!status||lo.cases?.status===status)&&(!area||lo.cases?.area_name===area);
+  }));
 }
 function renderLandowners(los){
   const el=document.getElementById('landownersList');
@@ -653,7 +673,10 @@ async function loadLandMaster(){
 }
 function filterLandMaster(){
   const area=document.getElementById('filterLandArea').value;
-  renderLands(allLands.filter(l=>!area||l.cases?.area_name===area));
+  renderLands(allLands.filter(l=>{
+    if(ngBlind&&l.cases?.status==='NG')return false;
+    return !area||l.cases?.area_name===area;
+  }));
 }
 function renderLands(lands){
   const el=document.getElementById('landList');
