@@ -88,10 +88,65 @@
   .stat-pill { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
   .stat-pill-dot { width: 8px; height: 8px; border-radius: 50%; }
 
-  .layer-control { position: absolute; top: 12px; right: 12px; z-index: 500; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 160px; }
+  /* ======== レイヤーコントロール（ハザード複数対応） ======== */
+  .layer-control {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 500;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 180px;
+  }
   .layer-title { font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 2px; }
   .layer-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); cursor: pointer; }
   .layer-item input[type=checkbox] { accent-color: var(--accent); }
+  .layer-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-top: 4px;
+    margin-bottom: 0px;
+    border-top: 1px solid var(--border);
+    padding-top: 6px;
+  }
+  /* ハザードトグルボタン */
+  .hazard-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 5px;
+    border: 1px solid transparent;
+    background: none;
+    font-family: var(--font-main);
+    width: 100%;
+    text-align: left;
+    transition: all 0.15s;
+  }
+  .hazard-toggle-btn:hover { background: var(--surface2); color: var(--text); }
+  .hazard-toggle-btn.active {
+    background: rgba(240,180,41,0.12);
+    border-color: rgba(240,180,41,0.4);
+    color: var(--accent);
+  }
+  .hazard-toggle-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--border);
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .hazard-toggle-btn.active .hazard-toggle-dot { background: var(--accent); }
 
   .survey-list-panel {
     position: absolute;
@@ -242,22 +297,44 @@
     <div class="action-panel" id="planPanel">
       <div class="action-panel-title">現地調査計画モード</div>
       <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>調査予定を選択してください</div>
-      <button class="btn btn-start" onclick="startSurveyMode()" id="startBtn" disabled>🗺 調査開始</button>
+      <button class="btn-start" onclick="startSurveyMode()" id="startBtn" disabled>🗺 調査開始</button>
     </div>
     <div class="action-panel" id="surveyPanel" style="display:none">
       <div class="action-panel-title">調査実行モード</div>
       <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>現地確認を記録してください</div>
-      <button class="btn btn-reset" onclick="resetSurvey()">🔄 計画をリセット</button>
+      <button class="btn-reset" onclick="resetSurvey()">🔄 計画をリセット</button>
     </div>
   </div>
 
-  <!-- レイヤーコントロール -->
+  <!-- ======== レイヤーコントロール（ハザード複数対応） ======== -->
   <div class="layer-control">
     <div class="layer-title">地図レイヤー</div>
     <label class="layer-item"><input type="checkbox" id="layerGsi" onchange="toggleLayer('gsi',this.checked)"> GSI 航空写真</label>
-    <label class="layer-item"><input type="checkbox" id="layerHazard" onchange="toggleLayer('hazard',this.checked)"> ハザードマップ</label>
     <label class="layer-item"><input type="checkbox" id="layerFarmland" onchange="toggleLayer('farmland',this.checked)"> 農地フラグ</label>
     <label class="layer-item"><input type="checkbox" id="layerFude" onchange="toggleLayer('fude',this.checked)"> 筆ポリゴン</label>
+
+    <!-- ハザードマップ（5種類トグル） -->
+    <div class="layer-section-title">🚨 ハザードマップ</div>
+    <button class="hazard-toggle-btn" id="btnHazard1" onclick="toggleHazard('hazard1')">
+      <span class="hazard-toggle-dot"></span>🌊 洪水浸水想定
+    </button>
+    <button class="hazard-toggle-btn" id="btnHazard2" onclick="toggleHazard('hazard2')">
+      <span class="hazard-toggle-dot"></span>🏔 土砂災害警戒
+    </button>
+    <button class="hazard-toggle-btn" id="btnHazard3" onclick="toggleHazard('hazard3')">
+      <span class="hazard-toggle-dot"></span>🌊 津波浸水想定
+    </button>
+    <button class="hazard-toggle-btn" id="btnHazard4" onclick="toggleHazard('hazard4')">
+      <span class="hazard-toggle-dot"></span>🌊 高潮浸水想定
+    </button>
+    <button class="hazard-toggle-btn" id="btnHazard5" onclick="toggleHazard('hazard5')">
+      <span class="hazard-toggle-dot"></span>💧 内水浸水想定
+    </button>
+    <!-- 土砂災害警戒区域ポリゴン -->
+    <div class="layer-section-title">⛰️ 土砂警戒ポリゴン</div>
+    <button class="hazard-toggle-btn" id="btnDosyaPolygon" onclick="toggleDosyaPolygon()">
+      <span class="hazard-toggle-dot"></span>🗺 警戒区域ポリゴン
+    </button>
   </div>
 
   <!-- 農地フラグ凡例 -->
@@ -376,7 +453,19 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-let map, gsiLayer, hazardLayer;
+let map, gsiLayer;
+// ======== ハザードレイヤー（5種類） ========
+let hazardLayers = {};
+const HAZARD_URLS = {
+  hazard1: 'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  hazard2: 'https://disaportaldata.gsi.go.jp/raster/05_dosekiryu_keikaikuiki/{z}/{x}/{y}.png',
+  hazard3: 'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',
+  hazard4: 'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  hazard5: 'https://disaportaldata.gsi.go.jp/raster/01_naisui_shinsuishin_data/{z}/{x}/{y}.png',
+};
+// ON/OFF状態管理
+const hazardState = { hazard1: false, hazard2: false, hazard3: false, hazard4: false, hazard5: false };
+
 let markers = {};
 let planSet = new Set();
 let surveyMode = false;
@@ -386,20 +475,45 @@ function initMap() {
   map = L.map('map', { zoomControl: false }).setView([36.2048, 138.2529], 6);
   L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '© 国土地理院', maxZoom: 18, className: 'base-tile' }).addTo(map);
   gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '© 国土地理院', maxZoom: 18, opacity: 0.85, zIndex: 1 });
-  hazardLayer = L.tileLayer('https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png', { attribution: '© ハザードマップポータルサイト', maxZoom: 17, minZoom: 2, opacity: 0.7, errorTileUrl: '', zIndex: 2 });
+
+  // ハザードレイヤーを5種類初期化
+  const hazardOpts = { attribution: '© ハザードマップポータルサイト', maxZoom: 17, minZoom: 2, opacity: 0.7, errorTileUrl: '', zIndex: 2 };
+  Object.entries(HAZARD_URLS).forEach(([key, url]) => {
+    hazardLayers[key] = L.tileLayer(url, { ...hazardOpts });
+  });
+
   map.on('zoomend', () => {
     document.getElementById('zoomLevel').textContent = map.getZoom();
   });
 }
 
+// ======== ハザードトグル関数 ========
+function toggleHazard(type) {
+  const layer = hazardLayers[type];
+  if (!layer) return;
+  const btn = document.getElementById('btn' + type.charAt(0).toUpperCase() + type.slice(1));
+  hazardState[type] = !hazardState[type];
+  if (hazardState[type]) {
+    layer.addTo(map);
+    layer.bringToFront();
+    if (btn) btn.classList.add('active');
+    showToast(btn ? btn.textContent.trim().replace(/^./, '') + ' をONにしました' : 'ハザードマップをONにしました', 'success');
+  } else {
+    map.removeLayer(layer);
+    if (btn) btn.classList.remove('active');
+    showToast(btn ? btn.textContent.trim().replace(/^./, '') + ' をOFFにしました' : 'ハザードマップをOFFにしました', 'success');
+  }
+}
+
 function toggleLayer(type, enabled) {
   if (type === 'gsi') {
     enabled ? gsiLayer.addTo(map) : map.removeLayer(gsiLayer);
-    if (enabled && map.hasLayer(hazardLayer)) hazardLayer.bringToFront();
-  }
-  else if (type === 'hazard') {
-    enabled ? hazardLayer.addTo(map) : map.removeLayer(hazardLayer);
-    if (enabled) hazardLayer.bringToFront();
+    if (enabled) {
+      // GSI追加後、ONになっているハザードレイヤーを前面に
+      Object.entries(hazardState).forEach(([key, on]) => {
+        if (on && hazardLayers[key]) hazardLayers[key].bringToFront();
+      });
+    }
   }
   else if (type === 'farmland') {
     if (enabled) {
@@ -928,6 +1042,99 @@ function showToast(msg, type = 'success') {
 
 function closeSidePanel() { document.getElementById('sidePanel').classList.remove('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ======== 土砂災害警戒区域ポリゴン ========
+let dosyaLayer = null;
+let dosyaEnabled = false;
+let dosyaRenderTimer = null;
+
+function getDosyaStyle(phenomenon, areaType) {
+  const isSpecial = areaType === '特別警戒区域';
+  const colorMap = {
+    '土石流':         isSpecial ? '#dc2626' : '#f59e0b',
+    '急傾斜地の崩壊': isSpecial ? '#9f1239' : '#f97316',
+    '地すべり':       isSpecial ? '#7c3aed' : '#84cc16',
+  };
+  const color = colorMap[phenomenon] || (isSpecial ? '#dc2626' : '#f59e0b');
+  return { fillColor: color, fillOpacity: isSpecial ? 0.35 : 0.2, color, weight: isSpecial ? 2 : 1.5, opacity: 0.9 };
+}
+
+function toggleDosyaPolygon() {
+  const btn = document.getElementById('btnDosyaPolygon');
+  dosyaEnabled = !dosyaEnabled;
+  if (dosyaEnabled) {
+    btn.classList.add('active');
+    loadDosya();
+  } else {
+    btn.classList.remove('active');
+    if (dosyaLayer) { map.removeLayer(dosyaLayer); dosyaLayer = null; }
+    map.off('moveend', renderDosyaInView);
+    map.off('zoomend', renderDosyaInView);
+  }
+}
+
+function renderDosyaInView() {
+  if (dosyaRenderTimer) clearTimeout(dosyaRenderTimer);
+  dosyaRenderTimer = setTimeout(_doRenderDosya, 300);
+}
+
+function _doRenderDosya() {
+  if (!dosyaEnabled) return;
+  if (map.getZoom() < 12) {
+    if (dosyaLayer) { map.removeLayer(dosyaLayer); dosyaLayer = null; }
+    showToast('ズームレベル12以上で表示されます', 'error');
+    return;
+  }
+  _fetchAndRenderDosya();
+}
+
+async function _fetchAndRenderDosya() {
+  const b = map.getBounds().pad(0.05);
+  const { data, error } = await db.rpc('get_dosya_in_bbox', {
+    lat_min: b.getSouth(), lat_max: b.getNorth(),
+    lng_min: b.getWest(),  lng_max: b.getEast(),
+    row_limit: 300,
+  });
+  if (error || !data || !data.length) return;
+  if (dosyaLayer) { map.removeLayer(dosyaLayer); dosyaLayer = null; }
+  const features = data.map(row => ({
+    type: 'Feature', geometry: row.geojson,
+    properties: { area_name: row.area_name, phenomenon: row.phenomenon, area_type: row.area_type, city_name: row.city_name, area_code: row.area_code },
+  }));
+  dosyaLayer = L.geoJSON({ type: 'FeatureCollection', features }, {
+    style: f => getDosyaStyle(f.properties.phenomenon, f.properties.area_type),
+    onEachFeature: (feature, layer) => {
+      const p = feature.properties;
+      const typeColor = p.area_type === '特別警戒区域' ? '#dc2626' : '#f59e0b';
+      layer.on('click', function(e) {
+        L.popup({ maxWidth: 300, minWidth: 240 }).setLatLng(e.latlng).setContent(`
+          <div class="popup-body">
+            <div class="popup-case-no" style="font-size:13px;color:${typeColor};margin-bottom:10px">⚠️ 土砂災害${p.area_type}</div>
+            <div class="popup-info">
+              <div class="popup-row"><span class="popup-label">現象</span><span class="popup-value">${p.phenomenon||'—'}</span></div>
+              <div class="popup-row"><span class="popup-label">区域名</span><span class="popup-value">${p.area_name||'—'}</span></div>
+              <div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">${p.city_name||'—'}</span></div>
+              <div class="popup-row"><span class="popup-label">区域コード</span><span class="popup-value" style="font-family:monospace;font-size:11px">${p.area_code||'—'}</span></div>
+            </div>
+            <hr class="popup-divider">
+            <div style="font-size:11px;color:#aaa;line-height:1.5">
+              ${p.area_type==='特別警戒区域'?'🔴 建築物の倒壊・流失が生じる恐れのある区域です':'🟡 土砂災害が発生した場合に被害を受ける恐れのある区域です'}
+            </div>
+          </div>
+        `).openOn(map);
+      });
+      layer.on('mouseover', function() { layer.setStyle({ fillOpacity: 0.55, weight: 3 }); });
+      layer.on('mouseout', function() { dosyaLayer.resetStyle(layer); });
+    },
+  }).addTo(map);
+  dosyaLayer.bringToFront();
+}
+
+function loadDosya() {
+  map.on('moveend', renderDosyaInView);
+  map.on('zoomend', renderDosyaInView);
+  renderDosyaInView();
+}
 
 initMap();
 loadData();
