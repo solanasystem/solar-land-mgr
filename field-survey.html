@@ -403,11 +403,12 @@ function toggleLayer(type, enabled) {
   }
   else if (type === 'farmland') {
     if (enabled) {
-      if (!farmlandLayer) loadFarmland();
-      else farmlandLayer.addTo(map);
+      if (!farmlandAllFeatures.length) loadFarmland();
+      else { renderFarmlandInView(); }
       document.getElementById('farmlandLegend').style.display = 'block';
     } else {
-      if (farmlandLayer) map.removeLayer(farmlandLayer);
+      if (farmlandLayer) { map.removeLayer(farmlandLayer); farmlandLayer = null; }
+      hideFarmlandCount();
       document.getElementById('farmlandLegend').style.display = 'none';
     }
   }
@@ -422,7 +423,27 @@ function toggleLayer(type, enabled) {
 }
 
 let farmlandLayer = null;
-let farmlandClusterGroup = null;
+let farmlandCountControl = null;
+function showFarmlandCount(count) {
+  const existing = document.getElementById('farmlandCountBadge');
+  if (existing) { existing.textContent = `🌾 農地フラグ ${count.toLocaleString()} 件（ズーム15以上で表示）`; return; }
+  if (!farmlandCountControl) {
+    farmlandCountControl = L.control({ position: 'bottomleft' });
+    farmlandCountControl.onAdd = () => {
+      const d = L.DomUtil.create('div');
+      d.id = 'farmlandCountBadge';
+      d.style.cssText = 'background:rgba(88,166,255,0.85);color:#fff;font-family:monospace;font-size:12px;font-weight:700;padding:6px 12px;border-radius:16px;border:2px solid rgba(255,255,255,0.5);box-shadow:0 2px 6px rgba(0,0,0,0.4);pointer-events:none;margin-bottom:8px;';
+      d.id = 'farmlandCountBadge';
+      return d;
+    };
+    farmlandCountControl.addTo(map);
+  }
+  const el = document.getElementById('farmlandCountBadge');
+  if (el) el.textContent = `🌾 農地フラグ ${count.toLocaleString()} 件（ズーム15以上で表示）`;
+}
+function hideFarmlandCount() {
+  if (farmlandCountControl) { farmlandCountControl.remove(); farmlandCountControl = null; }
+}
 let farmlandAllFeatures = [];
 const farmlandCanvas = L.canvas();
 
@@ -446,19 +467,20 @@ function _doRenderFarmland() {
   if (!document.getElementById('layerFarmland').checked) return;
   const zoom = map.getZoom();
 
-  if (zoom < 14) {
-    // クラスター表示
+  if (zoom < 15) {
+    // ズーム15未満：マーカー生成なし・件数カウントのみ
     if (farmlandLayer) { map.removeLayer(farmlandLayer); farmlandLayer = null; }
-    if (farmlandClusterGroup && !map.hasLayer(farmlandClusterGroup)) {
-      farmlandClusterGroup.addTo(map);
-    }
+    const bounds14 = map.getBounds().pad(0.1);
+    const cnt = farmlandAllFeatures.filter(f => {
+      const [lng, lat] = f.geometry.coordinates;
+      return bounds14.contains([lat, lng]);
+    }).length;
+    showFarmlandCount(cnt);
     return;
   }
 
-  // ズーム14以上：個別circleMarker表示
-  if (farmlandClusterGroup && map.hasLayer(farmlandClusterGroup)) {
-    map.removeLayer(farmlandClusterGroup);
-  }
+  // ズーム15以上：件数バッジ非表示、個別circleMarker表示
+  hideFarmlandCount();
   const bounds = map.getBounds().pad(0.1);
   const visible = farmlandAllFeatures.filter(f => {
     const [lng, lat] = f.geometry.coordinates;
@@ -510,30 +532,6 @@ async function loadFarmland() {
     const data = await res.json();
     farmlandAllFeatures = data.features || [];
 
-    // クラスターグループ作成
-    farmlandClusterGroup = L.markerClusterGroup({
-      maxClusterRadius: 60,
-      disableClusteringAtZoom: 14,
-      iconCreateFunction: (cluster) => {
-        const count = cluster.getChildCount();
-        const size = count > 1000 ? 52 : count > 100 ? 42 : 32;
-        const fontSize = count > 1000 ? 13 : 11;
-        return L.divIcon({
-          html: `<div class="farmland-cluster" style="width:${size}px;height:${size}px;font-size:${fontSize}px">${count}</div>`,
-          className: '',
-          iconSize: [size, size],
-          iconAnchor: [size/2, size/2]
-        });
-      }
-    });
-
-    // 全点をクラスターに追加（透明マーカー）
-    const markers = farmlandAllFeatures.map(f => {
-      const [lng, lat] = f.geometry.coordinates;
-      return L.marker([lat, lng], { opacity: 0 });
-    });
-    farmlandClusterGroup.addLayers(markers);
-
     map.on('moveend', renderFarmlandInView);
     map.on('zoomend', renderFarmlandInView);
     renderFarmlandInView();
@@ -555,7 +553,7 @@ function renderFudeInView() {
 
 function _doRenderFude() {
   if (!document.getElementById('layerFude').checked) return;
-  if (map.getZoom() < 14) return;
+  if (map.getZoom() < 15) return;
   const bounds = map.getBounds().pad(0.1);
   const visible = fudeAllFeatures.filter(f => {
     const lat = f.properties.point_lat;
@@ -615,7 +613,7 @@ async function loadFude() {
     fudeLoaded = true;
     map.on('moveend', renderFudeInView);
     map.on('zoomend', () => {
-      if (map.getZoom() < 14) {
+      if (map.getZoom() < 15) {
         if (fudeLayer) { map.removeLayer(fudeLayer); fudeLayer = null; }
       } else {
         renderFudeInView();
