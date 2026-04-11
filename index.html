@@ -215,8 +215,8 @@
         </select>
       </div>
     </div>
-    <div class="cases-table-header" style="grid-template-columns:120px 1fr 100px 150px 150px 60px 80px">
-      <div>&#26696;&#20214;&#30058;&#21495;</div><div>&#25152;&#22312;</div><div>&#38754;&#31309;</div>
+    <div class="cases-table-header" style="grid-template-columns:120px 1fr 120px 100px 150px 150px 60px 80px">
+      <div>&#26696;&#20214;&#30058;&#21495;</div><div>&#25152;&#22312;</div><div>&#20385;&#26684;&#65288;&#20870;&#65289;</div><div>&#38754;&#31309;</div>
       <div>&#29992;&#36884;&#22320;&#22495;&#12539;&#22320;&#30446;</div><div>&#12495;&#12470;&#12540;&#12489;</div><div>&#22320;&#22259;</div><div>&#25805;&#20316;</div>
     </div>
   </div>
@@ -646,7 +646,7 @@ function renderLandowners(los){
 
 let allLands=[];
 async function loadLandMaster(){
-  const{data}=await db.from('land_info').select('*,cases(case_no,status,area_name)');
+  const{data}=await db.from('land_info').select('*,cases(case_no,status,area_name,price)');
   allLands=(data||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
   renderLands(allLands);
 }
@@ -666,9 +666,10 @@ function renderLands(lands){
     const hazRaw=land.hazard||land.biko||'';
     const hazText=hazRaw.includes('http')?hazRaw.split(/https?:\/\//)[0].replace(/\/\s*$/,'').trim():hazRaw;
     const mapUrl=land.google_map?land.google_map:(land.hazard&&land.hazard.includes('http')?land.hazard.match(/https?:\/\/\S+/)?.[0]:null);
-    return `<div class="case-row" style="grid-template-columns:120px 1fr 100px 150px 150px 60px 80px;animation-delay:${i*.03}s">
-      <div class="case-no">${land.cases?.case_no||'—'}</div>
+    return `<div class="case-row" style="grid-template-columns:120px 1fr 120px 100px 150px 150px 60px 80px;animation-delay:${i*.03}s">
+      <div class="case-no" style="cursor:pointer;text-decoration:underline;text-decoration-color:rgba(163,113,247,.4);" onclick="openDetail('${land.case_id}','land')">${land.cases?.case_no||'—'}</div>
       <div style="font-size:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${soZai}</div>
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--text)">${land.cases?.price?Number(land.cases.price).toLocaleString()+' 円':'—'}</div>
       <div style="font-size:12px;color:var(--text-muted);white-space:nowrap">${menseki}</div>
       <div style="font-size:12px;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${yoto}</div>
       <div style="font-size:12px;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${hazText||'—'}</div>
@@ -764,7 +765,7 @@ async function refreshAll(){
   const{data:loData}=await db.from('landowner_info').select('*,cases(case_no,status,kubun,area_name)').order('case_id');
   allLandowners=(loData||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
   // 土地マスター
-  const{data:ldData}=await db.from('land_info').select('*,cases(case_no,status,area_name)');
+  const{data:ldData}=await db.from('land_info').select('*,cases(case_no,status,area_name,price)');
   allLands=(ldData||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
   // 不動産マスター
   const{data:reData}=await db.from('realestate_info').select('*,cases(case_no,area_name)');
