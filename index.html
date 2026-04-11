@@ -756,17 +756,45 @@ function openCaseEditModal(caseId){
   document.getElementById('ec_price').value=c.price||'';
   document.getElementById('editCaseModal').classList.add('open');
 }
+async function refreshAll(){
+  // 全マスターデータをDBから再読み込み
+  const{data}=await db.from('cases').select('*').order('created_at',{ascending:false});
+  allCases=(data||[]).sort((a,b)=>(a.case_no||'').localeCompare(b.case_no||'','ja'));
+  updateStats(allCases);
+  filterCases();
+  // 地権者マスター
+  const{data:loData}=await db.from('landowner_info').select('*,cases(case_no,status,kubun,area_name)').order('case_id');
+  allLandowners=(loData||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
+  // 土地マスター
+  const{data:ldData}=await db.from('land_info').select('*,cases(case_no,status,area_name)');
+  allLands=(ldData||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
+  // 不動産マスター
+  const{data:reData}=await db.from('realestate_info').select('*,cases(case_no,area_name)');
+  allRealestate=(reData||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
+  // 現在表示中のマスターを再描画
+  const vis=document.getElementById('landownersSection').style.display!=='none';
+  const visLd=document.getElementById('landSection').style.display!=='none';
+  const visRe=document.getElementById('realestateSection').style.display!=='none';
+  if(vis)renderLandowners(allLandowners);
+  if(visLd)renderLands(allLands);
+  if(visRe)renderRealestate(allRealestate);
+  // 詳細モーダルヘッダー更新
+  if(currentCaseId){
+    const c=allCases.find(x=>String(x.id)===String(currentCaseId));
+    if(c)document.getElementById('detailCaseInfo').innerHTML=`<span class="detail-case-no">${c.case_no}</span>${kubunBadge(c.kubun)}${statusBadge(c.status)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 万円':''}</span>`;
+  }
+}
 async function saveCase(){
   const{error}=await db.from('cases').update({kubun:document.getElementById('ec_kubun').value,status:document.getElementById('ec_status').value,price:document.getElementById('ec_price').value?Number(document.getElementById('ec_price').value):null}).eq('id',currentCaseId);
   if(error){showToast('保存エラー: '+error.message,'error');return;}
-  showToast('案件情報を更新しました');closeModal('editCaseModal');await loadCases();
+  showToast('案件情報を更新しました');closeModal('editCaseModal');await refreshAll();
 }
 async function deleteCase(){
   const c=allCases.find(x=>String(x.id)===String(currentCaseId));
   if(!confirm(`案件「${c?.case_no}」を削除しますか？\n関連する地権者・土地・商談記録もすべて削除されます。`))return;
   const{error}=await db.from('cases').delete().eq('id',currentCaseId);
   if(error){showToast('削除エラー','error');return;}
-  showToast('案件を削除しました');closeModal('editCaseModal');await loadCases();
+  showToast('案件を削除しました');closeModal('editCaseModal');await refreshAll();
 }
 
 async function openLandownerEditModal(){
@@ -779,11 +807,15 @@ async function openLandownerEditModal(){
 }
 async function saveLandowner(){
   const g=id=>document.getElementById(id).value;
-  const payload={case_id:currentCaseId,name:g('elo_name'),address:g('elo_address'),tel:g('elo_tel'),google_map:g('elo_google_map'),price:g('elo_price')?Number(g('elo_price')):null,memo:g('elo_memo'),lat:g('elo_lat')?Number(g('elo_lat')):null,lng:g('elo_lng')?Number(g('elo_lng')):null};
+  const price=g('elo_price')?Number(g('elo_price')):null;
+  const payload={case_id:currentCaseId,name:g('elo_name'),address:g('elo_address'),tel:g('elo_tel'),google_map:g('elo_google_map'),price,memo:g('elo_memo'),lat:g('elo_lat')?Number(g('elo_lat')):null,lng:g('elo_lng')?Number(g('elo_lng')):null};
   const{data:ex}=await db.from('landowner_info').select('id').eq('case_id',currentCaseId).single();
   const{error}=ex?await db.from('landowner_info').update(payload).eq('case_id',currentCaseId):await db.from('landowner_info').insert(payload);
   if(error){showToast('保存エラー','error');return;}
-  showToast('地権者情報を保存しました');closeModal('editLandownerModal');await loadLandownerDetail(currentCaseId);
+  // 価格をcasesテーブルにも同期
+  if(price!==null)await db.from('cases').update({price}).eq('id',Number(currentCaseId));
+  showToast('地権者情報を保存しました');closeModal('editLandownerModal');
+  await Promise.all([loadLandownerDetail(currentCaseId),refreshAll()]);
 }
 
 async function openLandEditModal(){
@@ -798,7 +830,8 @@ async function saveLand(){
   const{data:ex}=await db.from('land_info').select('id').eq('case_id',currentCaseId).single();
   const{error}=ex?await db.from('land_info').update(payload).eq('case_id',currentCaseId):await db.from('land_info').insert(payload);
   if(error){showToast('保存エラー','error');return;}
-  showToast('土地情報を保存しました');closeModal('editLandModal');await loadLandDetail(currentCaseId);
+  showToast('土地情報を保存しました');closeModal('editLandModal');
+  await Promise.all([loadLandDetail(currentCaseId),refreshAll()]);
 }
 
 async function openRealestateEditModal(){
@@ -814,7 +847,8 @@ async function saveRealestate(){
   const{data:ex}=await db.from('realestate_info').select('id').eq('case_id',currentCaseId).single();
   const{error}=ex?await db.from('realestate_info').update(payload).eq('case_id',currentCaseId):await db.from('realestate_info').insert(payload);
   if(error){showToast('保存エラー','error');return;}
-  showToast('不動産会社情報を保存しました');closeModal('editRealestateModal');await loadRealestateDetail(currentCaseId);
+  showToast('不動産会社情報を保存しました');closeModal('editRealestateModal');
+  await Promise.all([loadRealestateDetail(currentCaseId),refreshAll()]);
 }
 
 document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');}));
