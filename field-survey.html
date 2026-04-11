@@ -403,10 +403,11 @@ function toggleLayer(type, enabled) {
   }
   else if (type === 'farmland') {
     if (enabled) {
-      if (!farmlandAllFeatures.length) loadFarmland();
-      else { renderFarmlandInView(); }
+      if (!farmlandEnabled) loadFarmland();
+      else renderFarmlandInView();
       document.getElementById('farmlandLegend').style.display = 'block';
     } else {
+      farmlandEnabled = false;
       if (farmlandLayer) { map.removeLayer(farmlandLayer); farmlandLayer = null; }
       hideFarmlandCount();
       document.getElementById('farmlandLegend').style.display = 'none';
@@ -414,10 +415,11 @@ function toggleLayer(type, enabled) {
   }
   else if (type === 'fude') {
     if (enabled) {
-      if (!fudeLoaded) loadFude();
-      else if (fudeLayer) fudeLayer.addTo(map);
+      if (!fudeEnabled) loadFude();
+      else renderFudeInView();
     } else {
-      if (fudeLayer) map.removeLayer(fudeLayer);
+      fudeEnabled = false;
+      if (fudeLayer) { map.removeLayer(fudeLayer); fudeLayer = null; }
     }
   }
 }
@@ -444,15 +446,16 @@ function showFarmlandCount(count) {
 function hideFarmlandCount() {
   if (farmlandCountControl) { farmlandCountControl.remove(); farmlandCountControl = null; }
 }
-let farmlandAllFeatures = [];
 const farmlandCanvas = L.canvas();
+let farmlandEnabled = false;
+const NOUSHINHOU_NAME = {1:'青地（農振内・農用地内）',2:'白地（農振内・農用地外）',3:'農振外',0:'調査中'};
 
 function getFarmlandColor(code) {
-  switch(String(code)) {
-    case '1': return '#3b82f6'; // 青地
-    case '2': return '#ffffff'; // 白地
-    case '3': return '#f472b6'; // 農振外
-    default:  return '#a855f7'; // 調査中
+  switch(code) {
+    case 1: return '#3b82f6';
+    case 2: return '#ffffff';
+    case 3: return '#f472b6';
+    default: return '#a855f7';
   }
 }
 
@@ -464,85 +467,64 @@ function renderFarmlandInView() {
 }
 
 function _doRenderFarmland() {
-  if (!document.getElementById('layerFarmland').checked) return;
+  if (!farmlandEnabled) return;
   const zoom = map.getZoom();
 
   if (zoom < 15) {
-    // ズーム15未満：マーカー生成なし・件数カウントのみ
     if (farmlandLayer) { map.removeLayer(farmlandLayer); farmlandLayer = null; }
-    const bounds14 = map.getBounds().pad(0.1);
-    const cnt = farmlandAllFeatures.filter(f => {
-      const [lng, lat] = f.geometry.coordinates;
-      return bounds14.contains([lat, lng]);
-    }).length;
-    showFarmlandCount(cnt);
+    showFarmlandCount(null);
     return;
   }
 
-  // ズーム15以上：件数バッジ非表示、個別circleMarker表示
   hideFarmlandCount();
-  const bounds = map.getBounds().pad(0.1);
-  const visible = farmlandAllFeatures.filter(f => {
-    const [lng, lat] = f.geometry.coordinates;
-    return bounds.contains([lat, lng]);
-  });
-  if (farmlandLayer) { map.removeLayer(farmlandLayer); farmlandLayer = null; }
-  farmlandLayer = L.geoJSON({ type: 'FeatureCollection', features: visible }, {
-    pointToLayer: (feature, latlng) => {
-      const code = feature.properties.SectionOfNoushinhou;
-      const color = getFarmlandColor(code);
-      const borderColor = color === '#ffffff' ? '#999999' : 'rgba(0,0,0,0.5)';
-      return L.circleMarker(latlng, {
-        renderer: farmlandCanvas,
-        radius: 4,
-        fillColor: color,
-        color: borderColor,
-        weight: 1,
-        fillOpacity: 1
-      });
-    },
-    onEachFeature: (feature, layer) => {
-      const p = feature.properties;
-      const lat = feature.geometry.coordinates[1];
-      const lng = feature.geometry.coordinates[0];
-      layer.bindPopup(`
-        <div class="popup-body">
-          <div class="popup-case-no">
-            <span>${p.Address || '—'}</span>
-          </div>
-          <div class="popup-info">
-            <div class="popup-row"><span class="popup-label">農振区分</span><span class="popup-value">${p.SectionOfNoushinhouCodeName || '—'}</span></div>
-            <div class="popup-row"><span class="popup-label">地目</span><span class="popup-value">${p.ClassificationOfLandCodeName || '—'}</span></div>
-            <div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">${p.AreaOnRegistry ? Number(p.AreaOnRegistry).toLocaleString() + ' ㎡' : '—'}</span></div>
-            <div class="popup-row"><span class="popup-label">都市計画</span><span class="popup-value">${p.SectionOfToshikeikakuhouCodeName || '—'}</span></div>
-          </div>
-          <hr class="popup-divider">
-          <div style="display:flex;gap:6px">
-            <button class="popup-btn" style="border-color:var(--green);color:var(--green)" onclick="openNouchiNavi(${lat},${lng})">🌾 農地ナビで確認</button>
-          </div>
-        </div>
-      `, { maxWidth: 300, minWidth: 260 });
-    }
-  }).addTo(map);
+  _fetchAndRenderFarmland();
 }
 
-async function loadFarmland() {
-  try {
-    const res = await fetch('./farmland.geojson');
-    const data = await res.json();
-    farmlandAllFeatures = data.features || [];
+async function _fetchAndRenderFarmland() {
+  const b = map.getBounds().pad(0.1);
+  const { data, error } = await db.rpc('get_farmland_in_bbox', {
+    lat_min: b.getSouth(), lat_max: b.getNorth(),
+    lng_min: b.getWest(),  lng_max: b.getEast()
+  });
+  if (error || !data) return;
 
-    map.on('moveend', renderFarmlandInView);
-    map.on('zoomend', renderFarmlandInView);
-    renderFarmlandInView();
-  } catch(e) {
-    showToast('農地データの読み込みに失敗しました', 'error');
+  if (farmlandLayer) { map.removeLayer(farmlandLayer); farmlandLayer = null; }
+  const layers = [];
+  for (const f of data) {
+    const code = parseInt(f.noushin_code) || 0;
+    const color = getFarmlandColor(code);
+    const borderColor = color === '#ffffff' ? '#999999' : 'rgba(0,0,0,0.5)';
+    const m = L.circleMarker([f.lat, f.lng], {
+      renderer: farmlandCanvas, radius: 4,
+      fillColor: color, color: borderColor, weight: 1, fillOpacity: 1
+    });
+    m.bindPopup(`
+      <div class="popup-body">
+        <div class="popup-info">
+          <div class="popup-row"><span class="popup-label">農振区分</span><span class="popup-value">${NOUSHINHOU_NAME[code]||'—'}</span></div>
+          <div class="popup-row"><span class="popup-label">住所</span><span class="popup-value">${f.address||'—'}</span></div>
+          <div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">${f.area_sqm ? Number(f.area_sqm).toLocaleString()+' ㎡' : '—'}</span></div>
+        </div>
+        <hr class="popup-divider">
+        <div style="display:flex;gap:6px">
+          <button class="popup-btn" style="border-color:var(--green);color:var(--green)" onclick="openNouchiNavi(${f.lat},${f.lng})">🌾 農地ナビで確認</button>
+        </div>
+      </div>
+    `, { maxWidth: 260, minWidth: 200 });
+    layers.push(m);
   }
+  farmlandLayer = L.layerGroup(layers).addTo(map);
+}
+
+function loadFarmland() {
+  farmlandEnabled = true;
+  map.on('moveend', renderFarmlandInView);
+  map.on('zoomend', renderFarmlandInView);
+  renderFarmlandInView();
 }
 
 let fudeLayer = null;
-let fudeLoaded = false;
-let fudeAllFeatures = [];
+let fudeEnabled = false;
 const fudeCanvas = L.canvas();
 let fudeRenderTimer = null;
 
@@ -552,16 +534,28 @@ function renderFudeInView() {
 }
 
 function _doRenderFude() {
-  if (!document.getElementById('layerFude').checked) return;
-  if (map.getZoom() < 15) return;
-  const bounds = map.getBounds().pad(0.1);
-  const visible = fudeAllFeatures.filter(f => {
-    const lat = f.properties.point_lat;
-    const lng = f.properties.point_lng;
-    return bounds.contains([lat, lng]);
+  if (!fudeEnabled) return;
+  if (map.getZoom() < 15) {
+    if (fudeLayer) { map.removeLayer(fudeLayer); fudeLayer = null; }
+    return;
+  }
+  _fetchAndRenderFude();
+}
+
+async function _fetchAndRenderFude() {
+  const b = map.getBounds().pad(0.1);
+  const { data, error } = await db.rpc('get_fude_in_bbox', {
+    lat_min: b.getSouth(), lat_max: b.getNorth(),
+    lng_min: b.getWest(),  lng_max: b.getEast()
   });
+  if (error || !data) return;
   if (fudeLayer) { map.removeLayer(fudeLayer); fudeLayer = null; }
-  fudeLayer = L.geoJSON({ type: 'FeatureCollection', features: visible }, {
+  const features = data.map(row => ({
+    type: 'Feature',
+    geometry: row.geometry,
+    properties: { land_type: row.land_type, point_lat: row.lat, point_lng: row.lng }
+  }));
+  fudeLayer = L.geoJSON({ type: 'FeatureCollection', features }, {
     style: (feature) => {
       const lt = feature.properties.land_type;
       return {
@@ -604,26 +598,11 @@ function openNouchiNavi(lat, lng) {
   window.open(`https://map.maff.go.jp/?zoom=${zoom}&lat=${lat}&lng=${lng}`, '_blank');
 }
 
-async function loadFude() {
-  try {
-    showToast('筆ポリゴンを読み込み中...', 'success');
-    const res = await fetch('./fude_gamagori.geojson');
-    const data = await res.json();
-    fudeAllFeatures = data.features || [];
-    fudeLoaded = true;
-    map.on('moveend', renderFudeInView);
-    map.on('zoomend', () => {
-      if (map.getZoom() < 15) {
-        if (fudeLayer) { map.removeLayer(fudeLayer); fudeLayer = null; }
-      } else {
-        renderFudeInView();
-      }
-    });
-    renderFudeInView();
-    showToast(`筆ポリゴン読み込み完了 (${fudeAllFeatures.length.toLocaleString()}件)`, 'success');
-  } catch(e) {
-    showToast('筆ポリゴンの読み込みに失敗しました', 'error');
-  }
+function loadFude() {
+  fudeEnabled = true;
+  map.on('moveend', renderFudeInView);
+  map.on('zoomend', renderFudeInView);
+  renderFudeInView();
 }
 
 async function loadData() {
