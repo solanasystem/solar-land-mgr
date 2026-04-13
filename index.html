@@ -30,7 +30,6 @@
   .nav{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;gap:4px;position:sticky;top:56px;z-index:99;}
   .nav-btn{padding:10px 16px;background:none;border:none;color:var(--text-muted);font-family:var(--font-main);font-size:13px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;white-space:nowrap;}
   .nav-btn:hover{color:var(--text);}.nav-btn.active{color:var(--accent);border-bottom-color:var(--accent);}
-  /* stickyZone */
   #stickyZone{position:sticky;top:98px;z-index:90;background:var(--bg);}
   #stickyZone>div{max-width:1400px;margin:0 auto;}
   .sticky-toolbar{padding:8px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--bg);}
@@ -558,6 +557,15 @@ function kubunBadge(k){if(!k)return '<span style="color:var(--text-muted);font-s
 function statusBadge(s){return `<span class="status-badge status-${s?statusClass(s):'mitoiroku'}"><span class="status-dot"></span>${s||'—'}</span>`;}
 function formatDate(d){if(!d)return'—';return new Date(d).toLocaleDateString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit'});}
 
+// ======== Google Maps URL を安全に補完する関数 ========
+function safeUrl(url){
+  if(!url)return null;
+  url=url.trim();
+  if(url.startsWith('http://')||url.startsWith('https://'))return url;
+  if(url.startsWith('//'))return 'https:'+url;
+  return 'https://'+url;
+}
+
 function openNewCaseModal(){document.getElementById('newCaseModal').classList.add('open');}
 async function createCase(){
   const area=document.getElementById('newArea').value,kubun=document.getElementById('newKubun').value;
@@ -587,7 +595,7 @@ async function openDetail(caseId,mode){
 async function loadLandownerDetail(caseId){
   const{data}=await db.from('landowner_info').select('*').eq('case_id',caseId).single();
   currentLandownerId=data?.id||null;
-  const html=data?`<div class="info-item"><div class="info-label">氏名</div><div class="info-value">${data.name||'—'}</div></div><div class="info-item"><div class="info-label">電話番号</div><div class="info-value">${data.tel||'—'}</div></div><div class="info-item full"><div class="info-label">住所</div><div class="info-value">${data.address||'—'}</div></div><div class="info-item"><div class="info-label">価格（円）</div><div class="info-value">${data.price?Number(data.price).toLocaleString():'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${data.google_map}" target="_blank">&#128506; 地図を開く</a>`:'—'}</div></div><div class="info-item full"><div class="info-label">メモ</div><div class="info-value">${data.memo||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">地権者情報が未登録です</div>';
+  const html=data?`<div class="info-item"><div class="info-label">氏名</div><div class="info-value">${data.name||'—'}</div></div><div class="info-item"><div class="info-label">電話番号</div><div class="info-value">${data.tel||'—'}</div></div><div class="info-item full"><div class="info-label">住所</div><div class="info-value">${data.address||'—'}</div></div><div class="info-item"><div class="info-label">価格（円）</div><div class="info-value">${data.price?Number(data.price).toLocaleString():'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">&#128506; 地図を開く</a>`:'—'}</div></div><div class="info-item full"><div class="info-label">メモ</div><div class="info-value">${data.memo||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">地権者情報が未登録です</div>';
   document.getElementById('landownerInfo').innerHTML=html;
   document.getElementById('landownerInfoCollapse').innerHTML=html;
   if(data?.id)await loadNegotiationLogs(data.id);
@@ -602,7 +610,7 @@ async function loadNegotiationLogs(id){
 
 async function loadLandDetail(caseId){
   const{data}=await db.from('land_info').select('*').eq('case_id',caseId).single();
-  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${data.area_sqm?Number(data.area_sqm).toLocaleString()+' &#13217;':'—'}</div></div><div class="info-item"><div class="info-label">用途地域・地目</div><div class="info-value">${data.chiban||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">法令上の制限</div><div class="info-value">${data.horeijo_seigen||'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${data.google_map}" target="_blank">&#128506; 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
+  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${data.area_sqm?Number(data.area_sqm).toLocaleString()+' &#13217;':'—'}</div></div><div class="info-item"><div class="info-label">用途地域・地目</div><div class="info-value">${data.chiban||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">法令上の制限</div><div class="info-value">${data.horeijo_seigen||'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">&#128506; 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
 }
@@ -689,7 +697,7 @@ function renderLands(lands){
     const yoto=land.horeijo_seigen||'—';
     const hazRaw=land.hazard||land.biko||'';
     const hazText=hazRaw.includes('http')?hazRaw.split(/https?:\/\//)[0].replace(/\/\s*$/,'').trim():hazRaw;
-    const mapUrl=land.google_map?land.google_map:(land.hazard&&land.hazard.includes('http')?land.hazard.match(/https?:\/\/\S+/)?.[0]:null);
+    const mapUrl=land.google_map?safeUrl(land.google_map):(land.hazard&&land.hazard.includes('http')?land.hazard.match(/https?:\/\/\S+/)?.[0]:null);
     return `<div class="case-row" style="grid-template-columns:120px 1fr 120px 100px 150px 150px 60px 80px;animation-delay:${i*.03}s">
       <div class="case-no" style="cursor:pointer;text-decoration:underline;text-decoration-color:rgba(163,113,247,.4);" onclick="openDetail('${land.case_id}','land')">${land.cases?.case_no||'—'}</div>
       <div style="font-size:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${soZai}</div>
@@ -780,28 +788,22 @@ function openCaseEditModal(caseId){
   document.getElementById('editCaseModal').classList.add('open');
 }
 async function refreshAll(){
-  // 全マスターデータをDBから再読み込み
   const{data}=await db.from('cases').select('*').order('created_at',{ascending:false});
   allCases=(data||[]).sort((a,b)=>(a.case_no||'').localeCompare(b.case_no||'','ja'));
   updateStats(allCases);
   filterCases();
-  // 地権者マスター
   const{data:loData}=await db.from('landowner_info').select('*,cases(case_no,status,kubun,area_name)').order('case_id');
   allLandowners=(loData||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
-  // 土地マスター
   const{data:ldData}=await db.from('land_info').select('*,cases(case_no,status,area_name,price)');
   allLands=(ldData||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
-  // 不動産マスター
   const{data:reData}=await db.from('realestate_info').select('*,cases(case_no,area_name)');
   allRealestate=(reData||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
-  // 現在表示中のマスターを再描画
   const vis=document.getElementById('landownersSection').style.display!=='none';
   const visLd=document.getElementById('landSection').style.display!=='none';
   const visRe=document.getElementById('realestateSection').style.display!=='none';
   if(vis)renderLandowners(allLandowners);
   if(visLd)renderLands(allLands);
   if(visRe)renderRealestate(allRealestate);
-  // 詳細モーダルヘッダー更新
   if(currentCaseId){
     const c=allCases.find(x=>String(x.id)===String(currentCaseId));
     if(c)document.getElementById('detailCaseInfo').innerHTML=`<span class="detail-case-no">${c.case_no}</span>${kubunBadge(c.kubun)}${statusBadge(c.status)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
@@ -835,15 +837,9 @@ async function saveLandowner(){
   const{data:ex}=await db.from('landowner_info').select('id').eq('case_id',currentCaseId).single();
   const{error}=ex?await db.from('landowner_info').update(payload).eq('case_id',currentCaseId):await db.from('landowner_info').insert(payload);
   if(error){showToast('保存エラー: '+error.message,'error');return;}
-  // casesテーブルの価格を同期（直接SQL相当の更新）
   const{data:updatedCase,error:priceErr}=await db.from('cases').update({price:price}).eq('id',currentCaseId).select('id,price').single();
-  if(priceErr){
-    showToast('価格同期エラー: '+priceErr.message,'error');
-  } else {
-    // メモリ上のallCasesも更新
-    const c=allCases.find(x=>String(x.id)===String(currentCaseId));
-    if(c&&updatedCase)c.price=updatedCase.price;
-  }
+  if(priceErr){showToast('価格同期エラー: '+priceErr.message,'error');}
+  else{const c=allCases.find(x=>String(x.id)===String(currentCaseId));if(c&&updatedCase)c.price=updatedCase.price;}
   closeModal('editLandownerModal');
   await loadLandownerDetail(currentCaseId);
   await refreshAll();
