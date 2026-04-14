@@ -1185,20 +1185,21 @@ function loadDosya() {
 // ======== 都市計画情報（用途地域 XKT002） ========
 const WORKER_BASE = 'https://reinfolib-proxy.takumi-29b.workers.dev/api';
 
-const YOTO_INFO = {
-  '1':  { color: '#FFFFD2', label: '第1種低層住居専用地域' },
-  '2':  { color: '#FFFFC0', label: '第2種低層住居専用地域' },
-  '3':  { color: '#DFF1CB', label: '第1種中高層住居専用地域' },
-  '4':  { color: '#F0FFE1', label: '第2種中高層住居専用地域' },
-  '5':  { color: '#FFFFD2', label: '第1種住居地域' },
-  '6':  { color: '#FFF1E2', label: '第2種住居地域' },
-  '7':  { color: '#FFE4CC', label: '準住居地域' },
-  '8':  { color: '#FFD4A0', label: '近隣商業地域' },
-  '9':  { color: '#FFB3D2', label: '商業地域' },
-  '10': { color: '#E1B3FF', label: '準工業地域' },
-  '11': { color: '#B3D4FF', label: '工業地域' },
-  '12': { color: '#CCF0FF', label: '工業専用地域' },
-  '13': { color: '#E8E8E8', label: '用途地域外（市街化区域）' },
+// use_area_ja（日本語名）で色を直接マッピング（youto_idの数値体系に依存しない）
+const YOTO_COLOR = {
+  '第一種低層住居専用地域':   '#FFFFD2',
+  '第二種低層住居専用地域':   '#FFFFC0',
+  '第一種中高層住居専用地域': '#DFF1CB',
+  '第二種中高層住居専用地域': '#F0FFE1',
+  '第一種住居地域':           '#FFFFD2',
+  '第二種住居地域':           '#FFF1E2',
+  '準住居地域':               '#FFE4CC',
+  '近隣商業地域':             '#FFD4A0',
+  '商業地域':                 '#FFB3D2',
+  '準工業地域':               '#E1B3FF',
+  '工業地域':                 '#B3D4FF',
+  '工業専用地域':             '#CCF0FF',
+  '用途地域外':               '#E0E0E0',
 };
 
 let urbanLayer = null;
@@ -1301,15 +1302,18 @@ async function _fetchAndRenderUrban() {
   urbanLayer = L.geoJSON({ type: 'FeatureCollection', features: uniqueFeatures }, {
     style: (feature) => {
       const p = feature.properties || {};
-      const code = String(p.youto_id || '');
-      const info = YOTO_INFO[code] || { color: '#dddddd' };
-      return { fillColor: info.color, fillOpacity: 0.55, color: '#888888', weight: 0.5, opacity: 0.7 };
+      const name = p.use_area_ja || '';
+      // 部分一致でカラーを検索（表記揺れ対応）
+      const color = YOTO_COLOR[name] ||
+        Object.entries(YOTO_COLOR).find(([k]) => name.includes(k.slice(0,4)))?.[1] ||
+        '#dddddd';
+      return { fillColor: color, fillOpacity: 0.55, color: '#888888', weight: 0.5, opacity: 0.7 };
     },
     onEachFeature: (feature, layer) => {
       const p = feature.properties || {};
-      const code = String(p.youto_id || '');
-      const info = YOTO_INFO[code] || { label: p.use_area_ja || '不明', color: '#dddddd' };
-      const label = p.use_area_ja || info.label;
+      const name = p.use_area_ja || '';
+      const color = YOTO_COLOR[name] || '#dddddd';
+      const label = name || '不明';
       const kenpeiri = p.u_building_coverage_ratio_ja || '—';
       const yosekiri = p.u_floor_area_ratio_ja || '—';
       const city = p.city_name || '';
