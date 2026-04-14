@@ -1301,25 +1301,28 @@ async function _fetchAndRenderUrban() {
   urbanLayer = L.geoJSON({ type: 'FeatureCollection', features: uniqueFeatures }, {
     style: (feature) => {
       const p = feature.properties || {};
-      // XKT002のフィールド名を複数パターンで対応
-      const code = String(p.A29_003 || p.youto_code || p.youto || '');
+      const code = String(p.youto_id || '');
       const info = YOTO_INFO[code] || { color: '#dddddd' };
       return { fillColor: info.color, fillOpacity: 0.55, color: '#888888', weight: 0.5, opacity: 0.7 };
     },
     onEachFeature: (feature, layer) => {
       const p = feature.properties || {};
-      const code = String(p.A29_003 || p.youto_code || p.youto || '');
-      const info = YOTO_INFO[code] || { label: '不明', color: '#dddddd' };
-      const kenpeiri = p.A29_004 != null ? p.A29_004 + '%' : '—';
-      const yosekiri = p.A29_005 != null ? p.A29_005 + '%' : '—';
+      const code = String(p.youto_id || '');
+      const info = YOTO_INFO[code] || { label: p.use_area_ja || '不明', color: '#dddddd' };
+      const label = p.use_area_ja || info.label;
+      const kenpeiri = p.u_building_coverage_ratio_ja || '—';
+      const yosekiri = p.u_floor_area_ratio_ja || '—';
+      const city = p.city_name || '';
+      const pref = p.prefecture || '';
       layer.on('click', function(e) {
         L.popup({ maxWidth: 300, minWidth: 240 }).setLatLng(e.latlng).setContent(`
           <div class="popup-body">
             <div class="popup-case-no" style="color:#818cf8;font-size:13px;margin-bottom:10px">🏙 都市計画情報</div>
             <div class="popup-info">
-              <div class="popup-row"><span class="popup-label">用途地域</span><span class="popup-value" style="font-weight:600">${info.label}</span></div>
+              <div class="popup-row"><span class="popup-label">用途地域</span><span class="popup-value" style="font-weight:600">${label}</span></div>
               <div class="popup-row"><span class="popup-label">建蔽率</span><span class="popup-value">${kenpeiri}</span></div>
               <div class="popup-row"><span class="popup-label">容積率</span><span class="popup-value">${yosekiri}</span></div>
+              ${city ? `<div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">${pref} ${city}</span></div>` : ''}
             </div>
             <hr class="popup-divider">
             <div style="font-size:11px;color:#aaa;line-height:1.5">国土交通省 不動産情報ライブラリ（XKT002）</div>
