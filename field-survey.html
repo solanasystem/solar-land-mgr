@@ -345,6 +345,30 @@
     <button class="hazard-toggle-btn" id="btnDosyaPolygon" onclick="toggleDosyaPolygon()">
       <span class="hazard-toggle-dot"></span>🗺 警戒区域ポリゴン
     </button>
+
+    <!-- 都市計画情報 -->
+    <div class="layer-section-title">🏙 都市計画情報</div>
+    <button class="hazard-toggle-btn" id="btnUrbanPlanning" onclick="toggleUrbanPlanning()">
+      <span class="hazard-toggle-dot"></span>🏠 用途地域
+    </button>
+    <!-- 用途地域凡例 -->
+    <div id="urbanLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-height:200px;overflow-y:auto;">
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">用途地域</div>
+      <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFFFD2;border:1px solid #aaa;flex-shrink:0"></div>第1種低層住居専用</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFFFC0;border:1px solid #aaa;flex-shrink:0"></div>第2種低層住居専用</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#DFF1CB;border:1px solid #aaa;flex-shrink:0"></div>第1種中高層住居専用</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#F0FFE1;border:1px solid #aaa;flex-shrink:0"></div>第2種中高層住居専用</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFFFD2;border:1px solid #aaa;flex-shrink:0"></div>第1種住居</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFF1E2;border:1px solid #aaa;flex-shrink:0"></div>第2種住居</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFE4CC;border:1px solid #aaa;flex-shrink:0"></div>準住居</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFD4A0;border:1px solid #aaa;flex-shrink:0"></div>近隣商業</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFB3D2;border:1px solid #aaa;flex-shrink:0"></div>商業</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#E1B3FF;border:1px solid #aaa;flex-shrink:0"></div>準工業</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#B3D4FF;border:1px solid #aaa;flex-shrink:0"></div>工業</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#CCF0FF;border:1px solid #aaa;flex-shrink:0"></div>工業専用</div>
+      </div>
+    </div>
   </div>
 
   <!-- 農地凡例はlayer-control内に統合済み -->
@@ -1156,6 +1180,157 @@ function loadDosya() {
   map.on('moveend', renderDosyaInView);
   map.on('zoomend', renderDosyaInView);
   renderDosyaInView();
+}
+
+// ======== 都市計画情報（用途地域 XKT002） ========
+const WORKER_BASE = 'https://reinfolib-proxy.takumi-29b.workers.dev/api';
+
+const YOTO_INFO = {
+  '1':  { color: '#FFFFD2', label: '第1種低層住居専用地域' },
+  '2':  { color: '#FFFFC0', label: '第2種低層住居専用地域' },
+  '3':  { color: '#DFF1CB', label: '第1種中高層住居専用地域' },
+  '4':  { color: '#F0FFE1', label: '第2種中高層住居専用地域' },
+  '5':  { color: '#FFFFD2', label: '第1種住居地域' },
+  '6':  { color: '#FFF1E2', label: '第2種住居地域' },
+  '7':  { color: '#FFE4CC', label: '準住居地域' },
+  '8':  { color: '#FFD4A0', label: '近隣商業地域' },
+  '9':  { color: '#FFB3D2', label: '商業地域' },
+  '10': { color: '#E1B3FF', label: '準工業地域' },
+  '11': { color: '#B3D4FF', label: '工業地域' },
+  '12': { color: '#CCF0FF', label: '工業専用地域' },
+  '13': { color: '#E8E8E8', label: '用途地域外（市街化区域）' },
+};
+
+let urbanLayer = null;
+let urbanEnabled = false;
+let urbanRenderTimer = null;
+
+function latLngToTileXY(lat, lng, zoom) {
+  const x = Math.floor((lng + 180) / 360 * Math.pow(2, zoom));
+  const sinLat = Math.sin(lat * Math.PI / 180);
+  const y = Math.floor((0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * Math.pow(2, zoom));
+  return { x, y };
+}
+
+function getTilesForBounds(bounds, zoom) {
+  const nw = latLngToTileXY(bounds.getNorth(), bounds.getWest(), zoom);
+  const se = latLngToTileXY(bounds.getSouth(), bounds.getEast(), zoom);
+  const tiles = [];
+  for (let x = nw.x; x <= se.x; x++) {
+    for (let y = nw.y; y <= se.y; y++) {
+      tiles.push({ x, y, z: zoom });
+    }
+  }
+  return tiles;
+}
+
+function toggleUrbanPlanning() {
+  const btn = document.getElementById('btnUrbanPlanning');
+  const legend = document.getElementById('urbanLegend');
+  urbanEnabled = !urbanEnabled;
+  if (urbanEnabled) {
+    btn.classList.add('active');
+    if (legend) legend.style.display = 'block';
+    loadUrbanPlanning();
+    showToast('🏙 用途地域をONにしました', 'success');
+  } else {
+    btn.classList.remove('active');
+    if (legend) legend.style.display = 'none';
+    if (urbanLayer) { map.removeLayer(urbanLayer); urbanLayer = null; }
+    map.off('moveend', renderUrbanInView);
+    map.off('zoomend', renderUrbanInView);
+    showToast('🏙 用途地域をOFFにしました', 'success');
+  }
+}
+
+function loadUrbanPlanning() {
+  map.on('moveend', renderUrbanInView);
+  map.on('zoomend', renderUrbanInView);
+  renderUrbanInView();
+}
+
+function renderUrbanInView() {
+  if (urbanRenderTimer) clearTimeout(urbanRenderTimer);
+  urbanRenderTimer = setTimeout(_doRenderUrban, 400);
+}
+
+function _doRenderUrban() {
+  if (!urbanEnabled) return;
+  if (map.getZoom() < 11) {
+    if (urbanLayer) { map.removeLayer(urbanLayer); urbanLayer = null; }
+    showToast('ズーム11以上で用途地域が表示されます', 'error');
+    return;
+  }
+  _fetchAndRenderUrban();
+}
+
+async function _fetchAndRenderUrban() {
+  const bounds = map.getBounds();
+  const tileZoom = Math.min(Math.max(Math.floor(map.getZoom()), 11), 14);
+  const tiles = getTilesForBounds(bounds, tileZoom);
+
+  if (tiles.length > 36) {
+    if (urbanLayer) { map.removeLayer(urbanLayer); urbanLayer = null; }
+    showToast('もう少しズームインすると用途地域が表示されます', 'error');
+    return;
+  }
+
+  const allFeatures = [];
+  await Promise.all(tiles.map(async ({ x, y, z }) => {
+    try {
+      const res = await fetch(`${WORKER_BASE}/XKT002?response_format=geojson&z=${z}&x=${x}&y=${y}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.features) allFeatures.push(...data.features);
+    } catch (e) { console.warn('urban fetch error', e); }
+  }));
+
+  if (!urbanEnabled) return;
+  if (urbanLayer) { map.removeLayer(urbanLayer); urbanLayer = null; }
+  if (!allFeatures.length) return;
+
+  // 重複フィーチャーを除去
+  const seen = new Set();
+  const uniqueFeatures = allFeatures.filter(f => {
+    const key = JSON.stringify(f.geometry?.coordinates?.[0]?.[0] || Math.random());
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  urbanLayer = L.geoJSON({ type: 'FeatureCollection', features: uniqueFeatures }, {
+    style: (feature) => {
+      const p = feature.properties || {};
+      // XKT002のフィールド名を複数パターンで対応
+      const code = String(p.A29_003 || p.youto_code || p.youto || '');
+      const info = YOTO_INFO[code] || { color: '#dddddd' };
+      return { fillColor: info.color, fillOpacity: 0.55, color: '#888888', weight: 0.5, opacity: 0.7 };
+    },
+    onEachFeature: (feature, layer) => {
+      const p = feature.properties || {};
+      const code = String(p.A29_003 || p.youto_code || p.youto || '');
+      const info = YOTO_INFO[code] || { label: '不明', color: '#dddddd' };
+      const kenpeiri = p.A29_004 != null ? p.A29_004 + '%' : '—';
+      const yosekiri = p.A29_005 != null ? p.A29_005 + '%' : '—';
+      layer.on('click', function(e) {
+        L.popup({ maxWidth: 300, minWidth: 240 }).setLatLng(e.latlng).setContent(`
+          <div class="popup-body">
+            <div class="popup-case-no" style="color:#818cf8;font-size:13px;margin-bottom:10px">🏙 都市計画情報</div>
+            <div class="popup-info">
+              <div class="popup-row"><span class="popup-label">用途地域</span><span class="popup-value" style="font-weight:600">${info.label}</span></div>
+              <div class="popup-row"><span class="popup-label">建蔽率</span><span class="popup-value">${kenpeiri}</span></div>
+              <div class="popup-row"><span class="popup-label">容積率</span><span class="popup-value">${yosekiri}</span></div>
+            </div>
+            <hr class="popup-divider">
+            <div style="font-size:11px;color:#aaa;line-height:1.5">国土交通省 不動産情報ライブラリ（XKT002）</div>
+          </div>
+        `).openOn(map);
+      });
+      layer.on('mouseover', function() { layer.setStyle({ fillOpacity: 0.8 }); });
+      layer.on('mouseout', function() { if (urbanLayer) urbanLayer.resetStyle(layer); });
+    },
+  }).addTo(map);
+  urbanLayer.bringToBack();
 }
 
 initMap();
