@@ -1132,4 +1132,34 @@ async function _fetchAndRenderDosya() {
 }
 
 async function unConfirm(caseId) {
- 
+  if (!confirm('現地確認を解除しますか？')) return;
+  const { error } = await db.from('field_survey_status').update({
+    confirmed: false, confirmed_at: null, flag_color: 'yellow'
+  }).eq('case_id', caseId);
+  if (error) { showToast('解除エラー: ' + error.message, 'error'); return; }
+  const d = markers[caseId];
+  if (d) {
+    d.confirmed = false;
+    d.survey = { ...d.survey, confirmed: false };
+    d.marker.setIcon(makeIcon('#f0b429'));
+    d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
+  }
+  const u = parseInt(document.getElementById('statUnchecked').textContent) + 1;
+  const c2 = Math.max(0, parseInt(document.getElementById('statChecked').textContent) - 1);
+  document.getElementById('statUnchecked').textContent = u;
+  document.getElementById('statChecked').textContent = c2;
+  map.closePopup();
+  showToast('現地確認を解除しました', 'success');
+}
+
+function loadDosya() {
+  map.on('moveend', renderDosyaInView);
+  map.on('zoomend', renderDosyaInView);
+  renderDosyaInView();
+}
+
+initMap();
+loadData();
+</script>
+</body>
+</html>
