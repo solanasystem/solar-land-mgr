@@ -87,8 +87,6 @@
   .toast.success{border-left:3px solid var(--green);}
   .toast.error{border-left:3px solid var(--red);}
   @keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
-
-  /* base-tile filter removed */
 </style>
 </head>
 <body>
@@ -194,7 +192,6 @@ let map, markersLayer = null;
 // ======== 地図初期化 ========
 function initMap() {
   map = L.map('map', { zoomControl: false }).setView([34.8, 137.1], 10);
-  // 標準地図（GSI）
   L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
     attribution: '© 国土地理院', maxZoom: 18, opacity: 0.8
   }).addTo(map);
@@ -212,7 +209,6 @@ async function loadDates() {
 
   if (error || !data) return;
 
-  // ユニークな日付を取得
   const dates = [...new Set(data.map(d => d.snapshot_date))].sort().reverse();
 
   const fromEl = document.getElementById('dateFrom');
@@ -226,10 +222,9 @@ async function loadDates() {
     toEl.innerHTML += `<option value="${d}">${d}</option>`;
   });
 
-  // デフォルト：最新2日を選択
   if (dates.length >= 2) {
-    fromEl.value = dates[1]; // 前日
-    toEl.value = dates[0];   // 最新
+    fromEl.value = dates[1];
+    toEl.value = dates[0];
     loadDiff();
   } else if (dates.length === 1) {
     toEl.value = dates[0];
@@ -248,7 +243,6 @@ async function loadDiff() {
   document.getElementById('emptyState').style.display = 'none';
 
   try {
-    // 比較日のデータ取得
     const { data: toData } = await db
       .from('farmland_snapshots')
       .select('*')
@@ -269,11 +263,9 @@ async function loadDiff() {
       return;
     }
 
-    // 差分分類
     let newCount = 0, removedCount = 0, existingCount = 0;
     const markers = [];
 
-    // 新規・変化なし
     for (const item of toData) {
       if (!item.lat || !item.lng) continue;
       let changeType = 'existing';
@@ -290,7 +282,6 @@ async function loadDiff() {
       }
     }
 
-    // 削除済み（前日にあって比較日にない）
     if (dateFrom) {
       const toIds = new Set(toData.map(d => d.feature_id));
       const { data: fromDataFull } = await db
@@ -307,26 +298,22 @@ async function loadDiff() {
       }
     }
 
-    // 変化なしマーカー（最大200件）
     let existingShown = 0;
     for (const item of toData) {
       if (!item.lat || !item.lng) continue;
-      if (dateFrom && !fromIds.has(item.feature_id)) continue; // 新規はスキップ
+      if (dateFrom && !fromIds.has(item.feature_id)) continue;
       if (existingShown >= 200) break;
       markers.push({ item, changeType: 'existing' });
       existingShown++;
     }
 
-    // 統計更新
     document.getElementById('statNew').textContent = newCount;
     document.getElementById('statRemoved').textContent = removedCount;
     document.getElementById('statExisting').textContent = dateFrom ? existingCount : toData.length;
 
-    // マーカー描画
     const leafletMarkers = markers.map(({ item, changeType }) => {
       const color = changeType === 'new' ? '#3fb950' : changeType === 'removed' ? '#f85149' : '#6b7280';
       const size = changeType === 'existing' ? 8 : 12;
-      const zIndex = changeType === 'existing' ? 100 : 500;
 
       const m = L.circleMarker([item.lat, item.lng], {
         radius: size / 2,
@@ -343,7 +330,6 @@ async function loadDiff() {
 
     markersLayer = L.layerGroup(leafletMarkers).addTo(map);
 
-    // 新規・削除マーカーがあればそこにフィット
     const importantMarkers = markers.filter(m => m.changeType !== 'existing');
     if (importantMarkers.length > 0) {
       const bounds = L.latLngBounds(importantMarkers.map(m => [m.item.lat, m.item.lng]));
@@ -354,7 +340,7 @@ async function loadDiff() {
     if (newCount === 0 && removedCount === 0 && dateFrom) {
       showToast('変化はありませんでした', 'success');
     } else if (newCount > 0 || removedCount > 0) {
-      showToast(`新規 ${newCount}件 / 削除 ${removedCount}件 の変化を検出しました`, 'success');
+      showToast('新規 ' + newCount + '件 / 削除 ' + removedCount + '件 の変化を検出しました', 'success');
     }
 
   } catch(e) {
@@ -436,7 +422,7 @@ async function triggerManualCollection() {
       return;
     }
 
-    // Networkタブで確認したURLパターンを順番に試す
+    // URLパターンを順番に試す
     const urlsToTry = [
       `${WORKER_BASE}/farmland/matching/aic/area.json?v=1225`,
       `${WORKER_BASE}/farmland/matching/aic/area.json`,
@@ -461,13 +447,12 @@ async function triggerManualCollection() {
 
     if (!areas) {
       hideLoading();
-      showToast('農地データの取得に失敗しました。
-管理者にAPIパスの確認を依頼してください。', 'error');
+      showToast('農地データの取得に失敗しました。管理者にAPIパスの確認を依頼してください。', 'error');
       return;
     }
 
     // データ配列に変換
-    const dataArray = Array.isArray(areas) ? areas : 
+    const dataArray = Array.isArray(areas) ? areas :
       (areas.features ? areas.features.map(f => ({...f.properties, lat: f.geometry?.coordinates?.[1], lng: f.geometry?.coordinates?.[0]})) :
       Object.values(areas));
 
@@ -528,7 +513,6 @@ function showToast(msg, type = 'success') {
   setTimeout(() => t.remove(), 6000);
 }
 
-// デバッグ用：画面上にメッセージを大きく表示
 function showDebug(msg) {
   let el = document.getElementById('debugPanel');
   if (!el) {
