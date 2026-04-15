@@ -60,6 +60,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 .empty-icon{font-size:48px;}
 .empty-text{font-size:14px;color:var(--text-muted);text-align:center;line-height:1.8;}
 .toast-container{position:fixed;bottom:20px;right:60px;z-index:3000;display:flex;flex-direction:column;gap:8px;}
+.farmland-tooltip{background:#161b22;border:1px solid #f0b429;border-radius:6px;color:#e6edf3;font-family:'Zen Kaku Gothic New',sans-serif;font-size:12px;padding:4px 10px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);}
+.farmland-tooltip::before{display:none;}
 .toast{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 16px;font-size:13px;min-width:220px;animation:slideIn .3s ease;}
 .toast.success{border-left:3px solid var(--green);}
 .toast.error{border-left:3px solid var(--red);}
@@ -194,9 +196,24 @@ async function loadDiff() {
     document.getElementById('statRemoved').textContent = removedCount;
     document.getElementById('statExisting').textContent = dateFrom ? existingCount : toData.length;
     var lm = markers.map(function(m) {
-      var c = m.changeType==='new'?'#3fb950':m.changeType==='removed'?'#f85149':'#6b7280';
-      var sz = m.changeType==='existing'?8:12;
-      var mk = L.circleMarker([m.item.lat,m.item.lng], {radius:sz/2, fillColor:c, color:'rgba(0,0,0,0.3)', weight:1.5, fillOpacity:m.changeType==='existing'?0.5:0.9, pane:'markerPane'});
+      var c = m.changeType==='new'?'#3fb950':m.changeType==='removed'?'#f85149':'#8b949e';
+      var label = m.changeType==='new'?'新規':m.changeType==='removed'?'削除':'既存';
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="32" viewBox="0 0 24 32">'
+        + '<polygon points="2,2 20,9 2,16" fill="'+c+'" stroke="white" stroke-width="1.2" stroke-linejoin="round"/>'
+        + '<line x1="2" y1="2" x2="2" y2="30" stroke="'+c+'" stroke-width="2" stroke-linecap="round"/>'
+        + '</svg>';
+      var icon = L.divIcon({
+        html: svg,
+        className: '',
+        iconSize: [24, 32],
+        iconAnchor: [2, 30],
+        tooltipAnchor: [12, -16]
+      });
+      var mk = L.marker([m.item.lat, m.item.lng], {icon: icon});
+      mk.bindTooltip('<b>'+label+'</b> ' + (m.item.city||''), {
+        direction: 'top', permanent: false, opacity: 0.95,
+        className: 'farmland-tooltip'
+      });
       mk.on('click', function() { showDetail(m.item, m.changeType); });
       return mk;
     });
