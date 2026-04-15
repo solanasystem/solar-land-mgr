@@ -9,112 +9,88 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-  :root {
-    --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
-    --accent:#f0b429;--green:#3fb950;--blue:#58a6ff;--red:#f85149;
-    --text:#e6edf3;--text-muted:#8b949e;
-    --font-main:'Zen Kaku Gothic New',sans-serif;--font-mono:'Share Tech Mono',monospace;
-  }
-  *{margin:0;padding:0;box-sizing:border-box;}
-  body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:100vh;display:flex;flex-direction:column;overflow:hidden;}
-  .header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;z-index:1000;}
-  .header-left{display:flex;align-items:center;gap:12px;}
-  .logo{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--text);}
-  .logo-icon{width:28px;height:28px;background:linear-gradient(135deg,#f0b429,#e85d04);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;}
-  .logo-text{font-size:14px;font-weight:700;}
-  .page-title{font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:6px;}
-  .page-title::before{content:'/';color:var(--border);}
-  .btn{padding:6px 14px;border-radius:6px;border:1px solid var(--border);font-family:var(--font-main);font-size:12px;font-weight:500;cursor:pointer;transition:all 0.15s;}
-  .btn-ghost{background:none;color:var(--text-muted);}.btn-ghost:hover{background:var(--surface2);color:var(--text);}
-  .btn-primary{background:var(--accent);color:#000;border-color:var(--accent);}.btn-primary:hover{background:#e0a820;}
-  .toolbar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex-shrink:0;z-index:999;}
-  .toolbar-label{font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;}
-  .date-select{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-family:var(--font-main);font-size:12px;cursor:pointer;}
-  .date-select:focus{outline:none;border-color:var(--accent);}
-  .stats-bar{display:flex;align-items:center;gap:16px;margin-left:auto;flex-wrap:wrap;}
-  .stat-item{display:flex;align-items:center;gap:6px;font-size:12px;}
-  .stat-dot{width:10px;height:10px;border-radius:50%;}
-  .stat-count{font-family:var(--font-mono);font-weight:700;font-size:14px;}
-  .map-wrapper{flex:1;position:relative;overflow:hidden;}
-  #map{width:100%;height:100%;}
-  .leaflet-top.leaflet-left{display:none;}
-  .zoom-controls{position:absolute;bottom:24px;right:12px;z-index:500;display:flex;flex-direction:column;gap:2px;}
-  .zoom-btn{width:32px;height:32px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s;}
-  .zoom-btn:hover{background:var(--surface2);}
-  .zoom-level{width:32px;height:28px;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--accent);font-family:var(--font-mono);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;}
-  .map-legend{position:absolute;bottom:24px;left:12px;z-index:500;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;}
-  .legend-title{font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;}
-  .legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-bottom:5px;}
-  .legend-marker{width:14px;height:14px;border-radius:50%;border:2px solid rgba(0,0,0,0.3);}
-  .side-panel{position:absolute;top:0;right:0;width:300px;height:100%;background:var(--surface);border-left:1px solid var(--border);z-index:600;transform:translateX(100%);transition:transform 0.3s ease;overflow-y:auto;display:flex;flex-direction:column;}
-  .side-panel.open{transform:translateX(0);}
-  .side-panel-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:1;flex-shrink:0;}
-  .side-panel-title{font-size:13px;font-weight:700;}
-  .close-btn{background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer;padding:2px;}
-  .side-panel-body{padding:14px 16px;flex:1;}
-  .detail-item{margin-bottom:12px;}
-  .detail-label{font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px;}
-  .detail-value{font-size:13px;color:var(--text);line-height:1.5;}
-  .change-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;margin-bottom:12px;}
-  .change-badge.new{background:rgba(63,185,80,.2);color:#3fb950;border:1px solid rgba(63,185,80,.4);}
-  .change-badge.removed{background:rgba(248,81,73,.2);color:#f85149;border:1px solid rgba(248,81,73,.4);}
-  .change-badge.existing{background:rgba(139,148,158,.15);color:var(--text-muted);border:1px solid rgba(139,148,158,.3);}
-  .loading-overlay{position:absolute;inset:0;background:rgba(13,17,23,.8);z-index:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;}
-  .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .loading-text{font-size:13px;color:var(--text-muted);}
-  .empty-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;pointer-events:none;}
-  .empty-icon{font-size:48px;}
-  .empty-text{font-size:14px;color:var(--text-muted);text-align:center;line-height:1.8;}
-  .toast-container{position:fixed;bottom:20px;right:60px;z-index:3000;display:flex;flex-direction:column;gap:8px;}
-  .toast{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 16px;font-size:13px;min-width:220px;animation:slideIn .3s ease;display:flex;align-items:center;gap:8px;}
-  .toast.success{border-left:3px solid var(--green);}
-  .toast.error{border-left:3px solid var(--red);}
-  @keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+:root{--bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;--accent:#f0b429;--green:#3fb950;--red:#f85149;--text:#e6edf3;--text-muted:#8b949e;--font-main:'Zen Kaku Gothic New',sans-serif;--font-mono:'Share Tech Mono',monospace;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;z-index:1000;}
+.header-left{display:flex;align-items:center;gap:12px;}
+.logo{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--text);}
+.logo-icon{width:28px;height:28px;background:linear-gradient(135deg,#f0b429,#e85d04);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;}
+.logo-text{font-size:14px;font-weight:700;}
+.page-title{font-size:13px;color:var(--text-muted);}
+.btn{padding:6px 14px;border-radius:6px;border:1px solid var(--border);font-family:var(--font-main);font-size:12px;font-weight:500;cursor:pointer;transition:all 0.15s;}
+.btn-ghost{background:none;color:var(--text-muted);}
+.btn-ghost:hover{background:var(--surface2);color:var(--text);}
+.btn-primary{background:var(--accent);color:#000;border-color:var(--accent);}
+.toolbar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex-shrink:0;z-index:999;}
+.toolbar-label{font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;white-space:nowrap;}
+.date-select{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-family:var(--font-main);font-size:12px;cursor:pointer;}
+.stats-bar{display:flex;align-items:center;gap:16px;margin-left:auto;}
+.stat-item{display:flex;align-items:center;gap:6px;font-size:12px;}
+.stat-dot{width:10px;height:10px;border-radius:50%;}
+.stat-count{font-family:var(--font-mono);font-weight:700;font-size:14px;}
+.map-wrapper{flex:1;position:relative;overflow:hidden;}
+#map{width:100%;height:100%;}
+.leaflet-top.leaflet-left{display:none;}
+.zoom-controls{position:absolute;bottom:24px;right:12px;z-index:500;display:flex;flex-direction:column;gap:2px;}
+.zoom-btn{width:32px;height:32px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.zoom-level{width:32px;height:28px;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--accent);font-family:var(--font-mono);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;}
+.map-legend{position:absolute;bottom:24px;left:12px;z-index:500;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;}
+.legend-title{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;}
+.legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-bottom:5px;}
+.legend-marker{width:14px;height:14px;border-radius:50%;border:2px solid rgba(0,0,0,0.3);}
+.side-panel{position:absolute;top:0;right:0;width:300px;height:100%;background:var(--surface);border-left:1px solid var(--border);z-index:600;transform:translateX(100%);transition:transform 0.3s ease;overflow-y:auto;display:flex;flex-direction:column;}
+.side-panel.open{transform:translateX(0);}
+.side-panel-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:1;}
+.side-panel-title{font-size:13px;font-weight:700;}
+.close-btn{background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer;}
+.side-panel-body{padding:14px 16px;flex:1;}
+.detail-item{margin-bottom:12px;}
+.detail-label{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:3px;}
+.detail-value{font-size:13px;color:var(--text);line-height:1.5;}
+.change-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;margin-bottom:12px;}
+.change-badge.new{background:rgba(63,185,80,.2);color:#3fb950;border:1px solid rgba(63,185,80,.4);}
+.change-badge.removed{background:rgba(248,81,73,.2);color:#f85149;border:1px solid rgba(248,81,73,.4);}
+.change-badge.existing{background:rgba(139,148,158,.15);color:var(--text-muted);border:1px solid rgba(139,148,158,.3);}
+.loading-overlay{position:absolute;inset:0;background:rgba(13,17,23,.8);z-index:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;}
+.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:13px;color:var(--text-muted);}
+.empty-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;pointer-events:none;}
+.empty-icon{font-size:48px;}
+.empty-text{font-size:14px;color:var(--text-muted);text-align:center;line-height:1.8;}
+.toast-container{position:fixed;bottom:20px;right:60px;z-index:3000;display:flex;flex-direction:column;gap:8px;}
+.toast{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 16px;font-size:13px;min-width:220px;animation:slideIn .3s ease;}
+.toast.success{border-left:3px solid var(--green);}
+.toast.error{border-left:3px solid var(--red);}
+@keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
 </style>
 </head>
 <body>
-
 <header class="header">
   <div class="header-left">
     <a class="logo" href="index.html">
-      <div class="logo-icon">&#9728;&#65039;</div>
+      <div class="logo-icon">☀️</div>
       <span class="logo-text">SOLAR LAND MGR</span>
     </a>
-    <span class="page-title">&#127807; &#36234;&#22320;&#22793;&#21464;&#12488;&#12521;&#12483;&#12459;&#12540;</span>
+    <span class="page-title">🌾 農地変化トラッカー</span>
   </div>
   <div style="display:flex;align-items:center;gap:8px;">
-    <a href="https://aichi.farm.cloudgis.jp/matching/aic/" target="_blank" class="btn btn-ghost" style="font-size:12px;">&#8599; &#26410;&#26469;&#12398;&#36234;&#22320;&#12510;&#12483;&#12503;</a>
-    <button class="btn btn-ghost" onclick="location.href='index.html'">&#8592; &#26696;&#20214;&#19968;&#35239;</button>
+    <a href="https://aichi.farm.cloudgis.jp/matching/aic/" target="_blank" class="btn btn-ghost">↗ 未来の農地マップ</a>
+    <button class="btn btn-ghost" onclick="location.href='index.html'">← 案件一覧</button>
   </div>
 </header>
 
 <div class="toolbar">
-  <span class="toolbar-label">&#27604;&#36611;&#26085;&#20184;</span>
-  <select class="date-select" id="dateFrom" onchange="loadDiff()">
-    <option value="">&#22522;&#28310;&#26085;&#65288;&#21069;&#65289;</option>
-  </select>
-  <span style="color:var(--text-muted);font-size:12px;">&#8594;</span>
-  <select class="date-select" id="dateTo" onchange="loadDiff()">
-    <option value="">&#27604;&#36611;&#26085;&#65288;&#24460;&#65289;</option>
-  </select>
-  <button class="btn btn-primary" onclick="triggerManualCollection()" style="font-size:12px;padding:5px 12px;">&#128229; &#20170;&#26085;&#12398;&#12487;&#12540;&#12479;&#21462;&#24471;</button>
+  <span class="toolbar-label">比較日付</span>
+  <select class="date-select" id="dateFrom" onchange="loadDiff()"><option value="">基準日（前）</option></select>
+  <span style="color:var(--text-muted);font-size:12px;">→</span>
+  <select class="date-select" id="dateTo" onchange="loadDiff()"><option value="">比較日（後）</option></select>
+  <button class="btn btn-primary" onclick="triggerManualCollection()" style="font-size:12px;padding:5px 12px;">📥 今日のデータ取得</button>
   <div class="stats-bar">
-    <div class="stat-item">
-      <div class="stat-dot" style="background:#3fb950;"></div>
-      <span style="color:var(--text-muted)">&#26032;&#35215;&#36861;&#21152;</span>
-      <span class="stat-count" style="color:#3fb950;" id="statNew">0</span>
-    </div>
-    <div class="stat-item">
-      <div class="stat-dot" style="background:#f85149;"></div>
-      <span style="color:var(--text-muted)">&#21066;&#38500;&#28168;&#12415;</span>
-      <span class="stat-count" style="color:#f85149;" id="statRemoved">0</span>
-    </div>
-    <div class="stat-item">
-      <div class="stat-dot" style="background:var(--text-muted);"></div>
-      <span style="color:var(--text-muted)">&#22793;&#21464;&#12394;&#12375;</span>
-      <span class="stat-count" style="color:var(--text-muted);" id="statExisting">0</span>
-    </div>
+    <div class="stat-item"><div class="stat-dot" style="background:#3fb950;"></div><span style="color:var(--text-muted)">新規追加</span><span class="stat-count" style="color:#3fb950;" id="statNew">0</span></div>
+    <div class="stat-item"><div class="stat-dot" style="background:#f85149;"></div><span style="color:var(--text-muted)">削除済み</span><span class="stat-count" style="color:#f85149;" id="statRemoved">0</span></div>
+    <div class="stat-item"><div class="stat-dot" style="background:var(--text-muted);"></div><span style="color:var(--text-muted)">変化なし</span><span class="stat-count" style="color:var(--text-muted);" id="statExisting">0</span></div>
   </div>
 </div>
 
@@ -122,35 +98,31 @@
   <div id="map"></div>
   <div class="loading-overlay" id="loadingOverlay" style="display:none;">
     <div class="spinner"></div>
-    <div class="loading-text" id="loadingText">&#12487;&#12540;&#12479;&#12434;&#35501;&#12415;&#36796;&#12415;&#20013;...</div>
+    <div class="loading-text" id="loadingText">データを読み込み中...</div>
   </div>
   <div class="empty-state" id="emptyState">
-    <div class="empty-icon">&#127807;</div>
-    <div class="empty-text">
-      &#19978;&#12398;&#12300;&#128229; &#20170;&#26085;&#12398;&#12487;&#12540;&#12479;&#21462;&#24471;&#12301;&#12508;&#12479;&#12531;&#12434;&#25누&#12375;&#12390;&#12487;&#12540;&#12479;&#12434;&#25수&#38598;&#12375;&#12390;&#12367;&#12384;&#12373;&#12356;<br>
-      2&#26085;&#20998;&#12398;&#12487;&#12540;&#12479;&#12364;&#28117;&#12414;&#12427;&#12392;&#22793;&#21464;&#12364;&#34920;&#31034;&#12373;&#12428;&#12414;&#12377;
-    </div>
+    <div class="empty-icon">🌾</div>
+    <div class="empty-text">上の「📥 今日のデータ取得」ボタンを押してデータを収集してください<br>2日分のデータが溜まると変化が表示されます</div>
   </div>
   <div class="map-legend">
-    <div class="legend-title">&#22793;&#21464;&#29366;&#27841;</div>
-    <div class="legend-item"><div class="legend-marker" style="background:#3fb950;"></div>&#26032;&#35215;&#36861;&#21152;</div>
-    <div class="legend-item"><div class="legend-marker" style="background:#f85149;"></div>&#21066;&#38500;&#28168;&#12415;</div>
-    <div class="legend-item"><div class="legend-marker" style="background:#8b949e;"></div>&#22793;&#21464;&#12394;&#12375;</div>
+    <div class="legend-title">変化状況</div>
+    <div class="legend-item"><div class="legend-marker" style="background:#3fb950;"></div>新規追加</div>
+    <div class="legend-item"><div class="legend-marker" style="background:#f85149;"></div>削除済み</div>
+    <div class="legend-item"><div class="legend-marker" style="background:#8b949e;"></div>変化なし</div>
   </div>
   <div class="zoom-controls">
-    <button class="zoom-btn" onclick="map.zoomIn()">&#65291;</button>
+    <button class="zoom-btn" onclick="map.zoomIn()">＋</button>
     <div class="zoom-level" id="zoomLevel">10</div>
-    <button class="zoom-btn" onclick="map.zoomOut()">&#65293;</button>
+    <button class="zoom-btn" onclick="map.zoomOut()">－</button>
   </div>
   <div class="side-panel" id="sidePanel">
     <div class="side-panel-header">
-      <span class="side-panel-title">&#127807; &#36234;&#22320;&#35443;&#32048;</span>
-      <button class="close-btn" onclick="closeSidePanel()">&#10005;</button>
+      <span class="side-panel-title">🌾 農地詳細</span>
+      <button class="close-btn" onclick="closeSidePanel()">✕</button>
     </div>
     <div class="side-panel-body" id="sidePanelBody"></div>
   </div>
 </div>
-
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
@@ -158,45 +130,33 @@ var SUPABASE_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
 var SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
 var WORKER_BASE = 'https://reinfolib-proxy.takumi-29b.workers.dev';
 var db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
 var map, markersLayer = null;
 
 function initMap() {
-  map = L.map('map', { zoomControl: false }).setView([34.8, 137.1], 10);
-  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
-    attribution: 'GSI', maxZoom: 18, opacity: 0.8
-  }).addTo(map);
-  map.on('zoomend', function() {
-    document.getElementById('zoomLevel').textContent = map.getZoom();
-  });
+  map = L.map('map', {zoomControl:false}).setView([34.8, 137.1], 10);
+  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {attribution:'GSI', maxZoom:18, opacity:0.8}).addTo(map);
+  map.on('zoomend', function() { document.getElementById('zoomLevel').textContent = map.getZoom(); });
 }
 
 async function loadDates() {
-  var res = await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date', { ascending: false });
+  var res = await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date', {ascending:false});
   if (res.error || !res.data) return;
-  var dates = [];
-  var seen = {};
-  res.data.forEach(function(d) {
-    if (!seen[d.snapshot_date]) { seen[d.snapshot_date] = true; dates.push(d.snapshot_date); }
-  });
+  var seen = {}, dates = [];
+  res.data.forEach(function(d) { if (!seen[d.snapshot_date]) { seen[d.snapshot_date]=true; dates.push(d.snapshot_date); } });
   dates.sort().reverse();
-  var fromEl = document.getElementById('dateFrom');
-  var toEl = document.getElementById('dateTo');
-  fromEl.innerHTML = '<option value="">' + '\u57fa\u6e96\u65e5\uff08\u524d\uff09' + '</option>';
-  toEl.innerHTML = '<option value="">' + '\u6bd4\u8f03\u65e5\uff08\u5f8c\uff09' + '</option>';
-  dates.forEach(function(d) {
-    fromEl.innerHTML += '<option value="' + d + '">' + d + '</option>';
-    toEl.innerHTML += '<option value="' + d + '">' + d + '</option>';
-  });
-  if (dates.length >= 2) { fromEl.value = dates[1]; toEl.value = dates[0]; loadDiff(); }
-  else if (dates.length === 1) { toEl.value = dates[0]; }
+  var fe = document.getElementById('dateFrom'), te = document.getElementById('dateTo');
+  fe.innerHTML = '<option value="">基準日（前）</option>';
+  te.innerHTML = '<option value="">比較日（後）</option>';
+  dates.forEach(function(d) { fe.innerHTML += '<option value="'+d+'">'+d+'</option>'; te.innerHTML += '<option value="'+d+'">'+d+'</option>'; });
+  if (dates.length >= 2) { fe.value = dates[1]; te.value = dates[0]; loadDiff(); }
+  else if (dates.length === 1) { te.value = dates[0]; }
 }
 
 async function loadDiff() {
   var dateFrom = document.getElementById('dateFrom').value;
   var dateTo = document.getElementById('dateTo').value;
   if (!dateTo) return;
-  showLoading('\u5dee\u5206\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...');
+  showLoading('差分データを取得中...');
   if (markersLayer) { map.removeLayer(markersLayer); markersLayer = null; }
   document.getElementById('emptyState').style.display = 'none';
   try {
@@ -204,65 +164,61 @@ async function loadDiff() {
     var toData = toRes.data || [];
     var fromIds = {};
     if (dateFrom) {
-      var fromRes = await db.from('farmland_snapshots').select('feature_id').eq('snapshot_date', dateFrom);
-      (fromRes.data || []).forEach(function(d) { fromIds[d.feature_id] = true; });
+      var fRes = await db.from('farmland_snapshots').select('feature_id').eq('snapshot_date', dateFrom);
+      (fRes.data||[]).forEach(function(d) { fromIds[d.feature_id]=true; });
     }
-    if (toData.length === 0) { hideLoading(); document.getElementById('emptyState').style.display = 'flex'; return; }
-    var newCount = 0, removedCount = 0, existingCount = 0;
-    var markers = [];
+    if (!toData.length) { hideLoading(); document.getElementById('emptyState').style.display='flex'; return; }
+    var newCount=0, removedCount=0, existingCount=0, markers=[];
     toData.forEach(function(item) {
-      if (!item.lat || !item.lng) return;
-      if (dateFrom && !fromIds[item.feature_id]) { newCount++; markers.push({ item: item, changeType: 'new' }); }
+      if (!item.lat||!item.lng) return;
+      if (dateFrom && !fromIds[item.feature_id]) { newCount++; markers.push({item:item, changeType:'new'}); }
       else { existingCount++; }
     });
     if (dateFrom) {
-      var toIds = {};
-      toData.forEach(function(d) { toIds[d.feature_id] = true; });
-      var fromFullRes = await db.from('farmland_snapshots').select('*').eq('snapshot_date', dateFrom);
-      (fromFullRes.data || []).forEach(function(item) {
-        if (!item.lat || !item.lng) return;
-        if (!toIds[item.feature_id]) { removedCount++; markers.push({ item: item, changeType: 'removed' }); }
+      var toIds={};
+      toData.forEach(function(d) { toIds[d.feature_id]=true; });
+      var ffRes = await db.from('farmland_snapshots').select('*').eq('snapshot_date', dateFrom);
+      (ffRes.data||[]).forEach(function(item) {
+        if (!item.lat||!item.lng) return;
+        if (!toIds[item.feature_id]) { removedCount++; markers.push({item:item, changeType:'removed'}); }
       });
     }
-    var shown = 0;
+    var shown=0;
     toData.forEach(function(item) {
-      if (!item.lat || !item.lng) return;
+      if (!item.lat||!item.lng) return;
       if (dateFrom && !fromIds[item.feature_id]) return;
-      if (shown >= 200) return;
-      markers.push({ item: item, changeType: 'existing' }); shown++;
+      if (shown>=200) return;
+      markers.push({item:item, changeType:'existing'}); shown++;
     });
     document.getElementById('statNew').textContent = newCount;
     document.getElementById('statRemoved').textContent = removedCount;
     document.getElementById('statExisting').textContent = dateFrom ? existingCount : toData.length;
-    var leafletMarkers = markers.map(function(m) {
-      var color = m.changeType === 'new' ? '#3fb950' : m.changeType === 'removed' ? '#f85149' : '#6b7280';
-      var size = m.changeType === 'existing' ? 8 : 12;
-      var mk = L.circleMarker([m.item.lat, m.item.lng], { radius: size/2, fillColor: color, color: 'rgba(0,0,0,0.3)', weight: 1.5, fillOpacity: m.changeType === 'existing' ? 0.5 : 0.9, pane: 'markerPane' });
+    var lm = markers.map(function(m) {
+      var c = m.changeType==='new'?'#3fb950':m.changeType==='removed'?'#f85149':'#6b7280';
+      var sz = m.changeType==='existing'?8:12;
+      var mk = L.circleMarker([m.item.lat,m.item.lng], {radius:sz/2, fillColor:c, color:'rgba(0,0,0,0.3)', weight:1.5, fillOpacity:m.changeType==='existing'?0.5:0.9, pane:'markerPane'});
       mk.on('click', function() { showDetail(m.item, m.changeType); });
       return mk;
     });
-    markersLayer = L.layerGroup(leafletMarkers).addTo(map);
-    var imp = markers.filter(function(m) { return m.changeType !== 'existing'; });
-    if (imp.length > 0) {
-      var bounds = L.latLngBounds(imp.map(function(m) { return [m.item.lat, m.item.lng]; }));
-      map.fitBounds(bounds, { padding: [40, 40] });
-    }
+    markersLayer = L.layerGroup(lm).addTo(map);
+    var imp = markers.filter(function(m) { return m.changeType!=='existing'; });
+    if (imp.length) { var b=L.latLngBounds(imp.map(function(m){return [m.item.lat,m.item.lng];})); map.fitBounds(b,{padding:[40,40]}); }
     hideLoading();
-    if (newCount === 0 && removedCount === 0 && dateFrom) showToast('\u5909\u5316\u306f\u3042\u308a\u307e\u305b\u3093\u3067\u3057\u305f', 'success');
-    else if (newCount > 0 || removedCount > 0) showToast('\u65b0\u898f ' + newCount + '\u4ef6 / \u524a\u9664 ' + removedCount + '\u4ef6\u306e\u5909\u5316\u3092\u691c\u51fa\u3057\u307e\u3057\u305f', 'success');
-  } catch(e) { hideLoading(); showToast('\u30a8\u30e9\u30fc: ' + e.message, 'error'); }
+    if (newCount===0 && removedCount===0 && dateFrom) showToast('変化はありませんでした', 'success');
+    else if (newCount>0||removedCount>0) showToast('新規 '+newCount+'件 / 削除 '+removedCount+'件 の変化を検出しました', 'success');
+  } catch(e) { hideLoading(); showToast('エラー: '+e.message, 'error'); }
 }
 
 function showDetail(item, changeType) {
-  var lbl = changeType === 'new' ? '\u26ab\u65b0\u898f\u8ffd\u52a0' : changeType === 'removed' ? '\u26ab\u524a\u9664\u28168\u307f' : '\u26ab\u5909\u5316\u306a\u3057';
-  var bc = changeType === 'new' ? 'new' : changeType === 'removed' ? 'removed' : 'existing';
+  var lbl = changeType==='new'?'🟢 新規追加':changeType==='removed'?'🔴 削除済み':'⚪ 変化なし';
+  var bc = changeType==='new'?'new':changeType==='removed'?'removed':'existing';
   document.getElementById('sidePanelBody').innerHTML =
-    '<div class="change-badge ' + bc + '">' + lbl + '</div>' +
-    '<div class="detail-item"><div class="detail-label">ID</div><div class="detail-value" style="font-family:var(--font-mono);font-size:11px;">' + (item.feature_id||'-') + '</div></div>' +
-    '<div class="detail-item"><div class="detail-label">\u5e02\u753a\u6751</div><div class="detail-value">' + (item.city||'-') + '</div></div>' +
-    '<div class="detail-item"><div class="detail-label">\u30b9\u30ca\u30c3\u30d7\u30b7\u30e7\u30c3\u30c8\u65e5</div><div class="detail-value">' + (item.snapshot_date||'-') + '</div></div>' +
-    '<hr style="border-color:var(--border);margin:12px 0;">' +
-    '<a href="https://aichi.farm.cloudgis.jp/matching/aic/" target="_blank" style="display:block;text-align:center;padding:8px;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3);border-radius:6px;text-decoration:none;font-size:12px;font-weight:600;">\u672a\u6765\u306e\u8fb2\u5730\u30de\u30c3\u30d7\u3067\u78ba\u8a8d</a>';
+    '<div class="change-badge '+bc+'">'+lbl+'</div>'+
+    '<div class="detail-item"><div class="detail-label">ID</div><div class="detail-value" style="font-family:var(--font-mono);font-size:11px;">'+(item.feature_id||'-')+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">市町村</div><div class="detail-value">'+(item.city||'-')+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">スナップショット日</div><div class="detail-value">'+(item.snapshot_date||'-')+'</div></div>'+
+    '<hr style="border-color:var(--border);margin:12px 0;">'+
+    '<a href="https://aichi.farm.cloudgis.jp/matching/aic/" target="_blank" style="display:block;text-align:center;padding:8px;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3);border-radius:6px;text-decoration:none;font-size:12px;font-weight:600;">🌾 未来の農地マップで確認</a>';
   document.getElementById('sidePanel').classList.add('open');
 }
 
@@ -270,95 +226,113 @@ function closeSidePanel() { document.getElementById('sidePanel').classList.remov
 
 function parseAreasToRecords(areas, today) {
   var records = [];
-  if (areas && typeof areas === 'object' && !Array.isArray(areas) && !areas.features) {
-    // { "市区町村名": [[minLng,minLat,maxLng,maxLat], ...], ... }
-    var idx = 0;
-    var keys = Object.keys(areas);
-    for (var ki = 0; ki < keys.length; ki++) {
-      var cityName = keys[ki];
-      var bboxList = areas[cityName];
+  if (areas && typeof areas==='object' && !Array.isArray(areas) && !areas.features) {
+    var idx=0, keys=Object.keys(areas);
+    for (var ki=0; ki<keys.length; ki++) {
+      var city = keys[ki];
+      var bboxList = areas[city];
       if (!Array.isArray(bboxList)) continue;
-      for (var bi = 0; bi < bboxList.length; bi++) {
+      for (var bi=0; bi<bboxList.length; bi++) {
         var bbox = bboxList[bi];
-        if (!Array.isArray(bbox) || bbox.length < 4) continue;
-        var lng = (parseFloat(bbox[0]) + parseFloat(bbox[2])) / 2;
-        var lat = (parseFloat(bbox[1]) + parseFloat(bbox[3])) / 2;
-        if (!lat || !lng || isNaN(lat) || isNaN(lng)) continue;
-        records.push({ feature_id: cityName + '_' + (idx++), city: cityName, address: '', area_sqm: null, intent: '', price: '', registered_date: '', lat: lat, lng: lng, snapshot_date: today, status: 'active' });
+        if (!Array.isArray(bbox)||bbox.length<4) continue;
+        var lng = (parseFloat(bbox[0])+parseFloat(bbox[2]))/2;
+        var lat = (parseFloat(bbox[1])+parseFloat(bbox[3]))/2;
+        if (!lat||!lng||isNaN(lat)||isNaN(lng)) continue;
+        records.push({feature_id:city+'_'+idx, city:city, address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:lat, lng:lng, snapshot_date:today, status:'active'});
+        idx++;
       }
     }
-    showDebug('\u5f62\u5f0f: city-keyed \u5909\u63db\u5f8c: ' + records.length + '\u4ef6');
-  } else if (Array.isArray(areas) && areas.length > 0 && Array.isArray(areas[0])) {
-    for (var i = 0; i < areas.length; i++) {
-      var a = areas[i];
-      if (a.length < 4) continue;
-      var lng2 = (parseFloat(a[0]) + parseFloat(a[2])) / 2;
-      var lat2 = (parseFloat(a[1]) + parseFloat(a[3])) / 2;
-      if (!lat2 || !lng2 || isNaN(lat2) || isNaN(lng2)) continue;
-      records.push({ feature_id: String(i), city: '', address: '', area_sqm: null, intent: '', price: '', registered_date: '', lat: lat2, lng: lng2, snapshot_date: today, status: 'active' });
+    showDebug('形式: city-keyed 変換後: '+records.length+'件');
+  } else if (Array.isArray(areas) && areas.length && Array.isArray(areas[0])) {
+    for (var i=0; i<areas.length; i++) {
+      var a=areas[i]; if (a.length<4) continue;
+      var lng2=(parseFloat(a[0])+parseFloat(a[2]))/2, lat2=(parseFloat(a[1])+parseFloat(a[3]))/2;
+      if (!lat2||!lng2||isNaN(lat2)||isNaN(lng2)) continue;
+      records.push({feature_id:String(i), city:'', address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:lat2, lng:lng2, snapshot_date:today, status:'active'});
     }
-    showDebug('\u5f62\u5f0f: flat bbox \u5909\u63db\u5f8c: ' + records.length + '\u4ef6');
+    showDebug('形式: flat bbox 変換後: '+records.length+'件');
   } else if (areas && areas.features) {
-    for (var j = 0; j < areas.features.length; j++) {
-      var f = areas.features[j];
-      var flat = f.geometry && f.geometry.coordinates ? f.geometry.coordinates[1] : null;
-      var flng = f.geometry && f.geometry.coordinates ? f.geometry.coordinates[0] : null;
-      if (!flat || !flng) continue;
-      var p = f.properties || {};
-      records.push({ feature_id: String(f.id || j), city: p.city||'', address: p.address||'', area_sqm: parseFloat(p.area||0)||null, intent: p.intent||'', price: p.price ? String(p.price) : '', registered_date: p.registered_date||'', lat: flat, lng: flng, snapshot_date: today, status: 'active' });
+    for (var j=0; j<areas.features.length; j++) {
+      var f=areas.features[j], p=f.properties||{};
+      var flat=f.geometry&&f.geometry.coordinates?f.geometry.coordinates[1]:null;
+      var flng=f.geometry&&f.geometry.coordinates?f.geometry.coordinates[0]:null;
+      if (!flat||!flng) continue;
+      records.push({feature_id:String(f.id||j), city:p.city||'', address:p.address||'', area_sqm:parseFloat(p.area||0)||null, intent:p.intent||'', price:p.price?String(p.price):'', registered_date:p.registered_date||'', lat:flat, lng:flng, snapshot_date:today, status:'active'});
     }
-    showDebug('\u5f62\u5f0f: GeoJSON \u5909\u63db\u5f8c: ' + records.length + '\u4ef6');
+    showDebug('形式: GeoJSON 変換後: '+records.length+'件');
   } else if (Array.isArray(areas)) {
-    for (var k = 0; k < areas.length; k++) {
-      var o = areas[k];
-      var olat = parseFloat(o.lat || o.latitude || o.y || 0) || null;
-      var olng = parseFloat(o.lng || o.longitude || o.x || 0) || null;
-      if (!olat || !olng) continue;
-      records.push({ feature_id: String(o.id || k), city: o.city||'', address: o.address||'', area_sqm: parseFloat(o.area||0)||null, intent: o.intent||'', price: o.price ? String(o.price) : '', registered_date: o.registered_date||'', lat: olat, lng: olng, snapshot_date: today, status: 'active' });
+    for (var k=0; k<areas.length; k++) {
+      var o=areas[k];
+      var olat=parseFloat(o.lat||o.latitude||o.y||0)||null, olng=parseFloat(o.lng||o.longitude||o.x||0)||null;
+      if (!olat||!olng) continue;
+      records.push({feature_id:String(o.id||k), city:o.city||'', address:o.address||'', area_sqm:parseFloat(o.area||0)||null, intent:o.intent||'', price:o.price?String(o.price):'', registered_date:o.registered_date||'', lat:olat, lng:olng, snapshot_date:today, status:'active'});
     }
-    showDebug('\u5f62\u5f0f: object array \u5909\u63db\u5f8c: ' + records.length + '\u4ef6');
+    showDebug('形式: object array 変換後: '+records.length+'件');
   }
   return records;
 }
 
 async function triggerManualCollection() {
-  alert('\u30dc\u30bf\u30f3\u304c\u62bc\u3055\u308c\u307e\u3057\u305f\uff01\u51e6\u7406\u3092\u958b\u59cb\u3057\u307e\u3059\u3002');
-  showLoading('\u8fb2\u5730\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...');
+  alert('ボタンが押されました！処理を開始します。');
+  showLoading('農地データを取得中...');
   try {
     var today = new Date().toISOString().split('T')[0];
     var chk = await db.from('farmland_snapshots').select('id').eq('snapshot_date', today).limit(1);
-    if (chk.data && chk.data.length > 0) {
-      hideLoading(); showToast('\u4eca\u65e5\u306e\u30c7\u30fc\u30bf\u306f\u3059\u3067\u306b\u53d6\u5f97\u6e08\u307f\u3067\u3059', 'success'); await loadDates(); return;
-    }
-    var urls = [
-      WORKER_BASE + '/farmland/common/aic/search/area.json?v=1225',
-      WORKER_BASE + '/farmland/common/aic/search/area.json'
-    ];
+    if (chk.data && chk.data.length>0) { hideLoading(); showToast('今日のデータはすでに取得済みです', 'success'); await loadDates(); return; }
+    var urls = [WORKER_BASE+'/farmland/common/aic/search/area.json?v=1225', WORKER_BASE+'/farmland/common/aic/search/area.json'];
     var areas = null;
-    for (var ui = 0; ui < urls.length; ui++) {
+    for (var ui=0; ui<urls.length; ui++) {
       try {
         var r = await fetch(urls[ui]);
         if (r.ok) {
-          var ct = r.headers.get('content-type') || '';
-          if (ct.indexOf('json') >= 0) {
+          var ct = r.headers.get('content-type')||'';
+          if (ct.indexOf('json')>=0) {
             areas = await r.json();
-            var cnt = Array.isArray(areas) ? areas.length : Object.keys(areas).length;
-            showDebug('\u2705 \u6210\u529f: ' + urls[ui] + ' \u4ef6\u6570: ' + cnt);
+            var cnt = Array.isArray(areas)?areas.length:Object.keys(areas).length;
+            showDebug('✅ 成功: '+urls[ui]+' 件数: '+cnt);
             break;
           }
         }
-        showDebug('\u274c \u5931\u6557: ' + urls[ui] + ' HTTP:' + r.status);
-      } catch(e2) { showDebug('\u26a0 \u30a8\u30e9\u30fc: ' + urls[ui] + ' ' + e2.message); }
+        showDebug('❌ 失敗: '+urls[ui]+' HTTP:'+r.status);
+      } catch(e2) { showDebug('⚠️ エラー: '+urls[ui]+' '+e2.message); }
     }
-    if (!areas) { hideLoading(); showToast('\u8fb2\u5730\u30c7\u30fc\u30bf\u306e\u53d6\u5f97\u306b\u5931\u6557\u3057\u307e\u3057\u305f', 'error'); return; }
+    if (!areas) { hideLoading(); showToast('農地データの取得に失敗しました', 'error'); return; }
     var records = parseAreasToRecords(areas, today);
-    if (records.length === 0) { hideLoading(); showToast('\u4f4d\u7f6e\u60c5\u5831\u4ed8\u304d\u306e\u8fb2\u5730\u30c7\u30fc\u30bf\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3067\u3057\u305f', 'error'); return; }
-    var saved = 0;
-    for (var si = 0; si < records.length; si += 100) {
-      var batch = records.slice(si, si + 100);
+    if (!records.length) { hideLoading(); showToast('位置情報付きの農地データが見つかりませんでした', 'error'); return; }
+    var saved=0;
+    for (var si=0; si<records.length; si+=100) {
+      var batch=records.slice(si, si+100);
       var ins = await db.from('farmland_snapshots').insert(batch);
-      if (ins.error) showDebug('\u4fdd\u5b58\u30a8\u30e9\u30fc: ' + JSON.stringify(ins.error));
-      else saved += batch.length;
+      if (ins.error) showDebug('保存エラー: '+JSON.stringify(ins.error));
+      else saved+=batch.length;
     }
     hideLoading();
-    showToast(s
+    showToast(saved+'件の農地データを保存しました', 'success');
+    showDebug('保存完了: '+saved+'件');
+    await loadDates();
+  } catch(e) { hideLoading(); showToast('取得エラー: '+e.message, 'error'); showDebug('例外: '+e.message); }
+}
+
+function showLoading(text) { document.getElementById('loadingText').textContent=text; document.getElementById('loadingOverlay').style.display='flex'; }
+function hideLoading() { document.getElementById('loadingOverlay').style.display='none'; }
+function showToast(msg, type) {
+  var c=document.getElementById('toastContainer'), t=document.createElement('div');
+  t.className='toast '+(type||'success'); t.textContent=msg; c.appendChild(t);
+  setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);}, 6000);
+}
+function showDebug(msg) {
+  var el=document.getElementById('debugPanel');
+  if (!el) {
+    el=document.createElement('div'); el.id='debugPanel';
+    el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:9999;background:#1c2333;border:2px solid #f0b429;border-radius:10px;padding:16px 24px;max-width:600px;font-family:monospace;font-size:12px;color:#e6edf3;white-space:pre-wrap;max-height:300px;overflow-y:auto;';
+    el.innerHTML='<button onclick="this.parentElement.remove()" style="float:right;background:#f85149;border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;">X</button><div id="debugLog"></div>';
+    document.body.appendChild(el);
+  }
+  document.getElementById('debugLog').textContent += new Date().toLocaleTimeString()+' '+msg+'\n';
+}
+
+initMap();
+loadDates();
+</script>
+</body>
+</html>
