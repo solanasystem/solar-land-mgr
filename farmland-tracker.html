@@ -162,11 +162,11 @@ async function loadDiff() {
   if (markersLayer) { map.removeLayer(markersLayer); markersLayer = null; }
   document.getElementById('emptyState').style.display = 'none';
   try {
-    var toRes = await db.from('farmland_snapshots').select('*').eq('snapshot_date', dateTo);
+    var toRes = await db.from('farmland_snapshots').select('*').eq('snapshot_date', dateTo).limit(10000);
     var toData = toRes.data || [];
     var fromIds = {};
     if (dateFrom) {
-      var fRes = await db.from('farmland_snapshots').select('feature_id').eq('snapshot_date', dateFrom);
+      var fRes = await db.from('farmland_snapshots').select('feature_id').eq('snapshot_date', dateFrom).limit(10000);
       (fRes.data||[]).forEach(function(d) { fromIds[d.feature_id]=true; });
     }
     if (!toData.length) { hideLoading(); document.getElementById('emptyState').style.display='flex'; return; }
@@ -179,7 +179,7 @@ async function loadDiff() {
     if (dateFrom) {
       var toIds={};
       toData.forEach(function(d) { toIds[d.feature_id]=true; });
-      var ffRes = await db.from('farmland_snapshots').select('*').eq('snapshot_date', dateFrom);
+      var ffRes = await db.from('farmland_snapshots').select('*').eq('snapshot_date', dateFrom).limit(10000);
       (ffRes.data||[]).forEach(function(item) {
         if (!item.lat||!item.lng) return;
         if (!toIds[item.feature_id]) { removedCount++; markers.push({item:item, changeType:'removed'}); }
@@ -201,12 +201,10 @@ async function loadDiff() {
       var sz = m.changeType==='existing'?5:8;
       var op = m.changeType==='existing'?0.6:0.9;
       var mk = L.circleMarker([m.item.lat,m.item.lng], {
-        radius:sz, fillColor:c, color:'#fff',
-        weight:1.5, fillOpacity:op, pane:'markerPane'
+        radius:sz, fillColor:c, color:'#fff', weight:1.5, fillOpacity:op, pane:'markerPane'
       });
-      mk.bindTooltip('<b>'+label+'</b> ' + (m.item.city||''), {
-        direction: 'top', permanent: false, opacity: 0.95,
-        className: 'farmland-tooltip'
+      mk.bindTooltip('<b>'+label+'</b> '+(m.item.city||''), {
+        direction:'top', permanent:false, opacity:0.95, className:'farmland-tooltip'
       });
       mk.on('click', function() { showDetail(m.item, m.changeType); });
       return mk;
@@ -240,27 +238,19 @@ function parseAreasToRecords(areas, today) {
   if (areas && typeof areas==='object' && !Array.isArray(areas) && !areas.features) {
     var idx=0, keys=Object.keys(areas);
     for (var ki=0; ki<keys.length; ki++) {
-      var city = keys[ki];
-      var val = areas[city];
+      var city=keys[ki], val=areas[city];
       if (!Array.isArray(val)) continue;
-      // 形式A: [minLng, minLat, maxLng, maxLat] — 1つのbbox
       if (val.length===4 && typeof val[0]==='number') {
         var lng=(parseFloat(val[0])+parseFloat(val[2]))/2;
         var lat=(parseFloat(val[1])+parseFloat(val[3]))/2;
-        if (lat&&lng&&!isNaN(lat)&&!isNaN(lng)) {
-          records.push({feature_id:city+'_'+idx, city:city, address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:lat, lng:lng, snapshot_date:today, status:'active'});
-          idx++;
-        }
+        if (lat&&lng&&!isNaN(lat)&&!isNaN(lng)) { records.push({feature_id:city+'_'+idx, city:city, address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:lat, lng:lng, snapshot_date:today, status:'active'}); idx++; }
       } else {
-        // 形式B: [[bbox1], [bbox2], ...] — 複数bbox
         for (var bi=0; bi<val.length; bi++) {
           var bbox=val[bi];
           if (!Array.isArray(bbox)||bbox.length<4) continue;
-          var lng2=(parseFloat(bbox[0])+parseFloat(bbox[2]))/2;
-          var lat2=(parseFloat(bbox[1])+parseFloat(bbox[3]))/2;
+          var lng2=(parseFloat(bbox[0])+parseFloat(bbox[2]))/2, lat2=(parseFloat(bbox[1])+parseFloat(bbox[3]))/2;
           if (!lat2||!lng2||isNaN(lat2)||isNaN(lng2)) continue;
-          records.push({feature_id:city+'_'+idx, city:city, address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:lat2, lng:lng2, snapshot_date:today, status:'active'});
-          idx++;
+          records.push({feature_id:city+'_'+idx, city:city, address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:lat2, lng:lng2, snapshot_date:today, status:'active'}); idx++;
         }
       }
     }
@@ -268,9 +258,9 @@ function parseAreasToRecords(areas, today) {
   } else if (Array.isArray(areas) && areas.length && Array.isArray(areas[0])) {
     for (var i=0; i<areas.length; i++) {
       var a=areas[i]; if (a.length<4) continue;
-      var lng2=(parseFloat(a[0])+parseFloat(a[2]))/2, lat2=(parseFloat(a[1])+parseFloat(a[3]))/2;
-      if (!lat2||!lng2||isNaN(lat2)||isNaN(lng2)) continue;
-      records.push({feature_id:String(i), city:'', address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:lat2, lng:lng2, snapshot_date:today, status:'active'});
+      var alng=(parseFloat(a[0])+parseFloat(a[2]))/2, alat=(parseFloat(a[1])+parseFloat(a[3]))/2;
+      if (!alat||!alng||isNaN(alat)||isNaN(alng)) continue;
+      records.push({feature_id:String(i), city:'', address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:alat, lng:alng, snapshot_date:today, status:'active'});
     }
     showDebug('形式: flat bbox 変換後: '+records.length+'件');
   } else if (areas && areas.features) {
@@ -311,12 +301,12 @@ async function triggerManualCollection() {
           if (ct.indexOf('json')>=0) {
             areas = await r.json();
             var cnt = Array.isArray(areas)?areas.length:Object.keys(areas).length;
-            showDebug('✅ 成功: '+urls[ui]+' 件数: '+cnt);
+            showDebug('成功: '+urls[ui]+' 件数: '+cnt);
             break;
           }
         }
-        showDebug('❌ 失敗: '+urls[ui]+' HTTP:'+r.status);
-      } catch(e2) { showDebug('⚠️ エラー: '+urls[ui]+' '+e2.message); }
+        showDebug('失敗: '+urls[ui]+' HTTP:'+r.status);
+      } catch(e2) { showDebug('エラー: '+urls[ui]+' '+e2.message); }
     }
     if (!areas) { hideLoading(); showToast('農地データの取得に失敗しました', 'error'); return; }
     var records = parseAreasToRecords(areas, today);
@@ -330,7 +320,6 @@ async function triggerManualCollection() {
     }
     hideLoading();
     showToast(saved+'件の農地データを保存しました', 'success');
-    showDebug('保存完了: '+saved+'件');
     await loadDates();
   } catch(e) { hideLoading(); showToast('取得エラー: '+e.message, 'error'); showDebug('例外: '+e.message); }
 }
