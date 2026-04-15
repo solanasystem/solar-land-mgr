@@ -230,16 +230,27 @@ function parseAreasToRecords(areas, today) {
     var idx=0, keys=Object.keys(areas);
     for (var ki=0; ki<keys.length; ki++) {
       var city = keys[ki];
-      var bboxList = areas[city];
-      if (!Array.isArray(bboxList)) continue;
-      for (var bi=0; bi<bboxList.length; bi++) {
-        var bbox = bboxList[bi];
-        if (!Array.isArray(bbox)||bbox.length<4) continue;
-        var lng = (parseFloat(bbox[0])+parseFloat(bbox[2]))/2;
-        var lat = (parseFloat(bbox[1])+parseFloat(bbox[3]))/2;
-        if (!lat||!lng||isNaN(lat)||isNaN(lng)) continue;
-        records.push({feature_id:city+'_'+idx, city:city, address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:lat, lng:lng, snapshot_date:today, status:'active'});
-        idx++;
+      var val = areas[city];
+      if (!Array.isArray(val)) continue;
+      // 形式A: [minLng, minLat, maxLng, maxLat] — 1つのbbox
+      if (val.length===4 && typeof val[0]==='number') {
+        var lng=(parseFloat(val[0])+parseFloat(val[2]))/2;
+        var lat=(parseFloat(val[1])+parseFloat(val[3]))/2;
+        if (lat&&lng&&!isNaN(lat)&&!isNaN(lng)) {
+          records.push({feature_id:city+'_'+idx, city:city, address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:lat, lng:lng, snapshot_date:today, status:'active'});
+          idx++;
+        }
+      } else {
+        // 形式B: [[bbox1], [bbox2], ...] — 複数bbox
+        for (var bi=0; bi<val.length; bi++) {
+          var bbox=val[bi];
+          if (!Array.isArray(bbox)||bbox.length<4) continue;
+          var lng2=(parseFloat(bbox[0])+parseFloat(bbox[2]))/2;
+          var lat2=(parseFloat(bbox[1])+parseFloat(bbox[3]))/2;
+          if (!lat2||!lng2||isNaN(lat2)||isNaN(lng2)) continue;
+          records.push({feature_id:city+'_'+idx, city:city, address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:lat2, lng:lng2, snapshot_date:today, status:'active'});
+          idx++;
+        }
       }
     }
     showDebug('形式: city-keyed 変換後: '+records.length+'件');
