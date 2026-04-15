@@ -450,25 +450,41 @@ async function triggerManualCollection() {
       return;
     }
 
-    // データ配列に変換
-    const dataArray = Array.isArray(areas) ? areas :
-      (areas.features ? areas.features.map(f => ({...f.properties, lat: f.geometry?.coordinates?.[1], lng: f.geometry?.coordinates?.[0]})) :
-      Object.values(areas));
-
-    // データ整形・保存
-    const records = dataArray.map(a => ({
-      feature_id: String(a.id || a.feature_id || a.fid || a.ID || Math.random()),
-      city: a.city || a.city_name || a.cityName || a.municipality || '',
-      address: a.address || a.location || a.addr || a.所在地 || '',
-      area_sqm: parseFloat(a.area || a.area_sqm || a.menseki || a.面積 || 0) || null,
-      intent: a.intent || a.type || a.classification || a.貸出意向 || '',
-      price: a.price ? String(a.price) : (a.rent_price ? String(a.rent_price) : ''),
-      registered_date: a.registered_date || a.date || a.created_at || '',
-      lat: parseFloat(a.lat || a.latitude || a.y || 0) || null,
-      lng: parseFloat(a.lng || a.longitude || a.x || 0) || null,
-      snapshot_date: today,
-      status: 'active'
-    })).filter(r => r.lat && r.lng);
+    // データ配列に変換・整形
+    let records = [];
+    if (Array.isArray(areas) && areas.length > 0 && Array.isArray(areas[0])) {
+      // 形式: [[minLng, minLat, maxLng, maxLat], ...] バウンディングボックス配列
+      records = areas.map((a, i) => ({
+        feature_id: String(i),
+        city: '', address: '', area_sqm: null, intent: '', price: '', registered_date: '',
+        lat: (parseFloat(a[1]) + parseFloat(a[3])) / 2,
+        lng: (parseFloat(a[0]) + parseFloat(a[2])) / 2,
+        snapshot_date: today, status: 'active'
+      })).filter(r => r.lat && r.lng && !isNaN(r.lat) && !isNaN(r.lng));
+    } else if (areas.features) {
+      // GeoJSON形式
+      records = areas.features.map((f, i) => ({
+        feature_id: String(f.id || f.properties?.id || i),
+        city: f.properties?.city || '', address: f.properties?.address || '',
+        area_sqm: parseFloat(f.properties?.area || 0) || null,
+        intent: f.properties?.intent || '', price: f.properties?.price ? String(f.properties.price) : '',
+        registered_date: f.properties?.registered_date || '',
+        lat: f.geometry?.coordinates?.[1] || null, lng: f.geometry?.coordinates?.[0] || null,
+        snapshot_date: today, status: 'active'
+      })).filter(r => r.lat && r.lng);
+    } else if (Array.isArray(areas)) {
+      // オブジェクト配列形式
+      records = areas.map(a => ({
+        feature_id: String(a.id || a.feature_id || a.fid || a.ID || Math.random()),
+        city: a.city || a.city_name || '', address: a.address || a.location || '',
+        area_sqm: parseFloat(a.area || a.area_sqm || 0) || null,
+        intent: a.intent || a.type || '', price: a.price ? String(a.price) : '',
+        registered_date: a.registered_date || a.date || '',
+        lat: parseFloat(a.lat || a.latitude || a.y || 0) || null,
+        lng: parseFloat(a.lng || a.longitude || a.x || 0) || null,
+        snapshot_date: today, status: 'active'
+      })).filter(r => r.lat && r.lng);
+    }
 
     if (records.length === 0) {
       hideLoading();
