@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>農地変化トラッカー | SOLAR LAND MGR</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
+    --accent:#f0b429;--green:#3fb950;--blue:#58a6ff;--red:#f85149;
+    --text:#e6edf3;--text-muted:#8b949e;
+    --font-main:'Zen Kaku Gothic New',sans-serif;--font-mono:'Share Tech Mono',monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+
+  .header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;z-index:1000;}
+  .header-left{display:flex;align-items:center;gap:12px;}
+  .logo{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--text);}
+  .logo-icon{width:28px;height:28px;background:linear-gradient(135deg,#f0b429,#e85d04);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;}
+  .logo-text{font-size:14px;font-weight:700;}
+  .page-title{font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+  .page-title::before{content:'/';color:var(--border);}
+  .btn{padding:6px 14px;border-radius:6px;border:1px solid var(--border);font-family:var(--font-main);font-size:12px;font-weight:500;cursor:pointer;transition:all 0.15s;}
+  .btn-ghost{background:none;color:var(--text-muted);}.btn-ghost:hover{background:var(--surface2);color:var(--text);}
+  .btn-primary{background:var(--accent);color:#000;border-color:var(--accent);}.btn-primary:hover{background:#e0a820;}
+
+  .toolbar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex-shrink:0;z-index:999;}
+  .toolbar-label{font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;}
+  .date-select{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-family:var(--font-main);font-size:12px;cursor:pointer;}
+  .date-select:focus{outline:none;border-color:var(--accent);}
+
+  .stats-bar{display:flex;align-items:center;gap:16px;margin-left:auto;flex-wrap:wrap;}
+  .stat-item{display:flex;align-items:center;gap:6px;font-size:12px;}
+  .stat-dot{width:10px;height:10px;border-radius:50%;}
+  .stat-count{font-family:var(--font-mono);font-weight:700;font-size:14px;}
+
+  .map-wrapper{flex:1;position:relative;overflow:hidden;}
+  #map{width:100%;height:100%;}
+  .leaflet-top.leaflet-left{display:none;}
+
+  /* ズームボタン */
+  .zoom-controls{position:absolute;bottom:24px;right:12px;z-index:500;display:flex;flex-direction:column;gap:2px;}
+  .zoom-btn{width:32px;height:32px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s;}
+  .zoom-btn:hover{background:var(--surface2);}
+  .zoom-level{width:32px;height:28px;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--accent);font-family:var(--font-mono);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;}
+
+  /* 凡例 */
+  .map-legend{position:absolute;bottom:24px;left:12px;z-index:500;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;}
+  .legend-title{font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;}
+  .legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-bottom:5px;}
+  .legend-marker{width:14px;height:14px;border-radius:50%;border:2px solid rgba(0,0,0,0.3);}
+
+  /* サイドパネル（農地詳細） */
+  .side-panel{position:absolute;top:0;right:0;width:300px;height:100%;background:var(--surface);border-left:1px solid var(--border);z-index:600;transform:translateX(100%);transition:transform 0.3s ease;overflow-y:auto;display:flex;flex-direction:column;}
+  .side-panel.open{transform:translateX(0);}
+  .side-panel-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:1;flex-shrink:0;}
+  .side-panel-title{font-size:13px;font-weight:700;}
+  .close-btn{background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer;padding:2px;}
+  .side-panel-body{padding:14px 16px;flex:1;}
+  .detail-item{margin-bottom:12px;}
+  .detail-label{font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px;}
+  .detail-value{font-size:13px;color:var(--text);line-height:1.5;}
+  .change-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;margin-bottom:12px;}
+  .change-badge.new{background:rgba(63,185,80,.2);color:#3fb950;border:1px solid rgba(63,185,80,.4);}
+  .change-badge.removed{background:rgba(248,81,73,.2);color:#f85149;border:1px solid rgba(248,81,73,.4);}
+  .change-badge.existing{background:rgba(139,148,158,.15);color:var(--text-muted);border:1px solid rgba(139,148,158,.3);}
+
+  /* ローディング */
+  .loading-overlay{position:absolute;inset:0;background:rgba(13,17,23,.8);z-index:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;}
+  .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loading-text{font-size:13px;color:var(--text-muted);}
+
+  /* 空状態 */
+  .empty-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;pointer-events:none;}
+  .empty-icon{font-size:48px;}
+  .empty-text{font-size:14px;color:var(--text-muted);text-align:center;line-height:1.8;}
+
+  /* トースト */
+  .toast-container{position:fixed;bottom:20px;right:60px;z-index:3000;display:flex;flex-direction:column;gap:8px;}
+  .toast{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 16px;font-size:13px;min-width:220px;animation:slideIn .3s ease;display:flex;align-items:center;gap:8px;}
+  .toast.success{border-left:3px solid var(--green);}
+  .toast.error{border-left:3px solid var(--red);}
+  @keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+
+  .base-tile{filter:saturate(0.4) brightness(1.0);}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <a class="logo" href="index.html">
+      <div class="logo-icon">☀️</div>
+      <span class="logo-text">SOLAR LAND MGR</span>
+    </a>
+    <span class="page-title">🌾 農地変化トラッカー</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <a href="https://aichi.farm.cloudgis.jp/matching/aic/" target="_blank" class="btn btn-ghost" style="font-size:12px;">↗ 未来の農地マップ</a>
+    <button class="btn btn-ghost" onclick="location.href='index.html'">← 案件一覧</button>
+  </div>
+</header>
+
+<div class="toolbar">
+  <span class="toolbar-label">比較日付</span>
+  <select class="date-select" id="dateFrom" onchange="loadDiff()">
+    <option value="">基準日（前）</option>
+  </select>
+  <span style="color:var(--text-muted);font-size:12px;">→</span>
+  <select class="date-select" id="dateTo" onchange="loadDiff()">
+    <option value="">比較日（後）</option>
+  </select>
+  <button class="btn btn-primary" onclick="triggerManualCollection()" style="font-size:12px;padding:5px 12px;">📥 今日のデータ取得</button>
+
+  <div class="stats-bar">
+    <div class="stat-item">
+      <div class="stat-dot" style="background:#3fb950;"></div>
+      <span style="color:var(--text-muted)">新規追加</span>
+      <span class="stat-count" style="color:#3fb950;" id="statNew">0</span>
+    </div>
+    <div class="stat-item">
+      <div class="stat-dot" style="background:#f85149;"></div>
+      <span style="color:var(--text-muted)">削除済み</span>
+      <span class="stat-count" style="color:#f85149;" id="statRemoved">0</span>
+    </div>
+    <div class="stat-item">
+      <div class="stat-dot" style="background:var(--text-muted);"></div>
+      <span style="color:var(--text-muted)">変化なし</span>
+      <span class="stat-count" style="color:var(--text-muted);" id="statExisting">0</span>
+    </div>
+  </div>
+</div>
+
+<div class="map-wrapper">
+  <div id="map"></div>
+
+  <!-- ローディング -->
+  <div class="loading-overlay" id="loadingOverlay" style="display:none;">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loadingText">データを読み込み中...</div>
+  </div>
+
+  <!-- 空状態 -->
+  <div class="empty-state" id="emptyState">
+    <div class="empty-icon">🌾</div>
+    <div class="empty-text">
+      上の「📥 今日のデータ取得」ボタンを押してデータを収集してください<br>
+      2日分のデータが溜まると変化が表示されます
+    </div>
+  </div>
+
+  <!-- 凡例 -->
+  <div class="map-legend">
+    <div class="legend-title">変化状況</div>
+    <div class="legend-item"><div class="legend-marker" style="background:#3fb950;"></div>新規追加</div>
+    <div class="legend-item"><div class="legend-marker" style="background:#f85149;"></div>削除済み</div>
+    <div class="legend-item"><div class="legend-marker" style="background:#8b949e;"></div>変化なし</div>
+  </div>
+
+  <!-- ズームボタン -->
+  <div class="zoom-controls">
+    <button class="zoom-btn" onclick="map.zoomIn()">＋</button>
+    <div class="zoom-level" id="zoomLevel">10</div>
+    <button class="zoom-btn" onclick="map.zoomOut()">－</button>
+  </div>
+
+  <!-- 農地詳細サイドパネル -->
+  <div class="side-panel" id="sidePanel">
+    <div class="side-panel-header">
+      <span class="side-panel-title">🌾 農地詳細</span>
+      <button class="close-btn" onclick="closeSidePanel()">✕</button>
+    </div>
+    <div class="side-panel-body" id="sidePanelBody"></div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+const SUPABASE_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+const WORKER_BASE = 'https://reinfolib-proxy.takumi-29b.workers.dev';
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let map, markersLayer = null;
+
+// ======== 地図初期化 ========
+function initMap() {
+  map = L.map('map', { zoomControl: false }).setView([34.8, 137.1], 10);
+  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+    attribution: '© 国土地理院', maxZoom: 18, className: 'base-tile'
+  }).addTo(map);
+  map.on('zoomend', () => {
+    document.getElementById('zoomLevel').textContent = map.getZoom();
+  });
+}
+
+// ======== 日付リスト取得 ========
+async function loadDates() {
+  const { data, error } = await db
+    .from('farmland_snapshots')
+    .select('snapshot_date')
+    .order('snapshot_date', { ascending: false });
+
+  if (error || !data) return;
+
+  // ユニークな日付を取得
+  const dates = [...new Set(data.map(d => d.snapshot_date))].sort().reverse();
+
+  const fromEl = document.getElementById('dateFrom');
+  const toEl = document.getElementById('dateTo');
+
+  fromEl.innerHTML = '<option value="">基準日（前）</option>';
+  toEl.innerHTML = '<option value="">比較日（後）</option>';
+
+  dates.forEach(d => {
+    fromEl.innerHTML += `<option value="${d}">${d}</option>`;
+    toEl.innerHTML += `<option value="${d}">${d}</option>`;
+  });
+
+  // デフォルト：最新2日を選択
+  if (dates.length >= 2) {
+    fromEl.value = dates[1]; // 前日
+    toEl.value = dates[0];   // 最新
+    loadDiff();
+  } else if (dates.length === 1) {
+    toEl.value = dates[0];
+  }
+}
+
+// ======== 差分読み込み・表示 ========
+async function loadDiff() {
+  const dateFrom = document.getElementById('dateFrom').value;
+  const dateTo = document.getElementById('dateTo').value;
+
+  if (!dateTo) return;
+
+  showLoading('差分データを取得中...');
+  if (markersLayer) { map.removeLayer(markersLayer); markersLayer = null; }
+  document.getElementById('emptyState').style.display = 'none';
+
+  try {
+    // 比較日のデータ取得
+    const { data: toData } = await db
+      .from('farmland_snapshots')
+      .select('*')
+      .eq('snapshot_date', dateTo);
+
+    let fromIds = new Set();
+    if (dateFrom) {
+      const { data: fromData } = await db
+        .from('farmland_snapshots')
+        .select('feature_id')
+        .eq('snapshot_date', dateFrom);
+      fromIds = new Set((fromData || []).map(d => d.feature_id));
+    }
+
+    if (!toData || toData.length === 0) {
+      hideLoading();
+      document.getElementById('emptyState').style.display = 'flex';
+      return;
+    }
+
+    // 差分分類
+    let newCount = 0, removedCount = 0, existingCount = 0;
+    const markers = [];
+
+    // 新規・変化なし
+    for (const item of toData) {
+      if (!item.lat || !item.lng) continue;
+      let changeType = 'existing';
+      if (dateFrom && !fromIds.has(item.feature_id)) {
+        changeType = 'new';
+        newCount++;
+      } else if (!dateFrom) {
+        existingCount++;
+      } else {
+        existingCount++;
+      }
+      if (changeType === 'new') {
+        markers.push({ item, changeType });
+      }
+    }
+
+    // 削除済み（前日にあって比較日にない）
+    if (dateFrom) {
+      const toIds = new Set(toData.map(d => d.feature_id));
+      const { data: fromDataFull } = await db
+        .from('farmland_snapshots')
+        .select('*')
+        .eq('snapshot_date', dateFrom);
+
+      for (const item of (fromDataFull || [])) {
+        if (!item.lat || !item.lng) continue;
+        if (!toIds.has(item.feature_id)) {
+          removedCount++;
+          markers.push({ item, changeType: 'removed' });
+        }
+      }
+    }
+
+    // 変化なしマーカー（最大200件）
+    let existingShown = 0;
+    for (const item of toData) {
+      if (!item.lat || !item.lng) continue;
+      if (dateFrom && !fromIds.has(item.feature_id)) continue; // 新規はスキップ
+      if (existingShown >= 200) break;
+      markers.push({ item, changeType: 'existing' });
+      existingShown++;
+    }
+
+    // 統計更新
+    document.getElementById('statNew').textContent = newCount;
+    document.getElementById('statRemoved').textContent = removedCount;
+    document.getElementById('statExisting').textContent = dateFrom ? existingCount : toData.length;
+
+    // マーカー描画
+    const leafletMarkers = markers.map(({ item, changeType }) => {
+      const color = changeType === 'new' ? '#3fb950' : changeType === 'removed' ? '#f85149' : '#6b7280';
+      const size = changeType === 'existing' ? 8 : 12;
+      const zIndex = changeType === 'existing' ? 100 : 500;
+
+      const m = L.circleMarker([item.lat, item.lng], {
+        radius: size / 2,
+        fillColor: color,
+        color: 'rgba(0,0,0,0.3)',
+        weight: 1.5,
+        fillOpacity: changeType === 'existing' ? 0.5 : 0.9,
+        pane: 'markerPane'
+      });
+
+      m.on('click', () => showDetail(item, changeType));
+      return m;
+    });
+
+    markersLayer = L.layerGroup(leafletMarkers).addTo(map);
+
+    // 新規・削除マーカーがあればそこにフィット
+    const importantMarkers = markers.filter(m => m.changeType !== 'existing');
+    if (importantMarkers.length > 0) {
+      const bounds = L.latLngBounds(importantMarkers.map(m => [m.item.lat, m.item.lng]));
+      map.fitBounds(bounds, { padding: [40, 40] });
+    }
+
+    hideLoading();
+    if (newCount === 0 && removedCount === 0 && dateFrom) {
+      showToast('変化はありませんでした', 'success');
+    } else if (newCount > 0 || removedCount > 0) {
+      showToast(`新規 ${newCount}件 / 削除 ${removedCount}件 の変化を検出しました`, 'success');
+    }
+
+  } catch(e) {
+    hideLoading();
+    showToast('データ取得エラー: ' + e.message, 'error');
+  }
+}
+
+// ======== 農地詳細表示 ========
+function showDetail(item, changeType) {
+  const changeLabel = changeType === 'new' ? '🟢 新規追加' : changeType === 'removed' ? '🔴 削除済み' : '⚪ 変化なし';
+  const badgeClass = changeType === 'new' ? 'new' : changeType === 'removed' ? 'removed' : 'existing';
+
+  document.getElementById('sidePanelBody').innerHTML = `
+    <div class="change-badge ${badgeClass}">${changeLabel}</div>
+    <div class="detail-item">
+      <div class="detail-label">農地ID</div>
+      <div class="detail-value" style="font-family:var(--font-mono);font-size:11px;">${item.feature_id || '—'}</div>
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">市町村</div>
+      <div class="detail-value">${item.city || '—'}</div>
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">所在地</div>
+      <div class="detail-value">${item.address || '—'}</div>
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">面積</div>
+      <div class="detail-value">${item.area_sqm ? Number(item.area_sqm).toLocaleString() + ' ㎡' : '—'}</div>
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">貸出意向</div>
+      <div class="detail-value">${item.intent || '—'}</div>
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">希望金額</div>
+      <div class="detail-value">${item.price || '—'}</div>
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">登録日</div>
+      <div class="detail-value">${item.registered_date || '—'}</div>
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">スナップショット日</div>
+      <div class="detail-value">${item.snapshot_date || '—'}</div>
+    </div>
+    <hr style="border-color:var(--border);margin:12px 0;">
+    <a href="https://aichi.farm.cloudgis.jp/matching/aic/" target="_blank"
+      style="display:block;text-align:center;padding:8px;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3);border-radius:6px;text-decoration:none;font-size:12px;font-weight:600;">
+      🌾 未来の農地マップで確認
+    </a>
+  `;
+  document.getElementById('sidePanel').classList.add('open');
+}
+
+function closeSidePanel() {
+  document.getElementById('sidePanel').classList.remove('open');
+}
+
+// ======== 手動データ取得 ========
+async function triggerManualCollection() {
+  showLoading('農地データを取得中...\n（初回は時間がかかります）');
+  try {
+    // Cloudflare Worker経由でarea.jsonを取得
+    const res = await fetch(`${WORKER_BASE}/farmland/matching/aic/area.json`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const areas = await res.json();
+    const today = new Date().toISOString().split('T')[0];
+
+    // 既存チェック
+    const { data: existing } = await db
+      .from('farmland_snapshots')
+      .select('id')
+      .eq('snapshot_date', today)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      hideLoading();
+      showToast('今日のデータはすでに取得済みです', 'success');
+      await loadDates();
+      return;
+    }
+
+    // データ整形・保存
+    const records = (Array.isArray(areas) ? areas : Object.values(areas)).map(a => ({
+      feature_id: String(a.id || a.feature_id || a.fid || Math.random()),
+      city: a.city || a.city_name || a.cityName || '',
+      address: a.address || a.location || a.addr || '',
+      area_sqm: parseFloat(a.area || a.area_sqm || a.menseki || 0) || null,
+      intent: a.intent || a.type || a.classification || '',
+      price: a.price ? String(a.price) : (a.rent_price ? String(a.rent_price) : ''),
+      registered_date: a.registered_date || a.date || a.created_at || '',
+      lat: parseFloat(a.lat || a.latitude || a.y || 0) || null,
+      lng: parseFloat(a.lng || a.longitude || a.x || 0) || null,
+      snapshot_date: today,
+      status: 'active'
+    })).filter(r => r.lat && r.lng);
+
+    if (records.length === 0) {
+      hideLoading();
+      showToast('農地データが見つかりませんでした\n（APIの構造を確認中）', 'error');
+      console.log('area.json raw:', areas);
+      return;
+    }
+
+    // バッチ保存（100件ずつ）
+    for (let i = 0; i < records.length; i += 100) {
+      const batch = records.slice(i, i + 100);
+      await db.from('farmland_snapshots').insert(batch);
+    }
+
+    hideLoading();
+    showToast(`${records.length}件の農地データを保存しました`, 'success');
+    await loadDates();
+
+  } catch(e) {
+    hideLoading();
+    showToast('取得エラー: ' + e.message, 'error');
+    console.error(e);
+  }
+}
+
+// ======== UI ヘルパー ========
+function showLoading(text) {
+  document.getElementById('loadingText').textContent = text;
+  document.getElementById('loadingOverlay').style.display = 'flex';
+}
+function hideLoading() {
+  document.getElementById('loadingOverlay').style.display = 'none';
+}
+function showToast(msg, type = 'success') {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+// ======== 初期化 ========
+initMap();
+loadDates();
+</script>
+</body>
+</html>
