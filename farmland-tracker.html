@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;--accent:#f0b429;--green:#3fb950;--red:#f85149;--text:#e6edf3;--text-muted:#8b949e;--font-main:'Zen Kaku Gothic New',sans-serif;--font-mono:'Share Tech Mono',monospace;}
@@ -39,7 +40,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 .legend-title{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;}
 .legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-bottom:5px;}
 .legend-marker{width:14px;height:14px;border-radius:50%;border:2px solid rgba(0,0,0,0.3);}
-.side-panel{position:absolute;top:0;right:0;width:300px;height:100%;background:var(--surface);border-left:1px solid var(--border);z-index:600;transform:translateX(100%);transition:transform 0.3s ease;overflow-y:auto;display:flex;flex-direction:column;}
+.side-panel{position:absolute;top:0;right:0;width:320px;height:100%;background:var(--surface);border-left:1px solid var(--border);z-index:600;transform:translateX(100%);transition:transform 0.3s ease;overflow-y:auto;display:flex;flex-direction:column;}
 .side-panel.open{transform:translateX(0);}
 .side-panel-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:1;}
 .side-panel-title{font-size:13px;font-weight:700;}
@@ -60,7 +61,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 .empty-icon{font-size:48px;}
 .empty-text{font-size:14px;color:var(--text-muted);text-align:center;line-height:1.8;}
 .toast-container{position:fixed;bottom:20px;right:60px;z-index:3000;display:flex;flex-direction:column;gap:8px;}
-.farmland-tooltip{background:#161b22;border:1px solid #f0b429;border-radius:6px;color:#e6edf3;font-family:'Zen Kaku Gothic New',sans-serif;font-size:12px;padding:4px 10px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);}
+.farmland-tooltip{background:#161b22;border:1px solid #f0b429;border-radius:6px;color:#e6edf3;font-size:12px;padding:4px 10px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);}
 .farmland-tooltip::before{display:none;}
 .toast{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 16px;font-size:13px;min-width:220px;animation:slideIn .3s ease;}
 .toast.success{border-left:3px solid var(--green);}
@@ -114,7 +115,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   </div>
   <div class="zoom-controls">
     <button class="zoom-btn" onclick="map.zoomIn()">＋</button>
-    <div class="zoom-level" id="zoomLevel">10</div>
+    <div class="zoom-level" id="zoomLevel">11</div>
     <button class="zoom-btn" onclick="map.zoomOut()">－</button>
   </div>
   <div class="side-panel" id="sidePanel">
@@ -132,14 +133,131 @@ var SUPABASE_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
 var SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
 var WORKER_BASE = 'https://reinfolib-proxy.takumi-29b.workers.dev';
 var db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-var map, markersLayer = null;
+var map, markersLayer = null, vectorLayers = [];
 
-function initMap() {
-  map = L.map('map', {zoomControl:false}).setView([34.8, 137.1], 10);
-  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {attribution:'GSI', maxZoom:18, opacity:0.8}).addTo(map);
-  map.on('zoomend', function() { document.getElementById('zoomLevel').textContent = map.getZoom(); });
+// 愛知県の市区町村スラッグ（確認済み: gamagori）
+var CITIES = [
+  {name:'蒲郡市',    slug:'gamagori',    lat:34.827, lng:137.230},
+  {name:'豊橋市',    slug:'toyohashi',   lat:34.769, lng:137.391},
+  {name:'田原市',    slug:'tahara',      lat:34.659, lng:137.267},
+  {name:'岡崎市',    slug:'okazaki',     lat:34.948, lng:137.175},
+  {name:'西尾市',    slug:'nishio',      lat:34.862, lng:137.055},
+  {name:'豊川市',    slug:'toyokawa',    lat:34.825, lng:137.376},
+  {name:'幸田町',    slug:'kota',        lat:34.878, lng:137.140},
+  {name:'碧南市',    slug:'hekinan',     lat:34.883, lng:136.989},
+  {name:'高浜市',    slug:'takahama',    lat:34.926, lng:137.005},
+  {name:'安城市',    slug:'anjo',        lat:34.959, lng:137.079},
+  {name:'知多市',    slug:'chita',       lat:35.004, lng:136.861},
+  {name:'南知多町',  slug:'minamichita', lat:34.690, lng:136.910},
+  {name:'美浜町',    slug:'mihama',      lat:34.760, lng:136.905},
+  {name:'武豊町',    slug:'taketoyo',    lat:34.847, lng:136.916},
+];
+
+// タイルバージョン（当日日付 MMDD）
+function getTileVersion() {
+  var d = new Date();
+  return String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
 }
 
+// VectorGridタイルURL
+function getTileUrl(slug) {
+  return WORKER_BASE + '/farmland/matching/aic/map/' + slug + '/tiles/{z}/{x}/{y}.pbf?v=' + getTileVersion();
+}
+
+// lat/lng → タイル座標
+function lngLatToTile(lng, lat, z) {
+  var x = Math.floor((lng + 180) / 360 * Math.pow(2, z));
+  var r = lat * Math.PI / 180;
+  var y = Math.floor((1 - Math.log(Math.tan(r) + 1/Math.cos(r)) / Math.PI) / 2 * Math.pow(2, z));
+  return {x:x, y:y};
+}
+
+// タイル座標 → 中心lat/lng
+function tileToCenter(x, y, z) {
+  var n = Math.pow(2, z);
+  var lng = x / n * 360 - 180;
+  var r = Math.atan(Math.sinh(Math.PI * (1 - 2*y/n)));
+  var lat = r * 180 / Math.PI;
+  return {lat:lat, lng:lng};
+}
+
+// タイルのハッシュ計算（ArrayBuffer → 数値）
+function hashBuffer(buf) {
+  var v = new Uint8Array(buf);
+  var h = 0;
+  for (var i = 0; i < v.length; i++) h = ((h << 5) - h + v[i]) | 0;
+  return (h >>> 0).toString(16);
+}
+
+// VectorGridスタイル（未来の農地マップと同じ色）
+var TILE_STYLES = {
+  '*': function(props) {
+    // プロパティを1度だけデバッグ表示
+    if (!window._propsDumped && props) {
+      window._propsDumped = true;
+      showDebug('タイルプロパティ: ' + JSON.stringify(props).slice(0,200));
+    }
+    var intent = props.INTENT || props.intent || props.type || props.classification || 1;
+    // 赤（貸したい=1）は非表示。ピンク（売りたい=2）・紫（貸したい・売りたい=3）のみ表示
+    if (intent == 1 || intent === 'lease') return { fill:false, stroke:false, opacity:0 };
+    var color = '#ff9999'; // 売りたい（ピンク）
+    if (intent == 3 || intent === 'both') color = '#8833cc'; // 貸したい・売りたい（紫）
+    return { fill:true, fillColor:color, fillOpacity:0.75, color:'#fff', weight:0.5, opacity:0.9 };
+  }
+};
+
+// ======== 地図初期化 ========
+function initMap() {
+  map = L.map('map', {zoomControl:false}).setView([34.85, 137.1], 11);
+  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+    attribution:'GSI', maxZoom:18, opacity:0.8
+  }).addTo(map);
+  map.on('zoomend', function() {
+    document.getElementById('zoomLevel').textContent = map.getZoom();
+  });
+
+  // VectorGridレイヤー追加（実際の農地データを正しい位置に表示）
+  CITIES.forEach(function(city) {
+    try {
+      var layer = L.vectorGrid.protobuf(getTileUrl(city.slug), {
+        rendererFactory: L.canvas.tile,
+        vectorTileLayerStyles: TILE_STYLES,
+        interactive: true,
+        maxNativeZoom: 17,
+        minZoom: 13,
+        zIndex: 400
+      });
+      layer.on('click', function(e) {
+        L.DomEvent.stopPropagation(e);
+        var props = e.layer.properties || {};
+        showFarmlandDetail(props, city.name);
+      });
+      layer.addTo(map);
+      vectorLayers.push(layer);
+    } catch(err) {
+      showDebug(city.name + ' レイヤーエラー: ' + err.message);
+    }
+  });
+}
+
+// 農地詳細表示（VectorGridクリック）
+function showFarmlandDetail(props, cityName) {
+  var intent = props.INTENT || props.intent || props.type || '';
+  var intentLabel = intent == 1 ? '貸したい' : intent == 2 ? '売りたい' : intent == 3 ? '貸したい・売りたい' : (intent||'-');
+  var intentColor = intent == 2 ? '#ff9999' : intent == 3 ? '#8833cc' : '#ff4444';
+
+  document.getElementById('sidePanelBody').innerHTML =
+    '<div style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;margin-bottom:12px;background:rgba(240,180,41,.15);color:'+intentColor+';border:1px solid '+intentColor+'40;">🌾 '+intentLabel+'</div>'+
+    '<div class="detail-item"><div class="detail-label">市町村</div><div class="detail-value">'+cityName+'</div></div>'+
+    Object.keys(props).slice(0,10).map(function(k) {
+      return '<div class="detail-item"><div class="detail-label">'+k+'</div><div class="detail-value">'+(props[k]||'-')+'</div></div>';
+    }).join('')+
+    '<hr style="border-color:var(--border);margin:12px 0;">'+
+    '<a href="https://aichi.farm.cloudgis.jp/matching/aic/" target="_blank" style="display:block;text-align:center;padding:8px;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3);border-radius:6px;text-decoration:none;font-size:12px;font-weight:600;">🌾 未来の農地マップで確認</a>';
+  document.getElementById('sidePanel').classList.add('open');
+}
+
+// ======== 日付リスト取得 ========
 async function loadDates() {
   var res = await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date', {ascending:true}).limit(10000);
   if (res.error || !res.data) return;
@@ -154,6 +272,7 @@ async function loadDates() {
   else if (dates.length === 1) { te.value = dates[0]; }
 }
 
+// ======== 差分表示 ========
 async function loadDiff() {
   var dateFrom = document.getElementById('dateFrom').value;
   var dateTo = document.getElementById('dateTo').value;
@@ -198,15 +317,15 @@ async function loadDiff() {
     var lm = markers.map(function(m) {
       var c = m.changeType==='new'?'#3fb950':m.changeType==='removed'?'#f85149':'#8b949e';
       var label = m.changeType==='new'?'新規':m.changeType==='removed'?'削除':'既存';
-      var sz = m.changeType==='existing'?5:8;
-      var op = m.changeType==='existing'?0.6:0.9;
+      var sz = m.changeType==='existing'?5:9;
+      var op = m.changeType==='existing'?0.5:0.9;
       var mk = L.circleMarker([m.item.lat,m.item.lng], {
-        radius:sz, fillColor:c, color:'#fff', weight:1.5, fillOpacity:op, pane:'markerPane'
+        radius:sz, fillColor:c, color:'#fff', weight:2, fillOpacity:op, pane:'markerPane'
       });
       mk.bindTooltip('<b>'+label+'</b> '+(m.item.city||''), {
         direction:'top', permanent:false, opacity:0.95, className:'farmland-tooltip'
       });
-      mk.on('click', function() { showDetail(m.item, m.changeType); });
+      mk.on('click', function() { showChangeDetail(m.item, m.changeType); });
       return mk;
     });
     markersLayer = L.layerGroup(lm).addTo(map);
@@ -218,13 +337,14 @@ async function loadDiff() {
   } catch(e) { hideLoading(); showToast('エラー: '+e.message, 'error'); }
 }
 
-function showDetail(item, changeType) {
+// 変化マーカーのサイドパネル表示
+function showChangeDetail(item, changeType) {
   var lbl = changeType==='new'?'🟢 新規追加':changeType==='removed'?'🔴 削除済み':'⚪ 変化なし';
   var bc = changeType==='new'?'new':changeType==='removed'?'removed':'existing';
   document.getElementById('sidePanelBody').innerHTML =
     '<div class="change-badge '+bc+'">'+lbl+'</div>'+
-    '<div class="detail-item"><div class="detail-label">ID</div><div class="detail-value" style="font-family:var(--font-mono);font-size:11px;">'+(item.feature_id||'-')+'</div></div>'+
     '<div class="detail-item"><div class="detail-label">市町村</div><div class="detail-value">'+(item.city||'-')+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">タイルID</div><div class="detail-value" style="font-family:var(--font-mono);font-size:11px;">'+(item.feature_id||'-')+'</div></div>'+
     '<div class="detail-item"><div class="detail-label">スナップショット日</div><div class="detail-value">'+(item.snapshot_date||'-')+'</div></div>'+
     '<hr style="border-color:var(--border);margin:12px 0;">'+
     '<a href="https://aichi.farm.cloudgis.jp/matching/aic/" target="_blank" style="display:block;text-align:center;padding:8px;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3);border-radius:6px;text-decoration:none;font-size:12px;font-weight:600;">🌾 未来の農地マップで確認</a>';
@@ -233,95 +353,84 @@ function showDetail(item, changeType) {
 
 function closeSidePanel() { document.getElementById('sidePanel').classList.remove('open'); }
 
-function parseAreasToRecords(areas, today) {
-  var records = [];
-  if (areas && typeof areas==='object' && !Array.isArray(areas) && !areas.features) {
-    var idx=0, keys=Object.keys(areas);
-    for (var ki=0; ki<keys.length; ki++) {
-      var city=keys[ki], val=areas[city];
-      if (!Array.isArray(val)) continue;
-      if (val.length===4 && typeof val[0]==='number') {
-        var lng=(parseFloat(val[0])+parseFloat(val[2]))/2;
-        var lat=(parseFloat(val[1])+parseFloat(val[3]))/2;
-        if (lat&&lng&&!isNaN(lat)&&!isNaN(lng)) { records.push({feature_id:city+'_'+idx, city:city, address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:lat, lng:lng, snapshot_date:today, status:'active'}); idx++; }
-      } else {
-        for (var bi=0; bi<val.length; bi++) {
-          var bbox=val[bi];
-          if (!Array.isArray(bbox)||bbox.length<4) continue;
-          var lng2=(parseFloat(bbox[0])+parseFloat(bbox[2]))/2, lat2=(parseFloat(bbox[1])+parseFloat(bbox[3]))/2;
-          if (!lat2||!lng2||isNaN(lat2)||isNaN(lng2)) continue;
-          records.push({feature_id:city+'_'+idx, city:city, address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:lat2, lng:lng2, snapshot_date:today, status:'active'}); idx++;
-        }
-      }
-    }
-    showDebug('形式: city-keyed 変換後: '+records.length+'件');
-  } else if (Array.isArray(areas) && areas.length && Array.isArray(areas[0])) {
-    for (var i=0; i<areas.length; i++) {
-      var a=areas[i]; if (a.length<4) continue;
-      var alng=(parseFloat(a[0])+parseFloat(a[2]))/2, alat=(parseFloat(a[1])+parseFloat(a[3]))/2;
-      if (!alat||!alng||isNaN(alat)||isNaN(alng)) continue;
-      records.push({feature_id:String(i), city:'', address:'', area_sqm:null, intent:'', price:'', registered_date:'', lat:alat, lng:alng, snapshot_date:today, status:'active'});
-    }
-    showDebug('形式: flat bbox 変換後: '+records.length+'件');
-  } else if (areas && areas.features) {
-    for (var j=0; j<areas.features.length; j++) {
-      var f=areas.features[j], p=f.properties||{};
-      var flat=f.geometry&&f.geometry.coordinates?f.geometry.coordinates[1]:null;
-      var flng=f.geometry&&f.geometry.coordinates?f.geometry.coordinates[0]:null;
-      if (!flat||!flng) continue;
-      records.push({feature_id:String(f.id||j), city:p.city||'', address:p.address||'', area_sqm:parseFloat(p.area||0)||null, intent:p.intent||'', price:p.price?String(p.price):'', registered_date:p.registered_date||'', lat:flat, lng:flng, snapshot_date:today, status:'active'});
-    }
-    showDebug('形式: GeoJSON 変換後: '+records.length+'件');
-  } else if (Array.isArray(areas)) {
-    for (var k=0; k<areas.length; k++) {
-      var o=areas[k];
-      var olat=parseFloat(o.lat||o.latitude||o.y||0)||null, olng=parseFloat(o.lng||o.longitude||o.x||0)||null;
-      if (!olat||!olng) continue;
-      records.push({feature_id:String(o.id||k), city:o.city||'', address:o.address||'', area_sqm:parseFloat(o.area||0)||null, intent:o.intent||'', price:o.price?String(o.price):'', registered_date:o.registered_date||'', lat:olat, lng:olng, snapshot_date:today, status:'active'});
-    }
-    showDebug('形式: object array 変換後: '+records.length+'件');
-  }
-  return records;
-}
-
+// ======== データ収集 ========
+// 各市区町村のタイル（zoom14: 約2.4km×2.4km）をダウンロードしてハッシュ保存
 async function triggerManualCollection() {
-  alert('ボタンが押されました！処理を開始します。');
   showLoading('農地データを取得中...');
   try {
     var today = new Date().toISOString().split('T')[0];
     var chk = await db.from('farmland_snapshots').select('id').eq('snapshot_date', today).limit(1);
-    if (chk.data && chk.data.length>0) { hideLoading(); showToast('今日のデータはすでに取得済みです', 'success'); await loadDates(); return; }
-    var urls = [WORKER_BASE+'/farmland/common/aic/search/area.json?v=1225', WORKER_BASE+'/farmland/common/aic/search/area.json'];
-    var areas = null;
-    for (var ui=0; ui<urls.length; ui++) {
-      try {
-        var r = await fetch(urls[ui]);
-        if (r.ok) {
-          var ct = r.headers.get('content-type')||'';
-          if (ct.indexOf('json')>=0) {
-            areas = await r.json();
-            var cnt = Array.isArray(areas)?areas.length:Object.keys(areas).length;
-            showDebug('成功: '+urls[ui]+' 件数: '+cnt);
-            break;
-          }
-        }
-        showDebug('失敗: '+urls[ui]+' HTTP:'+r.status);
-      } catch(e2) { showDebug('エラー: '+urls[ui]+' '+e2.message); }
+    if (chk.data && chk.data.length>0) {
+      hideLoading(); showToast('今日のデータはすでに取得済みです', 'success'); await loadDates(); return;
     }
-    if (!areas) { hideLoading(); showToast('農地データの取得に失敗しました', 'error'); return; }
-    var records = parseAreasToRecords(areas, today);
-    if (!records.length) { hideLoading(); showToast('位置情報付きの農地データが見つかりませんでした', 'error'); return; }
-    var saved=0;
+
+    var ZOOM = 14; // タイル収集ズームレベル（2.4km×2.4km/タイル）
+    var RADIUS = 2; // 各市中心から±2タイル（5×5=25タイル/市）
+    var records = [];
+    var ver = getTileVersion();
+    var seen = {};
+
+    showDebug('収集開始: ' + CITIES.length + '市区町村 zoom' + ZOOM);
+
+    for (var ci=0; ci<CITIES.length; ci++) {
+      var city = CITIES[ci];
+      var center = lngLatToTile(city.lng, city.lat, ZOOM);
+      var cityCount = 0;
+
+      for (var dx=-RADIUS; dx<=RADIUS; dx++) {
+        for (var dy=-RADIUS; dy<=RADIUS; dy++) {
+          var tx = center.x + dx;
+          var ty = center.y + dy;
+          var tileKey = ZOOM+'-'+tx+'-'+ty+'-'+city.slug;
+          if (seen[tileKey]) continue;
+          seen[tileKey] = true;
+
+          try {
+            var tileUrl = WORKER_BASE + '/farmland/matching/aic/map/' + city.slug + '/tiles/' + ZOOM + '/' + tx + '/' + ty + '.pbf?v=' + ver;
+            var r = await fetch(tileUrl);
+            if (!r.ok) continue;
+            var buf = await r.arrayBuffer();
+            if (buf.byteLength < 20) continue; // 空タイルをスキップ
+
+            var hash = hashBuffer(buf);
+            var pos = tileToCenter(tx, ty, ZOOM);
+            records.push({
+              feature_id: tileKey,
+              city: city.name,
+              address: '',
+              area_sqm: null,
+              intent: hash, // ハッシュをintentフィールドに格納
+              price: String(buf.byteLength),
+              registered_date: '',
+              lat: pos.lat,
+              lng: pos.lng,
+              snapshot_date: today,
+              status: 'active'
+            });
+            cityCount++;
+          } catch(e2) { /* タイルスキップ */ }
+        }
+      }
+      showDebug(city.name + ': ' + cityCount + 'タイル');
+      document.getElementById('loadingText').textContent = city.name + ' 収集中... (' + (ci+1) + '/' + CITIES.length + ')';
+    }
+
+    if (!records.length) {
+      hideLoading(); showToast('データが見つかりませんでした', 'error'); return;
+    }
+
+    var saved = 0;
     for (var si=0; si<records.length; si+=100) {
-      var batch=records.slice(si, si+100);
+      var batch = records.slice(si, si+100);
       var ins = await db.from('farmland_snapshots').insert(batch);
       if (ins.error) showDebug('保存エラー: '+JSON.stringify(ins.error));
-      else saved+=batch.length;
+      else saved += batch.length;
     }
     hideLoading();
-    showToast(saved+'件の農地データを保存しました', 'success');
+    showToast(saved + 'タイルのデータを保存しました', 'success');
+    showDebug('保存完了: ' + saved + '件');
     await loadDates();
-  } catch(e) { hideLoading(); showToast('取得エラー: '+e.message, 'error'); showDebug('例外: '+e.message); }
+  } catch(e) { hideLoading(); showToast('エラー: '+e.message, 'error'); showDebug('例外: '+e.message); }
 }
 
 function showLoading(text) { document.getElementById('loadingText').textContent=text; document.getElementById('loadingOverlay').style.display='flex'; }
