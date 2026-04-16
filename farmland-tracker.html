@@ -220,13 +220,15 @@ function toggleToshi(){
   }
 }
 
-// ── 農振農用地レイヤー（dm PNG + mix-blend-mode）──
+// ── 農振農用地レイヤー（dm PNG → Canvas黄色抽出）──
 var noshinLayer=null;
 function toggleNoshin(){
   var btn=document.getElementById('hzNoshin');
   if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;btn.classList.remove('active');return;}
   var NL=L.GridLayer.extend({
     createTile:function(coords,done){
+      var canvas=document.createElement('canvas');
+      canvas.width=canvas.height=256;
       var z=coords.z,x=coords.x,y=coords.y,slug=null,s;
       for(var i=0;i<CITIES.length;i++){
         var c=CITIES[i],xMin,xMax,yMin,yMax;
@@ -234,17 +236,47 @@ function toggleNoshin(){
         else{s=Math.pow(2,z-14);xMin=c.xMin*s;xMax=(c.xMax+1)*s-1;yMin=c.yMin*s;yMax=(c.yMax+1)*s-1;}
         if(x>=xMin&&x<=xMax&&y>=yMin&&y<=yMax){slug=c.slug;break;}
       }
-      var img=document.createElement('img');
-      img.style.cssText='width:256px;height:256px;mix-blend-mode:multiply;opacity:0.85;';
       if(slug){
-        img.src=WORKER_BASE+'/farmland/noshin/'+slug+'/map/dm/'+z+'/'+x+'/'+y+'.png?v=1.0';
-        img.onload=function(){done(null,img);};
-        img.onerror=function(){img.style.display='none';done(null,img);};
+        var url=WORKER_BASE+'/farmland/noshin/'+slug+'/map/dm/'+z+'/'+x+'/'+y+'.png?v=1.0';
+        var img=new Image();
+        img.crossOrigin='anonymous';
+        img.onload=function(){
+          try{
+            var off=document.createElement('canvas');
+            off.width=off.height=256;
+            var octx=off.getContext('2d');
+            octx.drawImage(img,0,0,256,256);
+            var data=octx.getImageData(0,0,256,256);
+            var px=data.data;
+            var ctx=canvas.getContext('2d');
+            var out=ctx.createImageData(256,256);
+            var op=out.data;
+            for(var i=0;i<px.length;i+=4){
+              var r=px[i],g=px[i+1],b=px[i+2];
+              // 暗色（背景・地図線）→ 透明
+              if(r<80&&g<80&&b<80){op[i+3]=0;continue;}
+              // 均一グレー（地図背景）→ 透明
+              if(r>180&&g>180&&b>180&&Math.abs(r-g)<20&&Math.abs(g-b)<20){op[i+3]=0;continue;}
+              // 黄色系（農用地）: R>150, G>150, B<G-20
+              if(r>150&&g>150&&b<(g-15)){
+                op[i]=255;op[i+1]=210;op[i+2]=0;op[i+3]=180;continue;
+              }
+              // 橙色系（農業用施設）: R>180, G<160, B<100
+              if(r>180&&g>60&&g<160&&b<100&&r>g+30){
+                op[i]=255;op[i+1]=140;op[i+2]=0;op[i+3]=180;continue;
+              }
+              op[i+3]=0;
+            }
+            ctx.putImageData(out,0,0);
+          }catch(e){}
+          done(null,canvas);
+        };
+        img.onerror=function(){done(null,canvas);};
+        img.src=url;
       } else {
-        img.style.display='none';
-        setTimeout(function(){done(null,img);},0);
+        done(null,canvas);
       }
-      return img;
+      return canvas;
     }
   });
   noshinLayer=new NL({maxZoom:18,pane:'overlayPane'});
