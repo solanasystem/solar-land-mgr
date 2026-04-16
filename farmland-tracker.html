@@ -222,9 +222,10 @@ function toggleToshi(){
 
 // ── 農振農用地レイヤー（dm PNG → 黄色ピクセル抽出）──
 var noshinLayer=null;
+var noshinColorDebugDone=false;
 function toggleNoshin(){
   var btn=document.getElementById('hzNoshin');
-  if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;btn.classList.remove('active');return;}
+  if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;btn.classList.remove('active');noshinColorDebugDone=false;return;}
   var NL=L.GridLayer.extend({
     createTile:function(coords,done){
       var canvas=document.createElement('canvas');
@@ -248,7 +249,17 @@ function toggleNoshin(){
             octx.drawImage(img,0,0,256,256);
             var data=octx.getImageData(0,0,256,256);
             var px=data.data;
-            var ctx=canvas.getContext('2d');
+            // デバッグ：上位10色を出力（最初の1タイルのみ）
+            if(!noshinColorDebugDone){
+              noshinColorDebugDone=true;
+              var colorMap={};
+              for(var j=0;j<px.length;j+=4){
+                var key=px[j]+','+px[j+1]+','+px[j+2];
+                colorMap[key]=(colorMap[key]||0)+1;
+              }
+              var top=Object.entries(colorMap).sort(function(a,b){return b[1]-a[1];}).slice(0,8);
+              showDebug('[dm colors] '+top.map(function(e){return 'rgb('+e[0]+'):'+e[1];}).join(' | '));
+            }
             var out=ctx.createImageData(256,256);
             var op=out.data;
             for(var i=0;i<px.length;i+=4){
