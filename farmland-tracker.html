@@ -137,6 +137,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <button class="hazard-btn" id="hzTsunami" onclick="toggleHazard('tsunami')">&#x1f30a; &#27941;&#27874;</button>
     <div class="hazard-divider"></div>
     <button class="hazard-btn" id="hzToshi" onclick="toggleToshi()">🏙 用途地域</button>
+    <div class="hazard-divider"></div>
+    <button class="hazard-btn" id="hzNoshin" onclick="toggleNoshin()">🌾 農振農用地</button>
   </div>
 
   <div class="side-panel" id="sidePanel">
@@ -216,6 +218,35 @@ function toggleToshi(){
     btn.classList.add('active');
     showToast('\u7528\u9014\u5730\u57df\u3092\u8868\u793a\u4e2d\uff08\u56fd\u571f\u5730\u7406\u9662\uff09','success');
   }
+}
+
+// ── 農振農用地レイヤー ──
+var noshinLayer=null;
+var NoshinLayer=L.GridLayer.extend({
+  createTile:function(coords){
+    var img=document.createElement('img');
+    img.style.cssText='width:256px;height:256px;';
+    var z=coords.z,x=coords.x,y=coords.y;
+    var slug=null;
+    for(var i=0;i<CITIES.length;i++){
+      var c=CITIES[i];
+      var xMin,xMax,yMin,yMax,s;
+      if(z<=14){s=Math.pow(2,14-z);xMin=Math.floor(c.xMin/s);xMax=Math.floor(c.xMax/s);yMin=Math.floor(c.yMin/s);yMax=Math.floor(c.yMax/s);}
+      else{s=Math.pow(2,z-14);xMin=c.xMin*s;xMax=(c.xMax+1)*s-1;yMin=c.yMin*s;yMax=(c.yMax+1)*s-1;}
+      if(x>=xMin&&x<=xMax&&y>=yMin&&y<=yMax){slug=c.slug;break;}
+    }
+    if(slug){
+      img.src=WORKER_BASE+'/farmland/noshin/'+slug+'/map/'+slug+'/tiles/'+z+'/'+x+'/'+y+'.png';
+      img.style.opacity='0.55';
+      img.onerror=function(){img.style.display='none';};
+    }
+    return img;
+  }
+});
+function toggleNoshin(){
+  var btn=document.getElementById('hzNoshin');
+  if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;btn.classList.remove('active');}
+  else{noshinLayer=new NoshinLayer({maxZoom:18,pane:'overlayPane'});noshinLayer.addTo(map);btn.classList.add('active');showToast('農振農用地を表示中','success');}
 }
 
 // ── マップ初期化 ──
@@ -342,14 +373,4 @@ async function triggerManualCollection(){
     hideLoading();
     showToast(saved+'\u4ef6\u4fdd\u5b58\u5b8c\u4e86','success');
     await loadDates();
-  }catch(e){hideLoading();showToast('ERR:'+e.message,'error');showDebug('EX:'+e.message);}
-}
-function showLoading(t){document.getElementById('loadingText').textContent=t;document.getElementById('loadingOverlay').style.display='flex';}
-function hideLoading(){document.getElementById('loadingOverlay').style.display='none';}
-function showToast(msg,type){var c=document.getElementById('toastContainer'),t=document.createElement('div');t.className='toast '+(type||'success');t.textContent=msg;c.appendChild(t);setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},6000);}
-function showDebug(msg){var el=document.getElementById('debugPanel');if(!el){el=document.createElement('div');el.id='debugPanel';el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:9999;background:#1c2333;border:2px solid #f0b429;border-radius:10px;padding:16px 24px;max-width:700px;width:90%;font-family:monospace;font-size:12px;color:#e6edf3;white-space:pre-wrap;max-height:400px;overflow-y:auto;';el.innerHTML='<button onclick="this.parentElement.remove()" style="float:right;background:#f85149;border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;">X</button><div id="debugLog"></div>';document.body.appendChild(el);}document.getElementById('debugLog').textContent+=new Date().toLocaleTimeString()+' '+msg+'\n';}
-initMap();
-loadDates();
-</script>
-</body>
-</html>
+  }catch(e){hideLoading();showToast('ERR:'+e.messa
