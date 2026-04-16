@@ -220,16 +220,15 @@ function toggleToshi(){
   }
 }
 
-// ── 農振農用地レイヤー（PNG ラスタータイル /map/dm/）──
+// ── 農振農用地レイヤー（dm PNG → 黄色ピクセル抽出）──
 var noshinLayer=null;
 function toggleNoshin(){
   var btn=document.getElementById('hzNoshin');
   if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;btn.classList.remove('active');return;}
-  // 市町村ごとにタイルURLを動的に決定するカスタムGridLayer
   var NL=L.GridLayer.extend({
     createTile:function(coords,done){
-      var img=document.createElement('img');
-      img.style.cssText='width:256px;height:256px;opacity:0.7;';
+      var canvas=document.createElement('canvas');
+      canvas.width=canvas.height=256;
       var z=coords.z,x=coords.x,y=coords.y,slug=null,s;
       for(var i=0;i<CITIES.length;i++){
         var c=CITIES[i],xMin,xMax,yMin,yMax;
@@ -238,13 +237,43 @@ function toggleNoshin(){
         if(x>=xMin&&x<=xMax&&y>=yMin&&y<=yMax){slug=c.slug;break;}
       }
       if(slug){
-        img.src=WORKER_BASE+'/farmland/noshin/'+slug+'/map/dm/'+z+'/'+x+'/'+y+'.png?v=1.0';
-        img.onerror=function(){img.style.display='none';done(null,img);};
-        img.onload=function(){done(null,img);};
+        var url=WORKER_BASE+'/farmland/noshin/'+slug+'/map/dm/'+z+'/'+x+'/'+y+'.png?v=1.0';
+        var img=new Image();
+        img.crossOrigin='anonymous';
+        img.onload=function(){
+          try{
+            var off=document.createElement('canvas');
+            off.width=off.height=256;
+            var octx=off.getContext('2d');
+            octx.drawImage(img,0,0,256,256);
+            var data=octx.getImageData(0,0,256,256);
+            var px=data.data;
+            var ctx=canvas.getContext('2d');
+            var out=ctx.createImageData(256,256);
+            var op=out.data;
+            for(var i=0;i<px.length;i+=4){
+              var r=px[i],g=px[i+1],b=px[i+2];
+              // 農用地：黄色系 (R>200, G>180, B<80)
+              var isYellow=(r>200&&g>170&&b<100);
+              // 農業用施設：橙色系 (R>200, G>100&&G<180, B<80)
+              var isOrange=(r>200&&g>80&&g<180&&b<80);
+              if(isYellow||isOrange){
+                op[i]=r;op[i+1]=g;op[i+2]=b;
+                op[i+3]=Math.round(px[i+3]*0.75);
+              } else {
+                op[i+3]=0;
+              }
+            }
+            ctx.putImageData(out,0,0);
+          }catch(e){}
+          done(null,canvas);
+        };
+        img.onerror=function(){done(null,canvas);};
+        img.src=url;
       } else {
-        done(null,img);
+        done(null,canvas);
       }
-      return img;
+      return canvas;
     }
   });
   noshinLayer=new NL({maxZoom:18,pane:'overlayPane'});
