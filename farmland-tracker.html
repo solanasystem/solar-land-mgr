@@ -222,6 +222,7 @@ function toggleToshi(){
 
 // ── 農振農用地レイヤー（PBFキャンバス描画）──
 var noshinLayer=null;
+var noshinDebugDone=false;
 function toggleNoshin(){
   var btn=document.getElementById('hzNoshin');
   if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;btn.classList.remove('active');return;}
@@ -243,11 +244,33 @@ function toggleNoshin(){
             try{
               var layers=decodePBFTile(buf);
               var ctx=canvas.getContext('2d');
+              // デバッグ：最初の1回だけレイヤー名とプロパティをログ出力
+              if(!noshinDebugDone){
+                noshinDebugDone=true;
+                var dbg='[noshin PBF] layers: '+Object.keys(layers).join(', ');
+                for(var ln in layers){
+                  var lyr=layers[ln];
+                  if(lyr.features.length>0){
+                    var props=getVTProperties(lyr.features[0],lyr);
+                    dbg+=' | '+ln+' keys: '+Object.keys(props).join(',')+' | first: '+JSON.stringify(props).substring(0,200);
+                  }
+                }
+                showDebug(dbg);
+              }
               for(var ln in layers){
                 var layer=layers[ln],ext=layer.extent||4096,sc=256/ext;
                 for(var fi=0;fi<layer.features.length;fi++){
                   var f=layer.features[fi];
                   if(f.type!==3)continue;
+                  var props=getVTProperties(f,layer);
+                  // 農用地フラグ判定（プロパティ名候補を複数チェック）
+                  var isNoyochi=false;
+                  var kubun=props['kubun']||props['youto']||props['nochi_kubun']||props['land_type']||props['type']||props['flg']||props['category']||props['noshin']||'';
+                  if(kubun===1||kubun==='1'||kubun==='農用地'||kubun==='noyochi'||String(kubun).includes('農用'))isNoyochi=true;
+                  // プロパティが全くない場合は全部描画（旧動作）
+                  var propKeys=Object.keys(props);
+                  if(propKeys.length===0)isNoyochi=true;
+                  if(!isNoyochi)continue;
                   ctx.beginPath();
                   var gx=0,gy=0,gi=0,geom=f.geometry;
                   while(gi<geom.length){
@@ -259,10 +282,10 @@ function toggleNoshin(){
                   ctx.strokeStyle='rgba(180,130,0,0.7)';ctx.lineWidth=0.5;ctx.stroke();
                 }
               }
-            }catch(e){}
+            }catch(e){showDebug('noshin err:'+e.message);}
           }
           done(null,canvas);
-        }).catch(function(){done(null,canvas);});
+        }).catch(function(e){done(null,canvas);});
       } else {
         done(null,canvas);
       }
