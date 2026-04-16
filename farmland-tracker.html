@@ -296,9 +296,10 @@ async function loadDiff() {
     var lm=markers.map(function(m) {
       var c=m.changeType==='new'?'#3fb950':m.changeType==='removed'?'#f85149':'#8b949e';
       var lbl=m.changeType==='new'?'新規':m.changeType==='removed'?'削除':'既存';
-      var sz=m.changeType==='existing'?5:9;
-      var op=m.changeType==='existing'?0.5:0.9;
-      var mk=L.circleMarker([m.item.lat,m.item.lng],{radius:sz,fillColor:c,color:'#fff',weight:2,fillOpacity:op,pane:'markerPane'});
+      var sz=m.changeType==='existing'?10:12;
+      var op=m.changeType==='existing'?0.85:0.95;
+      var borderColor=m.changeType==='existing'?'#f0b429':'#fff';
+      var mk=L.circleMarker([m.item.lat,m.item.lng],{radius:sz,fillColor:c,color:borderColor,weight:2.5,fillOpacity:op});
       mk.bindTooltip('<b>'+lbl+'</b> '+(m.item.city||''),{direction:'top',permanent:false,opacity:0.95,className:'farmland-tooltip'});
       mk.on('click',function(){showDetail(m.item,m.changeType);});
       return mk;
@@ -377,12 +378,11 @@ async function triggerManualCollection() {
 
                 // 出手意向チェック（確認済みフィールド名）
                 var iko=props['出手意向'];
+                // 出手意向が空（一般農地筆）はスキップ
                 if (!iko||iko===''||iko==='null') continue;
-                // 「貸したい」のみは除外（赤は対象外）
-                if (iko==='貸したい'||iko==='1'||iko===1) continue;
 
-                // 重複チェック
-                var fid=city.slug+'_'+feature.id;
+                // 重複チェック（feature.idは常に0のためタイル座標+インデックスで一意IDを生成）
+                var fid=city.slug+'_'+tx+'_'+ty+'_'+fi;
                 if (featureSeen[fid]) continue;
                 featureSeen[fid]=true;
 
