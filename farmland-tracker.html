@@ -115,6 +115,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <div class="legend-item"><div class="legend-marker" style="background:#3fb950;"></div>&#26032;&#35215;&#36861;&#21152;</div>
     <div class="legend-item"><div class="legend-marker" style="background:#f85149;"></div>&#21066;&#38500;&#28168;&#12415;</div>
     <div class="legend-item"><div class="legend-marker" style="background:#4a9eff;border-color:#a855f7;"></div>&#22793;&#21464;&#12394;&#12375;</div>
+    <div class="legend-item"><div class="legend-marker" style="background:#ffe066;border-color:#c8a000;border-radius:2px;"></div>&#36234;&#25391;&#36955;&#29992;&#22320;</div>
   </div>
   <div class="zoom-controls">
     <button class="zoom-btn" onclick="map.zoomIn()">&#65291;</button>
@@ -220,36 +221,42 @@ function toggleToshi(){
   }
 }
 
-// ── 農振農用地：noshinページを現在地で開く ──
+// ── 農振農用地：R2 GeoJSONをLeafletで表示 ──
 var noshinLayer=null;
+var noshinLoading=false;
 function toggleNoshin(){
   var btn=document.getElementById('hzNoshin');
   if(noshinLayer){
-    noshinLayer=null;btn.classList.remove('active');
+    map.removeLayer(noshinLayer);
+    noshinLayer=null;
+    btn.classList.remove('active');
     showToast('農振農用地を非表示にしました','success');
     return;
   }
-  // 現在の地図中心から最も近い市を特定してnoshinページを開く
-  var center=map.getCenter();
-  var lat=center.lat,lng=center.lng;
-  var nearest=null,minDist=999;
-  var cityLatLng={
-    gamagori:[34.83,137.22],toyohashi:[34.77,137.39],tahara:[34.66,137.24],
-    okazaki:[34.95,137.16],nishio:[34.86,137.05],toyokawa:[34.83,137.37],
-    kota:[34.88,137.17],hekinan:[34.88,136.99],takahama:[34.93,136.99],
-    anjo:[34.96,137.08],chita:[34.97,136.86],minamichita:[34.74,136.92],
-    mihama:[34.79,136.9],taketoyo:[34.85,136.93]
-  };
-  for(var slug in cityLatLng){
-    var c=cityLatLng[slug];
-    var d=Math.pow(lat-c[0],2)+Math.pow(lng-c[1],2);
-    if(d<minDist){minDist=d;nearest=slug;}
-  }
-  var z=map.getZoom();
-  var url='https://aichi.farm.cloudgis.jp/noshin/'+nearest+'/#'+z+'/'+lat.toFixed(5)+'/'+lng.toFixed(5);
-  window.open(url,'_blank');
-  noshinLayer=true;btn.classList.add('active');
-  showToast('農振農用地マップを別タブで開きました','success');
+  if(noshinLoading)return;
+  noshinLoading=true;
+  btn.classList.add('active');
+  showToast('農振農用地データを読み込み中...','success');
+  fetch(WORKER_BASE+'/r2/noshin_aichi.geojson')
+    .then(function(r){return r.ok?r.json():Promise.reject('取得失敗');})
+    .then(function(geojson){
+      noshinLayer=L.geoJSON(geojson,{
+        style:{color:'#c8a000',weight:0.8,fillColor:'#ffe066',fillOpacity:0.45},
+        onEachFeature:function(feature,layer){
+          if(feature.properties&&feature.properties.city){
+            layer.bindTooltip('農振農用地：'+feature.properties.city,{className:'farmland-tooltip',sticky:true});
+          }
+        }
+      });
+      noshinLayer.addTo(map);
+      noshinLoading=false;
+      showToast('農振農用地を表示中（国土交通省 2015年度）','success');
+    })
+    .catch(function(e){
+      noshinLoading=false;
+      btn.classList.remove('active');
+      showToast('農振農用地の読み込みに失敗しました','error');
+    });
 }
 
 // ── マップ初期化 ──
