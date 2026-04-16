@@ -220,23 +220,16 @@ function toggleToshi(){
   }
 }
 
-// ── 農振農用地レイヤー（PBFキャンバス描画）──
+// ── 農振農用地レイヤー（PNG ラスタータイル /map/dm/）──
 var noshinLayer=null;
-var noshinDebugDone=false;
-var NOSHIN_LAYER_CANDIDATES=['noshin','noyochi','area','poly','nosin','agricultural'];
-var noshinLayerIdx=0;
 function toggleNoshin(){
   var btn=document.getElementById('hzNoshin');
-  if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;btn.classList.remove('active');noshinDebugDone=false;return;}
-  noshinLayerIdx=0;
-  buildNoshinLayer(btn);
-}
-function buildNoshinLayer(btn){
-  var layerName=NOSHIN_LAYER_CANDIDATES[noshinLayerIdx]||'noshin';
+  if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;btn.classList.remove('active');return;}
+  // 市町村ごとにタイルURLを動的に決定するカスタムGridLayer
   var NL=L.GridLayer.extend({
     createTile:function(coords,done){
-      var canvas=document.createElement('canvas');
-      canvas.width=canvas.height=256;
+      var img=document.createElement('img');
+      img.style.cssText='width:256px;height:256px;opacity:0.7;';
       var z=coords.z,x=coords.x,y=coords.y,slug=null,s;
       for(var i=0;i<CITIES.length;i++){
         var c=CITIES[i],xMin,xMax,yMin,yMax;
@@ -245,48 +238,19 @@ function buildNoshinLayer(btn){
         if(x>=xMin&&x<=xMax&&y>=yMin&&y<=yMax){slug=c.slug;break;}
       }
       if(slug){
-        var url=WORKER_BASE+'/farmland/noshin/'+slug+'/map/'+layerName+'/tiles/'+z+'/'+x+'/'+y+'.pbf?v=1';
-        fetch(url).then(function(r){
-          if(!noshinDebugDone){noshinDebugDone=true;showDebug('[noshin] URL:'+url+' status:'+r.status);}
-          return r.ok?r.arrayBuffer():null;
-        }).then(function(buf){
-          if(buf&&buf.byteLength>10){
-            try{
-              var layers=decodePBFTile(buf);
-              var ctx=canvas.getContext('2d');
-              var layerNames=Object.keys(layers);
-              if(!noshinDebugDone){noshinDebugDone=true;showDebug('[noshin PBF] layerName:'+layerName+' layers:'+layerNames.join(','));}
-              for(var ln in layers){
-                var layer=layers[ln],ext=layer.extent||4096,sc=256/ext;
-                for(var fi=0;fi<layer.features.length;fi++){
-                  var f=layer.features[fi];
-                  if(f.type!==3)continue;
-                  ctx.beginPath();
-                  var gx=0,gy=0,gi=0,geom=f.geometry;
-                  while(gi<geom.length){
-                    var ci2=geom[gi++],cmd=ci2&7,len=ci2>>3;
-                    if(cmd===1||cmd===2){for(var k=0;k<len;k++){gx+=(geom[gi]>>1)^-(geom[gi]&1);gi++;gy+=(geom[gi]>>1)^-(geom[gi]&1);gi++;cmd===1?ctx.moveTo(gx*sc,gy*sc):ctx.lineTo(gx*sc,gy*sc);}}
-                    else if(cmd===7){ctx.closePath();}
-                  }
-                  ctx.fillStyle='rgba(255,210,0,0.5)';ctx.fill('evenodd');
-                  ctx.strokeStyle='rgba(180,130,0,0.8)';ctx.lineWidth=0.6;ctx.stroke();
-                }
-              }
-            }catch(e){showDebug('noshin parse err:'+e.message);}
-          }
-          done(null,canvas);
-        }).catch(function(e){done(null,canvas);});
+        img.src=WORKER_BASE+'/farmland/noshin/'+slug+'/map/dm/'+z+'/'+x+'/'+y+'.png?v=1.0';
+        img.onerror=function(){img.style.display='none';done(null,img);};
+        img.onload=function(){done(null,img);};
       } else {
-        done(null,canvas);
+        done(null,img);
       }
-      return canvas;
+      return img;
     }
   });
-  if(noshinLayer)map.removeLayer(noshinLayer);
   noshinLayer=new NL({maxZoom:18,pane:'overlayPane'});
   noshinLayer.addTo(map);
   btn.classList.add('active');
-  showToast('農振農用地表示中（layer:'+layerName+'）','success');
+  showToast('農振農用地を表示中','success');
 }
 
 // ── マップ初期化 ──
