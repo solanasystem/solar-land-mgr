@@ -220,15 +220,15 @@ function toggleToshi(){
   }
 }
 
-// ── 農振農用地レイヤー（遅延初期化）──
+// ── 農振農用地レイヤー（PBFキャンバス描画）──
 var noshinLayer=null;
 function toggleNoshin(){
   var btn=document.getElementById('hzNoshin');
   if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;btn.classList.remove('active');return;}
   var NL=L.GridLayer.extend({
-    createTile:function(coords){
-      var img=document.createElement('img');
-      img.style.cssText='width:256px;height:256px;';
+    createTile:function(coords,done){
+      var canvas=document.createElement('canvas');
+      canvas.width=canvas.height=256;
       var z=coords.z,x=coords.x,y=coords.y,slug=null,s;
       for(var i=0;i<CITIES.length;i++){
         var c=CITIES[i],xMin,xMax,yMin,yMax;
@@ -237,11 +237,36 @@ function toggleNoshin(){
         if(x>=xMin&&x<=xMax&&y>=yMin&&y<=yMax){slug=c.slug;break;}
       }
       if(slug){
-        img.src=WORKER_BASE+'/farmland/noshin/'+slug+'/map/'+slug+'/tiles/'+z+'/'+x+'/'+y+'.png';
-        img.style.opacity='0.55';
-        img.onerror=function(){img.style.display='none';};
+        var url=WORKER_BASE+'/farmland/noshin/'+slug+'/map/fude/tiles/'+z+'/'+x+'/'+y+'.pbf?v=1';
+        fetch(url).then(function(r){return r.ok?r.arrayBuffer():null;}).then(function(buf){
+          if(buf&&buf.byteLength>10){
+            try{
+              var layers=decodePBFTile(buf);
+              var ctx=canvas.getContext('2d');
+              for(var ln in layers){
+                var layer=layers[ln],ext=layer.extent||4096,sc=256/ext;
+                for(var fi=0;fi<layer.features.length;fi++){
+                  var f=layer.features[fi];
+                  if(f.type!==3)continue;
+                  ctx.beginPath();
+                  var gx=0,gy=0,gi=0,geom=f.geometry;
+                  while(gi<geom.length){
+                    var ci2=geom[gi++],cmd=ci2&7,len=ci2>>3;
+                    if(cmd===1||cmd===2){for(var k=0;k<len;k++){gx+=(geom[gi]>>1)^-(geom[gi]&1);gi++;gy+=(geom[gi]>>1)^-(geom[gi]&1);gi++;cmd===1?ctx.moveTo(gx*sc,gy*sc):ctx.lineTo(gx*sc,gy*sc);}}
+                    else if(cmd===7){ctx.closePath();}
+                  }
+                  ctx.fillStyle='rgba(255,210,0,0.45)';ctx.fill('evenodd');
+                  ctx.strokeStyle='rgba(180,130,0,0.7)';ctx.lineWidth=0.5;ctx.stroke();
+                }
+              }
+            }catch(e){}
+          }
+          done(null,canvas);
+        }).catch(function(){done(null,canvas);});
+      } else {
+        done(null,canvas);
       }
-      return img;
+      return canvas;
     }
   });
   noshinLayer=new NL({maxZoom:18,pane:'overlayPane'});
