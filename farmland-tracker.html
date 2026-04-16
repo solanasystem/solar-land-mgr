@@ -220,37 +220,36 @@ function toggleToshi(){
   }
 }
 
-// ── 農振農用地レイヤー（dm PNG + screen blend）──
+// ── 農振農用地：noshinページを現在地で開く ──
 var noshinLayer=null;
 function toggleNoshin(){
   var btn=document.getElementById('hzNoshin');
-  if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;btn.classList.remove('active');return;}
-  var NL=L.GridLayer.extend({
-    createTile:function(coords,done){
-      var z=coords.z,x=coords.x,y=coords.y,slug=null,s;
-      for(var i=0;i<CITIES.length;i++){
-        var c=CITIES[i],xMin,xMax,yMin,yMax;
-        if(z<=14){s=Math.pow(2,14-z);xMin=Math.floor(c.xMin/s);xMax=Math.floor(c.xMax/s);yMin=Math.floor(c.yMin/s);yMax=Math.floor(c.yMax/s);}
-        else{s=Math.pow(2,z-14);xMin=c.xMin*s;xMax=(c.xMax+1)*s-1;yMin=c.yMin*s;yMax=(c.yMax+1)*s-1;}
-        if(x>=xMin&&x<=xMax&&y>=yMin&&y<=yMax){slug=c.slug;break;}
-      }
-      var img=document.createElement('img');
-      img.style.cssText='width:256px;height:256px;mix-blend-mode:screen;opacity:0.9;';
-      if(slug){
-        img.src=WORKER_BASE+'/farmland/noshin/'+slug+'/map/dm/'+z+'/'+x+'/'+y+'.png?v=1.0';
-        img.onload=function(){done(null,img);};
-        img.onerror=function(){img.style.display='none';done(null,img);};
-      } else {
-        img.style.display='none';
-        setTimeout(function(){done(null,img);},0);
-      }
-      return img;
-    }
-  });
-  noshinLayer=new NL({maxZoom:18,pane:'overlayPane'});
-  noshinLayer.addTo(map);
-  btn.classList.add('active');
-  showToast('農振農用地を表示中','success');
+  if(noshinLayer){
+    noshinLayer=null;btn.classList.remove('active');
+    showToast('農振農用地を非表示にしました','success');
+    return;
+  }
+  // 現在の地図中心から最も近い市を特定してnoshinページを開く
+  var center=map.getCenter();
+  var lat=center.lat,lng=center.lng;
+  var nearest=null,minDist=999;
+  var cityLatLng={
+    gamagori:[34.83,137.22],toyohashi:[34.77,137.39],tahara:[34.66,137.24],
+    okazaki:[34.95,137.16],nishio:[34.86,137.05],toyokawa:[34.83,137.37],
+    kota:[34.88,137.17],hekinan:[34.88,136.99],takahama:[34.93,136.99],
+    anjo:[34.96,137.08],chita:[34.97,136.86],minamichita:[34.74,136.92],
+    mihama:[34.79,136.9],taketoyo:[34.85,136.93]
+  };
+  for(var slug in cityLatLng){
+    var c=cityLatLng[slug];
+    var d=Math.pow(lat-c[0],2)+Math.pow(lng-c[1],2);
+    if(d<minDist){minDist=d;nearest=slug;}
+  }
+  var z=map.getZoom();
+  var url='https://aichi.farm.cloudgis.jp/noshin/'+nearest+'/#'+z+'/'+lat.toFixed(5)+'/'+lng.toFixed(5);
+  window.open(url,'_blank');
+  noshinLayer=true;btn.classList.add('active');
+  showToast('農振農用地マップを別タブで開きました','success');
 }
 
 // ── マップ初期化 ──
