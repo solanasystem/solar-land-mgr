@@ -262,7 +262,7 @@ async function loadDiff() {
   try {
     var toRes=await db.from('farmland_snapshots').select('*').eq('snapshot_date',dateTo).limit(10000);
     // 「貸したい」を除外してフィルタ
-    var toData=(toRes.data||[]).filter(function(d){ return d.intent !== '貸したい'; });
+    var toData=(toRes.data||[]).filter(function(d){ return d.intent !== '\u8cb8\u3057\u305f\u3044'; });
     var fromIds={};
     if (dateFrom) {
       var fRes=await db.from('farmland_snapshots').select('feature_id').eq('snapshot_date',dateFrom).limit(10000);
@@ -339,6 +339,7 @@ function closeSidePanel() { document.getElementById('sidePanel').classList.remov
 
 // ======== データ収集（市全域タイルスキャン） ========
 async function triggerManualCollection() {
+  alert('ボタンが押されました。PBF=' + (typeof Pbf));
   if (typeof Pbf==='undefined') { showToast('PBFライブラリ未読み込み','error'); return; }
   showLoading('農地タイルをスキャン中...');
   try {
@@ -378,11 +379,11 @@ async function triggerManualCollection() {
                 var props=getVTProperties(feature, layer);
 
                 // 出手意向チェック（確認済みフィールド名）
-                var iko=props['出手意向'];
+                var iko=props['\u51fa\u624b\u610f\u5411'];
                 // 出手意向が空（一般農地筆）はスキップ
                 if (!iko||iko===''||iko==='null') continue;
                 // 「貸したい」のみは対象外（赤色）
-                if (iko==='貸したい') continue;
+                if (iko==='\u8cb8\u3057\u305f\u3044') continue;
 
                 // 重複チェック（feature.idは常に0のためタイル座標+インデックスで一意IDを生成）
                 var fid=city.slug+'_'+tx+'_'+ty+'_'+fi;
@@ -394,16 +395,16 @@ async function triggerManualCollection() {
                 if (!centroid) continue;
 
                 // 地番（筆在キーから）
-                var chiban=String(props['筆在キー']||'').replace(/^[0-9]+\//,'').replace(/\/$/,'');
+                var chiban=String(props['\u7b46\u5728\u30ad\u30fc']||'').replace(/^[0-9]+\//,'').replace(/\/$/,'');
 
                 records.push({
                   feature_id: fid,
                   city: city.name,
                   address: chiban,
-                  area_sqm: parseFloat(props['出手農地数']||props['面積']||0)||null,
+                  area_sqm: parseFloat(props['\u51fa\u624b\u8fb2\u5730\u6570']||props['\u9762\u7a4d']||0)||null,
                   intent: String(iko),
-                  price: String(props['出手売却金額']||''),
-                  registered_date: String(props['地目']||''),
+                  price: String(props['\u51fa\u624b\u58f2\u5374\u91d1\u984d']||''),
+                  registered_date: String(props['\u5730\u76ee']||''),
                   lat: centroid.lat,
                   lng: centroid.lng,
                   snapshot_date: today,
@@ -456,5 +457,4 @@ function showDebug(msg) {
   if (!el) {
     el=document.createElement('div'); el.id='debugPanel';
     el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:9999;background:#1c2333;border:2px solid #f0b429;border-radius:10px;padding:16px 24px;max-width:700px;width:90%;font-family:monospace;font-size:12px;color:#e6edf3;white-space:pre-wrap;max-height:400px;overflow-y:auto;';
-    el.innerHTML='<button onclick="this.parentElement.remove()" style="float:right;background:#f85149;border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;">X</button><div id="debugLog"></div>';
-    document.body.appendChild
+    el.innerHTML='<button onclick="this.paren
