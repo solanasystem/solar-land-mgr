@@ -220,16 +220,13 @@ function toggleToshi(){
   }
 }
 
-// ── 農振農用地レイヤー（dm PNG → 黄色ピクセル抽出）──
+// ── 農振農用地レイヤー（dm PNG + mix-blend-mode）──
 var noshinLayer=null;
-var noshinColorDebugDone=false;
 function toggleNoshin(){
   var btn=document.getElementById('hzNoshin');
-  if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;btn.classList.remove('active');noshinColorDebugDone=false;return;}
+  if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;btn.classList.remove('active');return;}
   var NL=L.GridLayer.extend({
     createTile:function(coords,done){
-      var canvas=document.createElement('canvas');
-      canvas.width=canvas.height=256;
       var z=coords.z,x=coords.x,y=coords.y,slug=null,s;
       for(var i=0;i<CITIES.length;i++){
         var c=CITIES[i],xMin,xMax,yMin,yMax;
@@ -237,58 +234,17 @@ function toggleNoshin(){
         else{s=Math.pow(2,z-14);xMin=c.xMin*s;xMax=(c.xMax+1)*s-1;yMin=c.yMin*s;yMax=(c.yMax+1)*s-1;}
         if(x>=xMin&&x<=xMax&&y>=yMin&&y<=yMax){slug=c.slug;break;}
       }
+      var img=document.createElement('img');
+      img.style.cssText='width:256px;height:256px;mix-blend-mode:multiply;opacity:0.85;';
       if(slug){
-        var url=WORKER_BASE+'/farmland/noshin/'+slug+'/map/dm/'+z+'/'+x+'/'+y+'.png?v=1.0';
-        var img=new Image();
-        img.crossOrigin='anonymous';
-        img.onload=function(){
-          try{
-            var off=document.createElement('canvas');
-            off.width=off.height=256;
-            var octx=off.getContext('2d');
-            octx.drawImage(img,0,0,256,256);
-            var data=octx.getImageData(0,0,256,256);
-            var px=data.data;
-            // デバッグ：上位10色を出力（最初の1タイルのみ）
-            if(!noshinColorDebugDone){
-              noshinColorDebugDone=true;
-              var colorMap={};
-              for(var j=0;j<px.length;j+=4){
-                var key=px[j]+','+px[j+1]+','+px[j+2];
-                colorMap[key]=(colorMap[key]||0)+1;
-              }
-              var top=Object.entries(colorMap).sort(function(a,b){return b[1]-a[1];}).slice(0,8);
-              showDebug('[dm colors] '+top.map(function(e){return 'rgb('+e[0]+'):'+e[1];}).join(' | '));
-            }
-            var out=ctx.createImageData(256,256);
-            var op=out.data;
-            for(var i=0;i<px.length;i+=4){
-              var r=px[i],g=px[i+1],b=px[i+2];
-              // 黒・濃色背景 → 透明
-              if(r<60&&g<60&&b<60){op[i+3]=0;continue;}
-              // 白・グレー系（R≒G≒B）→ 透明
-              if(Math.abs(r-g)<15&&Math.abs(g-b)<15&&Math.abs(r-b)<15){op[i+3]=0;continue;}
-              // 農用地：黄色系（R≒G > B、差が20以上）例: rgb(255,255,221) rgb(221,221,186)
-              var isYellow=(r>150&&g>150&&(g-b)>15&&Math.abs(r-g)<40);
-              // 農業用施設：橙色系（R>G>B、Rが大）
-              var isOrange=(r>180&&g>80&&g<200&&b<120&&(r-g)>30);
-              if(isYellow||isOrange){
-                op[i]=r;op[i+1]=g;op[i+2]=b;
-                op[i+3]=200;
-              } else {
-                op[i+3]=0;
-              }
-            }
-            ctx.putImageData(out,0,0);
-          }catch(e){}
-          done(null,canvas);
-        };
-        img.onerror=function(){done(null,canvas);};
-        img.src=url;
+        img.src=WORKER_BASE+'/farmland/noshin/'+slug+'/map/dm/'+z+'/'+x+'/'+y+'.png?v=1.0';
+        img.onload=function(){done(null,img);};
+        img.onerror=function(){img.style.display='none';done(null,img);};
       } else {
-        done(null,canvas);
+        img.style.display='none';
+        setTimeout(function(){done(null,img);},0);
       }
-      return canvas;
+      return img;
     }
   });
   noshinLayer=new NL({maxZoom:18,pane:'overlayPane'});
