@@ -63,6 +63,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 .toast-container{position:fixed;bottom:20px;right:60px;z-index:3000;display:flex;flex-direction:column;gap:8px;}
 .farmland-tooltip{background:#161b22;border:1px solid #f0b429;border-radius:6px;color:#e6edf3;font-size:12px;padding:4px 10px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);}
 .farmland-tooltip::before{display:none;}
+.hazard-controls{position:absolute;top:60px;right:12px;z-index:500;display:flex;flex-direction:column;gap:4px;}
+.hazard-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text-muted);font-family:var(--font-main);font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.15s;text-align:left;}
+.hazard-btn:hover{background:var(--surface2);color:var(--text);}
+.hazard-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(240,180,41,.12);}
 .toast{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 16px;font-size:13px;min-width:220px;animation:slideIn .3s ease;}
 .toast.success{border-left:3px solid var(--green);}
 .toast.error{border-left:3px solid var(--red);}
@@ -107,6 +111,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <div class="zoom-level" id="zoomLevel">11</div>
     <button class="zoom-btn" onclick="map.zoomOut()">&#65293;</button>
   </div>
+  <div class="hazard-controls">
+    <button class="hazard-btn" id="hzNone" onclick="setHazard(null)" style="border-color:var(--accent);color:var(--accent);background:rgba(240,180,41,.12);">&#x26d4; &#12399;&#12374;&#12540;&#12489;OFF</button>
+    <button class="hazard-btn" id="hzFlood" onclick="setHazard('flood')">&#x1f4a7; &#27954;&#27700;</button>
+    <button class="hazard-btn" id="hzInner" onclick="setHazard('inner')">&#x1f4a7; &#20869;&#27700;</button>
+    <button class="hazard-btn" id="hzSediment" onclick="setHazard('sediment')">&#x26a0; &#22303;&#30838;&#707d;&#23431;</button>
+    <button class="hazard-btn" id="hzTide" onclick="setHazard('tide')">&#x1f30a; &#39640;&#28조</button>
+    <button class="hazard-btn" id="hzTsunami" onclick="setHazard('tsunami')">&#x1f30a; &#27941;&#27874;</button>
+  </div>
   <div class="side-panel" id="sidePanel">
     <div class="side-panel-header"><span class="side-panel-title">&#127807; &#36234;&#22320;&#35443;&#32048;</span><button class="close-btn" onclick="closeSidePanel()">&#10005;</button></div>
     <div class="side-panel-body" id="sidePanelBody"></div>
@@ -143,6 +155,25 @@ function readVTFeature(tag,f,pbf){if(tag===1)f.id=pbf.readVarint();else if(tag==
 function readVTValue(tag,v,pbf){if(tag===1)v.v=pbf.readString();else if(tag===2)v.v=pbf.readFloat();else if(tag===3)v.v=pbf.readDouble();else if(tag===4)v.v=pbf.readVarint(true);else if(tag===5)v.v=pbf.readVarint();else if(tag===6)v.v=pbf.readSVarint();else if(tag===7)v.v=pbf.readBoolean();}
 function getVTProperties(feature,layer){var props={};for(var i=0;i+1<feature.tags.length;i+=2){var ki=feature.tags[i],vi=feature.tags[i+1];if(ki<layer.keys.length&&vi<layer.values.length)props[layer.keys[ki]]=layer.values[vi].v;}return props;}
 function getPolygonCentroid(geometry,tileX,tileY,tileZ,extent){var x=0,y=0,sumX=0,sumY=0,count=0,i=0;while(i<geometry.length){var cmdInt=geometry[i++],cmd=cmdInt&7,len=cmdInt>>3;if(cmd===1||cmd===2){for(var j=0;j<len;j++){x+=(geometry[i]>>1)^-(geometry[i]&1);i++;y+=(geometry[i]>>1)^-(geometry[i]&1);i++;sumX+=x;sumY+=y;count++;}}else if(cmd===7){break;}else{i++;}}if(!count)return null;var tx=sumX/count,ty=sumY/count;var z2=Math.pow(2,tileZ);var lng=((tileX+tx/extent)/z2)*360-180;var n=Math.PI*(1-2*(tileY+ty/extent)/z2);var lat=180/Math.PI*Math.atan(Math.sinh(n));if(lat<30||lat>38||lng<130||lng>142)return null;return{lat:lat,lng:lng};}
+var hazardLayer=null;
+var HAZARD_URLS={
+  flood:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  inner:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_kuni_data/{z}/{x}/{y}.png',
+  sediment:'https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki_data/{z}/{x}/{y}.png',
+  tide:'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  tsunami:'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png'
+};
+function setHazard(type){
+  if(hazardLayer){map.removeLayer(hazardLayer);hazardLayer=null;}
+  document.querySelectorAll('.hazard-btn').forEach(function(b){b.classList.remove('active');});
+  if(!type){document.getElementById('hzNone').classList.add('active');return;}
+  var url=HAZARD_URLS[type];
+  if(!url)return;
+  hazardLayer=L.tileLayer(url,{opacity:0.7,maxZoom:18,attribution:'\u56fd\u571f\u4ea4\u901a\u7701'});
+  hazardLayer.addTo(map);
+  hazardLayer.bringToFront();
+  document.getElementById('hz'+type.charAt(0).toUpperCase()+type.slice(1)).classList.add('active');
+}
 function initMap(){map=L.map('map',{zoomControl:false}).setView([34.85,137.1],11);L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{attribution:'GSI',maxZoom:18,opacity:0.8}).addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();});}
 async function loadDates(){var res=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:true}).limit(10000);if(res.error||!res.data)return;var seen={},dates=[];res.data.forEach(function(d){if(!seen[d.snapshot_date]){seen[d.snapshot_date]=true;dates.push(d.snapshot_date);}});dates.sort().reverse();var fe=document.getElementById('dateFrom'),te=document.getElementById('dateTo');fe.innerHTML='<option value="">\u57fa\u6e96\u65e5\uff08\u524d\uff09</option>';te.innerHTML='<option value="">\u6bd4\u8f03\u65e5\uff08\u5f8c\uff09</option>';dates.forEach(function(d){fe.innerHTML+='<option value="'+d+'">'+d+'</option>';te.innerHTML+='<option value="'+d+'">'+d+'</option>';});if(dates.length>=2){fe.value=dates[1];te.value=dates[0];loadDiff();}else if(dates.length===1){te.value=dates[0];loadDiff();}}
 async function loadDiff(){var dateFrom=document.getElementById('dateFrom').value;var dateTo=document.getElementById('dateTo').value;if(!dateTo)return;showLoading('\u5dee\u5206\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...');if(markersLayer){map.removeLayer(markersLayer);markersLayer=null;}document.getElementById('emptyState').style.display='none';try{var toRes=await db.from('farmland_snapshots').select('*').eq('snapshot_date',dateTo).limit(10000);var toData=(toRes.data||[]).filter(function(d){return d.intent!=='\u8cb8\u3057\u305f\u3044';});var fromIds={};if(dateFrom){var fRes=await db.from('farmland_snapshots').select('feature_id').eq('snapshot_date',dateFrom).limit(10000);(fRes.data||[]).forEach(function(d){fromIds[d.feature_id]=true;});}if(!toData.length){hideLoading();document.getElementById('emptyState').style.display='flex';return;}var newCount=0,removedCount=0,existingCount=0,markers=[];toData.forEach(function(item){if(!item.lat||!item.lng)return;if(dateFrom&&!fromIds[item.feature_id]){newCount++;markers.push({item:item,changeType:'new'});}else{existingCount++;}});if(dateFrom){var toIds={};toData.forEach(function(d){toIds[d.feature_id]=true;});var ffRes=await db.from('farmland_snapshots').select('*').eq('snapshot_date',dateFrom).limit(10000);var fromFiltered=(ffRes.data||[]).filter(function(d){return d.intent!=='\u8cb8\u3057\u305f\u3044';});fromFiltered.forEach(function(item){if(!item.lat||!item.lng)return;if(!toIds[item.feature_id]){removedCount++;markers.push({item:item,changeType:'removed'});}});}var shown=0;toData.forEach(function(item){if(!item.lat||!item.lng)return;if(dateFrom&&!fromIds[item.feature_id])return;if(shown>=1000)return;markers.push({item:item,changeType:'existing'});shown++;});document.getElementById('statNew').textContent=newCount;document.getElementById('statRemoved').textContent=removedCount;document.getElementById('statExisting').textContent=dateFrom?existingCount:toData.length;var lm=markers.map(function(m){var c=m.changeType==='new'?'#3fb950':m.changeType==='removed'?'#f85149':'#8b949e';var sz=m.changeType==='existing'?8:11;var op=m.changeType==='existing'?0.7:0.95;var bc=m.changeType==='existing'?'#f0b429':'#fff';var mk=L.circleMarker([m.item.lat,m.item.lng],{radius:sz,fillColor:c,color:bc,weight:2,fillOpacity:op});var lbl=m.changeType==='new'?'\u65b0\u898f':m.changeType==='removed'?'\u524a\u9664':'\u65e2\u5b58';mk.bindTooltip('<b>'+lbl+'</b> '+(m.item.city||''),{direction:'top',permanent:false,opacity:0.95,className:'farmland-tooltip'});mk.on('click',function(){showDetail(m.item,m.changeType);});return mk;});markersLayer=L.layerGroup(lm).addTo(map);var imp=markers.filter(function(m){return m.changeType!=='existing';});if(imp.length){var b=L.latLngBounds(imp.map(function(m){return[m.item.lat,m.item.lng];}));map.fitBounds(b,{padding:[40,40]});}else if(markers.length){var b2=L.latLngBounds(markers.map(function(m){return[m.item.lat,m.item.lng];}));map.fitBounds(b2,{padding:[40,40]});}hideLoading();if(newCount===0&&removedCount===0&&dateFrom)showToast('\u5909\u5316\u306f\u3042\u308a\u307e\u305b\u3093\u3067\u3057\u305f','success');else if(newCount>0||removedCount>0)showToast('\u65b0\u898f '+newCount+'\u4ef6 / \u524a\u9664 '+removedCount+'\u4ef6 \u306e\u5909\u5316\u3092\u691c\u51fa\u3057\u307e\u3057\u305f','success');}catch(e){hideLoading();showToast('\u30a8\u30e9\u30fc: '+e.message,'error');}}
