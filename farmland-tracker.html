@@ -135,31 +135,28 @@ var WORKER_BASE = 'https://reinfolib-proxy.takumi-29b.workers.dev';
 var db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 var map, markersLayer = null;
 
-// 市区町村（スラッグ・市区町村コード・中心座標）
 var CITIES = [
-  {name:'蒲郡市',   slug:'gamagori',    code:'232149', lat:34.827, lng:137.230},
-  {name:'豊橋市',   slug:'toyohashi',   code:'232014', lat:34.769, lng:137.391},
-  {name:'田原市',   slug:'tahara',      code:'232301', lat:34.659, lng:137.267},
-  {name:'岡崎市',   slug:'okazaki',     code:'232033', lat:34.948, lng:137.175},
-  {name:'西尾市',   slug:'nishio',      code:'232254', lat:34.862, lng:137.055},
-  {name:'豊川市',   slug:'toyokawa',    code:'232092', lat:34.825, lng:137.376},
-  {name:'幸田町',   slug:'kota',        code:'232319', lat:34.878, lng:137.140},
-  {name:'碧南市',   slug:'hekinan',     code:'232106', lat:34.883, lng:136.989},
-  {name:'高浜市',   slug:'takahama',    code:'232114', lat:34.926, lng:137.005},
-  {name:'安城市',   slug:'anjo',        code:'232122', lat:34.959, lng:137.079},
-  {name:'知多市',   slug:'chita',       code:'232190', lat:35.004, lng:136.861},
-  {name:'南知多町', slug:'minamichita', code:'232378', lat:34.690, lng:136.910},
-  {name:'美浜町',   slug:'mihama',      code:'232386', lat:34.760, lng:136.905},
-  {name:'武豊町',   slug:'taketoyo',    code:'232394', lat:34.847, lng:136.916},
+  {name:'蒲郡市',   slug:'gamagori',    lat:34.827, lng:137.230},
+  {name:'豊橋市',   slug:'toyohashi',   lat:34.769, lng:137.391},
+  {name:'田原市',   slug:'tahara',      lat:34.659, lng:137.267},
+  {name:'岡崎市',   slug:'okazaki',     lat:34.948, lng:137.175},
+  {name:'西尾市',   slug:'nishio',      lat:34.862, lng:137.055},
+  {name:'豊川市',   slug:'toyokawa',    lat:34.825, lng:137.376},
+  {name:'幸田町',   slug:'kota',        lat:34.878, lng:137.140},
+  {name:'碧南市',   slug:'hekinan',     lat:34.883, lng:136.989},
+  {name:'高浜市',   slug:'takahama',    lat:34.926, lng:137.005},
+  {name:'安城市',   slug:'anjo',        lat:34.959, lng:137.079},
+  {name:'知多市',   slug:'chita',       lat:35.004, lng:136.861},
+  {name:'南知多町', slug:'minamichita', lat:34.690, lng:136.910},
+  {name:'美浜町',   slug:'mihama',      lat:34.760, lng:136.905},
+  {name:'武豊町',   slug:'taketoyo',    lat:34.847, lng:136.916},
 ];
 
-// タイルバージョン（当日 MMDD）
 function getTileVersion() {
   var d = new Date();
   return String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
 }
 
-// lat/lng → タイル座標
 function lngLatToTile(lng, lat, z) {
   var x = Math.floor((lng + 180) / 360 * Math.pow(2, z));
   var r = lat * Math.PI / 180;
@@ -167,8 +164,7 @@ function lngLatToTile(lng, lat, z) {
   return {x: x, y: y};
 }
 
-// ======== PBF Vector Tile デコーダー ========
-
+// ======== PBF デコーダー ========
 function decodePBFTile(buf) {
   var pbf = new Pbf(new Uint8Array(buf));
   var layers = {};
@@ -181,31 +177,20 @@ function decodePBFTile(buf) {
   }, layers);
   return layers;
 }
-
 function readVTLayer(tag, layer, pbf) {
-  if (tag === 15) layer.version = pbf.readVarint();
-  else if (tag === 1)  layer.name = pbf.readString();
-  else if (tag === 5)  layer.extent = pbf.readVarint();
+  if      (tag === 15) layer.version = pbf.readVarint();
+  else if (tag === 1)  layer.name    = pbf.readString();
+  else if (tag === 5)  layer.extent  = pbf.readVarint();
   else if (tag === 3)  layer.keys.push(pbf.readString());
-  else if (tag === 4) {
-    var v = {};
-    pbf.readMessage(readVTValue, v);
-    layer.values.push(v);
-  }
-  else if (tag === 2) {
-    var f = {id: 0, tags: [], type: 0, geometry: []};
-    pbf.readMessage(readVTFeature, f);
-    layer.features.push(f);
-  }
+  else if (tag === 4)  { var v={}; pbf.readMessage(readVTValue, v); layer.values.push(v); }
+  else if (tag === 2)  { var f={id:0,tags:[],type:0,geometry:[]}; pbf.readMessage(readVTFeature, f); layer.features.push(f); }
 }
-
 function readVTFeature(tag, f, pbf) {
   if      (tag === 1) f.id       = pbf.readVarint();
   else if (tag === 2) f.tags     = pbf.readPackedVarint();
   else if (tag === 3) f.type     = pbf.readVarint();
   else if (tag === 4) f.geometry = pbf.readPackedVarint();
 }
-
 function readVTValue(tag, v, pbf) {
   if      (tag === 1) v.v = pbf.readString();
   else if (tag === 2) v.v = pbf.readFloat();
@@ -215,61 +200,48 @@ function readVTValue(tag, v, pbf) {
   else if (tag === 6) v.v = pbf.readSVarint();
   else if (tag === 7) v.v = pbf.readBoolean();
 }
-
 function getVTProperties(feature, layer) {
   var props = {};
   for (var i = 0; i + 1 < feature.tags.length; i += 2) {
-    var ki = feature.tags[i];
-    var vi = feature.tags[i + 1];
-    if (ki < layer.keys.length && vi < layer.values.length) {
+    var ki = feature.tags[i], vi = feature.tags[i+1];
+    if (ki < layer.keys.length && vi < layer.values.length)
       props[layer.keys[ki]] = layer.values[vi].v;
-    }
   }
   return props;
 }
 
-// ポリゴン重心をタイル座標→lat/lngに変換
+// ポリゴン重心 → lat/lng
 function getPolygonCentroid(geometry, tileX, tileY, tileZ, extent) {
-  var x = 0, y = 0, sumX = 0, sumY = 0, count = 0;
-  var i = 0;
+  var x=0, y=0, sumX=0, sumY=0, count=0, i=0;
   while (i < geometry.length) {
     var cmdInt = geometry[i++];
     var cmd = cmdInt & 7;
     var len = cmdInt >> 3;
     if (cmd === 1 || cmd === 2) {
-      for (var j = 0; j < len; j++) {
-        x += (geometry[i] >> 1) ^ -(geometry[i] & 1); i++;
-        y += (geometry[i] >> 1) ^ -(geometry[i] & 1); i++;
+      for (var j=0; j<len; j++) {
+        x += (geometry[i]>>1)^-(geometry[i]&1); i++;
+        y += (geometry[i]>>1)^-(geometry[i]&1); i++;
         sumX += x; sumY += y; count++;
       }
-    } else if (cmd === 7) {
-      break;
-    } else {
-      i++;
-    }
+    } else if (cmd === 7) { break; } else { i++; }
   }
   if (!count) return null;
-  var tx = sumX / count;
-  var ty = sumY / count;
+  var tx = sumX/count, ty = sumY/count;
   var z2 = Math.pow(2, tileZ);
-  var lng = ((tileX + tx / extent) / z2) * 360 - 180;
-  var n = Math.PI * (1 - 2 * (tileY + ty / extent) / z2);
-  var lat = 180 / Math.PI * Math.atan(Math.sinh(n));
-  if (lat < 30 || lat > 38 || lng < 130 || lng > 142) return null; // 愛知以外は除外
+  var lng = ((tileX + tx/extent) / z2) * 360 - 180;
+  var n = Math.PI * (1 - 2*(tileY + ty/extent)/z2);
+  var lat = 180/Math.PI * Math.atan(Math.sinh(n));
+  if (lat < 30 || lat > 38 || lng < 130 || lng > 142) return null;
   return {lat: lat, lng: lng};
 }
 
-// 意向判定（売りたい=2、貸したい・売りたい=3のみ対象）
-function detectIntent(props) {
-  // 既知のプロパティ名を試す
-  var candidates = ['INTENT','intent','IKO','iko','IKO_KBN','iko_kbn','意向','KBN','kbn','TYPE','type','STATUS','status'];
-  for (var i = 0; i < candidates.length; i++) {
-    var v = props[candidates[i]];
-    if (v !== undefined && v !== null && v !== '') {
-      return {key: candidates[i], val: v};
-    }
-  }
-  return null;
+// 出手意向フィルタ
+// 「貸したい」のみ = 不要。「売りたい」「貸したい・売りたい」= 対象
+function isTargetIntent(iko) {
+  if (!iko || iko === '') return false;
+  // 「貸したい」のみは除外
+  if (iko === '貸したい' || iko === '1' || iko === 1) return false;
+  return true;
 }
 
 // ======== 地図初期化 ========
@@ -288,14 +260,14 @@ async function loadDates() {
   var res = await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date', {ascending: true}).limit(10000);
   if (res.error || !res.data) return;
   var seen = {}, dates = [];
-  res.data.forEach(function(d) { if (!seen[d.snapshot_date]) { seen[d.snapshot_date] = true; dates.push(d.snapshot_date); } });
+  res.data.forEach(function(d) { if (!seen[d.snapshot_date]) { seen[d.snapshot_date]=true; dates.push(d.snapshot_date); } });
   dates.sort().reverse();
   var fe = document.getElementById('dateFrom'), te = document.getElementById('dateTo');
   fe.innerHTML = '<option value="">基準日（前）</option>';
   te.innerHTML = '<option value="">比較日（後）</option>';
   dates.forEach(function(d) {
-    fe.innerHTML += '<option value="' + d + '">' + d + '</option>';
-    te.innerHTML += '<option value="' + d + '">' + d + '</option>';
+    fe.innerHTML += '<option value="'+d+'">'+d+'</option>';
+    te.innerHTML += '<option value="'+d+'">'+d+'</option>';
   });
   if (dates.length >= 2) { fe.value = dates[1]; te.value = dates[0]; loadDiff(); }
   else if (dates.length === 1) { te.value = dates[0]; }
@@ -304,7 +276,7 @@ async function loadDates() {
 // ======== 差分表示 ========
 async function loadDiff() {
   var dateFrom = document.getElementById('dateFrom').value;
-  var dateTo = document.getElementById('dateTo').value;
+  var dateTo   = document.getElementById('dateTo').value;
   if (!dateTo) return;
   showLoading('差分データを取得中...');
   if (markersLayer) { map.removeLayer(markersLayer); markersLayer = null; }
@@ -315,244 +287,208 @@ async function loadDiff() {
     var fromIds = {};
     if (dateFrom) {
       var fRes = await db.from('farmland_snapshots').select('feature_id').eq('snapshot_date', dateFrom).limit(10000);
-      (fRes.data || []).forEach(function(d) { fromIds[d.feature_id] = true; });
+      (fRes.data||[]).forEach(function(d) { fromIds[d.feature_id]=true; });
     }
-    if (!toData.length) { hideLoading(); document.getElementById('emptyState').style.display = 'flex'; return; }
-    var newCount = 0, removedCount = 0, existingCount = 0, markers = [];
+    if (!toData.length) { hideLoading(); document.getElementById('emptyState').style.display='flex'; return; }
+    var newCount=0, removedCount=0, existingCount=0, markers=[];
     toData.forEach(function(item) {
-      if (!item.lat || !item.lng) return;
-      if (dateFrom && !fromIds[item.feature_id]) { newCount++; markers.push({item: item, changeType: 'new'}); }
+      if (!item.lat||!item.lng) return;
+      if (dateFrom && !fromIds[item.feature_id]) { newCount++; markers.push({item:item, changeType:'new'}); }
       else { existingCount++; }
     });
     if (dateFrom) {
-      var toIds = {};
-      toData.forEach(function(d) { toIds[d.feature_id] = true; });
+      var toIds={};
+      toData.forEach(function(d) { toIds[d.feature_id]=true; });
       var ffRes = await db.from('farmland_snapshots').select('*').eq('snapshot_date', dateFrom).limit(10000);
-      (ffRes.data || []).forEach(function(item) {
-        if (!item.lat || !item.lng) return;
-        if (!toIds[item.feature_id]) { removedCount++; markers.push({item: item, changeType: 'removed'}); }
+      (ffRes.data||[]).forEach(function(item) {
+        if (!item.lat||!item.lng) return;
+        if (!toIds[item.feature_id]) { removedCount++; markers.push({item:item, changeType:'removed'}); }
       });
     }
-    var shown = 0;
+    var shown=0;
     toData.forEach(function(item) {
-      if (!item.lat || !item.lng) return;
+      if (!item.lat||!item.lng) return;
       if (dateFrom && !fromIds[item.feature_id]) return;
-      if (shown >= 500) return;
-      markers.push({item: item, changeType: 'existing'}); shown++;
+      if (shown>=500) return;
+      markers.push({item:item, changeType:'existing'}); shown++;
     });
-    document.getElementById('statNew').textContent = newCount;
-    document.getElementById('statRemoved').textContent = removedCount;
+    document.getElementById('statNew').textContent      = newCount;
+    document.getElementById('statRemoved').textContent  = removedCount;
     document.getElementById('statExisting').textContent = dateFrom ? existingCount : toData.length;
     var lm = markers.map(function(m) {
-      var c = m.changeType === 'new' ? '#3fb950' : m.changeType === 'removed' ? '#f85149' : '#8b949e';
-      var label = m.changeType === 'new' ? '新規' : m.changeType === 'removed' ? '削除' : '既存';
-      var sz = m.changeType === 'existing' ? 5 : 9;
-      var op = m.changeType === 'existing' ? 0.5 : 0.9;
-      var mk = L.circleMarker([m.item.lat, m.item.lng], {
-        radius: sz, fillColor: c, color: '#fff', weight: 2, fillOpacity: op, pane: 'markerPane'
-      });
-      mk.bindTooltip('<b>' + label + '</b> ' + (m.item.city || ''), {
-        direction: 'top', permanent: false, opacity: 0.95, className: 'farmland-tooltip'
-      });
+      var c  = m.changeType==='new'?'#3fb950':m.changeType==='removed'?'#f85149':'#8b949e';
+      var lbl= m.changeType==='new'?'新規':m.changeType==='removed'?'削除':'既存';
+      var sz = m.changeType==='existing'?5:9;
+      var op = m.changeType==='existing'?0.5:0.9;
+      var mk = L.circleMarker([m.item.lat,m.item.lng], {radius:sz, fillColor:c, color:'#fff', weight:2, fillOpacity:op, pane:'markerPane'});
+      mk.bindTooltip('<b>'+lbl+'</b> '+(m.item.city||''), {direction:'top', permanent:false, opacity:0.95, className:'farmland-tooltip'});
       mk.on('click', function() { showDetail(m.item, m.changeType); });
       return mk;
     });
     markersLayer = L.layerGroup(lm).addTo(map);
-    var imp = markers.filter(function(m) { return m.changeType !== 'existing'; });
-    if (imp.length) {
-      var b = L.latLngBounds(imp.map(function(m) { return [m.item.lat, m.item.lng]; }));
-      map.fitBounds(b, {padding: [40, 40]});
-    }
+    var imp = markers.filter(function(m) { return m.changeType!=='existing'; });
+    if (imp.length) { var b=L.latLngBounds(imp.map(function(m){return [m.item.lat,m.item.lng];})); map.fitBounds(b,{padding:[40,40]}); }
     hideLoading();
-    if (newCount === 0 && removedCount === 0 && dateFrom) showToast('変化はありませんでした', 'success');
-    else if (newCount > 0 || removedCount > 0) showToast('新規 ' + newCount + '件 / 削除 ' + removedCount + '件 の変化を検出しました', 'success');
-  } catch(e) { hideLoading(); showToast('エラー: ' + e.message, 'error'); }
+    if (newCount===0 && removedCount===0 && dateFrom) showToast('変化はありませんでした', 'success');
+    else if (newCount>0||removedCount>0) showToast('新規 '+newCount+'件 / 削除 '+removedCount+'件 の変化を検出しました', 'success');
+  } catch(e) { hideLoading(); showToast('エラー: '+e.message, 'error'); }
 }
 
 // ======== 詳細パネル ========
 function showDetail(item, changeType) {
-  var lbl = changeType === 'new' ? '🟢 新規追加' : changeType === 'removed' ? '🔴 削除済み' : '⚪ 変化なし';
-  var bc = changeType === 'new' ? 'new' : changeType === 'removed' ? 'removed' : 'existing';
-  var intentLabel = item.intent == 2 ? 'ピンク（売りたい）' : item.intent == 3 ? '紫（貸したい・売りたい）' : (item.intent || '-');
-
+  var lbl = changeType==='new'?'🟢 新規追加':changeType==='removed'?'🔴 削除済み':'⚪ 変化なし';
+  var bc  = changeType==='new'?'new':changeType==='removed'?'removed':'existing';
+  var iko = item.intent || '-';
   document.getElementById('sidePanelBody').innerHTML =
-    '<div class="change-badge ' + bc + '">' + lbl + '</div>' +
-    '<div class="detail-item"><div class="detail-label">市町村</div><div class="detail-value">' + (item.city || '-') + '</div></div>' +
-    '<div class="detail-item"><div class="detail-label">意向</div><div class="detail-value">' + intentLabel + '</div></div>' +
-    '<div class="detail-item"><div class="detail-label">所在地</div><div class="detail-value">' + (item.address || '-') + '</div></div>' +
-    '<div class="detail-item"><div class="detail-label">面積</div><div class="detail-value">' + (item.area_sqm ? Number(item.area_sqm).toLocaleString() + ' m²' : '-') + '</div></div>' +
-    '<div class="detail-item"><div class="detail-label">スナップショット日</div><div class="detail-value">' + (item.snapshot_date || '-') + '</div></div>' +
-    '<div class="detail-item"><div class="detail-label">Feature ID</div><div class="detail-value" style="font-family:var(--font-mono);font-size:10px;">' + (item.feature_id || '-') + '</div></div>' +
-    '<hr style="border-color:var(--border);margin:12px 0;">' +
+    '<div class="change-badge '+bc+'">'+lbl+'</div>'+
+    '<div class="detail-item"><div class="detail-label">市町村</div><div class="detail-value">'+(item.city||'-')+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">出手意向</div><div class="detail-value">'+iko+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">所在地</div><div class="detail-value">'+(item.address||'-')+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">面積</div><div class="detail-value">'+(item.area_sqm?Number(item.area_sqm).toLocaleString()+' m²':'-')+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">地目</div><div class="detail-value">'+(item.registered_date||'-')+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">スナップショット日</div><div class="detail-value">'+(item.snapshot_date||'-')+'</div></div>'+
+    '<hr style="border-color:var(--border);margin:12px 0;">'+
     '<a href="https://aichi.farm.cloudgis.jp/matching/aic/" target="_blank" style="display:block;text-align:center;padding:8px;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3);border-radius:6px;text-decoration:none;font-size:12px;font-weight:600;">🌾 未来の農地マップで確認</a>';
   document.getElementById('sidePanel').classList.add('open');
 }
 
 function closeSidePanel() { document.getElementById('sidePanel').classList.remove('open'); }
 
-// ======== データ収集（PBFデコード） ========
+// ======== データ収集（PBFデコード・出手意向フィルタ） ========
 async function triggerManualCollection() {
-  if (typeof Pbf === 'undefined') {
-    showToast('PBFライブラリが読み込まれていません', 'error'); return;
-  }
+  if (typeof Pbf === 'undefined') { showToast('PBFライブラリ未読み込み', 'error'); return; }
   showLoading('農地タイルをデコード中...');
   try {
     var today = new Date().toISOString().split('T')[0];
     var chk = await db.from('farmland_snapshots').select('id').eq('snapshot_date', today).limit(1);
-    if (chk.data && chk.data.length > 0) {
+    if (chk.data && chk.data.length>0) {
       hideLoading(); showToast('今日のデータはすでに取得済みです', 'success'); await loadDates(); return;
     }
 
-    var ZOOM = 15;      // zoom15: 約1.2km×1.2km/タイル
-    var RADIUS = 4;     // 中心±4タイル → 9×9=81タイル/市
+    var ZOOM = 15, RADIUS = 4;
     var ver = getTileVersion();
-    var records = [];
-    var featureSeen = {};
-    var tileSeen = {};
-    var totalTiles = 0, nonEmptyTiles = 0, totalFeatures = 0;
-    var intentKeyFound = null;
+    var records = [], featureSeen = {}, tileSeen = {};
+    var totalTiles=0, nonEmpty=0, totalFeatures=0;
 
-    for (var ci = 0; ci < CITIES.length; ci++) {
+    for (var ci=0; ci<CITIES.length; ci++) {
       var city = CITIES[ci];
-      document.getElementById('loadingText').textContent = city.name + ' デコード中... (' + (ci + 1) + '/' + CITIES.length + ')';
+      document.getElementById('loadingText').textContent = city.name+' デコード中... ('+(ci+1)+'/'+CITIES.length+')';
       var center = lngLatToTile(city.lng, city.lat, ZOOM);
-      var cityFeatures = 0;
+      var cityCount = 0;
 
-      for (var dx = -RADIUS; dx <= RADIUS; dx++) {
-        for (var dy = -RADIUS; dy <= RADIUS; dy++) {
-          var tx = center.x + dx;
-          var ty = center.y + dy;
-          var tileKey = ZOOM + '/' + tx + '/' + ty + '/' + city.slug;
-          if (tileSeen[tileKey]) continue;
-          tileSeen[tileKey] = true;
-          totalTiles++;
-
+      for (var dx=-RADIUS; dx<=RADIUS; dx++) {
+        for (var dy=-RADIUS; dy<=RADIUS; dy++) {
+          var tx=center.x+dx, ty=center.y+dy;
+          var tKey=ZOOM+'/'+tx+'/'+ty+'/'+city.slug;
+          if (tileSeen[tKey]) continue;
+          tileSeen[tKey]=true; totalTiles++;
           try {
-            var url = WORKER_BASE + '/farmland/matching/aic/map/' + city.slug + '/tiles/' + ZOOM + '/' + tx + '/' + ty + '.pbf?v=' + ver;
-            var r = await fetch(url);
-            if (!r.ok || r.status === 404) continue;
-            var buf = await r.arrayBuffer();
-            if (buf.byteLength < 30) continue;
-            nonEmptyTiles++;
-
-            // PBFデコード
-            var layers = decodePBFTile(buf);
-
+            var url=WORKER_BASE+'/farmland/matching/aic/map/'+city.slug+'/tiles/'+ZOOM+'/'+tx+'/'+ty+'.pbf?v='+ver;
+            var r=await fetch(url);
+            if (!r.ok) continue;
+            var buf=await r.arrayBuffer();
+            if (buf.byteLength<30) continue;
+            nonEmpty++;
+            var layers=decodePBFTile(buf);
             for (var layerName in layers) {
-              var layer = layers[layerName];
+              var layer=layers[layerName];
+              for (var fi=0; fi<layer.features.length; fi++) {
+                var feature=layer.features[fi];
+                if (feature.type!==3) continue;
+                var props=getVTProperties(feature, layer);
 
-              for (var fi = 0; fi < layer.features.length; fi++) {
-                var feature = layer.features[fi];
-                if (feature.type !== 3) continue; // ポリゴンのみ
-
-                var props = getVTProperties(feature, layer);
-
-                // 初回：プロパティをデバッグ表示
-                if (!window._propsDumped && Object.keys(props).length > 0) {
-                  window._propsDumped = true;
-                  showDebug('Layer: ' + layerName + '\nProps: ' + JSON.stringify(props));
+                // 初回デバッグ出力
+                if (!window._propsDumped && Object.keys(props).length>0) {
+                  window._propsDumped=true;
+                  showDebug('Layer: '+layerName+'\nProps: '+JSON.stringify(props).slice(0,400));
                 }
 
-                // 意向プロパティを検出
-                var intentResult = detectIntent(props);
-                if (intentResult && !intentKeyFound) {
-                  intentKeyFound = intentResult.key;
-                  showDebug('意向キー発見: ' + intentKeyFound);
-                }
+                // 出手意向フィルタ（確認済みフィールド名）
+                var iko = props['出手意向'];
 
-                // 意向フィルタ
-                var intentVal = intentResult ? intentResult.val : null;
-                // 意向プロパティが全くない場合はそのタイルの全ポリゴンを収集（listingのみのタイルの可能性）
-                var collect = false;
-                if (intentVal === null) {
-                  // 意向キーが見つかっていない場合は全部収集
-                  if (!intentKeyFound) collect = true;
-                } else {
-                  // 意向=1（貸したい）は不要。2（売りたい）・3（貸したい・売りたい）のみ
-                  if (intentVal != 1 && intentVal !== '1') collect = true;
-                }
-                if (!collect) continue;
+                // 意向が空（一般農地筆）→ スキップ
+                if (!iko || iko==='' || iko==='null') continue;
+
+                // 「貸したい」のみ → スキップ（赤は不要）
+                if (!isTargetIntent(iko)) continue;
 
                 // 重複チェック
-                var fid = String(city.slug + '_' + feature.id);
+                var fid=city.slug+'_'+feature.id;
                 if (featureSeen[fid]) continue;
-                featureSeen[fid] = true;
+                featureSeen[fid]=true;
 
                 // 重心計算
-                var centroid = getPolygonCentroid(feature.geometry, tx, ty, ZOOM, layer.extent);
+                var centroid=getPolygonCentroid(feature.geometry, tx, ty, ZOOM, layer.extent);
                 if (!centroid) continue;
 
-                var intentStr = intentVal !== null ? String(intentVal) : '';
+                // 所在地は筆在キーから取得（例: 232149/71-140-2-4/）
+                var chiban = String(props['筆在キー']||'').replace(/^[0-9]+\//,'').replace(/\/$/,'');
+
                 records.push({
                   feature_id: fid,
                   city: city.name,
-                  address: String(props.address || props.ADDR || props.所在地 || ''),
-                  area_sqm: parseFloat(props.area || props.AREA || props.面積 || 0) || null,
-                  intent: intentStr,
-                  price: '',
-                  registered_date: '',
+                  address: chiban,
+                  area_sqm: parseFloat(props['出手農地数']||props['面積']||0)||null,
+                  intent: String(iko),
+                  price: String(props['出手売却金額']||''),
+                  registered_date: String(props['地目']||''),
                   lat: centroid.lat,
                   lng: centroid.lng,
                   snapshot_date: today,
                   status: 'active'
                 });
-                cityFeatures++;
-                totalFeatures++;
+                cityCount++; totalFeatures++;
               }
             }
-          } catch(e2) {
-            // タイル読み込みエラーはスキップ
-          }
+          } catch(e2) { /* スキップ */ }
         }
       }
-      if (cityFeatures > 0) showDebug(city.name + ': ' + cityFeatures + '件');
+      if (cityCount>0) showDebug(city.name+': '+cityCount+'件');
     }
 
-    showDebug('タイル合計: ' + totalTiles + ' / 非空: ' + nonEmptyTiles + ' / フィーチャー: ' + totalFeatures);
+    showDebug('タイル: '+totalTiles+' / 非空: '+nonEmpty+' / 農地: '+totalFeatures);
 
     if (!records.length) {
       hideLoading();
-      showToast('農地データが見つかりませんでした。デバッグパネルを確認してください。', 'error');
+      showToast('出手農地データが見つかりませんでした', 'error');
+      showDebug('→ Supabaseの古いデータを削除してから再試行してください');
       return;
     }
 
-    // Supabaseに保存（100件ずつ）
-    var saved = 0;
-    for (var si = 0; si < records.length; si += 100) {
-      var batch = records.slice(si, si + 100);
-      var ins = await db.from('farmland_snapshots').insert(batch);
-      if (ins.error) showDebug('保存エラー: ' + JSON.stringify(ins.error));
-      else saved += batch.length;
+    var saved=0;
+    for (var si=0; si<records.length; si+=100) {
+      var batch=records.slice(si, si+100);
+      var ins=await db.from('farmland_snapshots').insert(batch);
+      if (ins.error) showDebug('保存エラー: '+JSON.stringify(ins.error));
+      else saved+=batch.length;
     }
     hideLoading();
-    showToast(saved + '件の農地データを保存しました', 'success');
-    showDebug('保存完了: ' + saved + '件');
+    showToast(saved+'件の出手農地データを保存しました', 'success');
+    showDebug('保存完了: '+saved+'件');
     await loadDates();
-
   } catch(e) {
     hideLoading();
-    showToast('エラー: ' + e.message, 'error');
-    showDebug('例外: ' + e.message);
+    showToast('エラー: '+e.message, 'error');
+    showDebug('例外: '+e.message);
   }
 }
 
-// ======== UI ========
-function showLoading(text) { document.getElementById('loadingText').textContent = text; document.getElementById('loadingOverlay').style.display = 'flex'; }
-function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
+function showLoading(t) { document.getElementById('loadingText').textContent=t; document.getElementById('loadingOverlay').style.display='flex'; }
+function hideLoading()   { document.getElementById('loadingOverlay').style.display='none'; }
 function showToast(msg, type) {
-  var c = document.getElementById('toastContainer'), t = document.createElement('div');
-  t.className = 'toast ' + (type || 'success'); t.textContent = msg; c.appendChild(t);
-  setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 6000);
+  var c=document.getElementById('toastContainer'), t=document.createElement('div');
+  t.className='toast '+(type||'success'); t.textContent=msg; c.appendChild(t);
+  setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);}, 6000);
 }
 function showDebug(msg) {
-  var el = document.getElementById('debugPanel');
+  var el=document.getElementById('debugPanel');
   if (!el) {
-    el = document.createElement('div'); el.id = 'debugPanel';
-    el.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:9999;background:#1c2333;border:2px solid #f0b429;border-radius:10px;padding:16px 24px;max-width:700px;width:90%;font-family:monospace;font-size:12px;color:#e6edf3;white-space:pre-wrap;max-height:400px;overflow-y:auto;';
-    el.innerHTML = '<button onclick="this.parentElement.remove()" style="float:right;background:#f85149;border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;">X</button><div id="debugLog"></div>';
+    el=document.createElement('div'); el.id='debugPanel';
+    el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:9999;background:#1c2333;border:2px solid #f0b429;border-radius:10px;padding:16px 24px;max-width:700px;width:90%;font-family:monospace;font-size:12px;color:#e6edf3;white-space:pre-wrap;max-height:400px;overflow-y:auto;';
+    el.innerHTML='<button onclick="this.parentElement.remove()" style="float:right;background:#f85149;border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;">X</button><div id="debugLog"></div>';
     document.body.appendChild(el);
   }
-  document.getElementById('debugLog').textContent += new Date().toLocaleTimeString() + ' ' + msg + '\n';
+  document.getElementById('debugLog').textContent += new Date().toLocaleTimeString()+' '+msg+'\n';
 }
 
 initMap();
