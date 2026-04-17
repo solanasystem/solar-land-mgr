@@ -340,9 +340,9 @@
     <button class="hazard-toggle-btn" id="btnHazard5" onclick="toggleHazard('hazard5')">
       <span class="hazard-toggle-dot"></span>💧 内水浸水想定
     </button>
-    <!-- 土砂災害警戒区域ポリゴン -->
+    <!-- 土砂災害警戒区域ポリゴン（🏔土砂災害警戒ボタンと連動） -->
     <div class="layer-section-title">⛰️ 土砂警戒ポリゴン</div>
-    <button class="hazard-toggle-btn" id="btnDosyaPolygon" onclick="toggleDosyaPolygon()">
+    <button class="hazard-toggle-btn" id="btnDosyaPolygon" onclick="toggleHazard('hazard2')">
       <span class="hazard-toggle-dot"></span>🗺 警戒区域ポリゴン
     </button>
 
@@ -485,21 +485,12 @@ let map, gsiLayer;
 // initMap内で全て配列のTileLayer配列として統一管理する。
 const HAZARD_URLS = {
   hazard1: 'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
-  hazard2: 'https://disaportaldata.gsi.go.jp/raster/05_dosekiryu_keikaikuiki/{z}/{x}/{y}.png',
+  // hazard2: Supabaseポリゴン（toggleHazard内でtoggleDosyaPolygon()を呼ぶ）
   hazard3: 'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',
   hazard4: 'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
   hazard5: 'https://disaportaldata.gsi.go.jp/raster/01_naisui_shinsuishin_data/{z}/{x}/{y}.png',
 };
-// 土砂災害警戒：hazard2の追加5タイル（急傾斜地の崩壊・地すべり × 警戒+特別警戒、土石流特別警戒）
-const HAZARD2_EXTRA_URLS = [
-  'https://disaportaldata.gsi.go.jp/raster/05_dosekiryu_tokubetsu_keikaikuiki/{z}/{x}/{y}.png',
-  'https://disaportaldata.gsi.go.jp/raster/05_kyukeisya_keikaikuiki/{z}/{x}/{y}.png',
-  'https://disaportaldata.gsi.go.jp/raster/05_kyukeisya_tokubetsu_keikaikuiki/{z}/{x}/{y}.png',
-  'https://disaportaldata.gsi.go.jp/raster/05_jisuberi_keikaikuiki/{z}/{x}/{y}.png',
-  'https://disaportaldata.gsi.go.jp/raster/05_jisuberi_tokubetsu_keikaikuiki/{z}/{x}/{y}.png',
-];
 let hazardLayers = {};
-let hazard2ExtraLayers = []; // hazard2の追加レイヤー
 const hazardState = { hazard1: false, hazard2: false, hazard3: false, hazard4: false, hazard5: false };
 
 let markers = {};
@@ -517,8 +508,7 @@ function initMap() {
   Object.entries(HAZARD_URLS).forEach(([key, url]) => {
     hazardLayers[key] = L.tileLayer(url, { ...hazardOpts });
   });
-  // hazard2の追加5レイヤーを初期化
-  hazard2ExtraLayers = HAZARD2_EXTRA_URLS.map(url => L.tileLayer(url, { ...hazardOpts }));
+  // hazard2はSupabaseポリゴン（タイルなし）
 
   map.on('zoomend', () => {
     document.getElementById('zoomLevel').textContent = map.getZoom();
@@ -527,6 +517,22 @@ function initMap() {
 
 // ======== ハザードトグル関数 ========
 function toggleHazard(type) {
+  // hazard2はSupabaseポリゴンで制御（タイル不使用）
+  if (type === 'hazard2') {
+    toggleDosyaPolygon();
+    // btnHazard2のactive状態はdosyaEnabledと同期
+    const btn2 = document.getElementById('btnHazard2');
+    if (btn2) {
+      if (dosyaEnabled) { btn2.classList.add('active'); } else { btn2.classList.remove('active'); }
+    }
+    // 土砂警戒ポリゴンボタンもアクティブ状態を同期
+    const btnP = document.getElementById('btnDosyaPolygon');
+    if (btnP) {
+      if (dosyaEnabled) { btnP.classList.add('active'); } else { btnP.classList.remove('active'); }
+    }
+    hazardState['hazard2'] = dosyaEnabled;
+    return;
+  }
   const layer = hazardLayers[type];
   if (!layer) return;
   const btn = document.getElementById('btn' + type.charAt(0).toUpperCase() + type.slice(1));
@@ -534,18 +540,10 @@ function toggleHazard(type) {
   if (hazardState[type]) {
     layer.addTo(map);
     layer.bringToFront();
-    // hazard2のみ追加5レイヤーもON
-    if (type === 'hazard2') {
-      hazard2ExtraLayers.forEach(l => { l.addTo(map); l.bringToFront(); });
-    }
     if (btn) btn.classList.add('active');
     showToast(btn ? btn.textContent.trim() + ' をONにしました' : 'ハザードマップをONにしました', 'success');
   } else {
     map.removeLayer(layer);
-    // hazard2のみ追加5レイヤーもOFF
-    if (type === 'hazard2') {
-      hazard2ExtraLayers.forEach(l => { if (map.hasLayer(l)) map.removeLayer(l); });
-    }
     if (btn) btn.classList.remove('active');
     showToast(btn ? btn.textContent.trim() + ' をOFFにしました' : 'ハザードマップをOFFにしました', 'success');
   }
@@ -559,10 +557,7 @@ function toggleLayer(type, enabled) {
       Object.entries(hazardState).forEach(([key, on]) => {
         if (on && hazardLayers[key]) hazardLayers[key].bringToFront();
       });
-      // hazard2の追加レイヤーもONなら前面へ
-      if (hazardState['hazard2']) {
-        hazard2ExtraLayers.forEach(l => { if (map.hasLayer(l)) l.bringToFront(); });
-      }
+      // hazard2はポリゴンのためここでの処理不要
     }
   }
   else if (type === 'farmland') {
