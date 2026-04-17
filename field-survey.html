@@ -479,16 +479,36 @@ const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let map, gsiLayer;
+
 // ======== ハザードレイヤー（5種類） ========
-let hazardLayers = {};
+// hazard2のみ複数URL配列。他は単一URL文字列。
+// initMap内で全て配列のTileLayer配列として統一管理する。
 const HAZARD_URLS = {
-  hazard1: 'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
-  hazard2: 'https://disaportaldata.gsi.go.jp/raster/05_dosekiryu_keikaikuiki/{z}/{x}/{y}.png',
-  hazard3: 'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',
-  hazard4: 'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
-  hazard5: 'https://disaportaldata.gsi.go.jp/raster/01_naisui_shinsuishin_data/{z}/{x}/{y}.png',
+  hazard1: [
+    'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  ],
+  hazard2: [
+    // ▼ 修正箇所：土石流・急傾斜地の崩壊・地すべり の警戒＋特別警戒 計6タイル
+    'https://disaportaldata.gsi.go.jp/raster/05_dosekiryu_keikaikuiki/{z}/{x}/{y}.png',
+    'https://disaportaldata.gsi.go.jp/raster/05_dosekiryu_tokubetsu_keikaikuiki/{z}/{x}/{y}.png',
+    'https://disaportaldata.gsi.go.jp/raster/05_kyukeisya_keikaikuiki/{z}/{x}/{y}.png',
+    'https://disaportaldata.gsi.go.jp/raster/05_kyukeisya_tokubetsu_keikaikuiki/{z}/{x}/{y}.png',
+    'https://disaportaldata.gsi.go.jp/raster/05_jisuberi_keikaikuiki/{z}/{x}/{y}.png',
+    'https://disaportaldata.gsi.go.jp/raster/05_jisuberi_tokubetsu_keikaikuiki/{z}/{x}/{y}.png',
+  ],
+  hazard3: [
+    'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',
+  ],
+  hazard4: [
+    'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  ],
+  hazard5: [
+    'https://disaportaldata.gsi.go.jp/raster/01_naisui_shinsuishin_data/{z}/{x}/{y}.png',
+  ],
 };
-// ON/OFF状態管理
+
+// hazardLayers は { hazard1: [TileLayer,...], hazard2: [TileLayer,...], ... } の配列形式で管理
+let hazardLayers = {};
 const hazardState = { hazard1: false, hazard2: false, hazard3: false, hazard4: false, hazard5: false };
 
 let markers = {};
@@ -501,10 +521,14 @@ function initMap() {
   L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '© 国土地理院', maxZoom: 18, className: 'base-tile' }).addTo(map);
   gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '© 国土地理院', maxZoom: 18, opacity: 0.85, zIndex: 1 });
 
-  // ハザードレイヤーを5種類初期化
-  const hazardOpts = { attribution: '© ハザードマップポータルサイト', maxZoom: 17, minZoom: 2, opacity: 0.7, errorTileUrl: '', zIndex: 2 };
-  Object.entries(HAZARD_URLS).forEach(([key, url]) => {
-    hazardLayers[key] = L.tileLayer(url, { ...hazardOpts });
+  // ======== ハザードレイヤー初期化（全て配列で統一管理） ========
+  const hazardOpts = {
+    attribution: '© ハザードマップポータルサイト',
+    maxZoom: 17, minZoom: 2, opacity: 0.7,
+    errorTileUrl: '', zIndex: 2
+  };
+  Object.entries(HAZARD_URLS).forEach(([key, urls]) => {
+    hazardLayers[key] = urls.map(url => L.tileLayer(url, { ...hazardOpts }));
   });
 
   map.on('zoomend', () => {
@@ -512,21 +536,26 @@ function initMap() {
   });
 }
 
-// ======== ハザードトグル関数 ========
+// ======== ハザードトグル関数（配列対応） ========
 function toggleHazard(type) {
-  const layer = hazardLayers[type];
-  if (!layer) return;
-  const btn = document.getElementById('btn' + type.charAt(0).toUpperCase() + type.slice(1));
+  const layers = hazardLayers[type];
+  if (!layers || !layers.length) return;
+
+  const btnId = 'btn' + type.charAt(0).toUpperCase() + type.slice(1);
+  const btn = document.getElementById(btnId);
   hazardState[type] = !hazardState[type];
+
   if (hazardState[type]) {
-    layer.addTo(map);
-    layer.bringToFront();
+    // 全タイルをマップに追加して前面へ
+    layers.forEach(l => { l.addTo(map); l.bringToFront(); });
     if (btn) btn.classList.add('active');
-    showToast(btn ? btn.textContent.trim().replace(/^./, '') + ' をONにしました' : 'ハザードマップをONにしました', 'success');
+    const label = btn ? btn.textContent.trim() : 'ハザードマップ';
+    showToast(label + ' をONにしました', 'success');
   } else {
-    map.removeLayer(layer);
+    layers.forEach(l => { if (map.hasLayer(l)) map.removeLayer(l); });
     if (btn) btn.classList.remove('active');
-    showToast(btn ? btn.textContent.trim().replace(/^./, '') + ' をOFFにしました' : 'ハザードマップをOFFにしました', 'success');
+    const label = btn ? btn.textContent.trim() : 'ハザードマップ';
+    showToast(label + ' をOFFにしました', 'success');
   }
 }
 
@@ -536,7 +565,9 @@ function toggleLayer(type, enabled) {
     if (enabled) {
       // GSI追加後、ONになっているハザードレイヤーを前面に
       Object.entries(hazardState).forEach(([key, on]) => {
-        if (on && hazardLayers[key]) hazardLayers[key].bringToFront();
+        if (on && hazardLayers[key]) {
+          hazardLayers[key].forEach(l => { if (map.hasLayer(l)) l.bringToFront(); });
+        }
       });
     }
   }
@@ -1185,7 +1216,6 @@ function loadDosya() {
 // ======== 都市計画情報（用途地域 XKT002） ========
 const WORKER_BASE = 'https://reinfolib-proxy.takumi-29b.workers.dev/api';
 
-// use_area_ja（日本語名）で色を直接マッピング（youto_idの数値体系に依存しない）
 const YOTO_COLOR = {
   '第一種低層住居専用地域':   '#FFE066',
   '第二種低層住居専用地域':   '#FFD700',
@@ -1290,7 +1320,6 @@ async function _fetchAndRenderUrban() {
   if (urbanLayer) { map.removeLayer(urbanLayer); urbanLayer = null; }
   if (!allFeatures.length) return;
 
-  // 重複フィーチャーを除去
   const seen = new Set();
   const uniqueFeatures = allFeatures.filter(f => {
     const key = JSON.stringify(f.geometry?.coordinates?.[0]?.[0] || Math.random());
@@ -1303,7 +1332,6 @@ async function _fetchAndRenderUrban() {
     style: (feature) => {
       const p = feature.properties || {};
       const name = p.use_area_ja || '';
-      // 部分一致でカラーを検索（表記揺れ対応）
       const color = YOTO_COLOR[name] ||
         Object.entries(YOTO_COLOR).find(([k]) => name.includes(k.slice(0,4)))?.[1] ||
         '#dddddd';
@@ -1324,24 +1352,4 @@ async function _fetchAndRenderUrban() {
             <div class="popup-case-no" style="color:#818cf8;font-size:13px;margin-bottom:10px">🏙 都市計画情報</div>
             <div class="popup-info">
               <div class="popup-row"><span class="popup-label">用途地域</span><span class="popup-value" style="font-weight:600">${label}</span></div>
-              <div class="popup-row"><span class="popup-label">建蔽率</span><span class="popup-value">${kenpeiri}</span></div>
-              <div class="popup-row"><span class="popup-label">容積率</span><span class="popup-value">${yosekiri}</span></div>
-              ${city ? `<div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">${pref} ${city}</span></div>` : ''}
-            </div>
-            <hr class="popup-divider">
-            <div style="font-size:11px;color:#aaa;line-height:1.5">国土交通省 不動産情報ライブラリ（XKT002）</div>
-          </div>
-        `).openOn(map);
-      });
-      layer.on('mouseover', function() { layer.setStyle({ fillOpacity: 0.8 }); });
-      layer.on('mouseout', function() { if (urbanLayer) urbanLayer.resetStyle(layer); });
-    },
-  }).addTo(map);
-  urbanLayer.bringToBack();
-}
-
-initMap();
-loadData();
-</script>
-</body>
-</html>
+          
