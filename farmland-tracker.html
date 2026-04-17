@@ -124,7 +124,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="hazard-controls">
     <button class="hazard-btn" id="hzFlood" onclick="toggleHazard('flood')">💧 浸水</button>
     <button class="hazard-btn" id="hzInner" onclick="toggleHazard('inner')">💧 内水</button>
-    <button class="hazard-btn" id="hzSediment" onclick="toggleDosyaPolygon()">⚠ 土砂災害</button>
+    <button class="hazard-btn" id="hzSediment" onclick="toggleHazard('sediment')">⚠ 土砂災害</button>
     <button class="hazard-btn" id="hzTide" onclick="toggleHazard('tide')">🌊 高潮</button>
     <button class="hazard-btn" id="hzTsunami" onclick="toggleHazard('tsunami')">🌊 津波</button>
     <div class="hazard-divider"></div>
@@ -168,6 +168,7 @@ var hazardLayers={};
 var HAZARD_URLS={
   flood:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
   inner:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_kuni_data/{z}/{x}/{y}.png',
+  sediment:'https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki_data/{z}/{x}/{y}.png',
   tide:'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
   tsunami:'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png'
 };
@@ -405,4 +406,41 @@ async function triggerManualCollection(){
                 featureSeen[fid]=true;
                 var centroid=getPolygonCentroid(feature.geometry,tx,ty,ZOOM,layer.extent);
                 if(!centroid)continue;
-                var addr=String(props['\u8fb2\u5730\u6240\u5728\u5730']||props['\u7b46\u5728\u30ad\u30fc']||'').replac
+                var addr=String(props['\u8fb2\u5730\u6240\u5728\u5730']||props['\u7b46\u5728\u30ad\u30fc']||'').replace(/^[0-9]+\//,'').replace(/\/$/,'');
+                var chimoku=String(props['\u7533\u8acb\u5730\u76ee\u306a\u3069']||props['\u5730\u76ee']||'');
+                var kousa=String(props['\u8015\u4f5c\u72b6\u6cc1']||'');
+                var menseki=parseFloat(props['\u767b\u8a18\u9762\u7a4d']||props['\u51fa\u624b\u8fb2\u5730\u6570']||props['\u9762\u7a4d']||0)||null;
+                var uri=String(props['\u51fa\u624b\u58f2\u5374\u91d1\u984d']||'');
+                var chintai=String(props['\u51fa\u624b\u8cde\u91d1\u984d']||'');
+                records.push({feature_id:fid,city:city.name,address:addr,area_sqm:menseki,intent:String(iko),price:uri,registered_date:chimoku+'|'+kousa+'||'+chintai,lat:centroid.lat,lng:centroid.lng,snapshot_date:today,status:'active'});
+                cityCount++;totalFeatures++;
+              }
+            }
+          }catch(e2){}
+        }
+      }
+      if(cityCount>0)showDebug(city.name+': '+cityCount);
+    }
+    showDebug('\u5408\u8a08: '+totalTiles+' / \u975e\u7a7a: '+nonEmpty+' / \u8fb2\u5730: '+totalFeatures);
+    if(!records.length){hideLoading();showToast('\u30c7\u30fc\u30bf\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3067\u3057\u305f','error');return;}
+    var saved=0;
+    for(var si=0;si<records.length;si+=100){
+      var batch=records.slice(si,si+100);
+      var ins=await db.from('farmland_snapshots').insert(batch);
+      if(ins.error)showDebug('ERR:'+JSON.stringify(ins.error));
+      else saved+=batch.length;
+    }
+    hideLoading();
+    showToast(saved+'\u4ef6\u4fdd\u5b58\u5b8c\u4e86','success');
+    await loadDates();
+  }catch(e){hideLoading();showToast('ERR:'+e.message,'error');showDebug('EX:'+e.message);}
+}
+function showLoading(t){document.getElementById('loadingText').textContent=t;document.getElementById('loadingOverlay').style.display='flex';}
+function hideLoading(){document.getElementById('loadingOverlay').style.display='none';}
+function showToast(msg,type){var c=document.getElementById('toastContainer'),t=document.createElement('div');t.className='toast '+(type||'success');t.textContent=msg;c.appendChild(t);setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},6000);}
+function showDebug(msg){var el=document.getElementById('debugPanel');if(!el){el=document.createElement('div');el.id='debugPanel';el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:9999;background:#1c2333;border:2px solid #f0b429;border-radius:10px;padding:16px 24px;max-width:700px;width:90%;font-family:monospace;font-size:12px;color:#e6edf3;white-space:pre-wrap;max-height:400px;overflow-y:auto;';el.innerHTML='<button onclick="this.parentElement.remove()" style="float:right;background:#f85149;border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;">X</button><div id="debugLog"></div>';document.body.appendChild(el);}document.getElementById('debugLog').textContent+=new Date().toLocaleTimeString()+' '+msg+'\n';}
+initMap();
+loadDates();
+</script>
+</body>
+</html>
