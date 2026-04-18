@@ -1357,6 +1357,8 @@ async function _fetchAndRenderUrban() {
 
 // ======== 地番・住所検索 ========
 let _searchTimer = null;
+let _boundaryLayer = null;
+let _boundaryCache = [];
 document.getElementById('chibanInput').addEventListener('input', function() {
   clearTimeout(_searchTimer);
   const q = this.value.trim();
@@ -1368,31 +1370,27 @@ document.getElementById('chibanInput').addEventListener('blur', function() {
   setTimeout(() => { document.getElementById('chibanResults').style.display = 'none'; }, 200);
 });
 async function _searchChiban(q, res) {
-  const tokens = q.split(/[\s　]+/).filter(Boolean);
-  const chibanToken = tokens.find(t => /^[0-9－\-]+$/.test(t));
-  const nameTokens = tokens.filter(t => !/^[0-9－\-]+$/.test(t));
+  if (_boundaryLayer) { map.removeLayer(_boundaryLayer); _boundaryLayer = null; }
+  _boundaryCache = [];
+  let html = '';
+  if (/[市町村区郡]/.test(q)) {
+    try {
+      const url = 'https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(q) + '&polygon_geojson=1&format=json&countrycodes=jp&limit=3&accept-language=ja';
+      const nr = await fetch(url);
+      const ndata = await nr.json();
+      ndata.forEach(d => {
+        if (d.geojson && (d.geojson.type === 'Polygon' || d.geojson.type === 'MultiPolygon')) {
+          const label = d.display_name.split(',')[0];
+          const idx = _boundaryCache.length;
+          _boundaryCache.push(d.geojson);
+          html += `<div class="chiban-result-item" style="color:var(--accent)" onmousedown="jumpToBoundary(${idx},'${label.replace(/'/g,"\\'")}')">&#127961; ${label}</div>`;
+        }
+      });
+    } catch(e) {}
+  }
+  const tokens = q.split(/[\s\u3000]+/).filter(Boolean);
+  const chibanToken = tokens.find(t => /^[0-9\uff0d\-]+$/.test(t));
+  const nameTokens = tokens.filter(t => !/^[0-9\uff0d\-]+$/.test(t));
   let query = db.from('chiban_index').select('city_name,oaza,koaza,chiban,lat,lng');
   if (chibanToken) query = query.eq('chiban', chibanToken);
-  nameTokens.forEach(t => { query = query.or(`city_name.ilike.%${t}%,oaza.ilike.%${t}%,koaza.ilike.%${t}%`); });
-  const { data } = await query.limit(10);
-  if (!data || !data.length) { res.style.display = 'none'; return; }
-  res.innerHTML = data.map(r => {
-    const label = [r.city_name, r.oaza, r.koaza, r.chiban].filter(Boolean).join(' ');
-    return `<div class="chiban-result-item" onmousedown="jumpToChiban(${r.lat},${r.lng},'${label.replace(/'/g,"\\'")}')">📍 ${label}</div>`;
-  }).join('');
-  res.style.display = 'block';
-}
-function jumpToChiban(lat, lng, label) {
-  map.setView([lat, lng], 17);
-  L.popup({ maxWidth: 260 }).setLatLng([lat, lng])
-    .setContent(`<div style="padding:10px;font-family:var(--font-main);font-size:12px;color:var(--text)">📍 ${label}</div>`)
-    .openOn(map);
-  document.getElementById('chibanResults').style.display = 'none';
-  document.getElementById('chibanInput').value = label;
-}
-
-initMap();
-loadData();
-</script>
-</body>
-</html>
+  nameTokens.forEach(t => {
