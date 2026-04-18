@@ -459,4 +459,34 @@ var _searchTimer=null;
 document.getElementById('chibanInput').addEventListener('input',function(){
   clearTimeout(_searchTimer);var q=this.value.trim();var res=document.getElementById('chibanResults');
   if(q.length<2){res.style.display='none';return;}
-  _searchTimer=setTimeout(function(){_searchChiban(q,res);
+  _searchTimer=setTimeout(function(){_searchChiban(q,res);},400);
+});
+document.getElementById('chibanInput').addEventListener('blur',function(){
+  setTimeout(function(){document.getElementById('chibanResults').style.display='none';},200);
+});
+async function _searchChiban(q,res){
+  var parts=q.replace(/\u3000/g,' ').split(' ').filter(function(t){return t.length>0;});
+  var chibanToken=parts.find(function(t){return /^[0-9\-]+$/.test(t);});
+  var nameTokens=parts.filter(function(t){return !/^[0-9\-]+$/.test(t);});
+  var query=db.from('chiban_index').select('city_name,oaza,koaza,chiban,lat,lng');
+  if(chibanToken)query=query.eq('chiban',chibanToken);
+  nameTokens.forEach(function(t){query=query.or('city_name.ilike.%'+t+'%,oaza.ilike.%'+t+'%,koaza.ilike.%'+t+'%');});
+  var result=await query.limit(10);
+  if(!result.data||!result.data.length){res.style.display='none';return;}
+  res.innerHTML=result.data.map(function(r){
+    var label=[r.city_name,r.oaza,r.koaza,r.chiban].filter(Boolean).join(' ');
+    return '<div class="chiban-result-item" onmousedown="jumpToChiban('+r.lat+','+r.lng+',\''+label.replace(/'/g,"\\'")+'\')">&#128205; '+label+'</div>';
+  }).join('');
+  res.style.display='block';
+}
+function jumpToChiban(lat,lng,label){
+  map.setView([lat,lng],17);
+  L.popup({maxWidth:260}).setLatLng([lat,lng]).setContent('<div style="padding:10px;font-size:12px">&#128205; '+label+'</div>').openOn(map);
+  document.getElementById('chibanResults').style.display='none';
+  document.getElementById('chibanInput').value=label;
+}
+initMap();
+loadDates();
+</script>
+</body>
+</html>
