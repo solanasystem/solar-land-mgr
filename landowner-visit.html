@@ -257,24 +257,42 @@ function initMap() {
     if (!parcelLayer) return;
     const t = ev.originalEvent && ev.originalEvent.target;
     if (t && (t.closest('.leaflet-marker-icon') || t.closest('.leaflet-popup'))) return;
+    const showFallback = function(msg) {
+      L.popup({ maxWidth: 280 }).setLatLng(ev.latlng)
+        .setContent('<div style="padding:10px;font-size:11px;color:#8b949e;font-family:monospace">' + msg + '</div>')
+        .openOn(map);
+    };
     let result;
     try {
       const w = map.wrapLatLng(ev.latlng);
       result = parcelLayer.queryTileFeaturesDebug(w.lng, w.lat);
-    } catch (e) { return; }
+    } catch (e) { showFallback('query error: ' + (e && e.message)); return; }
     const showPopup = function(feats) {
-      if (!feats || !feats.length) return;
+      if (!feats || !feats.length) {
+        showFallback('feats=' + JSON.stringify(feats).slice(0, 100));
+        return;
+      }
       let props = null;
+      const f0 = feats[0];
+      const inner0 = f0 && (f0.feature || f0);
+      const keys0 = inner0 ? Object.keys(inner0).join(',') : '';
+      const pr0 = inner0 && (inner0.props || inner0.properties);
+      const pkeys0 = pr0 ? Object.keys(pr0).join(',') : '';
       for (const item of feats) {
         const feat = item && (item.feature || item);
         const p = feat && (feat.props || feat.properties);
         if (p && (p['\u5730\u756a'] || p['ID'] || p['\u5e02\u533a\u753a\u6751\u540d'])) { props = p; break; }
       }
-      if (!props) return;
+      if (!props) {
+        showFallback('feats=' + feats.length + ' inner.keys=' + keys0 + ' props.keys=' + pkeys0);
+        return;
+      }
       L.popup({ maxWidth: 320, minWidth: 240 }).setLatLng(ev.latlng).setContent(buildParcelPopup(props)).openOn(map);
     };
     if (result && typeof result.then === 'function') {
-      result.then(showPopup).catch(function () {});
+      result.then(showPopup).catch(function (e) { showFallback('promise rejected: ' + (e && e.message)); });
+    } else if (result === undefined || result === null) {
+      showFallback('result=' + result);
     } else {
       showPopup(result);
     }
