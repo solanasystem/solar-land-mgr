@@ -63,6 +63,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 .toast-container{position:fixed;bottom:20px;right:60px;z-index:3000;display:flex;flex-direction:column;gap:8px;}
 .farmland-tooltip{background:#161b22;border:1px solid #f0b429;border-radius:6px;color:#e6edf3;font-size:12px;padding:4px 10px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);}
 .farmland-tooltip::before{display:none;}
+/* ======== 地番検索 ======== */
+.chiban-search{position:absolute;top:60px;left:12px;z-index:501;width:260px;}
+.chiban-search input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px 8px 32px;color:var(--text);font-family:var(--font-main);font-size:12px;outline:none;}
+.chiban-search input:focus{border-color:var(--accent);}
+.chiban-search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;pointer-events:none;}
+.chiban-results{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-top:4px;max-height:200px;overflow-y:auto;display:none;}
+.chiban-result-item{padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid rgba(48,54,61,0.5);color:var(--text);}
+.chiban-result-item:hover{background:var(--surface2);}
+.chiban-result-item:last-child{border-bottom:none;}
 .hazard-controls{position:absolute;top:60px;right:12px;z-index:500;display:flex;flex-direction:column;gap:4px;}
 .hazard-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text-muted);font-family:var(--font-main);font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.15s;text-align:left;}
 .hazard-btn:hover{background:var(--surface2);color:var(--text);}
@@ -120,6 +129,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="gis-switch">
     <button class="gis-switch-btn active" id="gisMap" onclick="switchGIS('map')">🗺 地図</button>
     <button class="gis-switch-btn" id="gisSat" onclick="switchGIS('satellite')">🛰 衛星</button>
+  </div>
+  <!-- 地番・住所検索 -->
+  <div class="chiban-search" id="chibanSearch">
+    <span class="chiban-search-icon">🔍</span>
+    <input type="text" id="chibanInput" placeholder="市区町村 大字 地番で検索...">
+    <div class="chiban-results" id="chibanResults"></div>
   </div>
   <div class="hazard-controls">
     <button class="hazard-btn" id="hzFlood" onclick="toggleHazard('flood')">💧 浸水</button>
@@ -180,7 +195,7 @@ function toggleHazard(type){
     delete hazardLayers[type];
     btn.classList.remove('active');
   } else {
-    var layer=L.tileLayer(HAZARD_URLS[type],{opacity:0.7,maxZoom:18,attribution:'\u56fd\u571f\u4ea4\u901a\u7701'});
+    var layer=L.tileLayer(HAZARD_URLS[type],{opacity:0.7,maxZoom:18,attribution:'国土交通省'});
     layer.addTo(map);
     layer.bringToFront();
     hazardLayers[type]=layer;
@@ -196,14 +211,13 @@ function toggleToshi(){
     toshiLayer=null;
     btn.classList.remove('active');
   } else {
-    toshiLayer=L.tileLayer(TOSHI_URL,{opacity:0.55,maxZoom:18,attribution:'\u56fd\u571f\u4ea4\u901a\u7701 \u7528\u9014\u5730\u57df'});
+    toshiLayer=L.tileLayer(TOSHI_URL,{opacity:0.55,maxZoom:18,attribution:'国土交通省 用途地域'});
     toshiLayer.addTo(map);
     toshiLayer.bringToFront();
     btn.classList.add('active');
     showToast('用途地域を表示中（国土地理院）','success');
   }
 }
-
 // ── 土砂災害警戒区域ポリゴン（Supabase）──
 var dosyaLayer=null;
 var dosyaEnabled=false;
@@ -242,31 +256,31 @@ function _doRenderDosya(){
 }
 async function _fetchAndRenderDosya(){
   try{
-  var b=map.getBounds().pad(0.05);
-  var res=await db.rpc('get_dosya_in_bbox',{lat_min:b.getSouth(),lat_max:b.getNorth(),lng_min:b.getWest(),lng_max:b.getEast(),row_limit:300});
-  if(res.error||!res.data||!res.data.length)return;
-  if(dosyaLayer){map.removeLayer(dosyaLayer);dosyaLayer=null;}
-  var features=res.data.map(function(row){return{type:'Feature',geometry:row.geojson,properties:{area_name:row.area_name,phenomenon:row.phenomenon,area_type:row.area_type,city_name:row.city_name,area_code:row.area_code}};});
-  dosyaLayer=L.geoJSON({type:'FeatureCollection',features:features},{
-    style:function(f){return getDosyaStyle(f.properties.phenomenon,f.properties.area_type);},
-    onEachFeature:function(feature,layer){
-      var p=feature.properties;
-      var typeColor=p.area_type==='特別警戒区域'?'#dc2626':'#f59e0b';
-      layer.on('click',function(e){
-        L.popup({maxWidth:280,minWidth:220}).setLatLng(e.latlng).setContent(
-          '<div style="padding:12px;font-family:sans-serif;">'+
-          '<div style="font-size:13px;color:'+typeColor+';margin-bottom:8px;font-weight:700;">⚠️ 土砂災害'+p.area_type+'</div>'+
-          '<div style="font-size:12px;margin-bottom:4px;"><b>現象：</b>'+(p.phenomenon||'—')+'</div>'+
-          '<div style="font-size:12px;margin-bottom:4px;"><b>区域名：</b>'+(p.area_name||'—')+'</div>'+
-          '<div style="font-size:12px;"><b>市区町村：</b>'+(p.city_name||'—')+'</div>'+
-          '</div>'
-        ).openOn(map);
-      });
-      layer.on('mouseover',function(){layer.setStyle({fillOpacity:0.55,weight:3});});
-      layer.on('mouseout',function(){if(dosyaLayer)dosyaLayer.resetStyle(layer);});
-    }
-  }).addTo(map);
-  dosyaLayer.bringToFront();
+    var b=map.getBounds().pad(0.05);
+    var res=await db.rpc('get_dosya_in_bbox',{lat_min:b.getSouth(),lat_max:b.getNorth(),lng_min:b.getWest(),lng_max:b.getEast(),row_limit:300});
+    if(res.error||!res.data||!res.data.length)return;
+    if(dosyaLayer){map.removeLayer(dosyaLayer);dosyaLayer=null;}
+    var features=res.data.map(function(row){return{type:'Feature',geometry:row.geojson,properties:{area_name:row.area_name,phenomenon:row.phenomenon,area_type:row.area_type,city_name:row.city_name,area_code:row.area_code}};});
+    dosyaLayer=L.geoJSON({type:'FeatureCollection',features:features},{
+      style:function(f){return getDosyaStyle(f.properties.phenomenon,f.properties.area_type);},
+      onEachFeature:function(feature,layer){
+        var p=feature.properties;
+        var typeColor=p.area_type==='特別警戒区域'?'#dc2626':'#f59e0b';
+        layer.on('click',function(e){
+          L.popup({maxWidth:280,minWidth:220}).setLatLng(e.latlng).setContent(
+            '<div style="padding:12px;font-family:sans-serif;">'+
+            '<div style="font-size:13px;color:'+typeColor+';margin-bottom:8px;font-weight:700;">⚠️ 土砂災害'+p.area_type+'</div>'+
+            '<div style="font-size:12px;margin-bottom:4px;"><b>現象：</b>'+(p.phenomenon||'—')+'</div>'+
+            '<div style="font-size:12px;margin-bottom:4px;"><b>区域名：</b>'+(p.area_name||'—')+'</div>'+
+            '<div style="font-size:12px;"><b>市区町村：</b>'+(p.city_name||'—')+'</div>'+
+            '</div>'
+          ).openOn(map);
+        });
+        layer.on('mouseover',function(){layer.setStyle({fillOpacity:0.55,weight:3});});
+        layer.on('mouseout',function(){if(dosyaLayer)dosyaLayer.resetStyle(layer);});
+      }
+    }).addTo(map);
+    dosyaLayer.bringToFront();
   }catch(e){showToast('土砂警戒ポリゴン取得エラー','error');}
 }
 function loadDosya(){
@@ -274,7 +288,6 @@ function loadDosya(){
   map.on('zoomend',renderDosyaInView);
   renderDosyaInView();
 }
-
 var noshinLayer=null;
 var noshinLoading=false;
 function toggleNoshin(){
@@ -312,20 +325,20 @@ function toggleNoshin(){
     });
 }
 var CITIES=[
-  {name:'\u84b2\u90e1\u5e02',slug:'gamagori',xMin:14433,xMax:14443,yMin:6495,yMax:6503},
-  {name:'\u8c4a\u6a4b\u5e02',slug:'toyohashi',xMin:14439,xMax:14451,yMin:6496,yMax:6509},
-  {name:'\u7530\u539f\u5e02',slug:'tahara',xMin:14425,xMax:14445,yMin:6502,yMax:6515},
-  {name:'\u5ca1\u5d0e\u5e02',slug:'okazaki',xMin:14428,xMax:14440,yMin:6486,yMax:6497},
-  {name:'\u897f\u5c3e\u5e02',slug:'nishio',xMin:14423,xMax:14432,yMin:6491,yMax:6501},
-  {name:'\u8c4a\u5ddd\u5e02',slug:'toyokawa',xMin:14440,xMax:14449,yMin:6494,yMax:6502},
-  {name:'\u5e78\u7530\u753a',slug:'kota',xMin:14431,xMax:14437,yMin:6492,yMax:6499},
-  {name:'\u78a7\u5357\u5e02',slug:'hekinan',xMin:14425,xMax:14428,yMin:6493,yMax:6497},
-  {name:'\u9ad8\u6d5c\u5e02',slug:'takahama',xMin:14425,xMax:14429,yMin:6491,yMax:6495},
-  {name:'\u5b89\u57ce\u5e02',slug:'anjo',xMin:14427,xMax:14433,yMin:6489,yMax:6494},
-  {name:'\u77e5\u591a\u5e02',slug:'chita',xMin:14418,xMax:14424,yMin:6486,yMax:6491},
-  {name:'\u5357\u77e5\u591a\u753a',slug:'minamichita',xMin:14418,xMax:14426,yMin:6502,yMax:6510},
-  {name:'\u7f8e\u6d5c\u753a',slug:'mihama',xMin:14420,xMax:14425,yMin:6499,yMax:6505},
-  {name:'\u6b66\u8c4a\u753a',slug:'taketoyo',xMin:14421,xMax:14426,yMin:6495,yMax:6499},
+  {name:'蒲郡市',slug:'gamagori',xMin:14433,xMax:14443,yMin:6495,yMax:6503},
+  {name:'豊橋市',slug:'toyohashi',xMin:14439,xMax:14451,yMin:6496,yMax:6509},
+  {name:'田原市',slug:'tahara',xMin:14425,xMax:14445,yMin:6502,yMax:6515},
+  {name:'岡崎市',slug:'okazaki',xMin:14428,xMax:14440,yMin:6486,yMax:6497},
+  {name:'西尾市',slug:'nishio',xMin:14423,xMax:14432,yMin:6491,yMax:6501},
+  {name:'豊川市',slug:'toyokawa',xMin:14440,xMax:14449,yMin:6494,yMax:6502},
+  {name:'幸田町',slug:'kota',xMin:14431,xMax:14437,yMin:6492,yMax:6499},
+  {name:'碧南市',slug:'hekinan',xMin:14425,xMax:14428,yMin:6493,yMax:6497},
+  {name:'高浜市',slug:'takahama',xMin:14425,xMax:14429,yMin:6491,yMax:6495},
+  {name:'安城市',slug:'anjo',xMin:14427,xMax:14433,yMin:6489,yMax:6494},
+  {name:'知多市',slug:'chita',xMin:14418,xMax:14424,yMin:6486,yMax:6491},
+  {name:'南知多町',slug:'minamichita',xMin:14418,xMax:14426,yMin:6502,yMax:6510},
+  {name:'美浜町',slug:'mihama',xMin:14420,xMax:14425,yMin:6499,yMax:6505},
+  {name:'武豊町',slug:'taketoyo',xMin:14421,xMax:14426,yMin:6495,yMax:6499},
 ];
 function getTileVersion(){var d=new Date();return String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');}
 function decodePBFTile(buf){var pbf=new Pbf(new Uint8Array(buf));var layers={};pbf.readFields(function(tag,layers,pbf){if(tag===3){var layer={name:'',version:1,extent:4096,keys:[],values:[],features:[]};pbf.readMessage(readVTLayer,layer);if(layer.name)layers[layer.name]=layer;}},layers);return layers;}
@@ -340,30 +353,30 @@ function initMap(){
   baseLayer.addTo(map);
   map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();});
 }
-async function loadDates(){var res=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:true}).limit(10000);if(res.error){showToast('DB接続エラー: '+res.error.message,'error');return;}if(!res.data||res.data.length===0){return;}var seen={},dates=[];res.data.forEach(function(d){if(!seen[d.snapshot_date]){seen[d.snapshot_date]=true;dates.push(d.snapshot_date);}});dates.sort().reverse();var fe=document.getElementById('dateFrom'),te=document.getElementById('dateTo');fe.innerHTML='<option value="">\u57fa\u6e96\u65e5\uff08\u524d\uff09</option>';te.innerHTML='<option value="">\u6bd4\u8f03\u65e5\uff08\u5f8c\uff09</option>';dates.forEach(function(d){fe.innerHTML+='<option value="'+d+'">'+d+'</option>';te.innerHTML+='<option value="'+d+'">'+d+'</option>';});if(dates.length>=2){fe.value=dates[1];te.value=dates[0];loadDiff();}else if(dates.length===1){te.value=dates[0];loadDiff();}}
-async function loadDiff(){var dateFrom=document.getElementById('dateFrom').value;var dateTo=document.getElementById('dateTo').value;if(!dateTo)return;showLoading('\u5dee\u5206\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...');if(markersLayer){map.removeLayer(markersLayer);markersLayer=null;}document.getElementById('emptyState').style.display='none';try{var toRes=await db.from('farmland_snapshots').select('*').eq('snapshot_date',dateTo).limit(10000);var toData=(toRes.data||[]).filter(function(d){return d.intent!=='\u8cb8\u3057\u305f\u3044';});var fromIds={};if(dateFrom){var fRes=await db.from('farmland_snapshots').select('feature_id').eq('snapshot_date',dateFrom).limit(10000);(fRes.data||[]).forEach(function(d){fromIds[d.feature_id]=true;});}if(!toData.length){hideLoading();document.getElementById('emptyState').style.display='flex';return;}var newCount=0,removedCount=0,existingCount=0,markers=[];toData.forEach(function(item){if(!item.lat||!item.lng)return;if(dateFrom&&!fromIds[item.feature_id]){newCount++;markers.push({item:item,changeType:'new'});}else{existingCount++;}});if(dateFrom){var toIds={};toData.forEach(function(d){toIds[d.feature_id]=true;});var ffRes=await db.from('farmland_snapshots').select('*').eq('snapshot_date',dateFrom).limit(10000);var fromFiltered=(ffRes.data||[]).filter(function(d){return d.intent!=='\u8cb8\u3057\u305f\u3044';});fromFiltered.forEach(function(item){if(!item.lat||!item.lng)return;if(!toIds[item.feature_id]){removedCount++;markers.push({item:item,changeType:'removed'});}});}var shown=0;toData.forEach(function(item){if(!item.lat||!item.lng)return;if(dateFrom&&!fromIds[item.feature_id])return;if(shown>=1000)return;markers.push({item:item,changeType:'existing'});shown++;});document.getElementById('statNew').textContent=newCount;document.getElementById('statRemoved').textContent=removedCount;document.getElementById('statExisting').textContent=dateFrom?existingCount:toData.length;var lm=markers.map(function(m){var c=m.changeType==='new'?'#3fb950':m.changeType==='removed'?'#f85149':'#4a9eff';var sz=m.changeType==='existing'?4:11;var op=m.changeType==='existing'?0.7:0.95;var bc=m.changeType==='existing'?'#a855f7':'#fff';var mk=L.circleMarker([m.item.lat,m.item.lng],{radius:sz,fillColor:c,color:bc,weight:2,fillOpacity:op});var lbl=m.changeType==='new'?'\u65b0\u898f':m.changeType==='removed'?'\u524a\u9664':'\u65e2\u5b58';mk.bindTooltip('<b>'+lbl+'</b> '+(m.item.city||''),{direction:'top',permanent:false,opacity:0.95,className:'farmland-tooltip'});mk.on('click',function(){showDetail(m.item,m.changeType);});return mk;});markersLayer=L.layerGroup(lm).addTo(map);var imp=markers.filter(function(m){return m.changeType!=='existing';});if(imp.length){var b=L.latLngBounds(imp.map(function(m){return[m.item.lat,m.item.lng];}));map.fitBounds(b,{padding:[40,40]});}else if(markers.length){var b2=L.latLngBounds(markers.map(function(m){return[m.item.lat,m.item.lng];}));map.fitBounds(b2,{padding:[40,40]});}hideLoading();if(newCount===0&&removedCount===0&&dateFrom)showToast('\u5909\u66f4\u306f\u3042\u308a\u307e\u305b\u3093\u3067\u3057\u305f','success');else if(newCount>0||removedCount>0)showToast('\u65b0\u898f '+newCount+'\u4ef6 / \u524a\u9664 '+removedCount+'\u4ef6 \u306e\u5909\u66f4\u3092\u691c\u51fa\u3057\u307e\u3057\u305f','success');}catch(e){hideLoading();showToast('\u30a8\u30e9\u30fc: '+e.message,'error');}}
+async function loadDates(){var res=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:true}).limit(10000);if(res.error){showToast('DB接続エラー: '+res.error.message,'error');return;}if(!res.data||res.data.length===0){return;}var seen={},dates=[];res.data.forEach(function(d){if(!seen[d.snapshot_date]){seen[d.snapshot_date]=true;dates.push(d.snapshot_date);}});dates.sort().reverse();var fe=document.getElementById('dateFrom'),te=document.getElementById('dateTo');fe.innerHTML='<option value="">基準日（前）</option>';te.innerHTML='<option value="">比較日（後）</option>';dates.forEach(function(d){fe.innerHTML+='<option value="'+d+'">'+d+'</option>';te.innerHTML+='<option value="'+d+'">'+d+'</option>';});if(dates.length>=2){fe.value=dates[1];te.value=dates[0];loadDiff();}else if(dates.length===1){te.value=dates[0];loadDiff();}}
+async function loadDiff(){var dateFrom=document.getElementById('dateFrom').value;var dateTo=document.getElementById('dateTo').value;if(!dateTo)return;showLoading('差分データを取得中...');if(markersLayer){map.removeLayer(markersLayer);markersLayer=null;}document.getElementById('emptyState').style.display='none';try{var toRes=await db.from('farmland_snapshots').select('*').eq('snapshot_date',dateTo).limit(10000);var toData=(toRes.data||[]).filter(function(d){return d.intent!=='貸したい';});var fromIds={};if(dateFrom){var fRes=await db.from('farmland_snapshots').select('feature_id').eq('snapshot_date',dateFrom).limit(10000);(fRes.data||[]).forEach(function(d){fromIds[d.feature_id]=true;});}if(!toData.length){hideLoading();document.getElementById('emptyState').style.display='flex';return;}var newCount=0,removedCount=0,existingCount=0,markers=[];toData.forEach(function(item){if(!item.lat||!item.lng)return;if(dateFrom&&!fromIds[item.feature_id]){newCount++;markers.push({item:item,changeType:'new'});}else{existingCount++;}});if(dateFrom){var toIds={};toData.forEach(function(d){toIds[d.feature_id]=true;});var ffRes=await db.from('farmland_snapshots').select('*').eq('snapshot_date',dateFrom).limit(10000);var fromFiltered=(ffRes.data||[]).filter(function(d){return d.intent!=='貸したい';});fromFiltered.forEach(function(item){if(!item.lat||!item.lng)return;if(!toIds[item.feature_id]){removedCount++;markers.push({item:item,changeType:'removed'});}});}var shown=0;toData.forEach(function(item){if(!item.lat||!item.lng)return;if(dateFrom&&!fromIds[item.feature_id])return;if(shown>=1000)return;markers.push({item:item,changeType:'existing'});shown++;});document.getElementById('statNew').textContent=newCount;document.getElementById('statRemoved').textContent=removedCount;document.getElementById('statExisting').textContent=dateFrom?existingCount:toData.length;var lm=markers.map(function(m){var c=m.changeType==='new'?'#3fb950':m.changeType==='removed'?'#f85149':'#4a9eff';var sz=m.changeType==='existing'?4:11;var op=m.changeType==='existing'?0.7:0.95;var bc=m.changeType==='existing'?'#a855f7':'#fff';var mk=L.circleMarker([m.item.lat,m.item.lng],{radius:sz,fillColor:c,color:bc,weight:2,fillOpacity:op});var lbl=m.changeType==='new'?'新規':m.changeType==='removed'?'削除':'既存';mk.bindTooltip('<b>'+lbl+'</b> '+(m.item.city||''),{direction:'top',permanent:false,opacity:0.95,className:'farmland-tooltip'});mk.on('click',function(){showDetail(m.item,m.changeType);});return mk;});markersLayer=L.layerGroup(lm).addTo(map);var imp=markers.filter(function(m){return m.changeType!=='existing';});if(imp.length){var b=L.latLngBounds(imp.map(function(m){return[m.item.lat,m.item.lng];}));map.fitBounds(b,{padding:[40,40]});}else if(markers.length){var b2=L.latLngBounds(markers.map(function(m){return[m.item.lat,m.item.lng];}));map.fitBounds(b2,{padding:[40,40]});}hideLoading();if(newCount===0&&removedCount===0&&dateFrom)showToast('変更はありませんでした','success');else if(newCount>0||removedCount>0)showToast('新規 '+newCount+'件 / 削除 '+removedCount+'件 の変更を検出しました','success');}catch(e){hideLoading();showToast('エラー: '+e.message,'error');}}
 function showDetail(item,changeType){
-  var lbl=changeType==='new'?'\u2705 \u65b0\u898f\u8ffd\u52a0':changeType==='removed'?'\u274c \u524a\u9664\u6e08\u307f':'\u26aa \u5909\u66f4\u306a\u3057';
+  var lbl=changeType==='new'?'✅ 新規追加':changeType==='removed'?'❌ 削除済み':'⚪ 変更なし';
   var bc=changeType==='new'?'new':changeType==='removed'?'removed':'existing';
   var extras=(item.registered_date||'').split('|');
   var chimoku=extras[0]||'-';
   var kousa=extras[1]||'-';
   var chintai=extras[3]||'';
-  var priceStr=item.price?item.price+'\u5186':'-';
-  var chintaiStr=chintai?chintai+'\u5186':'-';
+  var priceStr=item.price?item.price+'円':'-';
+  var chintaiStr=chintai?chintai+'円':'-';
   document.getElementById('sidePanelBody').innerHTML=
     '<div class="change-badge '+bc+'">'+lbl+'</div>'+
-    '<div class="detail-item"><div class="detail-label">\u5e02\u753a\u6751</div><div class="detail-value">'+(item.city||'-')+'</div></div>'+
-    '<div class="detail-item"><div class="detail-label">\u6240\u5728\u5730</div><div class="detail-value">'+(item.address||'-')+'</div></div>'+
-    '<div class="detail-item"><div class="detail-label">\u9762\u7a4d</div><div class="detail-value">'+(item.area_sqm?Number(item.area_sqm).toLocaleString()+' m\u00b2':'-')+'</div></div>'+
-    '<div class="detail-item"><div class="detail-label">\u8015\u4f5c\u72b6\u6cc1</div><div class="detail-value">'+kousa+'</div></div>'+
-    '<div class="detail-item"><div class="detail-label">\u7533\u8acb\u5730\u76ee\u306a\u3069</div><div class="detail-value">'+chimoku+'</div></div>'+
-    '<div class="detail-item"><div class="detail-label">\u610f\u5411</div><div class="detail-value">'+(item.intent||'-')+'</div></div>'+
-    '<div class="detail-item"><div class="detail-label">\u58f2\u5374\u5e0c\u671b\u91d1\u984d</div><div class="detail-value">'+priceStr+'</div></div>'+
-    '<div class="detail-item"><div class="detail-label">\u8cde\u8cb8\u5e0c\u671b\u91d1\u984d</div><div class="detail-value">'+chintaiStr+'</div></div>'+
-    '<div class="detail-item"><div class="detail-label">\u30b9\u30ca\u30c3\u30d7\u30b7\u30e7\u30c3\u30c8\u65e5</div><div class="detail-value">'+(item.snapshot_date||'-')+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">市町村</div><div class="detail-value">'+(item.city||'-')+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">所在地</div><div class="detail-value">'+(item.address||'-')+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">面積</div><div class="detail-value">'+(item.area_sqm?Number(item.area_sqm).toLocaleString()+' m²':'-')+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">耕作状況</div><div class="detail-value">'+kousa+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">申請地目など</div><div class="detail-value">'+chimoku+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">意向</div><div class="detail-value">'+(item.intent||'-')+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">売却希望金額</div><div class="detail-value">'+priceStr+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">賃貸希望金額</div><div class="detail-value">'+chintaiStr+'</div></div>'+
+    '<div class="detail-item"><div class="detail-label">スナップショット日</div><div class="detail-value">'+(item.snapshot_date||'-')+'</div></div>'+
     '<hr style="border-color:var(--border);margin:12px 0;">'+
-    '<a href="https://aichi.farm.cloudgis.jp/matching/aic/" target="_blank" style="display:block;text-align:center;padding:8px;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3);border-radius:6px;text-decoration:none;font-size:12px;font-weight:600;">\u672a\u6765\u306e\u8fb2\u5730\u30de\u30c3\u30d7\u3067\u78ba\u8a8d</a>';
+    '<a href="https://aichi.farm.cloudgis.jp/matching/aic/" target="_blank" style="display:block;text-align:center;padding:8px;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3);border-radius:6px;text-decoration:none;font-size:12px;font-weight:600;">未来の農地マップで確認</a>';
   document.getElementById('sidePanel').classList.add('open');
 }
 function closeSidePanel(){document.getElementById('sidePanel').classList.remove('open');}
@@ -371,11 +384,11 @@ async function triggerManualCollection(){
   if(typeof Pbf==='undefined'){showToast('PBFライブラリ未読み込み - ページを再読み込みしてください','error');return;}
   var ping=await db.from('farmland_snapshots').select('id').limit(1);
   if(ping.error){showToast('DB接続失敗: '+ping.error.message,'error');return;}
-  showLoading('\u8fb2\u5730\u30bf\u30a4\u30eb\u3092\u30b9\u30ad\u30e3\u30f3\u4e2d...');
+  showLoading('農地タイルをスキャン中...');
   try{
     var today=new Date().toISOString().split('T')[0];
     var chk=await db.from('farmland_snapshots').select('id').eq('snapshot_date',today).limit(1);
-    if(chk.data&&chk.data.length>0){hideLoading();showToast('\u4eca\u65e5\u306e\u30c7\u30fc\u30bf\u306f\u3059\u3067\u306b\u53d6\u5f97\u6e08\u307f\u3067\u3059','success');await loadDates();return;}
+    if(chk.data&&chk.data.length>0){hideLoading();showToast('今日のデータはすでに取得済みです','success');await loadDates();return;}
     var ver=getTileVersion();
     var records=[],featureSeen={};
     var totalTiles=0,nonEmpty=0,totalFeatures=0;
@@ -400,20 +413,20 @@ async function triggerManualCollection(){
                 var feature=layer.features[fi];
                 if(feature.type!==3)continue;
                 var props=getVTProperties(feature,layer);
-                var iko=props['\u51fa\u624b\u610f\u5411'];
+                var iko=props['出手意向'];
                 if(!iko||iko===''||iko==='null')continue;
-                if(iko==='\u8cb8\u3057\u305f\u3044')continue;
+                if(iko==='貸したい')continue;
                 var fid=city.slug+'_'+tx+'_'+ty+'_'+fi;
                 if(featureSeen[fid])continue;
                 featureSeen[fid]=true;
                 var centroid=getPolygonCentroid(feature.geometry,tx,ty,ZOOM,layer.extent);
                 if(!centroid)continue;
-                var addr=String(props['\u8fb2\u5730\u6240\u5728\u5730']||props['\u7b46\u5728\u30ad\u30fc']||'').replace(/^[0-9]+\//,'').replace(/\/$/,'');
-                var chimoku=String(props['\u7533\u8acb\u5730\u76ee\u306a\u3069']||props['\u5730\u76ee']||'');
-                var kousa=String(props['\u8015\u4f5c\u72b6\u6cc1']||'');
-                var menseki=parseFloat(props['\u767b\u8a18\u9762\u7a4d']||props['\u51fa\u624b\u8fb2\u5730\u6570']||props['\u9762\u7a4d']||0)||null;
-                var uri=String(props['\u51fa\u624b\u58f2\u5374\u91d1\u984d']||'');
-                var chintai=String(props['\u51fa\u624b\u8cde\u91d1\u984d']||'');
+                var addr=String(props['農地所在地']||props['筆在キー']||'').replace(/^[0-9]+\//,'').replace(/\/$/,'');
+                var chimoku=String(props['申請地目など']||props['地目']||'');
+                var kousa=String(props['耕作状況']||'');
+                var menseki=parseFloat(props['登記面積']||props['出手農地数']||props['面積']||0)||null;
+                var uri=String(props['出手売却金額']||'');
+                var chintai=String(props['出手賃金額']||'');
                 records.push({feature_id:fid,city:city.name,address:addr,area_sqm:menseki,intent:String(iko),price:uri,registered_date:chimoku+'|'+kousa+'||'+chintai,lat:centroid.lat,lng:centroid.lng,snapshot_date:today,status:'active'});
                 cityCount++;totalFeatures++;
               }
@@ -423,8 +436,8 @@ async function triggerManualCollection(){
       }
       if(cityCount>0)showDebug(city.name+': '+cityCount);
     }
-    showDebug('\u5408\u8a08: '+totalTiles+' / \u975e\u7a7a: '+nonEmpty+' / \u8fb2\u5730: '+totalFeatures);
-    if(!records.length){hideLoading();showToast('\u30c7\u30fc\u30bf\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3067\u3057\u305f','error');return;}
+    showDebug('合計: '+totalTiles+' / 非空: '+nonEmpty+' / 農地: '+totalFeatures);
+    if(!records.length){hideLoading();showToast('データが見つかりませんでした','error');return;}
     var saved=0;
     for(var si=0;si<records.length;si+=100){
       var batch=records.slice(si,si+100);
@@ -433,7 +446,7 @@ async function triggerManualCollection(){
       else saved+=batch.length;
     }
     hideLoading();
-    showToast(saved+'\u4ef6\u4fdd\u5b58\u5b8c\u4e86','success');
+    showToast(saved+'件保存完了','success');
     await loadDates();
   }catch(e){hideLoading();showToast('ERR:'+e.message,'error');showDebug('EX:'+e.message);}
 }
@@ -441,8 +454,9 @@ function showLoading(t){document.getElementById('loadingText').textContent=t;doc
 function hideLoading(){document.getElementById('loadingOverlay').style.display='none';}
 function showToast(msg,type){var c=document.getElementById('toastContainer'),t=document.createElement('div');t.className='toast '+(type||'success');t.textContent=msg;c.appendChild(t);setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},6000);}
 function showDebug(msg){var el=document.getElementById('debugPanel');if(!el){el=document.createElement('div');el.id='debugPanel';el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:9999;background:#1c2333;border:2px solid #f0b429;border-radius:10px;padding:16px 24px;max-width:700px;width:90%;font-family:monospace;font-size:12px;color:#e6edf3;white-space:pre-wrap;max-height:400px;overflow-y:auto;';el.innerHTML='<button onclick="this.parentElement.remove()" style="float:right;background:#f85149;border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;">X</button><div id="debugLog"></div>';document.body.appendChild(el);}document.getElementById('debugLog').textContent+=new Date().toLocaleTimeString()+' '+msg+'\n';}
-initMap();
-loadDates();
-</script>
-</body>
-</html>
+// ======== 地番・住所検索 ========
+var _searchTimer=null;
+document.getElementById('chibanInput').addEventListener('input',function(){
+  clearTimeout(_searchTimer);var q=this.value.trim();var res=document.getElementById('chibanResults');
+  if(q.length<2){res.style.display='none';return;}
+  _searchTimer=setTimeout(function(){_searchChiban(q,res);
