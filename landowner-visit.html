@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <style>
   :root {
     --bg: #0d1117;
@@ -196,6 +197,7 @@
     <div class="layer-title">地図レイヤー</div>
     <label class="layer-item"><input type="checkbox" id="layerGsi" onchange="toggleLayer('gsi',this.checked)"> GSI 航空写真</label>
     <label class="layer-item"><input type="checkbox" id="layerHazard" onchange="toggleLayer('hazard',this.checked)"> ハザードマップ</label>
+    <label class="layer-item"><input type="checkbox" id="layerParcel" checked onchange="toggleLayer('parcel',this.checked)"> 地番境界</label>
   </div>
   <div class="zoom-controls">
     <button class="zoom-btn" onclick="map.zoomIn()">＋</button>
@@ -231,7 +233,7 @@ const SUPABASE_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
-let map, gsiLayer, hazardLayer;
+let map, gsiLayer, hazardLayer, parcelLayer;
 let markers = {};
 let planSet = new Set();
 let visitMode = false;
@@ -242,10 +244,35 @@ function initMap() {
   L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '© 国土地理院', maxZoom: 18 }).addTo(map);
   gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '© 国土地理院', maxZoom: 18, opacity: 0.85 });
   hazardLayer = L.tileLayer('https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png', { attribution: '© 国土地理院', maxZoom: 17, minZoom: 2, opacity: 0.7, errorTileUrl: '' });
+  parcelLayer = protomapsL.leafletLayer({
+    url: 'https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/aichi.pmtiles',
+    paintRules: [{
+      dataLayer: 'parcels',
+      symbolizer: new protomapsL.PolygonSymbolizer({ fill: 'transparent', stroke: '#f85149', width: 1.2 })
+    }],
+    attribution: '地番: 法務省 登記所備付地図データ'
+  });
+  parcelLayer.addTo(map);
+  map.on('click', function(ev) {
+    if (!parcelLayer || !map.hasLayer(parcelLayer)) return;
+    const t = ev.originalEvent && ev.originalEvent.target;
+    if (t && (t.closest('.leaflet-marker-icon') || t.closest('.leaflet-popup'))) return;
+    let feats;
+    try {
+      const w = map.wrapLatLng(ev.latlng);
+      feats = parcelLayer.queryTileFeaturesDebug(w.lng, w.lat);
+    } catch (e) { return; }
+    if (!feats || !feats.length) return;
+    const pf = feats.find(f => f.layerName === 'parcels');
+    if (!pf) return;
+    const props = (pf.feature && (pf.feature.props || pf.feature.properties)) || {};
+    L.popup({ maxWidth: 280, minWidth: 220 }).setLatLng(ev.latlng).setContent(buildParcelPopup(props)).openOn(map);
+  });
 }
 function toggleLayer(type, enabled) {
   if (type === 'gsi') { enabled ? gsiLayer.addTo(map) : map.removeLayer(gsiLayer); }
   else if (type === 'hazard') { enabled ? hazardLayer.addTo(map) : map.removeLayer(hazardLayer); }
+  else if (type === 'parcel') { enabled ? parcelLayer.addTo(map) : map.removeLayer(parcelLayer); }
 }
 async function loadData() {
   const { data: los } = await db.from('landowner_info').select('*, cases(id, case_no, status)');
@@ -491,6 +518,20 @@ function jumpToBoundary(idx, label) {
   map.fitBounds(_boundaryLayer.getBounds(), { padding: [40, 40] });
   document.getElementById('chibanResults').style.display = 'none';
   document.getElementById('chibanInput').value = label;
+}
+function buildParcelPopup(p) {
+  const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const rows = [
+    ['市区町村', p['市区町村名']],
+    ['大字',     p['大字名']],
+    ['丁目',     p['丁目名']],
+    ['小字',     p['小字名']],
+    ['地番',     p['地番']],
+    ['筆ID',     p['ID']]
+  ].filter(r => r[1])
+   .map(r => `<tr><td style="color:var(--text-muted);padding:2px 10px 2px 0;font-size:11px;white-space:nowrap">${r[0]}</td><td style="padding:2px 0;font-size:12px;word-break:break-all">${esc(r[1])}</td></tr>`)
+   .join('');
+  return `<div style="padding:10px"><div style="font-family:'Share Tech Mono',monospace;color:#f0b429;font-size:11px;margin-bottom:6px">📐 地番情報</div><table style="border-collapse:collapse;width:100%">${rows}</table></div>`;
 }
 function jumpToChiban(lat, lng, label) {
   map.setView([lat, lng], 17);
