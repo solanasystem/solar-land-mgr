@@ -254,35 +254,30 @@ function initMap() {
   });
   parcelLayer.addTo(map);
   map.on('click', function(ev) {
-    const lines = [];
-    lines.push('=== click fired ===');
-    lines.push('zoom=' + map.getZoom().toFixed(2));
-    lines.push('lat=' + ev.latlng.lat.toFixed(6));
-    lines.push('lng=' + ev.latlng.lng.toFixed(6));
-    lines.push('parcelLayer=' + (parcelLayer ? 'exists' : 'NULL'));
-    lines.push('hasLayer=' + (parcelLayer ? map.hasLayer(parcelLayer) : 'n/a'));
-    lines.push('hasQuery=' + (parcelLayer ? (typeof parcelLayer.queryTileFeaturesDebug) : 'n/a'));
-    let feats = null;
-    if (parcelLayer && typeof parcelLayer.queryTileFeaturesDebug === 'function') {
-      try {
-        const w = map.wrapLatLng(ev.latlng);
-        feats = parcelLayer.queryTileFeaturesDebug(w.lng, w.lat);
-        lines.push('feats.length=' + (feats ? feats.length : 'null'));
-      } catch (e) {
-        lines.push('ERR: ' + (e && e.message));
+    if (!parcelLayer) return;
+    const t = ev.originalEvent && ev.originalEvent.target;
+    if (t && (t.closest('.leaflet-marker-icon') || t.closest('.leaflet-popup'))) return;
+    let result;
+    try {
+      const w = map.wrapLatLng(ev.latlng);
+      result = parcelLayer.queryTileFeaturesDebug(w.lng, w.lat);
+    } catch (e) { return; }
+    const showPopup = function(feats) {
+      if (!feats || !feats.length) return;
+      let props = null;
+      for (const item of feats) {
+        const feat = item && (item.feature || item);
+        const p = feat && (feat.props || feat.properties);
+        if (p && (p['\u5730\u756a'] || p['ID'] || p['\u5e02\u533a\u753a\u6751\u540d'])) { props = p; break; }
       }
+      if (!props) return;
+      L.popup({ maxWidth: 320, minWidth: 240 }).setLatLng(ev.latlng).setContent(buildParcelPopup(props)).openOn(map);
+    };
+    if (result && typeof result.then === 'function') {
+      result.then(showPopup).catch(function () {});
+    } else {
+      showPopup(result);
     }
-    if (feats && feats.length) {
-      const f0 = feats[0];
-      lines.push('item0.keys=' + Object.keys(f0 || {}).join(','));
-      const inner = f0 && (f0.feature || f0);
-      lines.push('inner.keys=' + Object.keys(inner || {}).join(','));
-      const pr = inner && (inner.props || inner.properties);
-      lines.push('props.keys=' + (pr ? Object.keys(pr).join(',') : 'NONE'));
-      if (pr) lines.push('props=' + JSON.stringify(pr).slice(0, 300));
-    }
-    const content = '<div style="padding:10px;font-family:monospace;font-size:10px;color:#f0b429;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow:auto">' + lines.join('\n') + '</div>';
-    L.popup({ maxWidth: 500 }).setLatLng(ev.latlng).setContent(content).openOn(map);
   });
 }
 function toggleLayer(type, enabled) {
@@ -537,17 +532,18 @@ function jumpToBoundary(idx, label) {
 }
 function buildParcelPopup(p) {
   const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const area = p['\u9762\u7a4d'];
+  const areaText = area ? (Number(area).toLocaleString('ja-JP', {maximumFractionDigits: 1}) + ' m\u00b2') : null;
   const rows = [
-    ['市区町村', p['市区町村名']],
-    ['大字',     p['大字名']],
-    ['丁目',     p['丁目名']],
-    ['小字',     p['小字名']],
-    ['地番',     p['地番']],
-    ['筆ID',     p['ID']]
+    ['\u5e02\u533a\u753a\u6751\u540d', p['\u5e02\u533a\u753a\u6751\u540d']],
+    ['\u5927\u5b57\u540d',           p['\u5927\u5b57\u540d']],
+    ['\u5c0f\u5b57\u540d',           p['\u5c0f\u5b57\u540d']],
+    ['\u5730\u756a',                 p['\u5730\u756a']],
+    ['\u9762\u7a4d',                 areaText]
   ].filter(r => r[1])
-   .map(r => `<tr><td style="color:var(--text-muted);padding:2px 10px 2px 0;font-size:11px;white-space:nowrap">${r[0]}</td><td style="padding:2px 0;font-size:12px;word-break:break-all">${esc(r[1])}</td></tr>`)
+   .map(r => `<tr><td style="color:var(--text-muted);padding:5px 14px 5px 0;font-size:11px;white-space:nowrap;vertical-align:top;font-weight:500">${r[0]}</td><td style="padding:5px 0;font-size:13px;word-break:break-all;font-weight:600;color:var(--text)">${esc(r[1])}</td></tr>`)
    .join('');
-  return `<div style="padding:10px"><div style="font-family:'Share Tech Mono',monospace;color:#f0b429;font-size:11px;margin-bottom:6px">📐 地番情報</div><table style="border-collapse:collapse;width:100%">${rows}</table></div>`;
+  return `<div style="padding:12px;min-width:220px"><div style="font-family:'Share Tech Mono',monospace;color:var(--accent);font-size:11px;margin-bottom:10px;letter-spacing:1px;border-bottom:1px solid var(--border);padding-bottom:7px">\u{1F4D0} \u5730\u756a\u60c5\u5831</div><table style="border-collapse:collapse;width:100%">${rows}</table></div>`;
 }
 function jumpToChiban(lat, lng, label) {
   map.setView([lat, lng], 17);
