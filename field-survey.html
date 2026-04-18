@@ -248,7 +248,6 @@
   .chiban-result-item{padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid rgba(48,54,61,0.5);color:var(--text);}
   .chiban-result-item:hover{background:var(--surface2);}
   .chiban-result-item:last-child{border-bottom:none;}
-  .base-tile { filter: saturate(0.5) brightness(1.05) opacity(0.95); }
   .farmland-cluster { background: rgba(88,166,255,0.85); border-radius: 50%; border: 2px solid rgba(255,255,255,0.6); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-family: var(--font-mono); box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
   @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
 </style>
@@ -489,7 +488,7 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-let map, gsiLayer;
+let map, gsiLayer, baseTileRef;
 
 // ======== ハザードレイヤー（5種類） ========
 // hazard2のみ複数URL配列。他は単一URL文字列。
@@ -511,7 +510,7 @@ let currentConfirmCaseId = null;
 
 function initMap() {
   map = L.map('map', { zoomControl: false }).setView([36.2048, 138.2529], 6);
-  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '© 国土地理院', maxZoom: 18, className: 'base-tile' }).addTo(map);
+  baseTileRef = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '© 国土地理院', maxZoom: 18 }).addTo(map);
   gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '© 国土地理院', maxZoom: 18, opacity: 0.85, zIndex: 1 });
 
   // ハザードレイヤーを5種類初期化（元の構造を維持）
@@ -757,9 +756,9 @@ async function _fetchAndRenderFude() {
 function updateBaseMap() {
   const sat = document.getElementById('baseMapSaturation').value;
   const bri = document.getElementById('baseMapBrightness').value;
-  document.querySelectorAll('.base-tile').forEach(el => {
-    el.style.filter = `saturate(${sat}%) brightness(${bri}%)`;
-  });
+  if (baseTileRef && baseTileRef._container) {
+    baseTileRef._container.style.filter = `saturate(${sat}%) brightness(${bri}%)`;
+  }
 }
 
 function openNouchiNavi(lat, lng, address) {
@@ -1395,4 +1394,36 @@ async function _searchChiban(q, res) {
   const { data } = await query.limit(8);
   if (data) {
     data.forEach(r => {
-      const label = [r.city_name, r
+      const label = [r.city_name, r.oaza, r.koaza, r.chiban].filter(Boolean).join(' ');
+      html += `<div class="chiban-result-item" onmousedown="jumpToChiban(${r.lat},${r.lng},'${label.replace(/'/g,"\\'")}')">&#128205; ${label}</div>`;
+    });
+  }
+  if (!html) { res.style.display = 'none'; return; }
+  res.innerHTML = html;
+  res.style.display = 'block';
+}
+function jumpToBoundary(idx, label) {
+  const geojson = _boundaryCache[idx];
+  if (!geojson) return;
+  if (_boundaryLayer) { map.removeLayer(_boundaryLayer); }
+  _boundaryLayer = L.geoJSON(geojson, {
+    style: { color: '#f0b429', weight: 2.5, dashArray: '10, 7', fillColor: '#f0b429', fillOpacity: 0.06 }
+  }).addTo(map);
+  map.fitBounds(_boundaryLayer.getBounds(), { padding: [40, 40] });
+  document.getElementById('chibanResults').style.display = 'none';
+  document.getElementById('chibanInput').value = label;
+}
+function jumpToChiban(lat, lng, label) {
+  map.setView([lat, lng], 17);
+  L.popup({ maxWidth: 260 }).setLatLng([lat, lng])
+    .setContent(`<div style="padding:10px;font-family:var(--font-main);font-size:12px;color:var(--text)">&#128205; ${label}</div>`)
+    .openOn(map);
+  document.getElementById('chibanResults').style.display = 'none';
+  document.getElementById('chibanInput').value = label;
+}
+
+initMap();
+loadData();
+</script>
+</body>
+</html>
