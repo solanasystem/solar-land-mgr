@@ -255,22 +255,37 @@ function initMap() {
   parcelLayer.addTo(map);
   map.on('click', function(ev) {
     if (!parcelLayer || !map.hasLayer(parcelLayer)) return;
-    const t = ev.originalEvent && ev.originalEvent.target;
-    if (t && (t.closest('.leaflet-marker-icon') || t.closest('.leaflet-popup'))) return;
-    let feats;
+    const lines = [];
+    lines.push('zoom=' + map.getZoom().toFixed(2));
+    lines.push('lat=' + ev.latlng.lat.toFixed(6));
+    lines.push('lng=' + ev.latlng.lng.toFixed(6));
+    lines.push('hasQuery=' + (typeof parcelLayer.queryTileFeaturesDebug));
+    let feats = null;
     try {
       const w = map.wrapLatLng(ev.latlng);
       feats = parcelLayer.queryTileFeaturesDebug(w.lng, w.lat);
-    } catch (e) { return; }
-    if (!feats || !feats.length) return;
+      lines.push('feats.length=' + (feats ? feats.length : 'null'));
+    } catch (e) {
+      lines.push('ERR: ' + (e && e.message));
+    }
+    if (feats && feats.length) {
+      const f0 = feats[0];
+      lines.push('item0.keys=' + Object.keys(f0 || {}).join(','));
+      const inner = f0 && (f0.feature || f0);
+      lines.push('inner.keys=' + Object.keys(inner || {}).join(','));
+      const pr = inner && (inner.props || inner.properties);
+      lines.push('props.keys=' + (pr ? Object.keys(pr).join(',') : 'NONE'));
+      if (pr) lines.push('props=' + JSON.stringify(pr).slice(0, 300));
+    }
     let props = null;
-    for (const item of feats) {
+    if (feats) for (const item of feats) {
       const feat = item && (item.feature || item);
       const p = feat && (feat.props || feat.properties);
       if (p && (p['\u5730\u756a'] || p['ID'] || p['\u5e02\u533a\u753a\u6751\u540d'])) { props = p; break; }
     }
-    if (!props) return;
-    L.popup({ maxWidth: 280, minWidth: 220 }).setLatLng(ev.latlng).setContent(buildParcelPopup(props)).openOn(map);
+    lines.push('match=' + (props ? 'YES' : 'no'));
+    const content = '<div style="padding:10px;font-family:monospace;font-size:10px;color:#f0b429;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow:auto">' + lines.join('\n') + '</div>';
+    L.popup({ maxWidth: 500 }).setLatLng(ev.latlng).setContent(content).openOn(map);
   });
 }
 function toggleLayer(type, enabled) {
