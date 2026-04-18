@@ -258,41 +258,63 @@ function initMap() {
     const t = ev.originalEvent && ev.originalEvent.target;
     if (t && (t.closest('.leaflet-marker-icon') || t.closest('.leaflet-popup'))) return;
     const showFallback = function(msg) {
-      L.popup({ maxWidth: 280 }).setLatLng(ev.latlng)
-        .setContent('<div style="padding:10px;font-size:11px;color:#8b949e;font-family:monospace">' + msg + '</div>')
+      L.popup({ maxWidth: 400 }).setLatLng(ev.latlng)
+        .setContent('<div style="padding:10px;font-size:10px;color:#8b949e;font-family:monospace;white-space:pre-wrap;word-break:break-all">' + msg + '</div>')
         .openOn(map);
     };
     let result;
     try {
       const w = map.wrapLatLng(ev.latlng);
       result = parcelLayer.queryTileFeaturesDebug(w.lng, w.lat);
-    } catch (e) { showFallback('query error: ' + (e && e.message)); return; }
+    } catch (e) { showFallback('query err: ' + (e && e.message)); return; }
+    const findProps = function(obj) {
+      if (!obj) return null;
+      // \u30b1\u30fc\u30b91: \u914d\u5217
+      if (Array.isArray(obj)) {
+        for (const item of obj) {
+          const feat = item && (item.feature || item);
+          const p = feat && (feat.props || feat.properties);
+          if (p && (p['\u5730\u756a'] || p['ID'] || p['\u5e02\u533a\u753a\u6751\u540d'])) return p;
+        }
+        return null;
+      }
+      // \u30b1\u30fc\u30b92: \u30aa\u30d6\u30b8\u30a7\u30af\u30c8 (key=layerName, value=array)
+      if (typeof obj === 'object') {
+        for (const k of Object.keys(obj)) {
+          const v = obj[k];
+          if (Array.isArray(v)) {
+            const p = findProps(v);
+            if (p) return p;
+          } else if (v && typeof v === 'object') {
+            // \u30cd\u30b9\u30c8\u3055\u308c\u305f\u30aa\u30d6\u30b8\u30a7\u30af\u30c8
+            const feat = v.feature || v;
+            const p = feat && (feat.props || feat.properties);
+            if (p && (p['\u5730\u756a'] || p['ID'] || p['\u5e02\u533a\u753a\u6751\u540d'])) return p;
+          }
+        }
+      }
+      return null;
+    };
     const showPopup = function(feats) {
-      if (!feats || !feats.length) {
-        showFallback('feats=' + JSON.stringify(feats).slice(0, 100));
+      const props = findProps(feats);
+      if (props) {
+        L.popup({ maxWidth: 320, minWidth: 240 }).setLatLng(ev.latlng).setContent(buildParcelPopup(props)).openOn(map);
         return;
       }
-      let props = null;
-      const f0 = feats[0];
-      const inner0 = f0 && (f0.feature || f0);
-      const keys0 = inner0 ? Object.keys(inner0).join(',') : '';
-      const pr0 = inner0 && (inner0.props || inner0.properties);
-      const pkeys0 = pr0 ? Object.keys(pr0).join(',') : '';
-      for (const item of feats) {
-        const feat = item && (item.feature || item);
-        const p = feat && (feat.props || feat.properties);
-        if (p && (p['\u5730\u756a'] || p['ID'] || p['\u5e02\u533a\u753a\u6751\u540d'])) { props = p; break; }
+      // \u8a3a\u65ad
+      const z = map.getZoom().toFixed(1);
+      let info = 'z=' + z + ' type=' + (Array.isArray(feats) ? 'array' : typeof feats);
+      if (feats !== null && feats !== undefined) {
+        info += ' isArr=' + Array.isArray(feats);
+        if (typeof feats === 'object') {
+          info += ' keys=[' + Object.keys(feats).join(',') + ']';
+          info += ' json=' + JSON.stringify(feats).slice(0, 400);
+        }
       }
-      if (!props) {
-        showFallback('feats=' + feats.length + ' inner.keys=' + keys0 + ' props.keys=' + pkeys0);
-        return;
-      }
-      L.popup({ maxWidth: 320, minWidth: 240 }).setLatLng(ev.latlng).setContent(buildParcelPopup(props)).openOn(map);
+      showFallback(info);
     };
     if (result && typeof result.then === 'function') {
       result.then(showPopup).catch(function (e) { showFallback('promise rejected: ' + (e && e.message)); });
-    } else if (result === undefined || result === null) {
-      showFallback('result=' + result);
     } else {
       showPopup(result);
     }
