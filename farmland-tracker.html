@@ -456,6 +456,8 @@ function showToast(msg,type){var c=document.getElementById('toastContainer'),t=d
 function showDebug(msg){var el=document.getElementById('debugPanel');if(!el){el=document.createElement('div');el.id='debugPanel';el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:9999;background:#1c2333;border:2px solid #f0b429;border-radius:10px;padding:16px 24px;max-width:700px;width:90%;font-family:monospace;font-size:12px;color:#e6edf3;white-space:pre-wrap;max-height:400px;overflow-y:auto;';el.innerHTML='<button onclick="this.parentElement.remove()" style="float:right;background:#f85149;border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;">X</button><div id="debugLog"></div>';document.body.appendChild(el);}document.getElementById('debugLog').textContent+=new Date().toLocaleTimeString()+' '+msg+'\n';}
 // ======== 地番・住所検索 ========
 var _searchTimer=null;
+var _boundaryLayer=null;
+var _boundaryCache=[];
 document.getElementById('chibanInput').addEventListener('input',function(){
   clearTimeout(_searchTimer);var q=this.value.trim();var res=document.getElementById('chibanResults');
   if(q.length<2){res.style.display='none';return;}
@@ -465,19 +467,49 @@ document.getElementById('chibanInput').addEventListener('blur',function(){
   setTimeout(function(){document.getElementById('chibanResults').style.display='none';},200);
 });
 async function _searchChiban(q,res){
+  if(_boundaryLayer){map.removeLayer(_boundaryLayer);_boundaryLayer=null;}
+  _boundaryCache=[];
+  var html='';
+  if(/[市町村区郡]/.test(q)){
+    try{
+      var nurl='https://nominatim.openstreetmap.org/search?q='+encodeURIComponent(q)+'&polygon_geojson=1&format=json&countrycodes=jp&limit=3&accept-language=ja';
+      var nr=await fetch(nurl);
+      var ndata=await nr.json();
+      ndata.forEach(function(d){
+        if(d.geojson&&(d.geojson.type==='Polygon'||d.geojson.type==='MultiPolygon')){
+          var label=d.display_name.split(',')[0];
+          var idx=_boundaryCache.length;
+          _boundaryCache.push(d.geojson);
+          html+='<div class="chiban-result-item" style="color:var(--accent)" onmousedown="jumpToBoundary('+idx+',\''+label.replace(/'/g,"\\'")+'\')">&#127961; '+label+'</div>';
+        }
+      });
+    }catch(e){}
+  }
   var parts=q.replace(/\u3000/g,' ').split(' ').filter(function(t){return t.length>0;});
   var chibanToken=parts.find(function(t){return /^[0-9\-]+$/.test(t);});
   var nameTokens=parts.filter(function(t){return !/^[0-9\-]+$/.test(t);});
   var query=db.from('chiban_index').select('city_name,oaza,koaza,chiban,lat,lng');
   if(chibanToken)query=query.eq('chiban',chibanToken);
   nameTokens.forEach(function(t){query=query.or('city_name.ilike.%'+t+'%,oaza.ilike.%'+t+'%,koaza.ilike.%'+t+'%');});
-  var result=await query.limit(10);
-  if(!result.data||!result.data.length){res.style.display='none';return;}
-  res.innerHTML=result.data.map(function(r){
-    var label=[r.city_name,r.oaza,r.koaza,r.chiban].filter(Boolean).join(' ');
-    return '<div class="chiban-result-item" onmousedown="jumpToChiban('+r.lat+','+r.lng+',\''+label.replace(/'/g,"\\'")+'\')">&#128205; '+label+'</div>';
-  }).join('');
+  var result=await query.limit(8);
+  if(result.data){
+    result.data.forEach(function(r){
+      var label=[r.city_name,r.oaza,r.koaza,r.chiban].filter(Boolean).join(' ');
+      html+='<div class="chiban-result-item" onmousedown="jumpToChiban('+r.lat+','+r.lng+',\''+label.replace(/'/g,"\\'")+'\')">&#128205; '+label+'</div>';
+    });
+  }
+  if(!html){res.style.display='none';return;}
+  res.innerHTML=html;
   res.style.display='block';
+}
+function jumpToBoundary(idx,label){
+  var geojson=_boundaryCache[idx];
+  if(!geojson)return;
+  if(_boundaryLayer){map.removeLayer(_boundaryLayer);}
+  _boundaryLayer=L.geoJSON(geojson,{style:{color:'#f0b429',weight:2.5,dashArray:'10, 7',fillColor:'#f0b429',fillOpacity:0.06}}).addTo(map);
+  map.fitBounds(_boundaryLayer.getBounds(),{padding:[40,40]});
+  document.getElementById('chibanResults').style.display='none';
+  document.getElementById('chibanInput').value=label;
 }
 function jumpToChiban(lat,lng,label){
   map.setView([lat,lng],17);
