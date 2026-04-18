@@ -254,19 +254,23 @@ function initMap() {
   });
   parcelLayer.addTo(map);
   map.on('click', function(ev) {
-    if (!parcelLayer || !map.hasLayer(parcelLayer)) return;
     const lines = [];
+    lines.push('=== click fired ===');
     lines.push('zoom=' + map.getZoom().toFixed(2));
     lines.push('lat=' + ev.latlng.lat.toFixed(6));
     lines.push('lng=' + ev.latlng.lng.toFixed(6));
-    lines.push('hasQuery=' + (typeof parcelLayer.queryTileFeaturesDebug));
+    lines.push('parcelLayer=' + (parcelLayer ? 'exists' : 'NULL'));
+    lines.push('hasLayer=' + (parcelLayer ? map.hasLayer(parcelLayer) : 'n/a'));
+    lines.push('hasQuery=' + (parcelLayer ? (typeof parcelLayer.queryTileFeaturesDebug) : 'n/a'));
     let feats = null;
-    try {
-      const w = map.wrapLatLng(ev.latlng);
-      feats = parcelLayer.queryTileFeaturesDebug(w.lng, w.lat);
-      lines.push('feats.length=' + (feats ? feats.length : 'null'));
-    } catch (e) {
-      lines.push('ERR: ' + (e && e.message));
+    if (parcelLayer && typeof parcelLayer.queryTileFeaturesDebug === 'function') {
+      try {
+        const w = map.wrapLatLng(ev.latlng);
+        feats = parcelLayer.queryTileFeaturesDebug(w.lng, w.lat);
+        lines.push('feats.length=' + (feats ? feats.length : 'null'));
+      } catch (e) {
+        lines.push('ERR: ' + (e && e.message));
+      }
     }
     if (feats && feats.length) {
       const f0 = feats[0];
@@ -277,13 +281,6 @@ function initMap() {
       lines.push('props.keys=' + (pr ? Object.keys(pr).join(',') : 'NONE'));
       if (pr) lines.push('props=' + JSON.stringify(pr).slice(0, 300));
     }
-    let props = null;
-    if (feats) for (const item of feats) {
-      const feat = item && (item.feature || item);
-      const p = feat && (feat.props || feat.properties);
-      if (p && (p['\u5730\u756a'] || p['ID'] || p['\u5e02\u533a\u753a\u6751\u540d'])) { props = p; break; }
-    }
-    lines.push('match=' + (props ? 'YES' : 'no'));
     const content = '<div style="padding:10px;font-family:monospace;font-size:10px;color:#f0b429;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow:auto">' + lines.join('\n') + '</div>';
     L.popup({ maxWidth: 500 }).setLatLng(ev.latlng).setContent(content).openOn(map);
   });
