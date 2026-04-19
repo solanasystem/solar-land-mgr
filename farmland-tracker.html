@@ -149,6 +149,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <button class="btn btn-primary" onclick="triggerManualCollection()" style="font-size:12px;padding:5px 12px;">&#128229; 今日のデータ取得</button>
   <button class="btn btn-ghost active" id="btnNgFilter" onclick="toggleNgFilter()" style="font-size:12px;padding:5px 12px;">&#128683; NG非表示</button>
   <button class="btn btn-ghost" id="btnAutoJudge" onclick="runAutoNgJudgment()" style="font-size:12px;padding:5px 12px;">&#129302; AI自動判定</button>
+  <button class="btn btn-ghost" id="btnCaseSync" onclick="runCaseMasterSync()" style="font-size:12px;padding:5px 12px;">&#128260; 案件同期</button>
   <div class="stats-bar">
     <div class="stat-item"><div class="stat-dot" style="background:#3fb950;"></div><span style="color:var(--text-muted)">新規追加</span><span class="stat-count" style="color:#3fb950;" id="statNew">0</span></div>
     <div class="stat-item"><div class="stat-dot" style="background:#f85149;"></div><span style="color:var(--text-muted)">削除済み</span><span class="stat-count" style="color:#f85149;" id="statRemoved">0</span></div>
@@ -394,11 +395,66 @@ async function toggleNg(featureId){
     showDetail(currentDetailItem,currentDetailChangeType);
   }
 }
-// === Phase 1: AI\u81ea\u52d5NG\u5224\u5b9a ===
+// === Phase 1+2: AI\u81ea\u52d5NG\u5224\u5b9a\uff08\u8fb2\u632f + \u30cf\u30b6\u30fc\u30c9\u30bf\u30a4\u30eb\u89e3\u6790\uff09 ===
 var AUTO_NG_BUFFER_METERS=20;
+var AUTO_NG_HAZARD_THRESHOLD=0.5;
+var AUTO_NG_HAZARD_ZOOM=15;
+var _tileCanvasCache={};
+function _lngLatToTilePixel(lat,lng,zoom){
+  var n=Math.pow(2,zoom);
+  var xtile=(lng+180)/360*n;
+  var ytile=(1-Math.log(Math.tan(lat*Math.PI/180)+1/Math.cos(lat*Math.PI/180))/Math.PI)/2*n;
+  var tx=Math.floor(xtile),ty=Math.floor(ytile);
+  var px=Math.floor((xtile-tx)*256),py=Math.floor((ytile-ty)*256);
+  return {tx:tx,ty:ty,px:px,py:py};
+}
+async function _loadTileCanvas(url){
+  if(_tileCanvasCache[url])return _tileCanvasCache[url];
+  return new Promise(function(resolve){
+    var img=new Image();
+    img.crossOrigin='anonymous';
+    img.onload=function(){
+      try{
+        var canvas=document.createElement('canvas');
+        canvas.width=256;canvas.height=256;
+        var ctx=canvas.getContext('2d');
+        ctx.drawImage(img,0,0);
+        var data=ctx.getImageData(0,0,256,256);
+        _tileCanvasCache[url]={data:data,valid:true};
+      }catch(e){
+        _tileCanvasCache[url]={valid:false};
+      }
+      resolve(_tileCanvasCache[url]);
+    };
+    img.onerror=function(){
+      _tileCanvasCache[url]={valid:false};
+      resolve(_tileCanvasCache[url]);
+    };
+    img.src=url;
+  });
+}
+async function _isInHazardTile(lat,lng,urlTemplate,zoom,threshold){
+  var t=_lngLatToTilePixel(lat,lng,zoom);
+  var url=urlTemplate.replace('{z}',zoom).replace('{x}',t.tx).replace('{y}',t.ty);
+  var tile=await _loadTileCanvas(url);
+  if(!tile.valid||!tile.data)return false;
+  var samples=0,hazardPixels=0;
+  for(var dy=-3;dy<=3;dy++){
+    for(var dx=-3;dx<=3;dx++){
+      var x=t.px+dx,y=t.py+dy;
+      if(x<0||x>=256||y<0||y>=256)continue;
+      var idx=(y*256+x)*4;
+      var a=tile.data.data[idx+3];
+      samples++;
+      if(a>10)hazardPixels++;
+    }
+  }
+  if(samples===0)return false;
+  return (hazardPixels/samples)>=threshold;
+}
 async function runAutoNgJudgment(){
   if(typeof turf==='undefined'){showToast('Turf.js\u672a\u8aad\u307f\u8fbc\u307f\u3002\u30da\u30fc\u30b8\u3092\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044','error');return;}
-  if(!confirm('\u8fb2\u632f\u8fb2\u7528\u5730\u306b\u8a72\u5f53\u3059\u308b\u8fb2\u5730\u3092\u81ea\u52d5NG\u5224\u5b9a\u3057\u307e\u3059\u3002\n\u5883\u754c\u304b\u3089'+AUTO_NG_BUFFER_METERS+'m\u4ee5\u4e0a\u5185\u5074\u306e\u307f\u5bfe\u8c61\u3068\u306a\u308a\u3001\u30ae\u30ea\u30ae\u30ea\u306f\u624b\u52d5\u5224\u5b9a\u7528\u306b\u6b8b\u308a\u307e\u3059\u3002\n\u5b9f\u884c\u3057\u307e\u3059\u304b\uff1f'))return;
+  if(!confirm('\u8fb2\u632f\u8fb2\u7528\u5730 + \u30cf\u30b6\u30fc\u30c9\uff08\u6d78\u6c34/\u5185\u6c34/\u9ad8\u6f6e/\u6d25\u6ce2\uff09\u306b\u8a72\u5f53\u3059\u308b\u8fb2\u5730\u3092\u81ea\u52d5NG\u5224\u5b9a\u3057\u307e\u3059\u3002\n\u8fb2\u632f: \u5883\u754c\u304b\u3089'+AUTO_NG_BUFFER_METERS+'m\u4ee5\u4e0a\u5185\u5074\n\u30cf\u30b6\u30fc\u30c9: \u8fb2\u5730\u5468\u8fba7\u00d77px\u306e'+(AUTO_NG_HAZARD_THRESHOLD*100)+'%\u4ee5\u4e0a\u304c\u8986\u308f\u308c\u3066\u3044\u308b\u5834\u5408\u306e\u307f\n\u30ae\u30ea\u30ae\u30ea\u306f\u624b\u52d5\u5224\u5b9a\u7528\u306b\u6b8b\u308a\u307e\u3059\u3002\n\u5b9f\u884c\u3057\u307e\u3059\u304b\uff1f\uff08\u6570\u5206\u304b\u304b\u308a\u307e\u3059\uff09'))return;
   showLoading('\u8fb2\u632f\u8fb2\u7528\u5730\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...');
   try{
     var noshinRes=await fetch(WORKER_BASE+'/r2/noshin_aichi.geojson');
@@ -412,22 +468,39 @@ async function runAutoNgJudgment(){
     if(fRes.error){throw new Error('\u8fb2\u5730\u53d6\u5f97\u5931\u6557: '+fRes.error.message);}
     var farmlands=(fRes.data||[]).filter(function(f){return f.lat&&f.lng;});
     document.getElementById('loadingText').textContent='\u5224\u5b9a\u4e2d (0/'+farmlands.length+')...';
+    _tileCanvasCache={};
     var candidates=[],processed=0;
     for(var i=0;i<farmlands.length;i++){
       var farmland=farmlands[i];
       processed++;
-      if(processed%50===0){
+      if(processed%20===0){
         document.getElementById('loadingText').textContent='\u5224\u5b9a\u4e2d ('+processed+'/'+farmlands.length+')...';
         await new Promise(function(r){setTimeout(r,0);});
       }
       if(ngFeatureIds[farmland.feature_id])continue;
+      var ngReason=null;
       var point=turf.point([farmland.lng,farmland.lat]);
-      if(!_isInsideWithBuffer(point,noshinGeo,AUTO_NG_BUFFER_METERS))continue;
-      candidates.push(farmland.feature_id);
+      if(_isInsideWithBuffer(point,noshinGeo,AUTO_NG_BUFFER_METERS)){
+        ngReason='auto_noshin';
+      }
+      if(!ngReason){
+        if(await _isInHazardTile(farmland.lat,farmland.lng,HAZARD_URLS.flood,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
+          ngReason='auto_hazard_flood';
+        }else if(await _isInHazardTile(farmland.lat,farmland.lng,HAZARD_URLS.inner,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
+          ngReason='auto_hazard_inner';
+        }else if(await _isInHazardTile(farmland.lat,farmland.lng,HAZARD_URLS.tide,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
+          ngReason='auto_hazard_tide';
+        }else if(await _isInHazardTile(farmland.lat,farmland.lng,HAZARD_URLS.tsunami,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
+          ngReason='auto_hazard_tsunami';
+        }
+      }
+      if(ngReason){
+        candidates.push({feature_id:farmland.feature_id,ng_reason:ngReason});
+      }
     }
     if(candidates.length>0){
       document.getElementById('loadingText').textContent='DB\u306b\u767b\u9332\u4e2d...';
-      var records=candidates.map(function(fid){return{feature_id:fid,ng_reason:'auto_noshin',updated_at:new Date().toISOString()};});
+      var records=candidates.map(function(c){return{feature_id:c.feature_id,ng_reason:c.ng_reason,updated_at:new Date().toISOString()};});
       for(var j=0;j<records.length;j+=100){
         var batch=records.slice(j,j+100);
         var insRes=await db.from('farmland_ng_list').upsert(batch,{onConflict:'feature_id'});
@@ -437,7 +510,9 @@ async function runAutoNgJudgment(){
     await loadNgList();
     await loadDiff();
     hideLoading();
-    showToast(candidates.length+'\u4ef6\u3092\u81ea\u52d5NG\u5224\u5b9a\u3057\u307e\u3057\u305f\uff08\u5bfe\u8c61: '+farmlands.length+'\u4ef6\uff09','success');
+    var breakdown={auto_noshin:0,auto_hazard_flood:0,auto_hazard_inner:0,auto_hazard_tide:0,auto_hazard_tsunami:0};
+    candidates.forEach(function(c){if(breakdown[c.ng_reason]!==undefined)breakdown[c.ng_reason]++;});
+    showToast(candidates.length+'\u4ef6NG\u5224\u5b9a\uff08\u8fb2\u632f:'+breakdown.auto_noshin+' \u6d78\u6c34:'+breakdown.auto_hazard_flood+' \u5185\u6c34:'+breakdown.auto_hazard_inner+' \u9ad8\u6f6e:'+breakdown.auto_hazard_tide+' \u6d25\u6ce2:'+breakdown.auto_hazard_tsunami+'\uff09','success');
   }catch(e){
     hideLoading();
     showToast('\u81ea\u52d5\u5224\u5b9a\u30a8\u30e9\u30fc: '+e.message,'error');
@@ -462,6 +537,95 @@ function _isInsideWithBuffer(point,featureCollection,bufferMeters){
     }catch(e){}
   }
   return false;
+}
+// === Step 1: \u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u540c\u671f ===
+var CASE_SYNC_DISTANCE_METERS=20;
+async function runCaseMasterSync(){
+  if(typeof turf==='undefined'){showToast('Turf.js\u672a\u8aad\u307f\u8fbc\u307f\u3002\u30da\u30fc\u30b8\u3092\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044','error');return;}
+  if(!confirm('\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u306e\u30b9\u30c6\u30fc\u30bf\u30b9\u3092\u8fb2\u5730\u30c8\u30e9\u30c3\u30ab\u30fc\u306b\u540c\u671f\u3057\u307e\u3059\u3002\nSUCCESS/OK \u2192 \u30a2\u30d7\u30ed\u30fc\u30c1\u6e08\u307f\nNG \u2192 NG\u5224\u5b9a\n\u8ddd\u96e2\u95be\u5024: '+CASE_SYNC_DISTANCE_METERS+'m\n\u5b9f\u884c\u3057\u307e\u3059\u304b\uff1f'))return;
+  showLoading('\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u3092\u53d6\u5f97\u4e2d...');
+  try{
+    // 1. cases \u304b\u3089 SUCCESS/OK/NG \u3092\u53d6\u5f97
+    var casesRes=await db.from('cases').select('id,status').in('status',['SUCCESS','OK','NG']);
+    if(casesRes.error)throw new Error('cases\u53d6\u5f97\u5931\u6557: '+casesRes.error.message);
+    var cases=casesRes.data||[];
+    var approachCaseIds=cases.filter(function(c){return c.status==='SUCCESS'||c.status==='OK';}).map(function(c){return c.id;});
+    var ngCaseIds=cases.filter(function(c){return c.status==='NG';}).map(function(c){return c.id;});
+    var allCaseIds=approachCaseIds.concat(ngCaseIds);
+    if(!allCaseIds.length){hideLoading();showToast('\u540c\u671f\u5bfe\u8c61\u306e\u6848\u4ef6\u304c\u3042\u308a\u307e\u305b\u3093','success');return;}
+    // 2. land_info \u3068 landowner_info \u304b\u3089\u7def\u5ea6\u7d4c\u5ea6\u3092\u53d6\u5f97
+    document.getElementById('loadingText').textContent='\u571f\u5730\u30fb\u5730\u6a29\u8005\u60c5\u5831\u3092\u53d6\u5f97\u4e2d...';
+    var landRes=await db.from('land_info').select('case_id,lat,lng').in('case_id',allCaseIds).limit(10000);
+    var ownerRes=await db.from('landowner_info').select('case_id,lat,lng').in('case_id',allCaseIds).limit(10000);
+    var positionsByCase={};
+    (landRes.data||[]).forEach(function(r){if(r.lat&&r.lng){if(!positionsByCase[r.case_id])positionsByCase[r.case_id]=[];positionsByCase[r.case_id].push({lat:r.lat,lng:r.lng});}});
+    (ownerRes.data||[]).forEach(function(r){if(r.lat&&r.lng){if(!positionsByCase[r.case_id])positionsByCase[r.case_id]=[];positionsByCase[r.case_id].push({lat:r.lat,lng:r.lng});}});
+    // 3. \u6700\u65b0\u30b9\u30ca\u30c3\u30d7\u30b7\u30e7\u30c3\u30c8\u306e\u8fb2\u5730\u3092\u53d6\u5f97
+    document.getElementById('loadingText').textContent='\u8fb2\u5730\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...';
+    var dateRes=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1);
+    if(!dateRes.data||!dateRes.data.length)throw new Error('\u30b9\u30ca\u30c3\u30d7\u30b7\u30e7\u30c3\u30c8\u304c\u3042\u308a\u307e\u305b\u3093');
+    var latestDate=dateRes.data[0].snapshot_date;
+    var fRes=await db.from('farmland_snapshots').select('feature_id,lat,lng').eq('snapshot_date',latestDate).limit(10000);
+    if(fRes.error)throw new Error('\u8fb2\u5730\u53d6\u5f97\u5931\u6557: '+fRes.error.message);
+    var farmlands=(fRes.data||[]).filter(function(f){return f.lat&&f.lng;});
+    // 4. \u8ddd\u96e2\u30de\u30c3\u30c1\u30f3\u30b0
+    document.getElementById('loadingText').textContent='\u7167\u5408\u4e2d (0/'+cases.length+')...';
+    var approachCandidates={},ngCandidates={},processed=0;
+    for(var i=0;i<cases.length;i++){
+      var c=cases[i];
+      var positions=positionsByCase[c.id]||[];
+      processed++;
+      if(processed%10===0){
+        document.getElementById('loadingText').textContent='\u7167\u5408\u4e2d ('+processed+'/'+cases.length+')...';
+        await new Promise(function(r){setTimeout(r,0);});
+      }
+      for(var j=0;j<positions.length;j++){
+        var pos=positions[j];
+        var casePoint=turf.point([pos.lng,pos.lat]);
+        for(var k=0;k<farmlands.length;k++){
+          var f=farmlands[k];
+          var fPoint=turf.point([f.lng,f.lat]);
+          var dist=turf.distance(casePoint,fPoint,{units:'meters'});
+          if(dist<=CASE_SYNC_DISTANCE_METERS){
+            if(c.status==='NG')ngCandidates[f.feature_id]=true;
+            else approachCandidates[f.feature_id]=true;
+          }
+        }
+      }
+    }
+    // 5a. \u30a2\u30d7\u30ed\u30fc\u30c1\u767b\u9332\uff08\u65e2\u5b58\u304c contacted \u306a\u3089\u4e0a\u66f8\u304d\u3057\u306a\u3044\uff09
+    document.getElementById('loadingText').textContent='\u30b9\u30c6\u30fc\u30bf\u30b9\u3092\u66f4\u65b0\u4e2d...';
+    var statusRes=await db.from('farmland_status').select('feature_id,status').limit(10000);
+    var existingStatuses={};
+    (statusRes.data||[]).forEach(function(d){existingStatuses[d.feature_id]=d.status;});
+    var approachRecords=[];
+    Object.keys(approachCandidates).forEach(function(fid){
+      if(existingStatuses[fid]!=='contacted'){
+        approachRecords.push({feature_id:fid,status:'approached',updated_at:new Date().toISOString()});
+      }
+    });
+    for(var m=0;m<approachRecords.length;m+=100){
+      var batch=approachRecords.slice(m,m+100);
+      var r=await db.from('farmland_status').upsert(batch,{onConflict:'feature_id'});
+      if(r.error)console.warn('\u30a2\u30d7\u30ed\u30fc\u30c1\u767b\u9332\u30a8\u30e9\u30fc:',r.error);
+    }
+    // 5b. NG\u767b\u9332
+    var ngRecords=Object.keys(ngCandidates).map(function(fid){return{feature_id:fid,ng_reason:'case_ng',updated_at:new Date().toISOString()};});
+    for(var n=0;n<ngRecords.length;n+=100){
+      var batch=ngRecords.slice(n,n+100);
+      var r=await db.from('farmland_ng_list').upsert(batch,{onConflict:'feature_id'});
+      if(r.error)console.warn('NG\u767b\u9332\u30a8\u30e9\u30fc:',r.error);
+    }
+    // 6. \u753b\u9762\u66f4\u65b0
+    await loadNgList();
+    await loadFarmlandStatuses();
+    await loadDiff();
+    hideLoading();
+    showToast('\u30a2\u30d7\u30ed\u30fc\u30c1\u540c\u671f: '+approachRecords.length+'\u4ef6 / NG\u540c\u671f: '+ngRecords.length+'\u4ef6','success');
+  }catch(e){
+    hideLoading();
+    showToast('\u6848\u4ef6\u540c\u671f\u30a8\u30e9\u30fc: '+e.message,'error');
+  }
 }
 async function loadDates(){var res=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:true}).limit(10000);if(res.error){showToast('DB\u63a5\u7d9a\u30a8\u30e9\u30fc: '+res.error.message,'error');return;}if(!res.data||res.data.length===0){return;}var seen={},dates=[];res.data.forEach(function(d){if(!seen[d.snapshot_date]){seen[d.snapshot_date]=true;dates.push(d.snapshot_date);}});dates.sort().reverse();var fe=document.getElementById('dateFrom'),te=document.getElementById('dateTo');fe.innerHTML='<option value="">\u57fa\u6e96\u65e5\uff08\u524d\uff09</option>';te.innerHTML='<option value="">\u6bd4\u8f03\u65e5\uff08\u5f8c\uff09</option>';dates.forEach(function(d){fe.innerHTML+='<option value="'+d+'">'+d+'</option>';te.innerHTML+='<option value="'+d+'">'+d+'</option>';});if(dates.length>=2){fe.value=dates[1];te.value=dates[0];loadDiff();}else if(dates.length===1){te.value=dates[0];loadDiff();}}
 async function loadDiff(){var dateFrom=document.getElementById('dateFrom').value;var dateTo=document.getElementById('dateTo').value;if(!dateTo)return;showLoading('\u5dee\u5206\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...');if(markersLayer){map.removeLayer(markersLayer);markersLayer=null;}document.getElementById('emptyState').style.display='none';try{var toRes=await db.from('farmland_snapshots').select('*').eq('snapshot_date',dateTo).limit(10000);var toData=(toRes.data||[]).filter(function(d){return d.intent!=='\u8cb8\u3057\u305f\u3044';});var fromIds={};if(dateFrom){var fRes=await db.from('farmland_snapshots').select('feature_id').eq('snapshot_date',dateFrom).limit(10000);(fRes.data||[]).forEach(function(d){fromIds[d.feature_id]=true;});}if(!toData.length){hideLoading();document.getElementById('emptyState').style.display='flex';return;}var newCount=0,removedCount=0,existingCount=0,markers=[];toData.forEach(function(item){if(!item.lat||!item.lng)return;if(ngFilterEnabled&&ngFeatureIds[item.feature_id])return;if(dateFrom&&!fromIds[item.feature_id]){newCount++;markers.push({item:item,changeType:'new'});}else{existingCount++;}});if(dateFrom){var toIds={};toData.forEach(function(d){toIds[d.feature_id]=true;});var ffRes=await db.from('farmland_snapshots').select('*').eq('snapshot_date',dateFrom).limit(10000);var fromFiltered=(ffRes.data||[]).filter(function(d){return d.intent!=='\u8cb8\u3057\u305f\u3044';});fromFiltered.forEach(function(item){if(!item.lat||!item.lng)return;if(ngFilterEnabled&&ngFeatureIds[item.feature_id])return;if(!toIds[item.feature_id]){removedCount++;markers.push({item:item,changeType:'removed'});}});}var shown=0;toData.forEach(function(item){if(!item.lat||!item.lng)return;if(ngFilterEnabled&&ngFeatureIds[item.feature_id])return;if(dateFrom&&!fromIds[item.feature_id])return;if(shown>=1000)return;markers.push({item:item,changeType:'existing'});shown++;});document.getElementById('statNew').textContent=newCount;document.getElementById('statRemoved').textContent=removedCount;var toDataVisible=ngFilterEnabled?toData.filter(function(d){return !ngFeatureIds[d.feature_id];}):toData;document.getElementById('statExisting').textContent=dateFrom?existingCount:toDataVisible.length;var lm=markers.map(function(m){var c=m.changeType==='new'?'#3fb950':m.changeType==='removed'?'#f85149':'#4a9eff';var sz=m.changeType==='existing'?4:11;var op=m.changeType==='existing'?0.7:0.95;var bc=m.changeType==='existing'?'#a855f7':'#fff';var status=farmlandStatuses[m.item.feature_id];if(status==='approached'){c='#ff8c00';bc='#fff';}else if(status==='contacted'){c='#c026d3';bc='#fff';}var mk=L.circleMarker([m.item.lat,m.item.lng],{radius:sz,fillColor:c,color:bc,weight:2,fillOpacity:op});mk._featureId=m.item.feature_id;mk._changeType=m.changeType;mk._item=m.item;var lbl;if(status==='approached')lbl='\u30a2\u30d7\u30ed\u30fc\u30c1\u6e08\u307f';else if(status==='contacted')lbl='\u6253\u8a3a\u6e08\u307f';else lbl=m.changeType==='new'?'\u65b0\u898f':m.changeType==='removed'?'\u524a\u9664':'\u65e2\u5b58';mk.bindTooltip('<b>'+lbl+'</b> '+(m.item.city||''),{direction:'top',permanent:false,opacity:0.95,className:'farmland-tooltip'});mk.on('click',function(){showDetail(m.item,m.changeType);});return mk;});markersLayer=L.layerGroup(lm).addTo(map);markersLayer.bringToFront();var imp=markers.filter(function(m){return m.changeType!=='existing';});if(imp.length){var b=L.latLngBounds(imp.map(function(m){return[m.item.lat,m.item.lng];}));map.fitBounds(b,{padding:[40,40]});}else if(markers.length){var b2=L.latLngBounds(markers.map(function(m){return[m.item.lat,m.item.lng];}));map.fitBounds(b2,{padding:[40,40]});}hideLoading();if(newCount===0&&removedCount===0&&dateFrom)showToast('\u5909\u66f4\u306f\u3042\u308a\u307e\u305b\u3093\u3067\u3057\u305f','success');else if(newCount>0||removedCount>0)showToast('\u65b0\u898f '+newCount+'\u4ef6 / \u524a\u9664 '+removedCount+'\u4ef6 \u306e\u5909\u66f4\u3092\u691c\u51fa\u3057\u307e\u3057\u305f','success');}catch(e){hideLoading();showToast('\u30a8\u30e9\u30fc: '+e.message,'error');}}
