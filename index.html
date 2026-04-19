@@ -933,57 +933,95 @@ async function saveLandowner(){
 }
 
 // ============ 郵便番号検索機能 ============
+// 漢数字→算用数字（丁目用、1〜99対応）
+function kanjiNumToArabic(k){
+  if(!k)return'';
+  const d={'\u4e00':'1','\u4e8c':'2','\u4e09':'3','\u56db':'4','\u4e94':'5','\u516d':'6','\u4e03':'7','\u516b':'8','\u4e5d':'9'};
+  if(k==='\u5341')return'10';
+  if(k.length===2&&k[0]==='\u5341')return'1'+(d[k[1]]||k[1]);
+  if(k.length===2&&k[1]==='\u5341')return(d[k[0]]||k[0])+'0';
+  if(k.length===3&&k[1]==='\u5341')return(d[k[0]]||k[0])+(d[k[2]]||k[2]);
+  if(k.length===1)return d[k]||k;
+  return k;
+}
+
 // 住所正規化: NFKC + 漢数字丁目→算用数字 + ヶ/ヵ統一 + 空白除去
 function normalizeAddressForMatch(s){
   if(!s)return'';
   s=s.normalize('NFKC');
-  const km={'\u4e00':'1','\u4e8c':'2','\u4e09':'3','\u56db':'4','\u4e94':'5','\u516d':'6','\u4e03':'7','\u516b':'8','\u4e5d':'9'};
-  s=s.replace(/\u5341\u4e01\u76ee/g,'10\u4e01\u76ee');
-  s=s.replace(/\u4e00\u5341([\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d])\u4e01\u76ee/g,(_,n)=>'1'+km[n]+'\u4e01\u76ee');
-  s=s.replace(/([\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d])\u4e01\u76ee/g,(_,n)=>km[n]+'\u4e01\u76ee');
+  s=s.replace(/([\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341]+)\u4e01\u76ee/g,(_,k)=>kanjiNumToArabic(k)+'\u4e01\u76ee');
   s=s.replace(/\u30f6/g,'\u30b1').replace(/\u30f5/g,'\u30ab');
   s=s.replace(/\s+/g,'');
   return s;
 }
 
-// 住所文字列を都道府県・市区町村・町名に分解
-function parseAddress(addr){
-  if(!addr)return null;
-  addr=addr.normalize('NFKC').replace(/\s+/g,'');
-  const pm=addr.match(/^(\u6771\u4eac\u90fd|\u5317\u6d77\u9053|\u4eac\u90fd\u5e9c|\u5927\u962a\u5e9c|.{2,3}\u770c)/);
-  if(!pm)return null;
-  const prefecture=pm[0];
-  let rest=addr.slice(prefecture.length);
-  let city=null;
-  const pats=[/^(.+?\u90e1.+?[\u753a\u6751])/,/^(.+?\u5e02.+?\u533a)/,/^(.+?[\u5e02\u753a\u6751])/,/^(.+?\u533a)/];
-  for(const p of pats){const m=rest.match(p);if(m){city=m[1];rest=rest.slice(city.length);break;}}
-  if(!city)return null;
-  // 町名: 数字・記号の前までを町名候補として抽出
-  let town=rest.replace(/[0-9\-\u30fc\u2212\uff0d\u301c\u3001\uff0c].*$/,'');
-  // 末尾の「番地」「番」「号」などを除去
-  town=town.replace(/(\u756a\u5730|\u756a|\u53f7)$/,'');
-  // 先頭の「大字」「字」プレフィックスを除去（登録データは無しのケースが多い）
-  town=town.replace(/^(\u5927\u5b57|\u5b57)/,'');
-  return{
-    prefecture,city,town,
-    prefecture_norm:normalizeAddressForMatch(prefecture),
-    city_norm:normalizeAddressForMatch(city),
-    town_norm:normalizeAddressForMatch(town)
-  };
+// 町名抽出（数字・記号前まで + 番地/大字/丁目除去）
+function extractTown(rest){
+  let t=rest.replace(/[0-9\-\u30fc\u2212\uff0d\u301c\u3001\uff0c].*$/,'');
+  t=t.replace(/(\u756a\u5730|\u756a|\u53f7)$/,'');
+  t=t.replace(/^(\u5927\u5b57|\u5b57)/,'');
+  t=t.replace(/[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341]+\u4e01\u76ee$/,'');
+  t=t.replace(/\d+\u4e01\u76ee$/,'');
+  return t;
 }
 
-// 住所から郵便番号をRPC経由で取得
+// 住所から市区町村候補を複数生成（都道府県省略にも対応）
+function parseAddressCandidates(addr){
+  if(!addr)return[];
+  addr=addr.normalize('NFKC').replace(/\s+/g,'');
+  const pm=addr.match(/^(\u6771\u4eac\u90fd|\u5317\u6d77\u9053|\u4eac\u90fd\u5e9c|\u5927\u962a\u5e9c|.{2,3}\u770c)/);
+  let prefecture='',rest=addr;
+  if(pm){prefecture=pm[0];rest=addr.slice(prefecture.length);}
+  // 4パターンで市区町村候補を生成
+  const pats=[
+    /^(.+?\u90e1.+?[\u753a\u6751])/,   // X郡Y町/村
+    /^(.+?\u5e02.+?\u533a)/,             // X市Y区（政令指定都市）
+    /^(.+?[\u5e02\u753a\u6751])/,        // X市/町/村（最短）
+    /^(.+?\u533a)/                       // X区（特別区）
+  ];
+  const cands=[],seen=new Set();
+  for(const p of pats){
+    const m=rest.match(p);
+    if(m&&!seen.has(m[1])){
+      seen.add(m[1]);
+      const town=extractTown(rest.slice(m[1].length));
+      cands.push({
+        prefecture,city:m[1],town,
+        prefecture_norm:normalizeAddressForMatch(prefecture),
+        city_norm:normalizeAddressForMatch(m[1]),
+        town_norm:normalizeAddressForMatch(town)
+      });
+    }
+  }
+  return cands;
+}
+
+// 複数候補を順に試して郵便番号を取得
 async function lookupPostalCode(addr){
-  const p=parseAddress(addr);
-  if(!p)return{ok:false,reason:'address_parse_failed'};
-  const{data,error}=await db.rpc('lookup_postal_code',{
-    p_pref_norm:p.prefecture_norm,
-    p_city_norm:p.city_norm,
-    p_town_norm:p.town_norm
-  });
-  if(error)return{ok:false,reason:'rpc_error',error};
-  if(!data||!data.length)return{ok:false,reason:'no_match',parsed:p};
-  return{ok:true,result:data[0],all:data,parsed:p};
+  const cands=parseAddressCandidates(addr);
+  if(!cands.length)return{ok:false,reason:'address_parse_failed'};
+  let best=null;
+  for(const c of cands){
+    const{data,error}=await db.rpc('lookup_postal_code',{
+      p_pref_norm:c.prefecture_norm,
+      p_city_norm:c.city_norm,
+      p_town_norm:c.town_norm
+    });
+    if(error){console.warn('RPC error:',error);continue;}
+    if(data&&data.length){
+      const top=data[0];
+      if(!best||top.match_score>best.score){
+        best={
+          postal_code:top.postal_code,prefecture:top.prefecture,city:top.city,town:top.town,
+          score:top.match_score,parsed:c,all:data
+        };
+        // score=100なら即確定
+        if(top.match_score===100)break;
+      }
+    }
+  }
+  if(!best)return{ok:false,reason:'no_match',parsed:cands[0]};
+  return{ok:true,result:best,parsed:best.parsed};
 }
 
 // 編集モーダルの「住所から取得」ボタン
@@ -994,19 +1032,18 @@ async function lookupPostalFromAddress(){
   hint.textContent='検索中...';hint.style.color='var(--text-muted)';
   const r=await lookupPostalCode(addr);
   if(!r.ok){
-    const msg={address_parse_failed:'住所の解析に失敗（都道府県から始まる形式で入力）',rpc_error:'検索エラー: '+(r.error?.message||''),no_match:'該当する郵便番号が見つかりません'}[r.reason]||'取得失敗';
+    const msg={address_parse_failed:'住所の解析に失敗（市区町村が特定できません）',no_match:'該当する郵便番号が見つかりません'}[r.reason]||'取得失敗';
     hint.textContent=msg;hint.style.color='#f85149';return;
   }
   document.getElementById('elo_postal_code').value=r.result.postal_code;
-  const scoreLabel={100:'完全一致',80:'前方一致',60:'部分一致',30:'市区町村代表'}[r.result.match_score]||'一致';
+  const scoreLabel={100:'完全一致',80:'前方一致',60:'部分一致',30:'市区町村代表'}[r.result.score]||'一致';
   hint.textContent=`取得: ${r.result.prefecture}${r.result.city}${r.result.town||''}（${scoreLabel}）`;
-  hint.style.color=r.result.match_score>=80?'#3fb950':'#f0b429';
+  hint.style.color=r.result.score>=80?'#3fb950':'#f0b429';
 }
 
 // 一覧画面: 未取得分の郵便番号を一括取得
 async function bulkFetchPostalCodes(){
   const btn=document.getElementById('bulkPostalBtn');
-  // 対象: postal_codeが空 & addressが存在する地権者
   const targets=(allLandowners||[]).filter(lo=>!lo.postal_code&&lo.address);
   if(!targets.length){showToast('未取得の対象がありません','info');return;}
   if(!confirm(`${targets.length}件の地権者について、住所から郵便番号を一括取得します。よろしいですか？`))return;
@@ -1020,7 +1057,6 @@ async function bulkFetchPostalCodes(){
       const{error}=await db.from('landowner_info').update({postal_code:r.result.postal_code}).eq('id',lo.id);
       if(error){fail++;}else{success++;lo.postal_code=r.result.postal_code;}
     }else{fail++;}
-    // Supabase負荷軽減の軽いウェイト
     if(i%10===9)await new Promise(r=>setTimeout(r,100));
   }
   btn.disabled=false;btn.textContent=orig;
