@@ -75,7 +75,66 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 .chiban-result-item:hover{background:var(--surface2);}
 .chiban-result-item:last-child{border-bottom:none;}
 /* ハザード+都市計画コントロール */
-.hazard-controls{position:absolute;top:60px;right:12px;z-index:500;display:flex;flex-direction:column;gap:4px;max-height:calc(100vh - 120px);overflow-y:auto;}
+.hazard-controls{position:absolute;top:60px;right:12px;z-index:500;display:flex;flex-direction:column;gap:4px;max-height:calc(100vh - 120px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
+/* ハザードパネル折りたたみ・レスポンシブ対応 */
+.hazard-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 2px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.hazard-panel-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.hazard-panel-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  transition: transform 0.2s;
+  line-height: 1;
+  border-radius: 4px;
+}
+.hazard-panel-toggle:hover { background: var(--surface); color: var(--text); }
+.hazard-controls.collapsed .hazard-panel-toggle { transform: rotate(-90deg); }
+.hazard-controls.collapsed .hazard-body { display: none; }
+.hazard-controls.collapsed {
+  max-height: none;
+  overflow: visible;
+  width: auto;
+  min-width: 120px;
+}
+.hazard-body { display: flex; flex-direction: column; gap: 4px; }
+@media (max-width: 1024px) {
+  .hazard-controls {
+    max-height: calc(100vh - 100px);
+  }
+  .hazard-controls .hazard-btn,
+  .hazard-controls .hazard-toggle-btn { font-size: 10px; padding: 4px 8px; }
+  .chiban-search { width: 200px; }
+}
+@media (max-width: 480px) {
+  .hazard-controls {
+    max-height: calc(100vh - 90px);
+  }
+  .chiban-search { width: 160px; }
+}
 .hazard-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text-muted);font-family:var(--font-main);font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.15s;text-align:left;}
 .hazard-btn:hover{background:var(--surface2);color:var(--text);}
 .hazard-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(240,180,41,.12);}
@@ -185,7 +244,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <input type="text" id="chibanInput" placeholder="市区町村 大字 地番で検索...">
     <div class="chiban-results" id="chibanResults"></div>
   </div>
-  <div class="hazard-controls">
+  <div class="hazard-controls" id="hazardControls">
+    <div class="hazard-panel-header" onclick="toggleHazardPanel()">
+      <span class="hazard-panel-title">🚨 防災・都市計画</span>
+      <button class="hazard-panel-toggle" type="button" aria-label="開閉">▼</button>
+    </div>
+    <div class="hazard-body">
     <button class="hazard-btn" id="hzFlood" onclick="toggleHazard('flood')">&#128167; 浸水</button>
     <button class="hazard-btn" id="hzInner" onclick="toggleHazard('inner')">&#128167; 内水</button>
     <button class="hazard-btn" id="hzSediment" onclick="toggleDosyaPolygon()">&#9888; 土砂災害</button>
@@ -216,6 +280,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     </div>
     <div class="hazard-divider"></div>
     <button class="hazard-btn" id="hzNoshin" onclick="toggleNoshin()">&#127806; 農振農用地</button>
+    </div><!-- /.hazard-body -->
   </div>
   <div class="side-panel" id="sidePanel">
     <div class="side-panel-header"><span class="side-panel-title">&#127807; 農地詳細</span><button class="close-btn" onclick="closeSidePanel()">&#10005;</button></div>
@@ -922,6 +987,17 @@ function jumpToChiban(lat,lng,label){
 }
 initMap();
 Promise.all([loadNgList(),loadFarmlandStatuses()]).then(function(){loadDates();});
+
+// ======== ハザードパネル 折りたたみトグル ========
+function toggleHazardPanel() {
+  var hc = document.getElementById('hazardControls');
+  if (hc) hc.classList.toggle('collapsed');
+}
+// 初期状態：画面幅1024px以下（iPad・iPhone）では折りたたみ
+if (window.innerWidth <= 1024) {
+  var hc = document.getElementById('hazardControls');
+  if (hc) hc.classList.add('collapsed');
+}
 </script>
 </body>
 </html>
