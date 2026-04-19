@@ -192,8 +192,8 @@
       </div>
       <button class="btn btn-primary" onclick="openNewCaseModal()">＋ 新規案件登録</button>
     </div>
-    <div class="cases-table-header" style="grid-template-columns:120px 140px 140px 150px 80px 1fr 160px">
-      <div>案件番号</div><div>発電区分</div><div>ステータス</div>
+    <div class="cases-table-header" style="grid-template-columns:120px 140px 140px 140px 150px 80px 1fr 160px">
+      <div>案件番号</div><div>発電区分</div><div>ステータス</div><div>地権者名</div>
       <div>金額（円）</div><div>エリア</div><div>登録日</div><div>操作</div>
     </div>
   </div>
@@ -549,9 +549,14 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 async function loadCases(){
   try{
-    const{data,error}=await db.from('cases').select('*').order('created_at',{ascending:false});
-    if(error){showToast('データ読み込みエラー: '+error.message,'error');document.getElementById('casesList').innerHTML='<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">'+error.message+'</div></div>';return;}
-    allCases=(data||[]).sort((a,b)=>(a.case_no||'').localeCompare(b.case_no||'','ja'));
+    const[casesRes,losRes]=await Promise.all([
+      db.from('cases').select('*').order('created_at',{ascending:false}),
+      db.from('landowner_info').select('case_id,name')
+    ]);
+    if(casesRes.error){showToast('データ読み込みエラー: '+casesRes.error.message,'error');document.getElementById('casesList').innerHTML='<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">'+casesRes.error.message+'</div></div>';return;}
+    const loMap={};
+    (losRes.data||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
+    allCases=((casesRes.data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''}))).sort((a,b)=>(a.case_no||'').localeCompare(b.case_no||'','ja'));
     renderCases(allCases);updateStats(allCases);
   }catch(e){showToast('接続エラー: '+e.message,'error');}
 }
@@ -582,7 +587,7 @@ function filterCases(){
   const area=document.getElementById('filterArea').value;
   renderCases(allCases.filter(c=>{
     if(ngBlind&&c.status==='NG')return false;
-    return(!q||(c.case_no||'').toLowerCase().includes(q)||(c.area_name||'').toLowerCase().includes(q))
+    return(!q||(c.case_no||'').toLowerCase().includes(q)||(c.area_name||'').toLowerCase().includes(q)||(c.landowner_name||'').toLowerCase().includes(q))
       &&(!kubun||c.kubun===kubun)&&(!status||c.status===status)&&(!area||c.area_name===area);
   }));
 }
@@ -590,10 +595,11 @@ function filterCases(){
 function renderCases(cases){
   const el=document.getElementById('casesList');
   if(!cases.length){el.innerHTML='<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-text">案件が登録されていません</div></div>';return;}
-  el.innerHTML=cases.map((c,i)=>`<div class="case-row" style="grid-template-columns:120px 140px 140px 150px 80px 1fr 160px;animation-delay:${i*.03}s">
+  el.innerHTML=cases.map((c,i)=>`<div class="case-row" style="grid-template-columns:120px 140px 140px 140px 150px 80px 1fr 160px;animation-delay:${i*.03}s">
     <div class="case-no">${c.case_no||'—'}</div>
     <div>${kubunBadgeInline(c.id,c.kubun)}</div>
     <div>${statusBadgeInline(c.id,c.status)}</div>
+    <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.landowner_name||'—'}</div>
     <div class="price-cell">${c.price?Number(c.price).toLocaleString()+' 円':'—'}</div>
     <div style="font-size:13px;color:var(--text-muted)">${c.area_name||'—'}</div>
     <div style="font-size:12px;color:var(--text-muted)">${formatDate(c.created_at)}</div>
