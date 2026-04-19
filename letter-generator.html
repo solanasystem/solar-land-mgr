@@ -267,15 +267,17 @@ body{font-family:var(--font-main);background:var(--bg);color:var(--text);font-si
               </div>
               <div class="section">
                 <div class="section-title">オプション</div>
-                <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:6px;">
-                  <input type="checkbox" id="optShowPrice" checked onchange="updatePreview()"> 購入金額を自動表示（案件の価格を使用）
-                </label>
                 <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
                   <input type="checkbox" id="optShowContract" checked onchange="updatePreview()"> 下部の「不動産屋への媒介契約」セクションを含める
                 </label>
               </div>
             </div>
           </details>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text);background:var(--surface2);padding:6px 10px;border-radius:6px;border:1px solid var(--border);">
+            購入金額
+            <input type="text" id="purchasePrice" placeholder="例：500,000" oninput="updatePreview()" style="width:120px;padding:3px 6px;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:4px;font-size:12px;font-family:var(--font-mono);">
+            <span style="color:var(--text-muted);font-size:11px;">円</span>
+          </label>
           <span class="info" id="letterInfo">0件選択中</span>
         </div>
         <div>
@@ -493,25 +495,31 @@ function renderLetterPreview(){
     return;
   }
   const from=getSenderInfo();
-  const showPrice=document.getElementById('optShowPrice').checked;
   const showContract=document.getElementById('optShowContract').checked;
+  // 購入金額: 入力欄から取得（空欄=手書き用の空白）
+  const priceRaw=document.getElementById('purchasePrice').value.trim();
+  const priceVal=priceRaw.replace(/[^\d]/g,''); // 数字のみ抽出
   const today=formatToday();
-  el.innerHTML=sel.map(lo=>renderXamaxLetter(lo,from,today,{showPrice,showContract})).join('');
+  el.innerHTML=sel.map(lo=>renderXamaxLetter(lo,from,today,{priceVal,showContract})).join('');
 }
 
 function renderXamaxLetter(lo,from,today,opt){
   const lands=landsByCase[lo.case_id]||[];
-  const priceVal=opt.showPrice?(lo.cases?.price||''):'';
-  // 該当地テーブル: 必ず3行（足りない分は空欄）
+  // 該当地テーブル: 筆の数だけ行を動的生成（無ければ1行空欄）
   let landRows='';
-  for(let i=0;i<3;i++){
-    const l=lands[i];
-    landRows+=`<tr>
-      <td class="loc">${l?escapeHtml(l.location||l.chiban||''):''}</td>
-      <td class="chimoku">${l?escapeHtml(l.chiban||''):''}</td>
-      <td class="area">${l&&l.area_sqm?Number(l.area_sqm).toLocaleString()+' ㎡':'㎡'}</td>
-    </tr>`;
+  if(lands.length===0){
+    landRows='<tr><td class="loc">&nbsp;</td><td class="chimoku">&nbsp;</td><td class="area">&nbsp;</td></tr>';
+  }else{
+    lands.forEach(l=>{
+      landRows+=`<tr>
+        <td class="loc">${escapeHtml(l.location||'')}</td>
+        <td class="chimoku">${escapeHtml(l.chiban||'')}</td>
+        <td class="area">${l.area_sqm?Number(l.area_sqm).toLocaleString()+' ㎡':''}</td>
+      </tr>`;
+    });
   }
+  // 購入金額表示
+  const priceDisplay=opt.priceVal?Number(opt.priceVal).toLocaleString():'&nbsp;';
   // 下部：不動産屋セクション
   const contractSection=opt.showContract?`
     <hr class="xamax-separator">
@@ -549,10 +557,10 @@ function renderXamaxLetter(lo,from,today,opt){
       <p>何卒よろしくお願い申し上げます。</p>
     </div>
     <div class="xamax-price">
-      <span class="label">購入金額：</span><span class="val">${priceVal?Number(priceVal).toLocaleString():'&nbsp;'}</span><span class="label">円（非課税）</span>
+      <span class="label">購入金額：</span><span class="val">${priceDisplay}</span><span class="label">円（非課税）</span>
     </div>
     <table class="xamax-land-table">
-      <thead><tr><th style="text-align:left;padding-left:4mm">【該当地】　　　　　　所　　　　　在</th><th style="width:70pt">地目</th><th style="width:80pt">面積</th></tr></thead>
+      <thead><tr><th style="text-align:left;padding-left:4mm">所在（地番まで明記）</th><th style="width:90pt">地目</th><th style="width:80pt">面積</th></tr></thead>
       <tbody>${landRows}</tbody>
     </table>
     <div class="xamax-sender-block">
