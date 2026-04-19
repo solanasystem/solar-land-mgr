@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>開拓案件候補 | SOLAR LAND MGR</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;--accent:#f0b429;--green:#3fb950;--red:#f85149;--orange:#ff8c00;--fuchsia:#c026d3;--text:#e6edf3;--text-muted:#8b949e;--font-main:'Zen Kaku Gothic New',sans-serif;--font-mono:'Share Tech Mono',monospace;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.header-left{display:flex;align-items:center;gap:12px;}
+.logo{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--text);}
+.logo-icon{width:28px;height:28px;background:linear-gradient(135deg,#f0b429,#e85d04);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;}
+.logo-text{font-size:14px;font-weight:700;}
+.page-title{font-size:13px;color:var(--text-muted);}
+.btn{padding:6px 14px;border-radius:6px;border:1px solid var(--border);font-family:var(--font-main);font-size:12px;font-weight:500;cursor:pointer;transition:all 0.15s;text-decoration:none;display:inline-block;}
+.btn-ghost{background:none;color:var(--text-muted);}
+.btn-ghost:hover{background:var(--surface2);color:var(--text);}
+.btn-primary{background:var(--accent);color:#000;border-color:var(--accent);}
+
+.stats-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;flex-shrink:0;}
+.stat-item{display:flex;align-items:center;gap:6px;font-size:12px;}
+.stat-dot{width:10px;height:10px;border-radius:50%;}
+.stat-label{color:var(--text-muted);}
+.stat-count{font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--text);}
+.stat-count.total{color:var(--accent);font-size:18px;}
+
+.filter-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex-shrink:0;}
+.filter-label{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;white-space:nowrap;}
+.filter-select{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-family:var(--font-main);font-size:12px;cursor:pointer;min-width:100px;}
+.filter-select:hover{border-color:var(--accent);}
+
+.table-container{flex:1;overflow:auto;background:var(--bg);position:relative;}
+table{width:100%;border-collapse:collapse;min-width:1100px;}
+thead{position:sticky;top:0;background:var(--surface);z-index:10;box-shadow:0 1px 0 var(--border);}
+thead th{padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid var(--border);white-space:nowrap;user-select:none;}
+thead th.sortable{cursor:pointer;}
+thead th.sortable:hover{color:var(--accent);}
+thead th.sortable.active{color:var(--accent);}
+thead th .sort-icon{font-size:10px;margin-left:4px;}
+tbody tr{border-bottom:1px solid var(--border);transition:background 0.1s;}
+tbody tr:hover{background:var(--surface);}
+tbody tr.status-approached{background:rgba(255,140,0,0.05);}
+tbody tr.status-approached:hover{background:rgba(255,140,0,0.10);}
+tbody tr.status-contacted{background:rgba(192,38,211,0.05);}
+tbody tr.status-contacted:hover{background:rgba(192,38,211,0.10);}
+tbody td{padding:10px 12px;font-size:12px;vertical-align:middle;}
+
+.status-badge{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;}
+.status-badge.approached{background:rgba(255,140,0,0.2);color:var(--orange);border:1px solid rgba(255,140,0,0.4);}
+.status-badge.contacted{background:rgba(192,38,211,0.2);color:var(--fuchsia);border:1px solid rgba(192,38,211,0.4);}
+.status-badge.none{background:rgba(139,148,158,0.15);color:var(--text-muted);border:1px solid rgba(139,148,158,0.3);}
+
+.intent-sell{color:#3fb950;font-weight:600;}
+.intent-rent{color:#4a9eff;font-weight:600;}
+
+.map-link{color:var(--accent);font-size:14px;text-decoration:none;padding:3px 6px;border-radius:4px;transition:background 0.1s;}
+.map-link:hover{background:var(--surface2);}
+
+.comment-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:5px 8px;color:var(--text);font-family:var(--font-main);font-size:12px;outline:none;transition:border-color 0.1s;}
+.comment-input:focus{border-color:var(--accent);}
+.comment-input.saved{border-color:var(--green);}
+
+.action-cell{white-space:nowrap;display:flex;gap:4px;}
+.action-btn{padding:5px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text-muted);font-size:11px;font-weight:600;cursor:pointer;transition:all 0.1s;}
+.action-btn:hover{background:var(--surface2);color:var(--text);}
+.action-btn.approach{color:var(--orange);border-color:rgba(255,140,0,0.3);}
+.action-btn.approach:hover{background:rgba(255,140,0,0.1);border-color:var(--orange);}
+.action-btn.approach.active{background:rgba(255,140,0,0.2);border-color:var(--orange);}
+.action-btn.contact{color:var(--fuchsia);border-color:rgba(192,38,211,0.3);}
+.action-btn.contact:hover{background:rgba(192,38,211,0.1);border-color:var(--fuchsia);}
+.action-btn.contact.active{background:rgba(192,38,211,0.2);border-color:var(--fuchsia);}
+.action-btn.ng{color:var(--red);border-color:rgba(248,81,73,0.3);}
+.action-btn.ng:hover{background:rgba(248,81,73,0.15);border-color:var(--red);}
+
+.loading-overlay{position:absolute;inset:0;background:rgba(13,17,23,.8);z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;}
+.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:13px;color:var(--text-muted);}
+
+.empty-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--text-muted);}
+.empty-icon{font-size:48px;}
+.empty-text{font-size:14px;text-align:center;line-height:1.8;}
+
+.toast-container{position:fixed;bottom:20px;right:20px;z-index:3000;display:flex;flex-direction:column;gap:8px;}
+.toast{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 16px;font-size:13px;min-width:220px;animation:slideIn .3s ease;}
+.toast.success{border-left:3px solid var(--green);}
+.toast.error{border-left:3px solid var(--red);}
+@keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+
+/* 列幅調整 */
+th.col-status,td.col-status{width:60px;}
+th.col-city,td.col-city{width:80px;}
+th.col-address,td.col-address{width:200px;word-break:break-all;}
+th.col-area,td.col-area{width:80px;text-align:right;}
+th.col-intent,td.col-intent{width:70px;}
+th.col-price,td.col-price{width:100px;text-align:right;font-family:var(--font-mono);}
+th.col-chintai,td.col-chintai{width:100px;text-align:right;font-family:var(--font-mono);}
+th.col-map,td.col-map{width:50px;text-align:center;}
+th.col-comment,td.col-comment{min-width:180px;}
+th.col-action,td.col-action{width:200px;}
+</style>
+</head>
+<body>
+<header class="header">
+  <div class="header-left">
+    <a class="logo" href="index.html"><div class="logo-icon">&#9728;&#65039;</div><span class="logo-text">SOLAR LAND MGR</span></a>
+    <span class="page-title">&#128203; 開拓案件候補</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <a href="farmland-tracker.html" class="btn btn-ghost">&#127807; 変化トラッカー</a>
+    <a href="index.html" class="btn btn-ghost">&#8592; 案件一覧</a>
+  </div>
+</header>
+
+<div class="stats-bar">
+  <div class="stat-item"><span class="stat-label">候補総数</span><span class="stat-count total" id="statTotal">0</span></div>
+  <div class="stat-item"><div class="stat-dot" style="background:#3fb950;"></div><span class="stat-label">売却希望</span><span class="stat-count" id="statSell">0</span></div>
+  <div class="stat-item"><div class="stat-dot" style="background:#4a9eff;"></div><span class="stat-label">賃借希望</span><span class="stat-count" id="statRent">0</span></div>
+  <div class="stat-item"><div class="stat-dot" style="background:var(--text-muted);"></div><span class="stat-label">未アプローチ</span><span class="stat-count" id="statNone">0</span></div>
+  <div class="stat-item"><div class="stat-dot" style="background:#ff8c00;"></div><span class="stat-label">アプローチ済み</span><span class="stat-count" id="statApproached">0</span></div>
+  <div class="stat-item"><div class="stat-dot" style="background:#c026d3;"></div><span class="stat-label">打診済み</span><span class="stat-count" id="statContacted">0</span></div>
+</div>
+
+<div class="filter-bar">
+  <span class="filter-label">市区町村</span>
+  <select class="filter-select" id="filterCity"><option value="">すべて</option></select>
+  <span class="filter-label">意向</span>
+  <select class="filter-select" id="filterIntent">
+    <option value="all">すべて</option>
+    <option value="sell">売りたい</option>
+    <option value="rent">貸したい</option>
+  </select>
+  <span class="filter-label">売却金額</span>
+  <select class="filter-select" id="filterPrice">
+    <option value="all">すべて</option>
+    <option value="500000">50万円以下</option>
+    <option value="1000000">100万円以下</option>
+    <option value="2000000">200万円以下</option>
+    <option value="5000000">500万円以下</option>
+  </select>
+  <span class="filter-label">ステータス</span>
+  <select class="filter-select" id="filterStatus">
+    <option value="all">すべて</option>
+    <option value="none">未アプローチ</option>
+    <option value="approached">アプローチ済み</option>
+    <option value="contacted">打診済み</option>
+  </select>
+  <button class="btn btn-ghost" onclick="resetFilters()" style="font-size:11px;margin-left:auto;">&#8635; リセット</button>
+  <button class="btn btn-ghost" onclick="loadData()" style="font-size:11px;">&#8635; 再読込</button>
+</div>
+
+<div class="table-container" id="tableContainer">
+  <div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div><div class="loading-text" id="loadingText">データを読み込み中...</div></div>
+  <table>
+    <thead>
+      <tr>
+        <th class="col-status">ステータス</th>
+        <th class="col-city sortable" onclick="setSort('city')">市区町村 <span class="sort-icon" id="sortIconCity"></span></th>
+        <th class="col-address">所在地</th>
+        <th class="col-area sortable" onclick="setSort('area')">面積 <span class="sort-icon" id="sortIconArea"></span></th>
+        <th class="col-intent">意向</th>
+        <th class="col-price sortable" onclick="setSort('price')">売却金額 <span class="sort-icon" id="sortIconPrice"></span></th>
+        <th class="col-chintai">賃借金額</th>
+        <th class="col-map">地図</th>
+        <th class="col-comment">コメント</th>
+        <th class="col-action">アクション</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+var SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
+var SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+var db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+var farmlands=[];
+var filters={city:'',intent:'all',price:'all',status:'all'};
+var sortBy='city',sortDir='asc';
+
+function showToast(msg,type){
+  var c=document.getElementById('toastContainer'),t=document.createElement('div');
+  t.className='toast '+(type||'success');t.textContent=msg;c.appendChild(t);
+  setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},4000);
+}
+
+function showLoading(msg){
+  document.getElementById('loadingText').textContent=msg||'\u8aad\u307f\u8fbc\u307f\u4e2d...';
+  document.getElementById('loadingOverlay').style.display='flex';
+}
+function hideLoading(){
+  document.getElementById('loadingOverlay').style.display='none';
+}
+
+async function loadData(){
+  showLoading('\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...');
+  try{
+    var dateRes=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1);
+    if(!dateRes.data||!dateRes.data.length){
+      hideLoading();
+      farmlands=[];
+      renderTable();
+      return;
+    }
+    var latestDate=dateRes.data[0].snapshot_date;
+    var results=await Promise.all([
+      db.from('farmland_snapshots').select('*').eq('snapshot_date',latestDate).limit(10000),
+      db.from('farmland_ng_list').select('feature_id').limit(10000),
+      db.from('farmland_status').select('feature_id,status').limit(10000),
+      db.from('farmland_comments').select('feature_id,comment').limit(10000)
+    ]);
+    var snapshots=results[0].data||[];
+    var ngList=results[1].data||[];
+    var statuses=results[2].data||[];
+    var comments=results[3].data||[];
+    var ngSet={};
+    ngList.forEach(function(d){ngSet[d.feature_id]=true;});
+    var statusMap={};
+    statuses.forEach(function(d){statusMap[d.feature_id]=d.status;});
+    var commentMap={};
+    comments.forEach(function(d){commentMap[d.feature_id]=d.comment||'';});
+    farmlands=snapshots.filter(function(f){return !ngSet[f.feature_id];}).map(function(f){
+      return Object.assign({},f,{
+        status:statusMap[f.feature_id]||null,
+        comment:commentMap[f.feature_id]||''
+      });
+    });
+    // \u5e02\u533a\u753a\u6751\u306e\u9078\u629e\u80a2\u3092\u751f\u6210
+    var cities={};
+    farmlands.forEach(function(f){if(f.city)cities[f.city]=true;});
+    var cityOpts='<option value="">\u3059\u3079\u3066</option>';
+    Object.keys(cities).sort().forEach(function(c){cityOpts+='<option value="'+c+'">'+c+'</option>';});
+    var citySelect=document.getElementById('filterCity');
+    var prevCity=citySelect.value;
+    citySelect.innerHTML=cityOpts;
+    if(cities[prevCity])citySelect.value=prevCity;
+    hideLoading();
+    renderTable();
+    showToast(farmlands.length+'\u4ef6\u306e\u5019\u88dc\u3092\u8aad\u307f\u8fbc\u307f\u307e\u3057\u305f','success');
+  }catch(e){
+    hideLoading();
+    showToast('\u8aad\u307f\u8fbc\u307f\u30a8\u30e9\u30fc: '+e.message,'error');
+  }
+}
+
+function getFilteredSorted(){
+  var list=farmlands.slice();
+  if(filters.city)list=list.filter(function(f){return f.city===filters.city;});
+  if(filters.intent==='sell')list=list.filter(function(f){return f.intent==='\u58f2\u308a\u305f\u3044';});
+  else if(filters.intent==='rent')list=list.filter(function(f){return f.intent==='\u8cb8\u3057\u305f\u3044';});
+  if(filters.price!=='all'){
+    var max=parseFloat(filters.price);
+    list=list.filter(function(f){
+      var p=parseFloat(f.price)||0;
+      return p>0&&p<=max;
+    });
+  }
+  if(filters.status==='none')list=list.filter(function(f){return !f.status;});
+  else if(filters.status==='approached')list=list.filter(function(f){return f.status==='approached';});
+  else if(filters.status==='contacted')list=list.filter(function(f){return f.status==='contacted';});
+  list.sort(function(a,b){
+    var va,vb;
+    switch(sortBy){
+      case 'city':va=a.city||'';vb=b.city||'';break;
+      case 'area':va=parseFloat(a.area_sqm)||0;vb=parseFloat(b.area_sqm)||0;break;
+      case 'price':va=parseFloat(a.price)||0;vb=parseFloat(b.price)||0;break;
+      default:va='';vb='';
+    }
+    if(va<vb)return sortDir==='asc'?-1:1;
+    if(va>vb)return sortDir==='asc'?1:-1;
+    return 0;
+  });
+  return list;
+}
+
+function renderTable(){
+  var list=getFilteredSorted();
+  updateStats(list);
+  updateSortIcons();
+  var tbody=document.getElementById('tbody');
+  if(list.length===0){
+    tbody.innerHTML='<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--text-muted);">\u8a72\u5f53\u3059\u308b\u5019\u88dc\u304c\u3042\u308a\u307e\u305b\u3093</td></tr>';
+    return;
+  }
+  var html='';
+  for(var i=0;i<list.length;i++){
+    html+=renderRow(list[i]);
+  }
+  tbody.innerHTML=html;
+}
+
+function renderRow(f){
+  var rowClass=f.status?'status-'+f.status:'';
+  var statusBadge='';
+  if(f.status==='approached')statusBadge='<span class="status-badge approached">&#128222; \u30a2\u30d7\u30ed\u30fc\u30c1</span>';
+  else if(f.status==='contacted')statusBadge='<span class="status-badge contacted">&#9995; \u6253\u8a3a</span>';
+  else statusBadge='<span class="status-badge none">\u672a</span>';
+  var intentHtml='';
+  if(f.intent==='\u58f2\u308a\u305f\u3044')intentHtml='<span class="intent-sell">\u58f2\u308a\u305f\u3044</span>';
+  else if(f.intent==='\u8cb8\u3057\u305f\u3044')intentHtml='<span class="intent-rent">\u8cb8\u3057\u305f\u3044</span>';
+  else intentHtml=f.intent||'-';
+  var priceStr=formatPrice(f.price);
+  var extras=(f.registered_date||'').split('|');
+  var chintai=extras[3]||'';
+  var chintaiStr=chintai?formatPrice(chintai):'-';
+  var areaStr=f.area_sqm?Number(f.area_sqm).toLocaleString()+' m\u00b2':'-';
+  var mapUrl='https://www.google.com/maps?q='+f.lat+','+f.lng;
+  var approachActive=f.status==='approached'?'active':'';
+  var contactActive=f.status==='contacted'?'active':'';
+  var commentEscaped=(f.comment||'').replace(/"/g,'&quot;');
+  return '<tr class="'+rowClass+'" data-id="'+f.feature_id+'">'+
+    '<td class="col-status">'+statusBadge+'</td>'+
+    '<td class="col-city">'+(f.city||'-')+'</td>'+
+    '<td class="col-address">'+(f.address||'-')+'</td>'+
+    '<td class="col-area">'+areaStr+'</td>'+
+    '<td class="col-intent">'+intentHtml+'</td>'+
+    '<td class="col-price">'+priceStr+'</td>'+
+    '<td class="col-chintai">'+chintaiStr+'</td>'+
+    '<td class="col-map"><a class="map-link" href="'+mapUrl+'" target="_blank" title="Google\u30de\u30c3\u30d7\u3067\u958b\u304f">&#128506;</a></td>'+
+    '<td class="col-comment"><input type="text" class="comment-input" value="'+commentEscaped+'" placeholder="\u30e1\u30e2..." onblur="saveComment(\''+f.feature_id+'\',this)"></td>'+
+    '<td class="col-action"><div class="action-cell">'+
+      '<button class="action-btn approach '+approachActive+'" onclick="setStatus(\''+f.feature_id+'\',\'approached\')" title="\u30a2\u30d7\u30ed\u30fc\u30c1\u6e08\u307f">&#128222;</button>'+
+      '<button class="action-btn contact '+contactActive+'" onclick="setStatus(\''+f.feature_id+'\',\'contacted\')" title="\u6253\u8a3a\u6e08\u307f">&#9995;</button>'+
+      (f.status?'<button class="action-btn" onclick="setStatus(\''+f.feature_id+'\',null)" title="\u30b9\u30c6\u30fc\u30bf\u30b9\u89e3\u9664">&#8630;</button>':'')+
+      '<button class="action-btn ng" onclick="setNg(\''+f.feature_id+'\')" title="NG\u5224\u5b9a">&#128683;</button>'+
+    '</div></td>'+
+  '</tr>';
+}
+
+function formatPrice(p){
+  var n=parseFloat(p);
+  if(!n||n<=0)return '-';
+  return Number(n).toLocaleString()+'\u5186';
+}
+
+function updateStats(list){
+  var stats={total:list.length,sell:0,rent:0,none:0,approached:0,contacted:0};
+  list.forEach(function(f){
+    if(f.intent==='\u58f2\u308a\u305f\u3044')stats.sell++;
+    else if(f.intent==='\u8cb8\u3057\u305f\u3044')stats.rent++;
+    if(f.status==='approached')stats.approached++;
+    else if(f.status==='contacted')stats.contacted++;
+    else stats.none++;
+  });
+  document.getElementById('statTotal').textContent=stats.total;
+  document.getElementById('statSell').textContent=stats.sell;
+  document.getElementById('statRent').textContent=stats.rent;
+  document.getElementById('statNone').textContent=stats.none;
+  document.getElementById('statApproached').textContent=stats.approached;
+  document.getElementById('statContacted').textContent=stats.contacted;
+}
+
+function updateSortIcons(){
+  ['City','Area','Price'].forEach(function(key){
+    var el=document.getElementById('sortIcon'+key);
+    var th=el.parentElement;
+    th.classList.remove('active');
+    el.textContent='';
+  });
+  var map={city:'City',area:'Area',price:'Price'};
+  var key=map[sortBy];
+  if(key){
+    var el=document.getElementById('sortIcon'+key);
+    el.parentElement.classList.add('active');
+    el.textContent=sortDir==='asc'?'\u25b2':'\u25bc';
+  }
+}
+
+function setSort(col){
+  if(sortBy===col){
+    sortDir=sortDir==='asc'?'desc':'asc';
+  }else{
+    sortBy=col;
+    sortDir='asc';
+  }
+  renderTable();
+}
+
+function resetFilters(){
+  filters={city:'',intent:'all',price:'all',status:'all'};
+  document.getElementById('filterCity').value='';
+  document.getElementById('filterIntent').value='all';
+  document.getElementById('filterPrice').value='all';
+  document.getElementById('filterStatus').value='all';
+  renderTable();
+}
+
+async function setStatus(featureId,status){
+  try{
+    if(!status){
+      var res=await db.from('farmland_status').delete().eq('feature_id',featureId);
+      if(res.error)throw new Error(res.error.message);
+      showToast('\u30b9\u30c6\u30fc\u30bf\u30b9\u3092\u89e3\u9664\u3057\u307e\u3057\u305f','success');
+    }else{
+      var res=await db.from('farmland_status').upsert({feature_id:featureId,status:status,updated_at:new Date().toISOString()},{onConflict:'feature_id'});
+      if(res.error)throw new Error(res.error.message);
+      var label=status==='approached'?'\u30a2\u30d7\u30ed\u30fc\u30c1\u6e08\u307f':'\u6253\u8a3a\u6e08\u307f';
+      showToast(label+'\u306b\u8a2d\u5b9a\u3057\u307e\u3057\u305f','success');
+    }
+    var f=farmlands.find(function(x){return x.feature_id===featureId;});
+    if(f)f.status=status;
+    renderTable();
+  }catch(e){
+    showToast('\u30a8\u30e9\u30fc: '+e.message,'error');
+  }
+}
+
+async function setNg(featureId){
+  if(!confirm('\u3053\u306e\u8fb2\u5730\u3092NG\u5224\u5b9a\u3057\u307e\u3059\u304b\uff1f\uff08\u4e00\u89a7\u304b\u3089\u975e\u8868\u793a\u306b\u306a\u308a\u307e\u3059\uff09'))return;
+  try{
+    var res=await db.from('farmland_ng_list').upsert({feature_id:featureId,ng_reason:'manual_from_list',updated_at:new Date().toISOString()},{onConflict:'feature_id'});
+    if(res.error)throw new Error(res.error.message);
+    farmlands=farmlands.filter(function(x){return x.feature_id!==featureId;});
+    renderTable();
+    showToast('NG\u5224\u5b9a\u3057\u307e\u3057\u305f','success');
+  }catch(e){
+    showToast('\u30a8\u30e9\u30fc: '+e.message,'error');
+  }
+}
+
+async function saveComment(featureId,input){
+  var comment=input.value.trim();
+  var f=farmlands.find(function(x){return x.feature_id===featureId;});
+  if(f&&f.comment===comment)return;
+  try{
+    if(!comment){
+      await db.from('farmland_comments').delete().eq('feature_id',featureId);
+    }else{
+      var res=await db.from('farmland_comments').upsert({feature_id:featureId,comment:comment,updated_at:new Date().toISOString()},{onConflict:'feature_id'});
+      if(res.error)throw new Error(res.error.message);
+    }
+    if(f)f.comment=comment;
+    input.classList.add('saved');
+    setTimeout(function(){input.classList.remove('saved');},1500);
+  }catch(e){
+    showToast('\u30b3\u30e1\u30f3\u30c8\u4fdd\u5b58\u30a8\u30e9\u30fc: '+e.message,'error');
+  }
+}
+
+// \u30d5\u30a3\u30eb\u30bf\u30fc\u30a4\u30d9\u30f3\u30c8
+document.getElementById('filterCity').addEventListener('change',function(){filters.city=this.value;renderTable();});
+document.getElementById('filterIntent').addEventListener('change',function(){filters.intent=this.value;renderTable();});
+document.getElementById('filterPrice').addEventListener('change',function(){filters.price=this.value;renderTable();});
+document.getElementById('filterStatus').addEventListener('change',function(){filters.status=this.value;renderTable();});
+
+// \u521d\u671f\u8aad\u307f\u8fbc\u307f
+loadData();
+</script>
+</body>
+</html>
