@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>📝 手紙・宛名ラベル作成 | SOLAR LAND MGR</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#0d1117;--surface:#161b22;--surface2:#1c2129;--border:#30363d;
+  --text:#e6edf3;--text-muted:#8b949e;--accent:#a371f7;--blue:#58a6ff;
+  --green:#3fb950;--yellow:#f0b429;--red:#f85149;--orange:#fd7e14;
+  --font-main:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-maru:"HG丸ゴシックM-PRO","HGMaruGothicMPRO","Hiragino Maru Gothic ProN","Hiragino Maru Gothic Pro","Rounded Mplus 1c","Yu Gothic",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--font-main);background:var(--bg);color:var(--text);font-size:14px;min-height:100vh;}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.header-title{display:flex;align-items:center;gap:12px;font-weight:700;font-size:16px;}
+.header-actions{display:flex;gap:8px;}
+.btn{padding:8px 16px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:13px;font-family:var(--font-main);transition:all .15s;white-space:nowrap;}
+.btn:hover{background:#272d36;}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+.btn-primary:hover{background:#8b5cf6;}
+.btn-ghost{background:transparent;}
+.btn-success{background:var(--green);border-color:var(--green);color:#fff;}
+.btn-success:hover{background:#2ea043;}
+.btn-danger{background:rgba(248,81,73,.15);border-color:rgba(248,81,73,.4);color:var(--red);}
+.tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;}
+.tab{padding:14px 24px;cursor:pointer;border:none;background:transparent;color:var(--text-muted);font-size:14px;font-weight:500;border-bottom:3px solid transparent;transition:all .15s;font-family:var(--font-main);}
+.tab:hover{color:var(--text);}
+.tab.active{color:var(--text);border-bottom-color:var(--accent);}
+.layout{display:grid;grid-template-columns:380px 1fr;min-height:calc(100vh - 110px);}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);padding:16px;overflow-y:auto;max-height:calc(100vh - 110px);position:sticky;top:110px;}
+.main{padding:24px;overflow-y:auto;background:var(--bg);}
+.section{margin-bottom:20px;}
+.section-title{font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+.form-group{margin-bottom:10px;}
+.form-label{display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;}
+.form-input,.form-textarea,.form-select{width:100%;padding:8px 10px;border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:6px;font-size:13px;font-family:var(--font-main);}
+.form-input:focus,.form-textarea:focus,.form-select:focus{outline:none;border-color:var(--accent);}
+.landowner-list{border:1px solid var(--border);border-radius:6px;background:var(--surface2);max-height:320px;overflow-y:auto;}
+.landowner-item{padding:6px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;}
+.landowner-item:last-child{border-bottom:none;}
+.landowner-item:hover{background:#272d36;}
+.landowner-item input[type="checkbox"]{cursor:pointer;width:14px;height:14px;}
+.landowner-item .case-no{color:var(--accent);font-weight:600;min-width:70px;font-family:var(--font-mono);font-size:11px;}
+.landowner-item .lo-name{flex:1;font-weight:500;}
+.landowner-item .lo-meta{color:var(--text-muted);font-size:10px;}
+.landowner-item.missing-addr{opacity:.5;}
+.landowner-item.missing-addr .lo-meta{color:var(--red);}
+.select-all-bar{display:flex;gap:8px;align-items:center;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;font-size:12px;}
+.select-all-bar label{display:flex;align-items:center;gap:4px;cursor:pointer;}
+.count-badge{background:var(--accent);color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-left:auto;}
+.filter-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;}
+.preview-toolbar{background:var(--surface);padding:10px 16px;border-radius:8px;margin-bottom:16px;display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;}
+.preview-toolbar .info{font-size:12px;color:var(--text-muted);}
+.empty-preview{padding:60px 20px;text-align:center;color:var(--text-muted);}
+.empty-preview-icon{font-size:48px;margin-bottom:16px;}
+
+/* ============================================================
+   XAMAX標準レター（PDF忠実再現）
+   ============================================================ */
+.letter-sheet{
+  width:210mm;min-height:297mm;
+  padding:10mm 25mm 10mm 25mm;  /* PDF実測: 本文左端 71.4pt ≒ 25mm */
+  margin:0 auto 16px;
+  background:#fff;color:#000;
+  font-family:var(--font-maru);
+  font-size:11pt;line-height:1.29;   /* PDF実測: 11pt、行間14.2pt/11pt=1.29 */
+  letter-spacing:0;
+  page-break-after:always;
+  box-shadow:0 2px 8px rgba(0,0,0,.2);
+  box-sizing:border-box;
+}
+.letter-sheet:last-child{page-break-after:auto;}
+
+/* タイトル画像 */
+.xamax-title-img{display:block;width:82%;max-width:160mm;margin:0 auto 6mm auto;}
+
+/* 宛名行 */
+.xamax-recipient{
+  display:flex;align-items:baseline;gap:0;
+  margin:0 0 5mm 0;
+  padding-left:2mm;
+  font-size:12pt;
+}
+.xamax-recipient .name-slot{
+  flex:0 1 auto;
+  min-width:70mm;
+  border-bottom:0.8pt solid #000;
+  padding:0 4pt 1.5pt 4pt;
+  text-align:center;
+  font-size:14pt;
+  font-weight:500;
+  line-height:1.3;
+}
+.xamax-recipient .sama{font-size:12pt;padding:0 8pt;}
+.xamax-recipient .admin-label{font-size:10pt;padding:0 0 0 4pt;}
+.xamax-recipient .admin-slot{
+  flex:0 1 auto;
+  min-width:35mm;
+  border-bottom:0.8pt solid #000;
+  padding:0 4pt 1.5pt 4pt;
+  text-align:center;
+  font-family:var(--font-mono);
+  font-size:11pt;
+  line-height:1.3;
+}
+
+/* 本文 */
+.xamax-body{font-size:11pt;line-height:1.29;margin-bottom:5mm;letter-spacing:0;}
+.xamax-body p{margin:0;text-align:left;}
+.xamax-body strong{font-weight:700;}
+
+/* 購入金額（下線が途切れない連続線）*/
+.xamax-price-row{
+  display:flex;align-items:flex-end;justify-content:center;
+  margin:5mm 0 3mm 0;
+  font-size:14pt;font-weight:700;
+  gap:0;
+}
+.xamax-price-row .label-left,
+.xamax-price-row .label-right{
+  font-weight:700;
+  white-space:nowrap;
+  padding-bottom:1pt;
+  border-bottom:1pt solid #000;
+}
+.xamax-price-row .price-val{
+  flex:0 1 auto;
+  min-width:70mm;
+  text-align:right;
+  padding:0 4pt 1pt 4pt;
+  font-weight:700;
+  font-size:14pt;
+  border-bottom:1pt solid #000;
+}
+
+/* 該当地テーブル（3列×4行固定） */
+.xamax-land-table{
+  width:100%;border-collapse:collapse;
+  margin-bottom:6mm;
+  font-size:11pt;
+}
+.xamax-land-table th,
+.xamax-land-table td{
+  border:0.7pt solid #000;
+  padding:2mm 3mm;
+  line-height:1.3;
+}
+.xamax-land-table th{
+  background:#e8e8e8;
+  font-weight:600;
+  text-align:center;
+}
+.xamax-land-table th.loc-head{text-align:left;padding-left:3mm;}
+.xamax-land-table td.loc{text-align:left;}
+.xamax-land-table td.chimoku{text-align:center;width:28mm;}
+.xamax-land-table td.area{text-align:right;width:30mm;}
+.xamax-land-table td.area::after{content:" ㎡";}
+
+/* 差出人ブロック（名刺画像を枠線で囲む） */
+.xamax-sender-block{
+  display:grid;grid-template-columns:75mm 1fr;
+  gap:6mm;
+  margin:3mm 0 1mm 0;
+  align-items:flex-start;
+}
+.xamax-meishi-wrap{
+  border:0.8pt solid #000;   /* ← 名刺に枠線 */
+  padding:1.5mm;
+  background:#fff;
+  display:block;
+}
+.xamax-meishi-img{width:100%;display:block;}
+.xamax-sender-right{
+  font-size:11pt;line-height:1.55;
+  padding-top:2mm;padding-left:2mm;
+}
+.xamax-sender-right .company-name{
+  font-size:14pt;font-weight:500;
+  letter-spacing:0.3pt;
+  margin-bottom:0.5mm;
+}
+.xamax-sender-right .company-kana{
+  font-size:8pt;color:#000;
+  letter-spacing:0.8pt;
+  margin-bottom:1.5mm;
+  padding-left:6pt;
+}
+.xamax-sender-right .person{
+  font-size:14pt;font-weight:500;
+  margin:0.5mm 0;
+  letter-spacing:0.3pt;
+}
+.xamax-sender-right .tel{
+  font-size:19pt;font-weight:500;
+  letter-spacing:0.5pt;
+  margin:0.5mm 0;line-height:1.2;
+}
+.xamax-sender-right .tel .lab{font-size:13pt;font-weight:500;}
+.xamax-sender-right .email{
+  font-size:11pt;margin:1mm 0;
+  letter-spacing:0.2pt;
+}
+.xamax-sender-right .addr{
+  font-size:10pt;margin-top:1mm;
+  letter-spacing:0.2pt;
+}
+
+/* XAMAXロゴ + 年月日（破線の直上に配置） */
+.xamax-logo-date-row{
+  display:flex;align-items:center;justify-content:space-between;
+  margin:3mm 0 0 0;
+  padding:0 6mm;
+}
+.xamax-logo-date-row .logo-spacer{flex:1;}
+.xamax-logo-date-row .logo-center{
+  flex:0 0 auto;
+  display:flex;justify-content:center;
+  background:#fff;  /* ロゴ周辺を明示的に白地に */
+}
+.xamax-logo-date-row .logo-center img{
+  height:11mm;display:block;
+  background:transparent;  /* 画像の透過を維持 */
+}
+.xamax-logo-date-row .date-part{
+  flex:1;
+  display:flex;align-items:flex-end;justify-content:flex-end;
+  gap:6mm;font-size:10pt;
+  /* 下線なし */
+}
+.xamax-logo-date-row .date-slot{
+  display:inline-block;
+  min-width:10mm;
+  padding:0 4pt;
+  text-align:center;
+  font-family:var(--font-mono);
+  /* border-bottomを削除 */
+}
+.xamax-logo-date-row .date-label{font-size:10pt;padding-left:1pt;}
+
+/* 破線（PDF実測：罫線文字「―」の連続、10ptで均一） */
+.xamax-separator-text{
+  font-family:var(--font-maru);
+  font-size:10pt;
+  line-height:1;
+  letter-spacing:-0.5pt;  /* 罫線文字を密につなげる */
+  margin:1mm 0 2mm 0;
+  padding:0;
+  white-space:nowrap;
+  overflow:hidden;
+  color:#000;
+  text-align:left;
+}
+
+/* 下部セクション */
+.xamax-bottom{font-size:10pt;line-height:1.6;}
+.xamax-bottom h4{font-size:11pt;font-weight:700;margin:1mm 0 1.5mm 0;}
+.xamax-bottom .q{margin:1.5mm 0 1mm 3mm;font-size:10.5pt;}
+.xamax-bottom .indent{margin-left:6mm;font-size:10pt;}
+.xamax-contract-table{
+  width:calc(100% - 6mm);
+  border-collapse:collapse;
+  margin:1mm 0 1.5mm 6mm;
+  font-size:10pt;
+}
+.xamax-contract-table th,
+.xamax-contract-table td{
+  border:0.7pt solid #000;
+  padding:1.6mm 2mm;
+  text-align:center;line-height:1.3;
+}
+.xamax-contract-table th{background:#e8e8e8;font-weight:600;}
+.xamax-bottom .note{margin:0.5mm 0 0 6mm;font-size:9.5pt;}
+
+/* 宛名ラベル */
+.label-sheet{width:210mm;height:297mm;margin:0 auto 16px;background:#fff;padding:0;box-shadow:0 2px 8px rgba(0,0,0,.2);page-break-after:always;position:relative;}
+.label-sheet:last-child{page-break-after:auto;}
+.label-grid-21{display:grid;grid-template-columns:repeat(3,63.5mm);grid-template-rows:repeat(7,38.1mm);padding:21.2mm 7.2mm;column-gap:2.54mm;row-gap:0;}
+.label-grid-12{display:grid;grid-template-columns:repeat(2,86.4mm);grid-template-rows:repeat(6,42.3mm);padding:21.2mm 17mm;column-gap:3.2mm;row-gap:0;}
+.label-item{padding:4mm 5mm;overflow:hidden;border:1px dashed #ccc;display:flex;flex-direction:column;justify-content:center;color:#000;font-family:var(--font-maru);box-sizing:border-box;}
+.label-item.empty{border:1px dashed #eee;}
+.label-postal{font-size:10pt;font-family:var(--font-mono);letter-spacing:.3mm;margin-bottom:1mm;color:#333;}
+.label-addr{font-size:9pt;line-height:1.35;margin-bottom:2mm;}
+.label-addr-2nd{font-size:8.5pt;color:#333;line-height:1.3;}
+.label-name{font-size:12pt;font-weight:700;text-align:center;letter-spacing:2pt;}
+.label-grid-12 .label-postal{font-size:11pt;}
+.label-grid-12 .label-addr{font-size:10pt;}
+.label-grid-12 .label-name{font-size:14pt;}
+
+@media print{
+  @page{size:A4;margin:0;}
+  body{background:#fff !important;margin:0;padding:0;}
+  .header,.tabs,.sidebar,.preview-toolbar,.layout{all:unset;display:block;}
+  .layout{display:block;}
+  .main{padding:0;margin:0;background:#fff;}
+  .letter-sheet,.label-sheet{box-shadow:none;margin:0;page-break-after:always;}
+  .label-item{border:none !important;}
+  .empty-preview{display:none;}
+  .no-print{display:none !important;}
+}
+
+.tab-content{display:none;}
+.tab-content.active{display:block;}
+.loading{text-align:center;color:var(--text-muted);padding:40px;}
+.spinner{display:inline-block;width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--accent);color:#fff;padding:12px 20px;border-radius:6px;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,.3);z-index:1000;opacity:0;transform:translateY(10px);transition:all .2s;pointer-events:none;}
+.toast.show{opacity:1;transform:translateY(0);}
+.toast.error{background:var(--red);}
+.toast.success{background:var(--green);}
+</style>
+</head>
+<body>
+
+<header class="header no-print">
+  <div class="header-title">
+    <button class="btn btn-ghost" onclick="location.href='index.html'">← 戻る</button>
+    📝 手紙・宛名ラベル作成
+  </div>
+  <div class="header-actions">
+    <span id="loadStatus" style="color:var(--text-muted);font-size:12px"></span>
+  </div>
+</header>
+
+<div class="tabs no-print">
+  <button class="tab active" onclick="switchTab('letter')" id="tabLetter">📬 手紙作成</button>
+  <button class="tab" onclick="switchTab('label')" id="tabLabel">🏷️ 宛名ラベル</button>
+</div>
+
+<div class="layout">
+  <aside class="sidebar no-print">
+    <div class="section">
+      <div class="section-title">📍 地権者選択</div>
+      <div class="filter-row">
+        <select class="form-select" id="filterArea" onchange="renderLandownerList()">
+          <option value="">すべてのエリア</option>
+          <option>北海道</option><option>東北</option><option>関東</option><option>中部</option>
+          <option>関西</option><option>中国</option><option>四国</option><option>九州</option>
+        </select>
+        <select class="form-select" id="filterStatus" onchange="renderLandownerList()">
+          <option value="">全ステータス</option>
+          <option>NOT VISITED</option><option>THINKING↑</option><option>THINKING→</option>
+          <option>THINKING↓</option><option>OK</option><option>SUCCESS</option>
+          <option>NON MEET</option><option>NG</option><option>UNKNOWN</option>
+        </select>
+      </div>
+      <input class="form-input" type="text" placeholder="氏名・案件番号で絞込..." id="searchQ" oninput="renderLandownerList()" style="margin-bottom:8px;">
+      <div class="select-all-bar">
+        <label><input type="checkbox" id="chkAll" onchange="toggleAllLandowners()"> 全選択</label>
+        <label><input type="checkbox" id="chkOnlyWithPostal" onchange="renderLandownerList()"> 住所あり</label>
+        <span class="count-badge" id="selCount">0</span>
+      </div>
+      <div class="landowner-list" id="loList">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="tab-content active" id="content-letter">
+      <div class="preview-toolbar no-print">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <details style="position:relative;">
+            <summary style="cursor:pointer;color:var(--accent);font-size:13px;padding:6px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);list-style:none;">⚙️ 差出人情報</summary>
+            <div style="position:absolute;top:100%;left:0;z-index:50;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:16px;width:500px;margin-top:4px;box-shadow:0 4px 12px rgba(0,0,0,.3);max-height:70vh;overflow-y:auto;">
+              <div class="section">
+                <div class="section-title">差出人情報</div>
+                <div class="form-group"><label class="form-label">会社名</label><input class="form-input" type="text" id="fromCompany"></div>
+                <div class="form-group"><label class="form-label">会社名（カナ）</label><input class="form-input" type="text" id="fromCompanyKana"></div>
+                <div class="form-group"><label class="form-label">氏名</label><input class="form-input" type="text" id="fromName"></div>
+                <div class="form-group"><label class="form-label">氏名（カナ）</label><input class="form-input" type="text" id="fromNameKana"></div>
+                <div class="form-group"><label class="form-label">郵便番号</label><input class="form-input" type="text" id="fromPostal"></div>
+                <div class="form-group"><label class="form-label">住所</label><input class="form-input" type="text" id="fromAddress"></div>
+                <div class="form-group"><label class="form-label">電話番号</label><input class="form-input" type="text" id="fromTel"></div>
+                <div class="form-group"><label class="form-label">Email</label><input class="form-input" type="text" id="fromEmail"></div>
+                <button class="btn btn-primary" onclick="saveSettings()" style="width:100%;">💾 保存</button>
+              </div>
+              <div class="section">
+                <div class="section-title">オプション</div>
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+                  <input type="checkbox" id="optShowContract" checked onchange="updatePreview()"> 下部の「不動産屋への媒介契約」セクションを含める
+                </label>
+              </div>
+            </div>
+          </details>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text);background:var(--surface2);padding:6px 10px;border-radius:6px;border:1px solid var(--border);">
+            購入金額
+            <input type="text" id="purchasePrice" placeholder="例：500000" oninput="updatePreview()" style="width:120px;padding:3px 6px;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:4px;font-size:12px;font-family:var(--font-mono);">
+            <span style="color:var(--text-muted);font-size:11px;">円</span>
+          </label>
+          <span class="info" id="letterInfo">0件選択中</span>
+        </div>
+        <div>
+          <button class="btn btn-primary" onclick="window.print()">🖨 印刷 / PDF化</button>
+        </div>
+      </div>
+      <div id="letterPreview">
+        <div class="empty-preview">
+          <div class="empty-preview-icon">📝</div>
+          左の一覧から地権者を選択すると<br>ここに手紙のプレビューが表示されます
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="content-label">
+      <div class="preview-toolbar no-print">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <div>
+            <label class="form-label" style="display:inline;font-size:11px;">ラベル形式:</label>
+            <select class="form-select" id="labelFormat" onchange="renderLabelPreview()" style="display:inline-block;width:auto;padding:4px 8px;margin-left:4px;">
+              <option value="21">A-one 28645 互換（21面・63.5×38.1mm）</option>
+              <option value="12">A-one 28177 互換（12面・86.4×42.3mm）</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label" style="display:inline;font-size:11px;">開始位置:</label>
+            <input class="form-input" type="number" id="labelStart" min="1" max="21" value="1" onchange="renderLabelPreview()" style="width:60px;display:inline-block;padding:4px 8px;">
+          </div>
+          <span class="info" id="labelInfo">0件選択中</span>
+        </div>
+        <div>
+          <button class="btn btn-primary" onclick="window.print()">🖨 印刷 / PDF化</button>
+        </div>
+      </div>
+      <div id="labelPreview">
+        <div class="empty-preview">
+          <div class="empty-preview-icon">🏷️</div>
+          左の一覧から地権者を選択すると<br>ここに宛名ラベルのプレビューが表示されます
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+const{createClient}=supabase;
+const db=createClient(SUPABASE_URL,SUPABASE_KEY);
+
+let allLandowners=[];
+let landsByCase={};
+let selectedIds=new Set();
+let activeTab='letter';
+
+const DEFAULT_FROM={
+  fromCompany:'株式会社 XAMAX & In the cloud',
+  fromCompanyKana:'ザイマックス アンド イン ザ クラウド',
+  fromName:'栗本　工',
+  fromNameKana:'くりもと　たくみ',
+  fromPostal:'472-0045',
+  fromAddress:'愛知県知立市長篠新田38-4-102',
+  fromTel:'070-8566-0679',
+  fromEmail:'takumi@xamax-itc.com'
+};
+
+document.addEventListener('DOMContentLoaded',async()=>{
+  loadSettings();
+  await loadData();
+});
+
+async function loadData(){
+  document.getElementById('loadStatus').textContent='読込中...';
+  const[loRes,ldRes]=await Promise.all([
+    db.from('landowner_info').select('*,cases(case_no,status,area_name,kubun,price)').order('case_id'),
+    db.from('land_info').select('case_id,location,area_sqm,chiban')
+  ]);
+  if(loRes.error){showToast('読込エラー: '+loRes.error.message,'error');return;}
+  allLandowners=(loRes.data||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
+  landsByCase={};
+  (ldRes.data||[]).forEach(l=>{
+    if(!l.case_id)return;
+    (landsByCase[l.case_id]=landsByCase[l.case_id]||[]).push(l);
+  });
+  document.getElementById('loadStatus').textContent=`地権者 ${allLandowners.length}件`;
+  renderLandownerList();
+}
+
+function getFilteredLandowners(){
+  const area=document.getElementById('filterArea').value;
+  const status=document.getElementById('filterStatus').value;
+  const q=document.getElementById('searchQ').value.toLowerCase();
+  const onlyAddr=document.getElementById('chkOnlyWithPostal').checked;
+  return allLandowners.filter(lo=>{
+    if(area&&lo.cases?.area_name!==area)return false;
+    if(status&&lo.cases?.status!==status)return false;
+    if(q&&!((lo.name||'').toLowerCase().includes(q)||(lo.cases?.case_no||'').toLowerCase().includes(q)))return false;
+    if(onlyAddr&&!lo.address)return false;
+    return true;
+  });
+}
+
+function renderLandownerList(){
+  const list=getFilteredLandowners();
+  const el=document.getElementById('loList');
+  if(!list.length){
+    el.innerHTML='<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">該当なし</div>';
+    updateCount();return;
+  }
+  el.innerHTML=list.map(lo=>{
+    const sel=selectedIds.has(lo.id)?'checked':'';
+    const missingAddr=!lo.address?'missing-addr':'';
+    const addrLabel=lo.address?(lo.postal_code?`〒${lo.postal_code}`:'住所のみ'):'住所なし';
+    return `<div class="landowner-item ${missingAddr}" onclick="toggleLandowner('${lo.id}',event)">
+      <input type="checkbox" ${sel} data-id="${lo.id}" onclick="event.stopPropagation();toggleLandowner('${lo.id}')">
+      <span class="case-no">${lo.cases?.case_no||'—'}</span>
+      <span class="lo-name">${lo.name||'—'}</span>
+      <span class="lo-meta">${addrLabel}</span>
+    </div>`;
+  }).join('');
+  updateCount();
+}
+
+function toggleLandowner(id,e){
+  if(e&&e.target&&e.target.tagName==='INPUT')return;
+  if(selectedIds.has(id))selectedIds.delete(id);
+  else selectedIds.add(id);
+  renderLandownerList();
+  updatePreview();
+}
+
+function toggleAllLandowners(){
+  const chk=document.getElementById('chkAll').checked;
+  const list=getFilteredLandowners();
+  if(chk)list.forEach(lo=>selectedIds.add(lo.id));
+  else list.forEach(lo=>selectedIds.delete(lo.id));
+  renderLandownerList();
+  updatePreview();
+}
+
+function updateCount(){
+  document.getElementById('selCount').textContent=selectedIds.size;
+  document.getElementById('letterInfo').textContent=`${selectedIds.size}件選択中`;
+  document.getElementById('labelInfo').textContent=`${selectedIds.size}件選択中`;
+  const list=getFilteredLandowners();
+  const chk=document.getElementById('chkAll');
+  chk.checked=list.length>0&&list.every(lo=>selectedIds.has(lo.id));
+}
+
+function switchTab(t){
+  activeTab=t;
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab'+(t==='letter'?'Letter':'Label')).classList.add('active');
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  document.getElementById('content-'+t).classList.add('active');
+  updatePreview();
+}
+
+const FROM_FIELDS=['fromCompany','fromCompanyKana','fromName','fromNameKana','fromPostal','fromAddress','fromTel','fromEmail'];
+function loadSettings(){
+  let saved={};
+  try{saved=JSON.parse(localStorage.getItem('letterGen_from')||'{}');}catch(e){}
+  FROM_FIELDS.forEach(k=>{
+    const el=document.getElementById(k);
+    if(!el)return;
+    el.value=(saved[k]!==undefined&&saved[k]!=='')?saved[k]:(DEFAULT_FROM[k]||'');
+  });
+}
+function saveSettings(){
+  const s={};
+  FROM_FIELDS.forEach(k=>{s[k]=document.getElementById(k).value;});
+  localStorage.setItem('letterGen_from',JSON.stringify(s));
+  showToast('差出人情報を保存しました','success');
+  updatePreview();
+}
+function getSenderInfo(){
+  const s={};
+  FROM_FIELDS.forEach(k=>{const el=document.getElementById(k);s[k]=el?el.value:DEFAULT_FROM[k];});
+  return s;
+}
+
+function updatePreview(){
+  if(activeTab==='letter')renderLetterPreview();
+  else renderLabelPreview();
+}
+
+function getSelectedLandowners(){
+  return allLandowners.filter(lo=>selectedIds.has(lo.id));
+}
+function formatToday(){
+  const d=new Date();
+  return{y:d.getFullYear(),m:d.getMonth()+1,d:d.getDate()};
+}
+function escapeHtml(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function renderLetterPreview(){
+  const sel=getSelectedLandowners();
+  const el=document.getElementById('letterPreview');
+  if(!sel.length){
+    el.innerHTML='<div class="empty-preview"><div class="empty-preview-icon">📝</div>地権者を選択してください</div>';
+    return;
+  }
+  const from=getSenderInfo();
+  const showContract=document.getElementById('optShowContract').checked;
+  const priceRaw=document.getElementById('purchasePrice').value.trim();
+  const priceVal=priceRaw.replace(/[^\d]/g,'');
+  const today=formatToday();
+  el.innerHTML=sel.map(lo=>renderXamaxLetter(lo,from,today,{priceVal,showContract})).join('');
+}
+
+function renderXamaxLetter(lo,from,today,opt){
+  const lands=landsByCase[lo.case_id]||[];
+  // 該当地テーブル: 3行固定（筆が多くても3件まで、少なければ空欄で埋める）
+  let landRows='';
+  for(let i=0;i<3;i++){
+    const l=lands[i];
+    landRows+=`<tr>
+      <td class="loc">${l?escapeHtml(l.location||''):'&nbsp;'}</td>
+      <td class="chimoku">${l?escapeHtml(l.chiban||''):'&nbsp;'}</td>
+      <td class="area">${l&&l.area_sqm?Number(l.area_sqm).toLocaleString():'&nbsp;'}</td>
+    </tr>`;
+  }
+  const priceDisplay=opt.priceVal?Number(opt.priceVal).toLocaleString():'&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
+  const contractSection=opt.showContract?`
+    <div class="xamax-bottom">
+      <h4>■不動産屋に土地売却をお願いしている方</h4>
+      <div class="q">〇不動産屋と締結している契約形態は何になられていますか？</div>
+      <table class="xamax-contract-table">
+        <thead><tr><th>契約形態</th><th>依頼先</th><th>活動報告</th><th>契約期間</th></tr></thead>
+        <tbody>
+          <tr><td>一般媒介契約</td><td>複数可</td><td>義務なし</td><td>制限なし（推奨３ヶ月）</td></tr>
+          <tr><td>専任媒介契約</td><td>１社限定</td><td>２週間に１回</td><td>最大３ヶ月</td></tr>
+          <tr><td>専属専任媒介契約</td><td>１社限定</td><td>１週間に１回</td><td>最大３ヶ月</td></tr>
+        </tbody>
+      </table>
+      <div class="note">※専任媒介契約、専属専任媒介契約の契約期間について契約の自動延長はありません。</div>
+      <div class="q">〇土地売却に対する不動産屋に支払う報酬（仲介手数料）はご存じですか？</div>
+      <div class="indent">　２０２４年７月１日の法改正により、売買金額８００万円以下の報酬が最大３０万円（＋消費税）となりました。</div>
+      <div class="indent">　これは、売主・買主それぞれに対し請求されます。</div>
+    </div>`:'';
+  return `<div class="letter-sheet">
+    <img class="xamax-title-img" src="assets/letter_title.png" alt="土地を探しています!">
+    <div class="xamax-recipient">
+      <span class="name-slot">${escapeHtml(lo.name||'')}</span>
+      <span class="sama">様</span>
+      <span class="admin-label">管理No.</span>
+      <span class="admin-slot">${escapeHtml(lo.cases?.case_no||'')}</span>
+    </div>
+    <div class="xamax-body">
+      <p>突然のお手紙で失礼いたします。</p>
+      <p>弊社は、再生可能エネルギーを推進する企業様より「太陽光発電所・低圧系統用蓄電池（所）」設置に必要な土地の選定、地権者様との売買に関する交渉を任されている会社です。</p>
+      <p>ご所有のお土地でお悩みはございませんか？</p>
+      <p>「相続の手続きが面倒」「草刈りなど管理が面倒」「固定資産税を無駄に払っている」「どう利用してよいか分からない」「不動産屋にお願いしているけど決まらない」などなど！</p>
+      <p>今後、お土地を使用する予定が無く、管理にお困りでありましたら、ぜひ売却のご検討をお願いいたします。</p>
+      <p>土地売買契約は地権者様と企業様とでの直接契約となります（但し、電力会社および行政手続きにより、事業性が無いと判断された場合は白紙となります。※停止条件付）ので、弊社への報酬や仲介手数料は一切不要です。弊社は企業様からの委託料で運営しております。</p>
+      <p>下記ご所有のお土地の売却をご検討いただけるようでしたら一度詳しくお話しさせていただきたく、下記までご連絡いただけますと幸いです。</p>
+      <p>何卒よろしくお願い申し上げます。</p>
+    </div>
+    <div class="xamax-price-row">
+      <span class="label-left">購入金額：</span>
+      <span class="price-val">${priceDisplay}</span>
+      <span class="label-right">円（非課税）</span>
+    </div>
+    <table class="xamax-land-table">
+      <thead><tr>
+        <th class="loc-head">【該当地】　　　所在</th>
+        <th>地目</th>
+        <th>面積</th>
+      </tr></thead>
+      <tbody>${landRows}</tbody>
+    </table>
+    <div class="xamax-sender-block">
+      <div class="xamax-meishi-wrap"><img class="xamax-meishi-img" src="assets/meishi_block.png" alt=""></div>
+      <div class="xamax-sender-right">
+        <div class="company-name">${escapeHtml(from.fromCompany||'')}</div>
+        <div class="company-kana">${escapeHtml(from.fromCompanyKana||'')}</div>
+        <div class="person">${escapeHtml(from.fromName||'')}（${escapeHtml(from.fromNameKana||'')}）</div>
+        <div class="tel"><span class="lab">TEL.</span>${escapeHtml(from.fromTel||'')}</div>
+        <div class="email">E-mail：${escapeHtml(from.fromEmail||'')}</div>
+        <div class="addr">〒${escapeHtml(from.fromPostal||'')}　${escapeHtml(from.fromAddress||'')}</div>
+      </div>
+    </div>
+    <div class="xamax-logo-date-row">
+      <div class="logo-spacer"></div>
+      <div class="logo-center"><img src="assets/xamax_logo.png" alt="XAMAX"></div>
+      <div class="date-part">
+        <span class="date-slot">${today.y}</span><span class="date-label">年</span>
+        <span class="date-slot">${today.m}</span><span class="date-label">月</span>
+        <span class="date-slot">${today.d}</span><span class="date-label">日</span>
+      </div>
+    </div>
+    <div class="xamax-separator-text">―――――――――――――――――――――――――――――――――――――――――――――――</div>
+    ${contractSection}
+  </div>`;
+}
+
+function renderLabelPreview(){
+  const sel=getSelectedLandowners();
+  const el=document.getElementById('labelPreview');
+  if(!sel.length){
+    el.innerHTML='<div class="empty-preview"><div class="empty-preview-icon">🏷️</div>地権者を選択してください</div>';
+    return;
+  }
+  const format=document.getElementById('labelFormat').value;
+  const start=Math.max(1,Number(document.getElementById('labelStart').value)||1);
+  const perSheet=format==='21'?21:12;
+  const gridClass=format==='21'?'label-grid-21':'label-grid-12';
+  const items=[];
+  for(let i=0;i<start-1;i++)items.push(null);
+  sel.forEach(lo=>items.push(lo));
+  const sheets=[];
+  for(let i=0;i<items.length;i+=perSheet){
+    sheets.push(items.slice(i,i+perSheet));
+  }
+  el.innerHTML=sheets.map(sheet=>{
+    while(sheet.length<perSheet)sheet.push(null);
+    return `<div class="label-sheet"><div class="${gridClass}">${sheet.map(lo=>renderLabelItem(lo)).join('')}</div></div>`;
+  }).join('');
+}
+
+function renderLabelItem(lo){
+  if(!lo)return '<div class="label-item empty"></div>';
+  const addr=lo.address||'（住所未登録）';
+  const addrLines=splitAddress(addr,24);
+  return `<div class="label-item">
+    <div class="label-postal">${lo.postal_code?'〒'+lo.postal_code:'　'}</div>
+    <div class="label-addr">${escapeHtml(addrLines[0])}</div>
+    ${addrLines[1]?`<div class="label-addr-2nd">${escapeHtml(addrLines[1])}</div>`:''}
+    <div class="label-name">${escapeHtml(lo.name||'')} 様</div>
+  </div>`;
+}
+
+function splitAddress(addr,maxLen){
+  if(!addr||addr.length<=maxLen)return[addr||''];
+  const candidates=[];
+  let m;
+  const chomeRe=/丁目/g;
+  while((m=chomeRe.exec(addr))!==null)candidates.push(m.index+2);
+  const kuchoRe=/[市区町村]/g;
+  while((m=kuchoRe.exec(addr))!==null)candidates.push(m.index+1);
+  const valid=candidates.filter(i=>i>=maxLen/2&&i<=maxLen).sort((a,b)=>b-a);
+  if(valid.length)return[addr.slice(0,valid[0]),addr.slice(valid[0])];
+  const loose=candidates.filter(i=>i>=maxLen/2&&i<=maxLen*1.2).sort((a,b)=>a-b);
+  if(loose.length)return[addr.slice(0,loose[0]),addr.slice(loose[0])];
+  return[addr.slice(0,maxLen),addr.slice(maxLen)];
+}
+
+function showToast(msg,type='info'){
+  const t=document.getElementById('toast');
+  t.textContent=msg;
+  t.className='toast '+(type==='error'?'error':type==='success'?'success':'');
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2200);
+}
+</script>
+</body>
+</html>
