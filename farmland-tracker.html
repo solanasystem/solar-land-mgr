@@ -539,37 +539,44 @@ function _isInsideWithBuffer(point,featureCollection,bufferMeters){
   }
   return false;
 }
-// === Step 1: \u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u540c\u671f ===
-var CASE_SYNC_DISTANCE_METERS=20;
+// === Step 1: \u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u540c\u671f\uff08\u95be\u5024100m + THINKING\u5bfe\u5fdc + \u8a3a\u65ad\u30ec\u30dd\u30fc\u30c8\uff09 ===
+var CASE_SYNC_DISTANCE_METERS=100;
+var CASE_APPROACH_STATUSES=['SUCCESS','OK','THINKING\u2192','THINKING\u2191','THINKING\u2193'];
+var CASE_NG_STATUSES=['NG'];
 async function runCaseMasterSync(){
   if(typeof turf==='undefined'){showToast('Turf.js\u672a\u8aad\u307f\u8fbc\u307f\u3002\u30da\u30fc\u30b8\u3092\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044','error');return;}
-  if(!confirm('\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u306e\u30b9\u30c6\u30fc\u30bf\u30b9\u3092\u8fb2\u5730\u30c8\u30e9\u30c3\u30ab\u30fc\u306b\u540c\u671f\u3057\u307e\u3059\u3002\nSUCCESS/OK \u2192 \u30a2\u30d7\u30ed\u30fc\u30c1\u6e08\u307f\nNG \u2192 NG\u5224\u5b9a\n\u8ddd\u96e2\u95be\u5024: '+CASE_SYNC_DISTANCE_METERS+'m\n\u5b9f\u884c\u3057\u307e\u3059\u304b\uff1f'))return;
+  if(!confirm('\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u306e\u30b9\u30c6\u30fc\u30bf\u30b9\u3092\u8fb2\u5730\u30c8\u30e9\u30c3\u30ab\u30fc\u306b\u540c\u671f\u3057\u307e\u3059\u3002\nSUCCESS/OK/THINKING \u2192 \u30a2\u30d7\u30ed\u30fc\u30c1\u6e08\u307f\nNG \u2192 NG\u5224\u5b9a\n\u8ddd\u96e2\u95be\u5024: '+CASE_SYNC_DISTANCE_METERS+'m\n\u5b9f\u884c\u3057\u307e\u3059\u304b\uff1f'))return;
   showLoading('\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u3092\u53d6\u5f97\u4e2d...');
   try{
-    // 1. cases \u304b\u3089 SUCCESS/OK/NG \u3092\u53d6\u5f97
-    var casesRes=await db.from('cases').select('id,status').in('status',['SUCCESS','OK','NG']);
+    var allTargetStatuses=CASE_APPROACH_STATUSES.concat(CASE_NG_STATUSES);
+    var casesRes=await db.from('cases').select('id,status').in('status',allTargetStatuses);
     if(casesRes.error)throw new Error('cases\u53d6\u5f97\u5931\u6557: '+casesRes.error.message);
     var cases=casesRes.data||[];
-    var approachCaseIds=cases.filter(function(c){return c.status==='SUCCESS'||c.status==='OK';}).map(function(c){return c.id;});
-    var ngCaseIds=cases.filter(function(c){return c.status==='NG';}).map(function(c){return c.id;});
+    var approachCaseIds=cases.filter(function(c){return CASE_APPROACH_STATUSES.indexOf(c.status)>=0;}).map(function(c){return c.id;});
+    var ngCaseIds=cases.filter(function(c){return CASE_NG_STATUSES.indexOf(c.status)>=0;}).map(function(c){return c.id;});
     var allCaseIds=approachCaseIds.concat(ngCaseIds);
     if(!allCaseIds.length){hideLoading();showToast('\u540c\u671f\u5bfe\u8c61\u306e\u6848\u4ef6\u304c\u3042\u308a\u307e\u305b\u3093','success');return;}
-    // 2. land_info \u3068 landowner_info \u304b\u3089\u7def\u5ea6\u7d4c\u5ea6\u3092\u53d6\u5f97
     document.getElementById('loadingText').textContent='\u571f\u5730\u30fb\u5730\u6a29\u8005\u60c5\u5831\u3092\u53d6\u5f97\u4e2d...';
-    var landRes=await db.from('land_info').select('case_id,lat,lng').in('case_id',allCaseIds).limit(10000);
-    var ownerRes=await db.from('landowner_info').select('case_id,lat,lng').in('case_id',allCaseIds).limit(10000);
+    var landRes=await db.from('land_info').select('case_id,lat,lng,location').in('case_id',allCaseIds).limit(10000);
+    var ownerRes=await db.from('landowner_info').select('case_id,lat,lng,address').in('case_id',allCaseIds).limit(10000);
     var positionsByCase={};
-    (landRes.data||[]).forEach(function(r){if(r.lat&&r.lng){if(!positionsByCase[r.case_id])positionsByCase[r.case_id]=[];positionsByCase[r.case_id].push({lat:r.lat,lng:r.lng});}});
-    (ownerRes.data||[]).forEach(function(r){if(r.lat&&r.lng){if(!positionsByCase[r.case_id])positionsByCase[r.case_id]=[];positionsByCase[r.case_id].push({lat:r.lat,lng:r.lng});}});
-    // 3. \u6700\u65b0\u30b9\u30ca\u30c3\u30d7\u30b7\u30e7\u30c3\u30c8\u306e\u8fb2\u5730\u3092\u53d6\u5f97
+    (landRes.data||[]).forEach(function(r){if(r.lat&&r.lng){if(!positionsByCase[r.case_id])positionsByCase[r.case_id]=[];positionsByCase[r.case_id].push({lat:r.lat,lng:r.lng,src:'land',loc:r.location||''});}});
+    (ownerRes.data||[]).forEach(function(r){if(r.lat&&r.lng){if(!positionsByCase[r.case_id])positionsByCase[r.case_id]=[];positionsByCase[r.case_id].push({lat:r.lat,lng:r.lng,src:'owner',loc:r.address||''});}});
+    // \u8a3a\u65ad\u30c7\u30fc\u30bf
+    var diagnosis={
+      total:cases.length,approachTarget:approachCaseIds.length,ngTarget:ngCaseIds.length,
+      noPosition:[],noMatch:[],
+      approachSynced:0,ngSynced:0,
+      statusBreakdown:{}
+    };
+    cases.forEach(function(c){if(!diagnosis.statusBreakdown[c.status])diagnosis.statusBreakdown[c.status]=0;diagnosis.statusBreakdown[c.status]++;});
     document.getElementById('loadingText').textContent='\u8fb2\u5730\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...';
     var dateRes=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1);
     if(!dateRes.data||!dateRes.data.length)throw new Error('\u30b9\u30ca\u30c3\u30d7\u30b7\u30e7\u30c3\u30c8\u304c\u3042\u308a\u307e\u305b\u3093');
     var latestDate=dateRes.data[0].snapshot_date;
-    var fRes=await db.from('farmland_snapshots').select('feature_id,lat,lng').eq('snapshot_date',latestDate).limit(10000);
+    var fRes=await db.from('farmland_snapshots').select('feature_id,lat,lng,address').eq('snapshot_date',latestDate).limit(10000);
     if(fRes.error)throw new Error('\u8fb2\u5730\u53d6\u5f97\u5931\u6557: '+fRes.error.message);
     var farmlands=(fRes.data||[]).filter(function(f){return f.lat&&f.lng;});
-    // 4. \u8ddd\u96e2\u30de\u30c3\u30c1\u30f3\u30b0
     document.getElementById('loadingText').textContent='\u7167\u5408\u4e2d (0/'+cases.length+')...';
     var approachCandidates={},ngCandidates={},processed=0;
     for(var i=0;i<cases.length;i++){
@@ -580,6 +587,11 @@ async function runCaseMasterSync(){
         document.getElementById('loadingText').textContent='\u7167\u5408\u4e2d ('+processed+'/'+cases.length+')...';
         await new Promise(function(r){setTimeout(r,0);});
       }
+      if(!positions.length){
+        diagnosis.noPosition.push({id:c.id,status:c.status});
+        continue;
+      }
+      var matched=false;
       for(var j=0;j<positions.length;j++){
         var pos=positions[j];
         var casePoint=turf.point([pos.lng,pos.lat]);
@@ -588,13 +600,16 @@ async function runCaseMasterSync(){
           var fPoint=turf.point([f.lng,f.lat]);
           var dist=turf.distance(casePoint,fPoint,{units:'meters'});
           if(dist<=CASE_SYNC_DISTANCE_METERS){
-            if(c.status==='NG')ngCandidates[f.feature_id]=true;
+            matched=true;
+            if(CASE_NG_STATUSES.indexOf(c.status)>=0)ngCandidates[f.feature_id]=true;
             else approachCandidates[f.feature_id]=true;
           }
         }
       }
+      if(!matched){
+        diagnosis.noMatch.push({id:c.id,status:c.status,loc:positions[0].loc});
+      }
     }
-    // 5a. \u30a2\u30d7\u30ed\u30fc\u30c1\u767b\u9332\uff08\u65e2\u5b58\u304c contacted \u306a\u3089\u4e0a\u66f8\u304d\u3057\u306a\u3044\uff09
     document.getElementById('loadingText').textContent='\u30b9\u30c6\u30fc\u30bf\u30b9\u3092\u66f4\u65b0\u4e2d...';
     var statusRes=await db.from('farmland_status').select('feature_id,status').limit(10000);
     var existingStatuses={};
@@ -610,23 +625,74 @@ async function runCaseMasterSync(){
       var r=await db.from('farmland_status').upsert(batch,{onConflict:'feature_id'});
       if(r.error)console.warn('\u30a2\u30d7\u30ed\u30fc\u30c1\u767b\u9332\u30a8\u30e9\u30fc:',r.error);
     }
-    // 5b. NG\u767b\u9332
+    diagnosis.approachSynced=approachRecords.length;
     var ngRecords=Object.keys(ngCandidates).map(function(fid){return{feature_id:fid,ng_reason:'case_ng',updated_at:new Date().toISOString()};});
     for(var n=0;n<ngRecords.length;n+=100){
       var batch=ngRecords.slice(n,n+100);
       var r=await db.from('farmland_ng_list').upsert(batch,{onConflict:'feature_id'});
       if(r.error)console.warn('NG\u767b\u9332\u30a8\u30e9\u30fc:',r.error);
     }
-    // 6. \u753b\u9762\u66f4\u65b0
+    diagnosis.ngSynced=ngRecords.length;
     await loadNgList();
     await loadFarmlandStatuses();
     await loadDiff();
     hideLoading();
-    showToast('\u30a2\u30d7\u30ed\u30fc\u30c1\u540c\u671f: '+approachRecords.length+'\u4ef6 / NG\u540c\u671f: '+ngRecords.length+'\u4ef6','success');
+    showCaseSyncReport(diagnosis);
   }catch(e){
     hideLoading();
     showToast('\u6848\u4ef6\u540c\u671f\u30a8\u30e9\u30fc: '+e.message,'error');
   }
+}
+function showCaseSyncReport(d){
+  var existingDialog=document.getElementById('syncReport');
+  if(existingDialog)existingDialog.remove();
+  var overlay=document.createElement('div');
+  overlay.id='syncReport';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:5000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.onclick=function(e){if(e.target===overlay)overlay.remove();};
+  var dialog=document.createElement('div');
+  dialog.style.cssText='background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:620px;width:100%;max-height:85vh;overflow-y:auto;';
+  var html='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'+
+    '<h3 style="font-size:16px;font-weight:700;">\ud83d\udcca \u6848\u4ef6\u540c\u671f\u30ec\u30dd\u30fc\u30c8</h3>'+
+    '<button onclick="document.getElementById(\'syncReport\').remove()" style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;line-height:1;">\u00d7</button>'+
+  '</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">';
+  html+='<div style="padding:12px;background:var(--surface2);border-radius:6px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;">\u5bfe\u8c61\u6848\u4ef6\u6570</div><div style="font-size:22px;font-weight:700;color:var(--accent);margin-top:4px;">'+d.total+'</div></div>';
+  html+='<div style="padding:12px;background:var(--surface2);border-radius:6px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;">\u540c\u671f\u767b\u9332\u6210\u529f</div><div style="font-size:22px;font-weight:700;color:#3fb950;margin-top:4px;">'+(d.approachSynced+d.ngSynced)+'\u4ef6</div></div>';
+  html+='<div style="padding:12px;background:rgba(255,140,0,0.1);border-radius:6px;border:1px solid rgba(255,140,0,0.3);"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;">\ud83d\udcde \u30a2\u30d7\u30ed\u30fc\u30c1\u767b\u9332</div><div style="font-size:20px;font-weight:700;color:#ff8c00;margin-top:4px;">'+d.approachSynced+'\u4ef6</div></div>';
+  html+='<div style="padding:12px;background:rgba(248,81,73,0.1);border-radius:6px;border:1px solid rgba(248,81,73,0.3);"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;">\ud83d\udeab NG\u767b\u9332</div><div style="font-size:20px;font-weight:700;color:#f85149;margin-top:4px;">'+d.ngSynced+'\u4ef6</div></div>';
+  html+='</div>';
+  html+='<h4 style="font-size:12px;font-weight:700;margin-bottom:8px;color:var(--text-muted);text-transform:uppercase;">\u26a0\ufe0f \u540c\u671f\u3067\u304d\u306a\u304b\u3063\u305f\u6848\u4ef6</h4>';
+  html+='<div style="padding:10px 12px;background:var(--surface2);border-radius:6px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;"><div><div style="font-size:12px;font-weight:600;">\ud83d\udccd \u7def\u5ea6\u7d4c\u5ea6\u672a\u5165\u529b</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px;">\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u306b\u5ea7\u6a19\u672a\u767b\u9332</div></div><span style="font-weight:700;color:#f85149;font-size:16px;">'+d.noPosition.length+'\u4ef6</span></div>';
+  html+='<div style="padding:10px 12px;background:var(--surface2);border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;"><div><div style="font-size:12px;font-weight:600;">\ud83d\udccd \u8fd1\u96a3\u8fb2\u5730\u306a\u3057</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px;">'+CASE_SYNC_DISTANCE_METERS+'m\u4ee5\u5185\u306b\u8fb2\u5730\u30c7\u30fc\u30bf\u306a\u3057</div></div><span style="font-weight:700;color:#f85149;font-size:16px;">'+d.noMatch.length+'\u4ef6</span></div>';
+  // \u30b9\u30c6\u30fc\u30bf\u30b9\u5185\u8a33
+  html+='<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-size:11px;color:var(--text-muted);padding:6px 0;">\ud83d\udcc2 \u30b9\u30c6\u30fc\u30bf\u30b9\u5185\u8a33\uff08\u30af\u30ea\u30c3\u30af\u3067\u5c55\u958b\uff09</summary>';
+  html+='<div style="background:var(--surface2);border-radius:6px;padding:10px;font-size:11px;">';
+  Object.keys(d.statusBreakdown).sort().forEach(function(s){
+    html+='<div style="display:flex;justify-content:space-between;padding:3px 0;"><span>'+s+'</span><span style="font-family:var(--font-mono);">'+d.statusBreakdown[s]+'\u4ef6</span></div>';
+  });
+  html+='</div></details>';
+  if(d.noPosition.length>0){
+    html+='<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-size:11px;color:var(--text-muted);padding:6px 0;">\ud83d\udccd \u7def\u5ea6\u7d4c\u5ea6\u672a\u5165\u529b\u306e\u6848\u4ef6\u4e00\u89a7</summary>';
+    html+='<div style="max-height:180px;overflow-y:auto;background:var(--surface2);border-radius:6px;padding:8px;">';
+    d.noPosition.slice(0,100).forEach(function(c){
+      html+='<div style="font-size:10px;padding:3px 4px;border-bottom:1px dashed var(--border);font-family:var(--font-mono);"><span style="color:var(--accent);">'+c.status+'</span> '+c.id.substring(0,8)+'...</div>';
+    });
+    if(d.noPosition.length>100)html+='<div style="font-size:10px;color:var(--text-muted);margin-top:6px;">\u4ed6 '+(d.noPosition.length-100)+' \u4ef6</div>';
+    html+='</div></details>';
+  }
+  if(d.noMatch.length>0){
+    html+='<details><summary style="cursor:pointer;font-size:11px;color:var(--text-muted);padding:6px 0;">\ud83d\udccd \u8fd1\u96a3\u8fb2\u5730\u306a\u3057\u306e\u6848\u4ef6\u4e00\u89a7</summary>';
+    html+='<div style="max-height:180px;overflow-y:auto;background:var(--surface2);border-radius:6px;padding:8px;">';
+    d.noMatch.slice(0,100).forEach(function(c){
+      html+='<div style="font-size:10px;padding:3px 4px;border-bottom:1px dashed var(--border);"><span style="color:var(--accent);font-family:var(--font-mono);">'+c.status+'</span> <span style="font-family:var(--font-mono);">'+c.id.substring(0,8)+'...</span> '+(c.loc||'')+'</div>';
+    });
+    if(d.noMatch.length>100)html+='<div style="font-size:10px;color:var(--text-muted);margin-top:6px;">\u4ed6 '+(d.noMatch.length-100)+' \u4ef6</div>';
+    html+='</div></details>';
+  }
+  dialog.innerHTML=html;
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
 }
 async function loadDates(){var res=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:true}).limit(10000);if(res.error){showToast('DB\u63a5\u7d9a\u30a8\u30e9\u30fc: '+res.error.message,'error');return;}if(!res.data||res.data.length===0){return;}var seen={},dates=[];res.data.forEach(function(d){if(!seen[d.snapshot_date]){seen[d.snapshot_date]=true;dates.push(d.snapshot_date);}});dates.sort().reverse();var fe=document.getElementById('dateFrom'),te=document.getElementById('dateTo');fe.innerHTML='<option value="">\u57fa\u6e96\u65e5\uff08\u524d\uff09</option>';te.innerHTML='<option value="">\u6bd4\u8f03\u65e5\uff08\u5f8c\uff09</option>';dates.forEach(function(d){fe.innerHTML+='<option value="'+d+'">'+d+'</option>';te.innerHTML+='<option value="'+d+'">'+d+'</option>';});if(dates.length>=2){fe.value=dates[1];te.value=dates[0];loadDiff();}else if(dates.length===1){te.value=dates[0];loadDiff();}}
 async function loadDiff(){var dateFrom=document.getElementById('dateFrom').value;var dateTo=document.getElementById('dateTo').value;if(!dateTo)return;showLoading('\u5dee\u5206\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...');if(markersLayer){map.removeLayer(markersLayer);markersLayer=null;}document.getElementById('emptyState').style.display='none';try{var toRes=await db.from('farmland_snapshots').select('*').eq('snapshot_date',dateTo).limit(10000);var toData=(toRes.data||[]).filter(function(d){return d.intent!=='\u8cb8\u3057\u305f\u3044';});var fromIds={};if(dateFrom){var fRes=await db.from('farmland_snapshots').select('feature_id').eq('snapshot_date',dateFrom).limit(10000);(fRes.data||[]).forEach(function(d){fromIds[d.feature_id]=true;});}if(!toData.length){hideLoading();document.getElementById('emptyState').style.display='flex';return;}var newCount=0,removedCount=0,existingCount=0,markers=[];toData.forEach(function(item){if(!item.lat||!item.lng)return;if(ngFilterEnabled&&ngFeatureIds[item.feature_id])return;if(dateFrom&&!fromIds[item.feature_id]){newCount++;markers.push({item:item,changeType:'new'});}else{existingCount++;}});if(dateFrom){var toIds={};toData.forEach(function(d){toIds[d.feature_id]=true;});var ffRes=await db.from('farmland_snapshots').select('*').eq('snapshot_date',dateFrom).limit(10000);var fromFiltered=(ffRes.data||[]).filter(function(d){return d.intent!=='\u8cb8\u3057\u305f\u3044';});fromFiltered.forEach(function(item){if(!item.lat||!item.lng)return;if(ngFilterEnabled&&ngFeatureIds[item.feature_id])return;if(!toIds[item.feature_id]){removedCount++;markers.push({item:item,changeType:'removed'});}});}var shown=0;toData.forEach(function(item){if(!item.lat||!item.lng)return;if(ngFilterEnabled&&ngFeatureIds[item.feature_id])return;if(dateFrom&&!fromIds[item.feature_id])return;if(shown>=1000)return;markers.push({item:item,changeType:'existing'});shown++;});document.getElementById('statNew').textContent=newCount;document.getElementById('statRemoved').textContent=removedCount;var toDataVisible=ngFilterEnabled?toData.filter(function(d){return !ngFeatureIds[d.feature_id];}):toData;document.getElementById('statExisting').textContent=dateFrom?existingCount:toDataVisible.length;var lm=markers.map(function(m){var c=m.changeType==='new'?'#3fb950':m.changeType==='removed'?'#f85149':'#4a9eff';var sz=m.changeType==='existing'?4:11;var op=m.changeType==='existing'?0.7:0.95;var bc=m.changeType==='existing'?'#a855f7':'#fff';var status=farmlandStatuses[m.item.feature_id];if(status==='approached'){c='#ff8c00';bc='#fff';}else if(status==='contacted'){c='#c026d3';bc='#fff';}var mk=L.circleMarker([m.item.lat,m.item.lng],{radius:sz,fillColor:c,color:bc,weight:2,fillOpacity:op});mk._featureId=m.item.feature_id;mk._changeType=m.changeType;mk._item=m.item;var lbl;if(status==='approached')lbl='\u30a2\u30d7\u30ed\u30fc\u30c1\u6e08\u307f';else if(status==='contacted')lbl='\u6253\u8a3a\u6e08\u307f';else lbl=m.changeType==='new'?'\u65b0\u898f':m.changeType==='removed'?'\u524a\u9664':'\u65e2\u5b58';mk.bindTooltip('<b>'+lbl+'</b> '+(m.item.city||''),{direction:'top',permanent:false,opacity:0.95,className:'farmland-tooltip'});mk.on('click',function(){showDetail(m.item,m.changeType);});return mk;});markersLayer=L.featureGroup(lm).addTo(map);markersLayer.bringToFront();var imp=markers.filter(function(m){return m.changeType!=='existing';});if(imp.length){var b=L.latLngBounds(imp.map(function(m){return[m.item.lat,m.item.lng];}));map.fitBounds(b,{padding:[40,40]});}else if(markers.length){var b2=L.latLngBounds(markers.map(function(m){return[m.item.lat,m.item.lng];}));map.fitBounds(b2,{padding:[40,40]});}hideLoading();if(newCount===0&&removedCount===0&&dateFrom)showToast('\u5909\u66f4\u306f\u3042\u308a\u307e\u305b\u3093\u3067\u3057\u305f','success');else if(newCount>0||removedCount>0)showToast('\u65b0\u898f '+newCount+'\u4ef6 / \u524a\u9664 '+removedCount+'\u4ef6 \u306e\u5909\u66f4\u3092\u691c\u51fa\u3057\u307e\u3057\u305f','success');}catch(e){hideLoading();showToast('\u30a8\u30e9\u30fc: '+e.message,'error');}}
