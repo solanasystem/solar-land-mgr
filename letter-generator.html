@@ -374,11 +374,18 @@ body{font-family:var(--font-main);background:var(--bg);color:var(--text);font-si
     <div class="tab-content active" id="content-letter">
       <div class="preview-toolbar no-print">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text);background:var(--surface2);padding:6px 10px;border-radius:6px;border:1px solid var(--border);">
+            差出人
+            <select id="senderPreset" onchange="switchSenderPreset(this.value)" style="padding:3px 6px;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:4px;font-size:12px;font-family:inherit;">
+              <option value="kurimoto">栗本 工</option>
+              <option value="itani">伊谷 保博</option>
+            </select>
+          </label>
           <details style="position:relative;">
             <summary style="cursor:pointer;color:var(--accent);font-size:13px;padding:6px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);list-style:none;">⚙️ 差出人情報</summary>
             <div style="position:absolute;top:100%;left:0;z-index:50;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:16px;width:500px;margin-top:4px;box-shadow:0 4px 12px rgba(0,0,0,.3);max-height:70vh;overflow-y:auto;">
               <div class="section">
-                <div class="section-title">差出人情報</div>
+                <div class="section-title">差出人情報（現在のプリセットを編集）</div>
                 <div class="form-group"><label class="form-label">会社名</label><input class="form-input" type="text" id="fromCompany"></div>
                 <div class="form-group"><label class="form-label">会社名（カナ）</label><input class="form-input" type="text" id="fromCompanyKana"></div>
                 <div class="form-group"><label class="form-label">氏名</label><input class="form-input" type="text" id="fromName"></div>
@@ -387,7 +394,7 @@ body{font-family:var(--font-main);background:var(--bg);color:var(--text);font-si
                 <div class="form-group"><label class="form-label">住所</label><input class="form-input" type="text" id="fromAddress"></div>
                 <div class="form-group"><label class="form-label">電話番号</label><input class="form-input" type="text" id="fromTel"></div>
                 <div class="form-group"><label class="form-label">Email</label><input class="form-input" type="text" id="fromEmail"></div>
-                <button class="btn btn-primary" onclick="saveSettings()" style="width:100%;">💾 保存</button>
+                <button class="btn btn-primary" onclick="saveSettings()" style="width:100%;">💾 このプリセットを保存</button>
               </div>
               <div class="section">
                 <div class="section-title">オプション</div>
@@ -459,16 +466,35 @@ let landsByCase={};
 let selectedIds=new Set();
 let activeTab='letter';
 
-const DEFAULT_FROM={
-  fromCompany:'株式会社 XAMAX & In the cloud',
-  fromCompanyKana:'ザイマックス アンド イン ザ クラウド',
-  fromName:'栗本　工',
-  fromNameKana:'くりもと　たくみ',
-  fromPostal:'472-0045',
-  fromAddress:'愛知県知立市長篠新田38-4-102',
-  fromTel:'070-8566-0679',
-  fromEmail:'takumi@xamax-itc.com'
+// 差出人プリセット（複数登録可能）
+const SENDER_PRESETS={
+  kurimoto:{
+    label:'栗本 工',
+    meishiImg:'assets/meishi_block.png',
+    fromCompany:'株式会社 XAMAX & In the cloud',
+    fromCompanyKana:'ザイマックス アンド イン ザ クラウド',
+    fromName:'栗本　工',
+    fromNameKana:'くりもと　たくみ',
+    fromPostal:'472-0045',
+    fromAddress:'愛知県知立市長篠新田38-4-102',
+    fromTel:'070-8566-0679',
+    fromEmail:'takumi@xamax-itc.com'
+  },
+  itani:{
+    label:'伊谷 保博',
+    meishiImg:'assets/meishi_itani.png',
+    fromCompany:'株式会社 XAMAX & In the cloud',
+    fromCompanyKana:'ザイマックス アンド イン ザ クラウド',
+    fromName:'伊谷　保博',
+    fromNameKana:'いたに　やすひろ',
+    fromPostal:'328-0012',
+    fromAddress:'栃木県栃木市平柳町一丁目８番６号',
+    fromTel:'090-4094-1164',
+    fromEmail:'itani@xamax-itc.com'
+  }
 };
+// デフォルトは栗本さん
+const DEFAULT_FROM=SENDER_PRESETS.kurimoto;
 
 document.addEventListener('DOMContentLoaded',async()=>{
   loadSettings();
@@ -563,25 +589,51 @@ function switchTab(t){
 }
 
 const FROM_FIELDS=['fromCompany','fromCompanyKana','fromName','fromNameKana','fromPostal','fromAddress','fromTel','fromEmail'];
+let currentPresetKey='kurimoto';  // 現在選択中のプリセット
+
 function loadSettings(){
+  // 最後に選択したプリセットを復元
+  const savedKey=localStorage.getItem('letterGen_presetKey')||'kurimoto';
+  currentPresetKey=SENDER_PRESETS[savedKey]?savedKey:'kurimoto';
+  document.getElementById('senderPreset').value=currentPresetKey;
+  // プリセットごとの編集内容を復元
+  applyPresetToForm(currentPresetKey);
+}
+
+function applyPresetToForm(key){
+  const preset=SENDER_PRESETS[key]||SENDER_PRESETS.kurimoto;
+  // localStorage から当該プリセットの編集内容を読み込み
   let saved={};
-  try{saved=JSON.parse(localStorage.getItem('letterGen_from')||'{}');}catch(e){}
+  try{saved=JSON.parse(localStorage.getItem('letterGen_from_'+key)||'{}');}catch(e){}
   FROM_FIELDS.forEach(k=>{
     const el=document.getElementById(k);
     if(!el)return;
-    el.value=(saved[k]!==undefined&&saved[k]!=='')?saved[k]:(DEFAULT_FROM[k]||'');
+    el.value=(saved[k]!==undefined&&saved[k]!=='')?saved[k]:(preset[k]||'');
   });
 }
+
+function switchSenderPreset(key){
+  currentPresetKey=key;
+  localStorage.setItem('letterGen_presetKey',key);
+  applyPresetToForm(key);
+  updatePreview();
+  showToast(SENDER_PRESETS[key].label+'に切り替えました','success');
+}
+
 function saveSettings(){
   const s={};
   FROM_FIELDS.forEach(k=>{s[k]=document.getElementById(k).value;});
-  localStorage.setItem('letterGen_from',JSON.stringify(s));
-  showToast('差出人情報を保存しました','success');
+  // 現在のプリセットキーに紐づけて保存
+  localStorage.setItem('letterGen_from_'+currentPresetKey,JSON.stringify(s));
+  showToast(SENDER_PRESETS[currentPresetKey].label+'の情報を保存しました','success');
   updatePreview();
 }
+
 function getSenderInfo(){
   const s={};
-  FROM_FIELDS.forEach(k=>{const el=document.getElementById(k);s[k]=el?el.value:DEFAULT_FROM[k];});
+  FROM_FIELDS.forEach(k=>{const el=document.getElementById(k);s[k]=el?el.value:(SENDER_PRESETS[currentPresetKey][k]||'');});
+  // 名刺画像パスもプリセットから取得
+  s.meishiImg=SENDER_PRESETS[currentPresetKey].meishiImg;
   return s;
 }
 
@@ -676,7 +728,7 @@ function renderXamaxLetter(lo,from,today,opt){
       <tbody>${landRows}</tbody>
     </table>
     <div class="xamax-sender-block">
-      <div class="xamax-meishi-wrap"><img class="xamax-meishi-img" src="assets/meishi_block.png" alt=""></div>
+      <div class="xamax-meishi-wrap"><img class="xamax-meishi-img" src="${escapeHtml(from.meishiImg||'assets/meishi_block.png')}" alt=""></div>
       <div class="xamax-sender-right">
         <div class="company-name">${escapeHtml(from.fromCompany||'')}</div>
         <div class="company-kana">${escapeHtml(from.fromCompanyKana||'')}</div>
