@@ -100,6 +100,58 @@
     flex-direction: column;
     gap: 6px;
     min-width: 180px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* パネル折りたたみ・レスポンシブ対応 */
+  .layer-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    margin-bottom: 2px;
+  }
+  .layer-panel-toggle {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 6px;
+    transition: transform 0.2s;
+    line-height: 1;
+    border-radius: 4px;
+  }
+  .layer-panel-toggle:hover { background: var(--surface2); color: var(--text); }
+  .layer-control.collapsed .layer-panel-toggle { transform: rotate(-90deg); }
+  .layer-control.collapsed .layer-body { display: none; }
+  .layer-control.collapsed {
+    min-width: 0;
+    padding: 8px 12px;
+    max-height: none;
+    overflow: visible;
+  }
+  .layer-body { display: flex; flex-direction: column; gap: 6px; }
+  @media (max-width: 1024px) {
+    .layer-control {
+      font-size: 11px;
+      padding: 8px 10px;
+      min-width: 150px;
+      max-height: calc(100vh - 100px);
+    }
+    .layer-control .layer-item,
+    .layer-control .hazard-toggle-btn { font-size: 11px; }
+  }
+  @media (max-width: 480px) {
+    .layer-control {
+      max-width: 170px;
+      max-height: calc(100vh - 80px);
+      padding: 6px 8px;
+    }
   }
   .layer-title { font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 2px; }
   .layer-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); cursor: pointer; }
@@ -323,8 +375,12 @@
   </div>
 
   <!-- ======== レイヤーコントロール（ハザード複数対応） ======== -->
-  <div class="layer-control">
-    <div class="layer-title">地図レイヤー</div>
+  <div class="layer-control" id="layerControl">
+    <div class="layer-panel-header" onclick="toggleLayerPanel()">
+      <div class="layer-title">地図レイヤー</div>
+      <button class="layer-panel-toggle" type="button" aria-label="開閉">▼</button>
+    </div>
+    <div class="layer-body">
     <label class="layer-item"><input type="checkbox" id="layerGsi" onchange="toggleLayer('gsi',this.checked)"> GSI 航空写真</label>
     <label class="layer-item"><input type="checkbox" id="layerFarmland" onchange="toggleLayer('farmland',this.checked)"> 農地フラグ</label>
     <!-- 農地区分凡例（農地フラグON時のみ表示） -->
@@ -388,6 +444,7 @@
     <button class="hazard-toggle-btn" id="btnNoshin" onclick="toggleNoshin()">
       <span class="hazard-toggle-dot"></span>🌾 農振農用地
     </button>
+    </div><!-- /.layer-body -->
   </div>
 
   <!-- 農地凡例はlayer-control内に統合済み -->
@@ -1475,6 +1532,17 @@ initMap();
 // マップコンテナサイズを強制再計算（レンダリングタイミングのずれを防ぐ）
 setTimeout(() => { map.invalidateSize(); }, 100);
 loadData();
+
+// ======== レイヤーパネル 折りたたみトグル ========
+function toggleLayerPanel() {
+  const lc = document.getElementById('layerControl');
+  if (lc) lc.classList.toggle('collapsed');
+}
+// 初期状態：画面幅1024px以下（iPad・iPhone）では折りたたみ
+if (window.innerWidth <= 1024) {
+  const lc = document.getElementById('layerControl');
+  if (lc) lc.classList.add('collapsed');
+}
 </script>
 </body>
 </html>
