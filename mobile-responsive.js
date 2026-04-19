@@ -34,6 +34,7 @@
   // 【1】 ドラッグ機能
   // =========================================================
   function initDraggablePanels() {
+    // 既存のヘッダー付きパネル
     const selectors = [
       '.mc-collapsible',
       '.layer-control',
@@ -49,6 +50,13 @@
         if (!handle) return;
         makeDraggable(panel, handle);
       });
+    });
+
+    // 市町村検索バー（🔍アイコンがドラッグハンドル）
+    document.querySelectorAll('.chiban-search').forEach(function(panel) {
+      const handle = panel.querySelector('.chiban-search-icon');
+      if (!handle) return;
+      makeDraggable(panel, handle);
     });
   }
 
