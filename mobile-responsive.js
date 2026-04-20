@@ -28,6 +28,7 @@
   function init() {
     initDraggablePanels();
     initHeaderToggle();
+    initChibanSearchCompact();
   }
 
   // =========================================================
@@ -169,6 +170,49 @@
     // 初期状態：ヘッダーは折りたたみ状態（地図を最大化）
     header.classList.add('mobile-header-hidden');
     btn.innerHTML = '☰';
+  }
+
+  // =========================================================
+  // 【3】 市町村検索バー コンパクト化
+  // =========================================================
+  function initChibanSearchCompact() {
+    document.querySelectorAll('.chiban-search').forEach(function(panel) {
+      // 初期状態：コンパクト（🔍アイコンのみ）
+      panel.classList.add('mobile-compact');
+
+      const icon = panel.querySelector('.chiban-search-icon');
+      const input = panel.querySelector('input');
+      if (!icon) return;
+
+      // ✕閉じるボタンを追加
+      if (!panel.querySelector('.chiban-search-close')) {
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'chiban-search-close';
+        closeBtn.type = 'button';
+        closeBtn.innerHTML = '✕';
+        closeBtn.setAttribute('aria-label', '検索を閉じる');
+        closeBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          panel.classList.add('mobile-compact');
+          if (input) input.blur();
+        });
+        panel.appendChild(closeBtn);
+      }
+
+      // 🔍アイコンをタップで展開（ドラッグ時は展開しない）
+      // ドラッグ判定は makeDraggable() 側で clickBlocked により既に処理済み
+      icon.addEventListener('click', function(e) {
+        // コンパクト状態なら展開、展開状態なら何もしない（ドラッグハンドルとして機能）
+        if (panel.classList.contains('mobile-compact')) {
+          e.stopPropagation();
+          panel.classList.remove('mobile-compact');
+          if (input) {
+            // 少し遅延してフォーカス（展開アニメーション後）
+            setTimeout(function() { input.focus(); }, 200);
+          }
+        }
+      });
+    });
   }
 
 })();
