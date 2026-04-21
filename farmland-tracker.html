@@ -211,6 +211,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <button class="btn btn-ghost active" id="btnNgFilter" onclick="toggleNgFilter()" style="font-size:12px;padding:5px 12px;">&#128683; NG非表示</button>
   <button class="btn btn-ghost" id="btnAutoJudge" onclick="runAutoNgJudgment()" style="font-size:12px;padding:5px 12px;">&#129302; AI自動判定</button>
   <button class="btn btn-ghost" id="btnCaseSync" onclick="runCaseMasterSync()" style="font-size:12px;padding:5px 12px;">&#128260; 案件同期</button>
+  <button class="btn btn-ghost" id="btnDiagnose" onclick="diagnosePBFKeys()" style="font-size:12px;padding:5px 12px;">&#128269; PBF診断</button>
   <div class="stats-bar">
     <div class="stat-item"><div class="stat-dot" style="background:#3fb950;"></div><span style="color:var(--text-muted)">新規追加</span><span class="stat-count" style="color:#3fb950;" id="statNew">0</span></div>
     <div class="stat-item"><div class="stat-dot" style="background:#f85149;"></div><span style="color:var(--text-muted)">削除済み</span><span class="stat-count" style="color:#f85149;" id="statRemoved">0</span></div>
@@ -772,6 +773,69 @@ function showDetail(item,changeType){currentDetailItem=item;currentDetailChangeT
 function closeSidePanel(){document.getElementById('sidePanel').classList.remove('open');}
 async function triggerManualCollection(){if(typeof Pbf==='undefined'){showToast('PBF\u30e9\u30a4\u30d6\u30e9\u30ea\u672a\u8aad\u307f\u8fbc\u307f - \u30da\u30fc\u30b8\u3092\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044','error');return;}var ping=await db.from('farmland_snapshots').select('id').limit(1);if(ping.error){showToast('DB\u63a5\u7d9a\u5931\u6557: '+ping.error.message,'error');return;}showLoading('\u8fb2\u5730\u30bf\u30a4\u30eb\u3092\u30b9\u30ad\u30e3\u30f3\u4e2d...');try{var today=new Date().toISOString().split('T')[0];var chk=await db.from('farmland_snapshots').select('id').eq('snapshot_date',today).limit(1);if(chk.data&&chk.data.length>0){hideLoading();showToast('\u4eca\u65e5\u306e\u30c7\u30fc\u30bf\u306f\u3059\u3067\u306b\u53d6\u5f97\u6e08\u307f\u3067\u3059','success');await loadDates();return;}var ver=getTileVersion();var records=[],featureSeen={};var totalTiles=0,nonEmpty=0,totalFeatures=0;for(var ci=0;ci<CITIES.length;ci++){var city=CITIES[ci];var cityCount=0;document.getElementById('loadingText').textContent=city.name+' ('+(ci+1)+'/'+CITIES.length+')';for(var tx=city.xMin;tx<=city.xMax;tx++){for(var ty=city.yMin;ty<=city.yMax;ty++){totalTiles++;try{var url=WORKER_BASE+'/farmland/matching/aic/map/'+city.slug+'/tiles/'+ZOOM+'/'+tx+'/'+ty+'.pbf?v='+ver;var r=await fetch(url);if(!r.ok)continue;var buf=await r.arrayBuffer();if(buf.byteLength<30)continue;nonEmpty++;var layers=decodePBFTile(buf);for(var layerName in layers){var layer=layers[layerName];for(var fi=0;fi<layer.features.length;fi++){var feature=layer.features[fi];if(feature.type!==3)continue;var props=getVTProperties(feature,layer);var iko=props['\u51fa\u624b\u610f\u5411'];if(!iko||iko===''||iko==='null')continue;if(iko==='\u8cb8\u3057\u305f\u3044')continue;var fid=city.slug+'_'+tx+'_'+ty+'_'+fi;if(featureSeen[fid])continue;featureSeen[fid]=true;var centroid=getPolygonCentroid(feature.geometry,tx,ty,ZOOM,layer.extent);if(!centroid)continue;var addr=String(props['\u8fb2\u5730\u6240\u5728\u5730']||props['\u7b46\u5728\u30ad\u30fc']||'').replace(/^[0-9]+\//,'').replace(/\/$/,'');var chimoku=String(props['\u7533\u8acb\u5730\u76ee\u306a\u3069']||props['\u5730\u76ee']||'');var kousa=String(props['\u8015\u4f5c\u72b6\u6cc1']||'');var menseki=parseFloat(props['\u767b\u8a18\u9762\u7a4d']||props['\u51fa\u624b\u8fb2\u5730\u6570']||props['\u9762\u7a4d']||0)||null;var uri=String(props['\u51fa\u624b\u58f2\u5374\u91d1\u984d']||'');var chintai=String(props['\u51fa\u624b\u8cde\u91d1\u984d']||'');records.push({feature_id:fid,city:city.name,address:addr,area_sqm:menseki,intent:String(iko),price:uri,registered_date:chimoku+'|'+kousa+'||'+chintai,lat:centroid.lat,lng:centroid.lng,snapshot_date:today,status:'active'});cityCount++;totalFeatures++;}}}catch(e2){}}}if(cityCount>0)showDebug(city.name+': '+cityCount);}showDebug('\u5408\u8a08: '+totalTiles+' / \u975e\u7a7a: '+nonEmpty+' / \u8fb2\u5730: '+totalFeatures);if(!records.length){hideLoading();showToast('\u30c7\u30fc\u30bf\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3067\u3057\u305f','error');return;}var saved=0;for(var si=0;si<records.length;si+=100){var batch=records.slice(si,si+100);var ins=await db.from('farmland_snapshots').insert(batch);if(ins.error)showDebug('ERR:'+JSON.stringify(ins.error));else saved+=batch.length;}hideLoading();showToast(saved+'\u4ef6\u4fdd\u5b58\u5b8c\u4e86','success');await loadDates();}catch(e){hideLoading();showToast('ERR:'+e.message,'error');showDebug('EX:'+e.message);}}
 function showLoading(t){document.getElementById('loadingText').textContent=t;document.getElementById('loadingOverlay').style.display='flex';}
+// === PBF\u5c5e\u6027\u8a3a\u65ad\u30e2\u30fc\u30c9\uff08\u4e00\u56de\u6027\u3001\u5099\u8003\u30ad\u30fc\u7279\u5b9a\u7528\uff09===
+async function diagnosePBFKeys(){
+  if(typeof Pbf==='undefined'){showToast('PBF\u30e9\u30a4\u30d6\u30e9\u30ea\u672a\u8aad\u307f\u8fbc\u307f','error');return;}
+  showLoading('\u7530\u539f\u5e02\u306e\u30bf\u30a4\u30eb\u3092\u8a3a\u65ad\u4e2d...');
+  try{
+    var ver=getTileVersion();
+    var city=null;
+    for(var i=0;i<CITIES.length;i++){if(CITIES[i].slug==='tahara'){city=CITIES[i];break;}}
+    if(!city){hideLoading();showToast('\u7530\u539f\u5e02\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093','error');return;}
+    var keyCount={};
+    var sampleFeatures=[];
+    var totalFeatures=0;
+    var tilesFetched=0;
+    var xEnd=Math.min(city.xMin+6,city.xMax);
+    var yEnd=Math.min(city.yMin+6,city.yMax);
+    for(var tx=city.xMin;tx<=xEnd;tx++){
+      for(var ty=city.yMin;ty<=yEnd;ty++){
+        try{
+          var url=WORKER_BASE+'/farmland/matching/aic/map/'+city.slug+'/tiles/'+ZOOM+'/'+tx+'/'+ty+'.pbf?v='+ver;
+          var r=await fetch(url);
+          if(!r.ok)continue;
+          var buf=await r.arrayBuffer();
+          if(buf.byteLength<30)continue;
+          tilesFetched++;
+          var layers=decodePBFTile(buf);
+          for(var layerName in layers){
+            var layer=layers[layerName];
+            for(var fi=0;fi<layer.features.length;fi++){
+              var feature=layer.features[fi];
+              if(feature.type!==3)continue;
+              var props=getVTProperties(feature,layer);
+              totalFeatures++;
+              Object.keys(props).forEach(function(k){keyCount[k]=(keyCount[k]||0)+1;});
+              if(sampleFeatures.length<5 && props['\u51fa\u624b\u610f\u5411']==='\u58f2\u308a\u305f\u3044'){
+                sampleFeatures.push(props);
+              }
+            }
+          }
+        }catch(e){}
+      }
+    }
+    hideLoading();
+    var lines=[];
+    lines.push('=== PBF\u8a3a\u65ad\u30ec\u30dd\u30fc\u30c8\uff08\u7530\u539f\u5e02\uff09===');
+    lines.push('\u30bf\u30a4\u30eb\u53d6\u5f97: '+tilesFetched+' / \u30d5\u30a3\u30fc\u30c1\u30e3\u30fc\u7dcf\u6570: '+totalFeatures);
+    lines.push('');
+    lines.push('--- \u5168\u5c5e\u6027\u30ad\u30fc\u4e00\u89a7\uff08\u51fa\u73fe\u4ef6\u6570\uff09---');
+    var sortedKeys=Object.keys(keyCount).sort(function(a,b){return keyCount[b]-keyCount[a];});
+    sortedKeys.forEach(function(k){lines.push('  '+k+' ('+keyCount[k]+')');});
+    lines.push('');
+    lines.push('--- \u30b5\u30f3\u30d7\u30eb\u30d5\u30a3\u30fc\u30c1\u30e3\u30fc\uff08\u58f2\u308a\u305f\u3044\u3001\u6700\u5927'+sampleFeatures.length+'\u4ef6\uff09---');
+    sampleFeatures.forEach(function(props,i){
+      lines.push('');
+      lines.push('[Sample '+(i+1)+']');
+      Object.keys(props).forEach(function(k){
+        var v=String(props[k]);
+        if(v.length>120)v=v.substring(0,120)+'...';
+        lines.push('  '+k+' = '+v);
+      });
+    });
+    showDebug(lines.join('\n'));
+  }catch(e){hideLoading();showToast('\u8a3a\u65ad\u30a8\u30e9\u30fc: '+e.message,'error');}
+}
 function hideLoading(){document.getElementById('loadingOverlay').style.display='none';}
 function showToast(msg,type){var c=document.getElementById('toastContainer'),t=document.createElement('div');t.className='toast '+(type||'success');t.textContent=msg;c.appendChild(t);setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},6000);}
 function showDebug(msg){var el=document.getElementById('debugPanel');if(!el){el=document.createElement('div');el.id='debugPanel';el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:9999;background:#1c2333;border:2px solid #f0b429;border-radius:10px;padding:16px 24px;max-width:700px;width:90%;font-family:monospace;font-size:12px;color:#e6edf3;white-space:pre-wrap;max-height:400px;overflow-y:auto;';el.innerHTML='<button onclick="this.parentElement.remove()" style="float:right;background:#f85149;border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;">X</button><div id="debugLog"></div>';document.body.appendChild(el);}document.getElementById('debugLog').textContent+=new Date().toLocaleTimeString()+' '+msg+'\n';}
