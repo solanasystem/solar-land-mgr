@@ -191,6 +191,37 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     color: var(--accent);
   }
   .hazard-toggle-btn:hover { background: var(--surface2); color: var(--text); }
+
+  /* ======== ドラッグ可能パネル 共通CSS ======== */
+  .drag-grip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: 14px;
+    cursor: grab;
+    user-select: none;
+    background: linear-gradient(180deg, var(--surface2), var(--surface));
+    border-bottom: 1px solid var(--border);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .drag-grip::before, .drag-grip::after {
+    content: '';
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    box-shadow: 6px 0 0 var(--text-muted), 12px 0 0 var(--text-muted);
+  }
+  .drag-grip:hover { background: var(--surface); cursor: grab; }
+  .drag-grip:active { cursor: grabbing; }
+  body.dragging-panel * { user-select: none !important; cursor: grabbing !important; }
+  .hazard-panel-header, .mc-panel-header { cursor: grab; }
+  .hazard-panel-header:active, .mc-panel-header:active { cursor: grabbing; }
+  .draggable-panel { touch-action: none; }
 </style>
 </head>
 <body>
@@ -1148,6 +1179,86 @@ if (window.innerWidth <= 1024) {
   var ml = document.getElementById('mapLegend');
   if (ml) ml.classList.add('collapsed');
 }
+
+// ======== ドラッグ可能パネル 共通JS（3マップ共通） ========
+function initDraggablePanels(storageKeyPrefix, configs) {
+  configs.forEach(function(cfg) {
+    var panel = document.querySelector(cfg.id);
+    if (!panel) return;
+    panel.classList.add('draggable-panel');
+    var storageKey = 'dragPos_' + storageKeyPrefix + '_' + cfg.id.replace(/[^a-zA-Z0-9]/g, '_');
+    var savedPos = null;
+    try { savedPos = JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch (e) {}
+    if (savedPos && typeof savedPos.left === 'number' && typeof savedPos.top === 'number') {
+      panel.style.left = savedPos.left + 'px';
+      panel.style.top = savedPos.top + 'px';
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+    }
+    var handle = null;
+    if (cfg.handle) handle = panel.querySelector(cfg.handle);
+    if (!handle) {
+      handle = document.createElement('div');
+      handle.className = 'drag-grip';
+      handle.title = '\u30c9\u30e9\u30c3\u30b0\u3067\u79fb\u52d5\u30fb\u30c0\u30d6\u30eb\u30af\u30ea\u30c3\u30af\u3067\u4f4d\u7f6e\u30ea\u30bb\u30c3\u30c8';
+      panel.insertBefore(handle, panel.firstChild);
+    } else {
+      handle.title = '\u30c9\u30e9\u30c3\u30b0\u3067\u79fb\u52d5\u30fb\u30c0\u30d6\u30eb\u30af\u30ea\u30c3\u30af\u3067\u4f4d\u7f6e\u30ea\u30bb\u30c3\u30c8';
+    }
+    handle.addEventListener('dblclick', function(e) {
+      e.stopPropagation();
+      localStorage.removeItem(storageKey);
+      panel.style.left = ''; panel.style.top = ''; panel.style.right = ''; panel.style.bottom = '';
+      if (typeof showToast === 'function') showToast('\u4f4d\u7f6e\u3092\u521d\u671f\u5316\u3057\u307e\u3057\u305f', 'success');
+    });
+    var dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
+    handle.addEventListener('pointerdown', function(e) {
+      if (e.target.tagName === 'BUTTON' || e.target.closest('button.mc-panel-toggle, button.hazard-panel-toggle, button.layer-panel-toggle, input, select, textarea')) return;
+      dragging = true;
+      document.body.classList.add('dragging-panel');
+      var rect = panel.getBoundingClientRect();
+      startLeft = rect.left; startTop = rect.top;
+      panel.style.left = startLeft + 'px'; panel.style.top = startTop + 'px';
+      panel.style.right = 'auto'; panel.style.bottom = 'auto';
+      startX = e.clientX; startY = e.clientY;
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+    });
+    handle.addEventListener('pointermove', function(e) {
+      if (!dragging) return;
+      var newLeft = startLeft + (e.clientX - startX);
+      var newTop = startTop + (e.clientY - startY);
+      var rect = panel.getBoundingClientRect();
+      var maxLeft = window.innerWidth - 16;
+      var maxTop = window.innerHeight - 16;
+      var minLeft = -(rect.width - 16);
+      var minTop = 0;
+      if (newLeft < minLeft) newLeft = minLeft;
+      if (newLeft > maxLeft) newLeft = maxLeft;
+      if (newTop < minTop) newTop = minTop;
+      if (newTop > maxTop) newTop = maxTop;
+      panel.style.left = newLeft + 'px'; panel.style.top = newTop + 'px';
+    });
+    function endDrag(e) {
+      if (!dragging) return;
+      dragging = false;
+      document.body.classList.remove('dragging-panel');
+      try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+      var left = parseFloat(panel.style.left) || 0;
+      var top = parseFloat(panel.style.top) || 0;
+      try { localStorage.setItem(storageKey, JSON.stringify({ left: left, top: top })); } catch (_) {}
+    }
+    handle.addEventListener('pointerup', endDrag);
+    handle.addEventListener('pointercancel', endDrag);
+  });
+}
+// farmland-tracker\u5c02\u7528\u306e\u30c9\u30e9\u30c3\u30b0\u30d1\u30cd\u30eb\u521d\u671f\u5316
+initDraggablePanels('farmlandTracker', [
+  { id: '#chibanSearch' },
+  { id: '.gis-switch' },
+  { id: '#hazardControls', handle: '.hazard-panel-header' },
+  { id: '#mapLegend', handle: '.mc-panel-header' }
+]);
 </script>
 <script src="mobile-responsive.js"></script>
 </body>
