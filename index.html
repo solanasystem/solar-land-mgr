@@ -192,9 +192,6 @@
           <option>THINKING↓</option><option>OK</option><option>SUCCESS</option>
           <option>NON MEET</option><option>NG</option><option>UNKNOWN</option>
         </select>
-        <select class="filter-select" id="filterArea" onchange="filterCases()">
-          <option value="">すべてのエリア</option>
-        </select>
         <button id="ngBlindBtn" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
       <button class="btn btn-primary" onclick="openNewCaseModal()">＋ 新規案件登録</button>
@@ -213,9 +210,6 @@
           <option>THINKING↓</option><option>OK</option><option>SUCCESS</option>
           <option>NON MEET</option><option>NG</option><option>UNKNOWN</option>
         </select>
-        <select class="filter-select" id="filterLoArea" onchange="filterLandowners()">
-          <option value="">すべてのエリア</option>
-        </select>
         <button id="ngBlindBtnLo" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
         <button id="bulkPostalBtn" class="btn" onclick="bulkFetchPostalCodes()" style="background:rgba(88,166,255,.2);color:#58a6ff;border:1px solid rgba(88,166,255,.5);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">📮 郵便番号一括取得</button>
       </div>
@@ -228,9 +222,6 @@
   <div id="landStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;">
-        <select class="filter-select" id="filterLandArea" onchange="filterLandMaster()">
-          <option value="">すべてのエリア</option>
-        </select>
         <button id="ngBlindBtnLd" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
     </div>
@@ -598,13 +589,8 @@ function getAreasForCurrentPower(){
   return Array.from(set).sort((a,b)=>a.localeCompare(b,'ja'));
 }
 function populateAreaDropdowns(){
+  /* 新規案件登録モーダルの datalist のみ更新（エリアフィルタは電力会社タブに一本化） */
   const areas=getAreasForCurrentPower();
-  ['filterArea','filterLoArea','filterLandArea'].forEach(id=>{
-    const sel=document.getElementById(id);if(!sel)return;
-    const prev=sel.value;
-    sel.innerHTML='<option value="">すべてのエリア</option>'+areas.map(a=>`<option>${a}</option>`).join('');
-    if(areas.includes(prev))sel.value=prev;else sel.value='';
-  });
   const dl=document.getElementById('newAreaDatalist');
   if(dl)dl.innerHTML=areas.map(a=>`<option value="${a}">`).join('');
 }
@@ -669,12 +655,11 @@ function filterCases(){
   const q=document.getElementById('searchInput').value.toLowerCase();
   const kubun=document.getElementById('filterKubun').value;
   const status=document.getElementById('filterStatus').value;
-  const area=document.getElementById('filterArea').value;
   renderCases(allCases.filter(c=>{
     if(ngBlind&&c.status==='NG')return false;
     if(currentPowerCompany&&getPowerCompanyFromArea(c.area_name)!==currentPowerCompany)return false;
     return(!q||(c.case_no||'').toLowerCase().includes(q)||(c.area_name||'').toLowerCase().includes(q)||(c.landowner_name||'').toLowerCase().includes(q))
-      &&(!kubun||c.kubun===kubun)&&(!status||c.status===status)&&(!area||c.area_name===area);
+      &&(!kubun||c.kubun===kubun)&&(!status||c.status===status);
   }));
 }
 
@@ -915,11 +900,11 @@ async function loadLandownersMaster(){
   filterLandowners();
 }
 function filterLandowners(){
-  const status=document.getElementById('filterLoStatus').value,area=document.getElementById('filterLoArea').value;
+  const status=document.getElementById('filterLoStatus').value;
   renderLandowners(allLandowners.filter(lo=>{
     if(ngBlind&&lo.cases?.status==='NG')return false;
     if(currentPowerCompany&&getPowerCompanyFromArea(lo.cases?.area_name)!==currentPowerCompany)return false;
-    return(!status||lo.cases?.status===status)&&(!area||lo.cases?.area_name===area);
+    return !status||lo.cases?.status===status;
   }));
 }
 function renderLandowners(los){
@@ -955,11 +940,10 @@ async function loadLandMaster(){
   filterLandMaster();
 }
 function filterLandMaster(){
-  const area=document.getElementById('filterLandArea').value;
   renderLands(allLands.filter(l=>{
     if(ngBlind&&l.cases?.status==='NG')return false;
     if(currentPowerCompany&&getPowerCompanyFromArea(l.cases?.area_name)!==currentPowerCompany)return false;
-    return !area||l.cases?.area_name===area;
+    return true;
   }));
 }
 function renderLands(lands){
