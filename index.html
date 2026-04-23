@@ -173,6 +173,7 @@
   <button class="nav-btn" onclick="switchNav(this,'landowners')" style="color:#3fb950">地権者マスター</button>
   <button class="nav-btn" onclick="switchNav(this,'land')" style="color:#58a6ff">土地情報マスター</button>
   <button class="nav-btn" onclick="switchNav(this,'realestate')" style="color:#f0b429">不動産会社マスター</button>
+  <button class="nav-btn" onclick="switchNav(this,'introcompany')" style="color:#ec4899">📣 紹介先企業マスタ</button>
   <button class="nav-btn" onclick="location.href='farmland-tracker.html'" style="color:#22c55e">🌾 農地変化トラッカー</button>
 </nav>
 <div id="stickyZone">
@@ -239,6 +240,33 @@
       <div style="text-align:center">操作</div>
     </div>
   </div>
+  <div id="introcompanyStickyBlock" style="display:none">
+    <div class="sticky-toolbar">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <input class="search-box" type="text" placeholder="会社名・担当者で検索..." id="icSearchInput" oninput="filterIntroductionCompanies()">
+        <select class="filter-select" id="icFilterPriority" onchange="filterIntroductionCompanies()">
+          <option value="">全ての優先度</option>
+          <option>S</option><option>A</option><option>B</option><option>C</option>
+        </select>
+        <select class="filter-select" id="icFilterStatus" onchange="filterIntroductionCompanies()">
+          <option value="">全てのステータス</option>
+          <option>未接触</option><option>初回接触</option><option>商談中</option>
+          <option>成約</option><option>保留</option><option>見送り</option>
+        </select>
+        <select class="filter-select" id="icFilterKubun" onchange="filterIntroductionCompanies()">
+          <option value="">全ての関心区分</option>
+          <option>低圧太陽光</option><option>高圧太陽光</option>
+          <option>低圧蓄電池</option><option>高圧蓄電池</option><option>営農型太陽光</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="openNewCompanyModal()" style="background:#ec4899;border-color:#db2777">＋ 新規企業登録</button>
+    </div>
+    <div class="cases-table-header" style="grid-template-columns:220px 180px 130px 1fr 110px 60px 100px 90px">
+      <div>会社名</div><div>部署・担当</div><div style="text-align:center">電話</div><div>メール</div>
+      <div style="text-align:center">対応エリア</div><div style="text-align:center">優先度</div>
+      <div style="text-align:center">ステータス</div><div style="text-align:center">操作</div>
+    </div>
+  </div>
 </div>
 <main class="main">
   <div class="cases-table" id="casesSection">
@@ -252,6 +280,9 @@
   </div>
   <div class="cases-table" id="realestateSection" style="display:none">
     <div id="realestateList"><div class="loading"><div class="spinner"></div>読み込み中...</div></div>
+  </div>
+  <div class="cases-table" id="introcompanySection" style="display:none">
+    <div id="introcompanyList"><div class="loading"><div class="spinner"></div>読み込み中...</div></div>
   </div>
   <div id="farmlandSection" style="display:none;">
 
@@ -527,6 +558,66 @@
     </div>
   </div>
 </div>
+<div class="modal-overlay" id="companyModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div><div class="modal-title" id="companyModalTitle">📣 紹介先企業の登録</div><div class="modal-subtitle">販売先（顧客）として管理する企業情報</div></div>
+      <button class="modal-close" onclick="closeModal('companyModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label class="form-label">会社名 *</label>
+          <input class="form-input" type="text" id="ic_company_name" placeholder="例：株式会社関電工"></div>
+        <div class="form-group"><label class="form-label">部署</label>
+          <input class="form-input" type="text" id="ic_department" placeholder="例：グリーンイノベーション本部 事業開発ユニット"></div>
+        <div class="form-group"><label class="form-label">担当者</label>
+          <input class="form-input" type="text" id="ic_representative"></div>
+        <div class="form-group"><label class="form-label">電話</label>
+          <input class="form-input" type="text" id="ic_tel"></div>
+        <div class="form-group"><label class="form-label">FAX</label>
+          <input class="form-input" type="text" id="ic_fax"></div>
+        <div class="form-group"><label class="form-label">メール</label>
+          <input class="form-input" type="email" id="ic_email"></div>
+        <div class="form-group full"><label class="form-label">会社URL</label>
+          <input class="form-input" type="text" id="ic_url" placeholder="https://..."></div>
+        <div class="form-group full"><label class="form-label">住所</label>
+          <div style="display:flex;gap:6px;align-items:stretch;">
+            <input class="form-input" type="text" id="ic_address" style="flex:1" placeholder="例：東京都港区芝浦4-8-33">
+            <button class="btn" type="button" onclick="geocodeAddress()" style="background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.4);padding:6px 14px;white-space:nowrap;font-size:12px;">📍 位置取得</button>
+          </div>
+        </div>
+        <div class="form-group"><label class="form-label">緯度</label>
+          <input class="form-input" type="number" step="0.0000001" id="ic_lat"></div>
+        <div class="form-group"><label class="form-label">経度 <button class="btn" type="button" onclick="openGoogleMapForCompany()" style="background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.4);padding:2px 8px;font-size:10px;margin-left:8px;white-space:nowrap;">🗺 地図</button></label>
+          <input class="form-input" type="number" step="0.0000001" id="ic_lng"></div>
+        <div class="form-group full"><label class="form-label">対応電力エリア</label>
+          <div id="ic_powerCheckboxes" style="display:flex;flex-wrap:wrap;gap:10px;padding:6px 0;"></div>
+        </div>
+        <div class="form-group full"><label class="form-label">関心区分</label>
+          <div id="ic_kubunCheckboxes" style="display:flex;flex-wrap:wrap;gap:10px;padding:6px 0;"></div>
+        </div>
+        <div class="form-group"><label class="form-label">優先度</label>
+          <select class="form-select" id="ic_priority">
+            <option value="">—</option>
+            <option>S</option><option>A</option><option>B</option><option>C</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">ステータス</label>
+          <select class="form-select" id="ic_status">
+            <option value="">—</option>
+            <option>未接触</option><option>初回接触</option><option>商談中</option>
+            <option>成約</option><option>保留</option><option>見送り</option>
+          </select></div>
+        <div class="form-group full"><label class="form-label">メモ</label>
+          <textarea class="form-textarea" id="ic_notes" placeholder="接触履歴・ニーズ・備考など"></textarea></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="ic_deleteBtn" onclick="deleteCompany()" style="display:none;color:#f85149;margin-right:auto;border-color:rgba(248,81,73,.4)">🗑 削除</button>
+      <button class="btn btn-ghost" onclick="closeModal('companyModal')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveCompany()" style="background:#ec4899;border-color:#db2777">保存</button>
+    </div>
+  </div>
+</div>
 <div class="toast-container" id="toastContainer"></div>
 <script>
 const SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
@@ -579,6 +670,10 @@ function setPowerCompany(pc){
   renderPowerCompanyTabs();
   populateAreaDropdowns();
   filterCases();filterLandowners();filterLandMaster();
+  /* 紹介先企業タブが表示中なら再フィルタ */
+  if(document.getElementById('introcompanySection')?.style.display!=='none'){
+    filterIntroductionCompanies();
+  }
 }
 function getAreasForCurrentPower(){
   const set=new Set();
@@ -870,18 +965,20 @@ async function saveLog(){
 function switchNav(btn,section){
   document.querySelectorAll('.nav-btn').forEach(b=>{b.classList.remove('active');b.style.borderBottomColor='transparent';});
   btn.classList.add('active');
-  btn.style.borderBottomColor=({'cases':'#a371f7','landowners':'#3fb950','land':'#58a6ff','realestate':'#f0b429','farmland':'#22c55e'})[section]||'var(--accent)';
-  ['cases','landowners','land','realestate','farmland'].forEach(s=>{
-    document.getElementById(s+'StickyBlock').style.display=s===section?'block':'none';
+  btn.style.borderBottomColor=({'cases':'#a371f7','landowners':'#3fb950','land':'#58a6ff','realestate':'#f0b429','introcompany':'#ec4899','farmland':'#22c55e'})[section]||'var(--accent)';
+  ['cases','landowners','land','realestate','introcompany','farmland'].forEach(s=>{
+    const sb=document.getElementById(s+'StickyBlock');if(sb)sb.style.display=s===section?'block':'none';
     const sectionEl=document.getElementById(
       s==='cases'?'casesSection':s==='landowners'?'landownersSection':
-      s==='land'?'landSection':s==='realestate'?'realestateSection':'farmlandSection'
+      s==='land'?'landSection':s==='realestate'?'realestateSection':
+      s==='introcompany'?'introcompanySection':'farmlandSection'
     );
     if(sectionEl)sectionEl.style.display=s===section?'block':'none';
   });
   if(section==='landowners')loadLandownersMaster();
   else if(section==='land')loadLandMaster();
   else if(section==='realestate')loadRealestateMaster();
+  else if(section==='introcompany')loadIntroductionCompanies();
   else if(section==='cases')loadCases();
   else if(section==='farmland')initFarmlandSection();
 }
@@ -1379,6 +1476,195 @@ async function saveRealestate(){
   showToast('不動産会社情報を保存しました');closeModal('editRealestateModal');
   await Promise.all([loadRealestateDetail(currentCaseId),refreshAll()]);
 }
+
+/* ========== 紹介先企業マスタ ========== */
+const IC_KUBUN_OPTIONS=['低圧太陽光','高圧太陽光','低圧蓄電池','高圧蓄電池','営農型太陽光'];
+let allIntroductionCompanies=[],currentCompanyId=null;
+
+async function loadIntroductionCompanies(){
+  try{
+    const{data,error}=await db.from('introduction_companies').select('*').order('priority',{ascending:true}).order('company_name',{ascending:true});
+    if(error){
+      const el=document.getElementById('introcompanyList');
+      if(el)el.innerHTML='<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">テーブルが未作成の可能性があります<br><small style="color:var(--text-muted)">Supabase SQL Editor で introduction_companies テーブルを作成してください</small><br><small style="color:var(--red)">'+error.message+'</small></div></div>';
+      return;
+    }
+    allIntroductionCompanies=data||[];
+    filterIntroductionCompanies();
+  }catch(e){showToast('接続エラー: '+e.message,'error');}
+}
+
+function filterIntroductionCompanies(){
+  const q=(document.getElementById('icSearchInput')?.value||'').toLowerCase();
+  const priority=document.getElementById('icFilterPriority')?.value||'';
+  const status=document.getElementById('icFilterStatus')?.value||'';
+  const kubun=document.getElementById('icFilterKubun')?.value||'';
+  renderIntroductionCompanies(allIntroductionCompanies.filter(c=>{
+    /* 電力会社タブ連動：配列に含まれる or 未指定（全国対応） */
+    if(currentPowerCompany){
+      const tp=c.target_power_companies||[];
+      if(tp.length>0 && !tp.includes(currentPowerCompany))return false;
+    }
+    if(q){
+      const hay=((c.company_name||'')+' '+(c.representative||'')+' '+(c.department||'')).toLowerCase();
+      if(!hay.includes(q))return false;
+    }
+    if(priority && c.priority!==priority)return false;
+    if(status && c.status!==status)return false;
+    if(kubun){
+      const tk=c.target_kubun||[];
+      if(!tk.includes(kubun))return false;
+    }
+    return true;
+  }));
+}
+
+function renderIntroductionCompanies(list){
+  const el=document.getElementById('introcompanyList');
+  if(!el)return;
+  if(!list||!list.length){el.innerHTML='<div class="empty-state"><div class="empty-state-icon">📣</div><div class="empty-state-text">該当する紹介先企業がありません</div></div>';return;}
+  el.innerHTML=list.map((c,i)=>{
+    const priorityColor={'S':'#ec4899','A':'#f0b429','B':'#58a6ff','C':'#6b7280'}[c.priority]||'#6b7280';
+    const statusColor={'未接触':'#6b7280','初回接触':'#58a6ff','商談中':'#f0b429','成約':'#22c55e','保留':'#a371f7','見送り':'#f85149'}[c.status]||'#6b7280';
+    const areaLabel=(c.target_power_companies||[]).length?(c.target_power_companies||[]).join('・'):'—';
+    const areaShort=areaLabel.length>12?areaLabel.slice(0,10)+'…':areaLabel;
+    return `<div class="case-row" style="grid-template-columns:220px 180px 130px 1fr 110px 60px 100px 90px;animation-delay:${i*.03}s">
+      <div style="font-weight:600;color:#ec4899;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(c.company_name||'').replace(/"/g,'&quot;')}">${c.company_name||'—'}</div>
+      <div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${((c.department||'')+' / '+(c.representative||'')).replace(/"/g,'&quot;')}">${c.department||'—'}<br><span style="color:var(--text)">${c.representative||''}</span></div>
+      <div style="font-size:12px;text-align:center;white-space:nowrap">${c.tel||'—'}</div>
+      <div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.email||'—'}</div>
+      <div style="font-size:11px;text-align:center" title="${areaLabel.replace(/"/g,'&quot;')}">${areaShort}</div>
+      <div style="text-align:center"><span style="display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;background:${priorityColor}22;color:${priorityColor};border:1px solid ${priorityColor}66">${c.priority||'—'}</span></div>
+      <div style="text-align:center"><span style="display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${statusColor}22;color:${statusColor};border:1px solid ${statusColor}66;white-space:nowrap">${c.status||'—'}</span></div>
+      <div class="actions-cell"><button class="action-btn" onclick="openEditCompanyModal(${c.id})">✏️ 編集</button></div>
+    </div>`;
+  }).join('');
+}
+
+function renderCompanyCheckboxes(){
+  const pc=document.getElementById('ic_powerCheckboxes');
+  if(pc)pc.innerHTML=POWER_COMPANIES.map(p=>`<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;color:var(--text);"><input type="checkbox" class="ic_power_cb" value="${p}" style="cursor:pointer"> ${p}</label>`).join('');
+  const kb=document.getElementById('ic_kubunCheckboxes');
+  if(kb)kb.innerHTML=IC_KUBUN_OPTIONS.map(k=>`<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;color:var(--text);"><input type="checkbox" class="ic_kubun_cb" value="${k}" style="cursor:pointer"> ${k}</label>`).join('');
+}
+
+function openNewCompanyModal(){
+  currentCompanyId=null;
+  renderCompanyCheckboxes();
+  document.getElementById('companyModalTitle').textContent='📣 紹介先企業の登録';
+  ['ic_company_name','ic_department','ic_representative','ic_tel','ic_fax','ic_email','ic_url','ic_address','ic_lat','ic_lng','ic_notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('ic_priority').value='';
+  document.getElementById('ic_status').value='未接触';
+  /* 電力会社は現在選択中のタブをデフォルトON */
+  if(currentPowerCompany){
+    document.querySelectorAll('.ic_power_cb').forEach(cb=>{if(cb.value===currentPowerCompany)cb.checked=true;});
+  }
+  document.getElementById('ic_deleteBtn').style.display='none';
+  document.getElementById('companyModal').classList.add('open');
+}
+
+function openEditCompanyModal(id){
+  const c=allIntroductionCompanies.find(x=>x.id===id);
+  if(!c){showToast('企業データが見つかりません','error');return;}
+  currentCompanyId=c.id;
+  renderCompanyCheckboxes();
+  document.getElementById('companyModalTitle').textContent='📣 紹介先企業の編集';
+  document.getElementById('ic_company_name').value=c.company_name||'';
+  document.getElementById('ic_department').value=c.department||'';
+  document.getElementById('ic_representative').value=c.representative||'';
+  document.getElementById('ic_tel').value=c.tel||'';
+  document.getElementById('ic_fax').value=c.fax||'';
+  document.getElementById('ic_email').value=c.email||'';
+  document.getElementById('ic_url').value=c.url||'';
+  document.getElementById('ic_address').value=c.address||'';
+  document.getElementById('ic_lat').value=c.lat||'';
+  document.getElementById('ic_lng').value=c.lng||'';
+  document.getElementById('ic_priority').value=c.priority||'';
+  document.getElementById('ic_status').value=c.status||'';
+  document.getElementById('ic_notes').value=c.notes||'';
+  const tp=c.target_power_companies||[];
+  document.querySelectorAll('.ic_power_cb').forEach(cb=>cb.checked=tp.includes(cb.value));
+  const tk=c.target_kubun||[];
+  document.querySelectorAll('.ic_kubun_cb').forEach(cb=>cb.checked=tk.includes(cb.value));
+  document.getElementById('ic_deleteBtn').style.display='inline-block';
+  document.getElementById('companyModal').classList.add('open');
+}
+
+async function saveCompany(){
+  const g=id=>document.getElementById(id).value.trim();
+  const company_name=g('ic_company_name');
+  if(!company_name){showToast('会社名は必須です','error');return;}
+  const target_power_companies=Array.from(document.querySelectorAll('.ic_power_cb:checked')).map(cb=>cb.value);
+  const target_kubun=Array.from(document.querySelectorAll('.ic_kubun_cb:checked')).map(cb=>cb.value);
+  const payload={
+    company_name,
+    department:g('ic_department')||null,
+    representative:g('ic_representative')||null,
+    tel:g('ic_tel')||null,
+    fax:g('ic_fax')||null,
+    email:g('ic_email')||null,
+    url:g('ic_url')||null,
+    address:g('ic_address')||null,
+    lat:g('ic_lat')?Number(g('ic_lat')):null,
+    lng:g('ic_lng')?Number(g('ic_lng')):null,
+    target_power_companies,
+    target_kubun,
+    priority:g('ic_priority')||null,
+    status:g('ic_status')||null,
+    notes:g('ic_notes')||null,
+    updated_at:new Date().toISOString()
+  };
+  let error;
+  if(currentCompanyId){
+    ({error}=await db.from('introduction_companies').update(payload).eq('id',currentCompanyId));
+  }else{
+    ({error}=await db.from('introduction_companies').insert(payload));
+  }
+  if(error){showToast('保存エラー: '+error.message,'error');return;}
+  showToast(currentCompanyId?'企業情報を更新しました':'新規企業を登録しました','success');
+  closeModal('companyModal');
+  await loadIntroductionCompanies();
+}
+
+async function deleteCompany(){
+  if(!currentCompanyId)return;
+  if(!confirm('この企業情報を削除します。よろしいですか？'))return;
+  const{error}=await db.from('introduction_companies').delete().eq('id',currentCompanyId);
+  if(error){showToast('削除エラー: '+error.message,'error');return;}
+  showToast('企業情報を削除しました','success');
+  closeModal('companyModal');
+  await loadIntroductionCompanies();
+}
+
+async function geocodeAddress(){
+  const addr=document.getElementById('ic_address').value.trim();
+  if(!addr){showToast('住所を入力してください','error');return;}
+  try{
+    const res=await fetch('https://msearch.gsi.go.jp/address-search/AddressSearch?q='+encodeURIComponent(addr));
+    const data=await res.json();
+    if(!data||!data.length){showToast('住所が見つかりませんでした','error');return;}
+    const coord=data[0].geometry.coordinates;
+    const lng=coord[0],lat=coord[1];
+    document.getElementById('ic_lat').value=lat.toFixed(7);
+    document.getElementById('ic_lng').value=lng.toFixed(7);
+    showToast('位置を取得しました：'+(data[0].properties?.title||''),'success');
+  }catch(e){showToast('ジオコーディング失敗: '+e.message,'error');}
+}
+
+function openGoogleMapForCompany(){
+  const lat=document.getElementById('ic_lat').value,lng=document.getElementById('ic_lng').value;
+  const addr=document.getElementById('ic_address').value.trim();
+  let url;
+  if(lat&&lng){
+    url='https://www.google.com/maps/search/?api=1&query='+lat+','+lng;
+  }else if(addr){
+    url='https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(addr);
+  }else{
+    showToast('住所または緯度経度を入力してください','error');return;
+  }
+  window.open(url,'_blank');
+}
+/* ========== /紹介先企業マスタ ========== */
 
 document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');}));
 
