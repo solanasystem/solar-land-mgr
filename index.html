@@ -673,6 +673,7 @@ async function quickUpdateStatus(id,val,el){
 function kubunBadge(k){if(!k)return '<span style="color:var(--text-muted);font-size:12px">—</span>';return `<span class="badge badge-${kubunClass(k)}">${k}</span>`;}
 function statusBadge(s){return `<span class="status-badge status-${s?statusClass(s):'unknown'}"><span class="status-dot"></span>${s||'—'}</span>`;}
 function formatDate(d){if(!d)return'—';return new Date(d).toLocaleDateString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit'});}
+function formatArea(v){if(v===null||v===undefined||v==='')return '—';const n=parseFloat(v);return isNaN(n)?'—':n.toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2})+' ㎡';}
 
 // ======== Google Maps URL を安全に補完する関数 ========
 function safeUrl(url){
@@ -767,7 +768,7 @@ async function loadNegotiationLogs(id){
 
 async function loadLandDetail(caseId){
   const{data}=await db.from('land_info').select('*').eq('case_id',caseId).single();
-  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${data.area_sqm?Number(data.area_sqm).toLocaleString()+' ㎡':'—'}</div></div><div class="info-item"><div class="info-label">用途地域・地目</div><div class="info-value">${data.chiban||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">法令上の制限</div><div class="info-value">${data.horeijo_seigen||'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
+  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">用途地域・地目</div><div class="info-value">${data.chiban||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">法令上の制限</div><div class="info-value">${data.horeijo_seigen||'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
 }
@@ -872,7 +873,7 @@ function renderLands(lands){
     const locVal=land.location?String(land.location).trim():'';
     const locIsNum=locVal&&!isNaN(parseFloat(locVal))&&parseFloat(locVal)>0&&locVal.length<12;
     const soZai=locIsNum?(land.chiban||'—'):(locVal||land.chiban||'—');
-    const menseki=locIsNum?parseFloat(locVal).toLocaleString()+' ㎡':(land.area_sqm?Number(land.area_sqm).toLocaleString()+' ㎡':'—');
+    const menseki=locIsNum?formatArea(locVal):formatArea(land.area_sqm);
     const yoto=land.horeijo_seigen||'—';
     const hazRaw=land.hazard||land.biko||'';
     const hazText=hazRaw.includes('http')?hazRaw.split(/https?:\/\//)[0].replace(/\/\s*$/,'').trim():hazRaw;
