@@ -34,6 +34,12 @@
   #stickyZone{position:sticky;top:98px;z-index:90;background:var(--bg);}
   #stickyZone>div{max-width:1400px;margin:0 auto;}
   .sticky-toolbar{padding:8px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--bg);}
+  .power-company-bar{padding:6px 24px 6px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;background:var(--bg);border-bottom:1px solid var(--border);}
+  .pc-tab{padding:5px 12px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:5px;color:var(--text-muted);font-family:var(--font-main);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap;}
+  .pc-tab:hover{background:var(--surface2);color:var(--text);}
+  .pc-tab.active{background:rgba(240,180,41,.15);border-color:var(--accent);color:var(--accent);font-weight:700;}
+  .pc-tab.empty{opacity:.4;}
+  .pc-tab .pc-count{font-family:var(--font-mono);font-size:10px;margin-left:4px;opacity:.7;}
   .main{padding:8px 24px 20px;max-width:1400px;margin:0 auto;}
   .search-box{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 12px;color:var(--text);font-family:var(--font-main);font-size:13px;width:240px;transition:border-color .2s;}
   .search-box:focus{outline:none;border-color:var(--accent);}
@@ -170,6 +176,7 @@
   <button class="nav-btn" onclick="location.href='farmland-tracker.html'" style="color:#22c55e">🌾 農地変化トラッカー</button>
 </nav>
 <div id="stickyZone">
+  <div id="powerCompanyBar" class="power-company-bar"></div>
   <div id="casesStickyBlock">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -187,8 +194,6 @@
         </select>
         <select class="filter-select" id="filterArea" onchange="filterCases()">
           <option value="">すべてのエリア</option>
-          <option>北海道</option><option>東北</option><option>関東</option><option>中部</option>
-          <option>関西</option><option>中国</option><option>四国</option><option>九州</option>
         </select>
         <button id="ngBlindBtn" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
@@ -210,8 +215,6 @@
         </select>
         <select class="filter-select" id="filterLoArea" onchange="filterLandowners()">
           <option value="">すべてのエリア</option>
-          <option>北海道</option><option>東北</option><option>関東</option><option>中部</option>
-          <option>関西</option><option>中国</option><option>四国</option><option>九州</option>
         </select>
         <button id="ngBlindBtnLo" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
         <button id="bulkPostalBtn" class="btn" onclick="bulkFetchPostalCodes()" style="background:rgba(88,166,255,.2);color:#58a6ff;border:1px solid rgba(88,166,255,.5);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">📮 郵便番号一括取得</button>
@@ -227,8 +230,6 @@
       <div style="display:flex;align-items:center;gap:8px;">
         <select class="filter-select" id="filterLandArea" onchange="filterLandMaster()">
           <option value="">すべてのエリア</option>
-          <option>北海道</option><option>東北</option><option>関東</option><option>中部</option>
-          <option>関西</option><option>中国</option><option>四国</option><option>九州</option>
         </select>
         <button id="ngBlindBtnLd" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
@@ -328,10 +329,14 @@
     </div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group"><label class="form-label">エリア *</label>
-          <select class="form-select" id="newArea"><option value="">選択してください</option>
-            <option>北海道</option><option>東北</option><option>関東</option><option>中部</option>
-            <option>関西</option><option>中国</option><option>四国</option><option>九州</option></select></div>
+        <div class="form-group"><label class="form-label">管轄電力会社 *</label>
+          <select class="form-select" id="newPowerCompany" onchange="syncNewPcToArea()"><option value="">選択してください</option>
+            <option>北海道電力</option><option>東北電力</option><option>東京電力</option><option>中部電力</option>
+            <option>北陸電力</option><option>関西電力</option><option>中国電力</option><option>四国電力</option>
+            <option>九州電力</option><option>沖縄電力</option></select></div>
+        <div class="form-group"><label class="form-label">エリア（市町村名） *</label>
+          <input class="form-input" type="text" id="newArea" placeholder="例：蒲郡" list="newAreaDatalist">
+          <datalist id="newAreaDatalist"></datalist></div>
         <div class="form-group"><label class="form-label">発電区分 *</label>
           <select class="form-select" id="newKubun"><option value="">選択してください</option>
             <option>低圧太陽光</option><option>高圧太陽光</option><option>低圧蓄電池</option>
@@ -540,6 +545,77 @@ const db=createClient(SUPABASE_URL,SUPABASE_KEY);
 let allCases=[],currentCaseId=null,currentLandownerId=null;
 let ngBlind=true;
 
+/* ========== 管轄電力会社 マッピング ========== */
+const POWER_COMPANIES=['北海道電力','東北電力','東京電力','中部電力','北陸電力','関西電力','中国電力','四国電力','九州電力','沖縄電力'];
+const PREF_TO_POWER={'北海道':'北海道電力','青森県':'東北電力','岩手県':'東北電力','宮城県':'東北電力','秋田県':'東北電力','山形県':'東北電力','福島県':'東北電力','新潟県':'東北電力','東京都':'東京電力','神奈川県':'東京電力','埼玉県':'東京電力','千葉県':'東京電力','栃木県':'東京電力','群馬県':'東京電力','茨城県':'東京電力','山梨県':'東京電力','静岡県':'中部電力','愛知県':'中部電力','岐阜県':'中部電力','三重県':'中部電力','長野県':'中部電力','富山県':'北陸電力','石川県':'北陸電力','福井県':'北陸電力','大阪府':'関西電力','京都府':'関西電力','兵庫県':'関西電力','奈良県':'関西電力','和歌山県':'関西電力','滋賀県':'関西電力','岡山県':'中国電力','広島県':'中国電力','山口県':'中国電力','島根県':'中国電力','鳥取県':'中国電力','香川県':'四国電力','徳島県':'四国電力','愛媛県':'四国電力','高知県':'四国電力','福岡県':'九州電力','佐賀県':'九州電力','長崎県':'九州電力','熊本県':'九州電力','大分県':'九州電力','宮崎県':'九州電力','鹿児島県':'九州電力','沖縄県':'沖縄電力'};
+/* 市町村名（末尾の「市/町/村/区」は有無どちらでもOK）→ 都道府県
+   初期は愛知県54市町村を網羅。未登録エリアは DEFAULT_POWER_COMPANY にフォールバック */
+const AREA_TO_PREF={'名古屋':'愛知県','豊橋':'愛知県','岡崎':'愛知県','一宮':'愛知県','瀬戸':'愛知県','半田':'愛知県','春日井':'愛知県','豊川':'愛知県','津島':'愛知県','碧南':'愛知県','刈谷':'愛知県','豊田':'愛知県','安城':'愛知県','西尾':'愛知県','蒲郡':'愛知県','犬山':'愛知県','常滑':'愛知県','江南':'愛知県','小牧':'愛知県','稲沢':'愛知県','新城':'愛知県','東海':'愛知県','大府':'愛知県','知多':'愛知県','知立':'愛知県','尾張旭':'愛知県','高浜':'愛知県','岩倉':'愛知県','豊明':'愛知県','日進':'愛知県','田原':'愛知県','愛西':'愛知県','清須':'愛知県','北名古屋':'愛知県','弥富':'愛知県','みよし':'愛知県','あま':'愛知県','長久手':'愛知県','東郷':'愛知県','豊山':'愛知県','大口':'愛知県','扶桑':'愛知県','大治':'愛知県','蟹江':'愛知県','飛島':'愛知県','阿久比':'愛知県','東浦':'愛知県','南知多':'愛知県','美浜':'愛知県','武豊':'愛知県','幸田':'愛知県','設楽':'愛知県','東栄':'愛知県','豊根':'愛知県'};
+const DEFAULT_POWER_COMPANY='中部電力';
+let currentPowerCompany='中部電力'; /* 初期選択 */
+
+function normalizeAreaKey(areaName){
+  if(!areaName)return '';
+  return String(areaName).replace(/(市|町|村|区)$/,'').trim();
+}
+function getPowerCompanyFromArea(areaName){
+  if(!areaName)return DEFAULT_POWER_COMPANY;
+  const key=normalizeAreaKey(areaName);
+  const pref=AREA_TO_PREF[key];
+  if(pref)return PREF_TO_POWER[pref]||DEFAULT_POWER_COMPANY;
+  return DEFAULT_POWER_COMPANY;
+}
+function renderPowerCompanyTabs(){
+  const counts={};POWER_COMPANIES.forEach(pc=>counts[pc]=0);
+  (allCases||[]).forEach(c=>{const pc=getPowerCompanyFromArea(c.area_name);if(counts[pc]!==undefined)counts[pc]++;});
+  const bar=document.getElementById('powerCompanyBar');
+  if(!bar)return;
+  bar.innerHTML=POWER_COMPANIES.map(pc=>{
+    const n=counts[pc]||0;
+    const active=pc===currentPowerCompany?' active':'';
+    const empty=n===0?' empty':'';
+    return `<button class="pc-tab${active}${empty}" onclick="setPowerCompany('${pc}')">${pc}<span class="pc-count">(${n})</span></button>`;
+  }).join('');
+}
+function setPowerCompany(pc){
+  currentPowerCompany=pc;
+  renderPowerCompanyTabs();
+  populateAreaDropdowns();
+  filterCases();filterLandowners();filterLandMaster();
+}
+function getAreasForCurrentPower(){
+  const set=new Set();
+  (allCases||[]).forEach(c=>{
+    if(!c.area_name)return;
+    if(getPowerCompanyFromArea(c.area_name)===currentPowerCompany)set.add(c.area_name);
+  });
+  return Array.from(set).sort((a,b)=>a.localeCompare(b,'ja'));
+}
+function populateAreaDropdowns(){
+  const areas=getAreasForCurrentPower();
+  ['filterArea','filterLoArea','filterLandArea'].forEach(id=>{
+    const sel=document.getElementById(id);if(!sel)return;
+    const prev=sel.value;
+    sel.innerHTML='<option value="">すべてのエリア</option>'+areas.map(a=>`<option>${a}</option>`).join('');
+    if(areas.includes(prev))sel.value=prev;else sel.value='';
+  });
+  const dl=document.getElementById('newAreaDatalist');
+  if(dl)dl.innerHTML=areas.map(a=>`<option value="${a}">`).join('');
+}
+function syncNewPcToArea(){
+  /* 新規登録モーダル：電力会社を変えたらdatalistを切り替え（エリア入力の補助用） */
+  const pc=document.getElementById('newPowerCompany').value;
+  if(!pc)return;
+  const areas=[];
+  (allCases||[]).forEach(c=>{
+    if(c.area_name&&getPowerCompanyFromArea(c.area_name)===pc)areas.push(c.area_name);
+  });
+  const uniq=Array.from(new Set(areas)).sort((a,b)=>a.localeCompare(b,'ja'));
+  const dl=document.getElementById('newAreaDatalist');
+  if(dl)dl.innerHTML=uniq.map(a=>`<option value="${a}">`).join('');
+}
+/* ========== /管轄電力会社 マッピング ========== */
+
 document.addEventListener('DOMContentLoaded',()=>{
   loadCases();
   document.getElementById('logDate').value=new Date().toISOString().split('T')[0];
@@ -559,6 +635,7 @@ async function loadCases(){
     const loMap={};
     (losRes.data||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
     allCases=sortCasesByParentChild((casesRes.data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''})));
+    renderPowerCompanyTabs();populateAreaDropdowns();
     renderCases(allCases);updateStats(allCases);
   }catch(e){showToast('接続エラー: '+e.message,'error');}
 }
@@ -589,6 +666,7 @@ function filterCases(){
   const area=document.getElementById('filterArea').value;
   renderCases(allCases.filter(c=>{
     if(ngBlind&&c.status==='NG')return false;
+    if(currentPowerCompany&&getPowerCompanyFromArea(c.area_name)!==currentPowerCompany)return false;
     return(!q||(c.case_no||'').toLowerCase().includes(q)||(c.area_name||'').toLowerCase().includes(q)||(c.landowner_name||'').toLowerCase().includes(q))
       &&(!kubun||c.kubun===kubun)&&(!status||c.status===status)&&(!area||c.area_name===area);
   }));
@@ -688,12 +766,15 @@ let currentBranchParent=null;
 function openNewCaseModal(){
   currentBranchParent=null;
   document.getElementById('newCaseModalTitle').textContent='新規案件登録';
-  document.getElementById('newCaseModalSubtitle').textContent='案件番号はエリア選択後に自動生成されます';
+  document.getElementById('newCaseModalSubtitle').textContent='案件番号はエリア入力後に自動生成されます';
+  document.getElementById('newPowerCompany').value=currentPowerCompany||'';
+  document.getElementById('newPowerCompany').disabled=false;
   document.getElementById('newArea').disabled=false;
   document.getElementById('newArea').value='';
   document.getElementById('newKubun').value='';
   document.getElementById('newStatus').value='UNKNOWN';
   document.getElementById('newPrice').value='';
+  syncNewPcToArea();
   document.getElementById('newCaseModal').classList.add('open');
 }
 function openBranchModal(parentCaseNo){
@@ -703,6 +784,8 @@ function openBranchModal(parentCaseNo){
   currentBranchParent=parent;
   document.getElementById('newCaseModalTitle').textContent='🌿 枝番を追加';
   document.getElementById('newCaseModalSubtitle').textContent=`親案件: ${parent.case_no}（${parent.area_name||''}）の枝番として追加`;
+  document.getElementById('newPowerCompany').value=getPowerCompanyFromArea(parent.area_name);
+  document.getElementById('newPowerCompany').disabled=true;
   document.getElementById('newArea').value=parent.area_name||'';
   document.getElementById('newArea').disabled=true;
   document.getElementById('newKubun').value=parent.kubun||'';
@@ -711,7 +794,9 @@ function openBranchModal(parentCaseNo){
   document.getElementById('newCaseModal').classList.add('open');
 }
 async function createCase(){
-  const area=document.getElementById('newArea').value,kubun=document.getElementById('newKubun').value;
+  const pc=document.getElementById('newPowerCompany').value;
+  const area=document.getElementById('newArea').value.trim(),kubun=document.getElementById('newKubun').value;
+  if(!pc){showToast('管轄電力会社を選択してください','error');return;}
   if(!area||!kubun){showToast('エリアと発電区分は必須です','error');return;}
   let case_no,parent_case_no=null,branch_no=null;
   if(currentBranchParent){
@@ -729,10 +814,11 @@ async function createCase(){
   const msg=currentBranchParent?`枝番 ${parent_case_no}（枝${branch_no}）を追加しました`:`案件 ${case_no} を登録しました`;
   showToast(msg,'success');
   closeModal('newCaseModal');
+  document.getElementById('newPowerCompany').disabled=false;
   document.getElementById('newArea').disabled=false;
   currentBranchParent=null;
   loadCases();
-  ['newArea','newKubun','newPrice'].forEach(id=>document.getElementById(id).value='');
+  ['newPowerCompany','newArea','newKubun','newPrice'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('newStatus').value='UNKNOWN';
 }
 
@@ -820,11 +906,13 @@ async function loadLandownersMaster(){
     return (a.cases?.branch_no||0)-(b.cases?.branch_no||0);
   });
   renderLandowners(allLandowners);
+  filterLandowners();
 }
 function filterLandowners(){
   const status=document.getElementById('filterLoStatus').value,area=document.getElementById('filterLoArea').value;
   renderLandowners(allLandowners.filter(lo=>{
     if(ngBlind&&lo.cases?.status==='NG')return false;
+    if(currentPowerCompany&&getPowerCompanyFromArea(lo.cases?.area_name)!==currentPowerCompany)return false;
     return(!status||lo.cases?.status===status)&&(!area||lo.cases?.area_name===area);
   }));
 }
@@ -858,11 +946,13 @@ async function loadLandMaster(){
     return (a.cases?.branch_no||0)-(b.cases?.branch_no||0);
   });
   renderLands(allLands);
+  filterLandMaster();
 }
 function filterLandMaster(){
   const area=document.getElementById('filterLandArea').value;
   renderLands(allLands.filter(l=>{
     if(ngBlind&&l.cases?.status==='NG')return false;
+    if(currentPowerCompany&&getPowerCompanyFromArea(l.cases?.area_name)!==currentPowerCompany)return false;
     return !area||l.cases?.area_name===area;
   }));
 }
