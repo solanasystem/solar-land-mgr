@@ -194,8 +194,8 @@
       </div>
       <button class="btn btn-primary" onclick="openNewCaseModal()">＋ 新規案件登録</button>
     </div>
-    <div class="cases-table-header" style="grid-template-columns:120px 140px 140px 140px 150px 80px 1fr 160px">
-      <div>案件番号</div><div>発電区分</div><div>ステータス</div><div>地権者名</div>
+    <div class="cases-table-header" style="grid-template-columns:120px 40px 140px 140px 140px 150px 80px 1fr 160px">
+      <div>案件番号</div><div style="text-align:center">枝</div><div>発電区分</div><div>ステータス</div><div>地権者名</div>
       <div>金額（円）</div><div>エリア</div><div>登録日</div><div>操作</div>
     </div>
   </div>
@@ -323,7 +323,7 @@
 <div class="modal-overlay" id="newCaseModal">
   <div class="modal">
     <div class="modal-header">
-      <div><div class="modal-title">新規案件登録</div><div class="modal-subtitle">案件番号はエリア選択後に自動生成されます</div></div>
+      <div><div class="modal-title" id="newCaseModalTitle">新規案件登録</div><div class="modal-subtitle" id="newCaseModalSubtitle">案件番号はエリア選択後に自動生成されます</div></div>
       <button class="modal-close" onclick="closeModal('newCaseModal')">✕</button>
     </div>
     <div class="modal-body">
@@ -558,7 +558,7 @@ async function loadCases(){
     if(casesRes.error){showToast('データ読み込みエラー: '+casesRes.error.message,'error');document.getElementById('casesList').innerHTML='<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">'+casesRes.error.message+'</div></div>';return;}
     const loMap={};
     (losRes.data||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
-    allCases=((casesRes.data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''}))).sort((a,b)=>(a.case_no||'').localeCompare(b.case_no||'','ja'));
+    allCases=sortCasesByParentChild((casesRes.data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''})));
     renderCases(allCases);updateStats(allCases);
   }catch(e){showToast('接続エラー: '+e.message,'error');}
 }
@@ -597,20 +597,49 @@ function filterCases(){
 function renderCases(cases){
   const el=document.getElementById('casesList');
   if(!cases.length){el.innerHTML='<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-text">案件が登録されていません</div></div>';return;}
-  el.innerHTML=cases.map((c,i)=>`<div class="case-row" style="grid-template-columns:120px 140px 140px 140px 150px 80px 1fr 160px;animation-delay:${i*.03}s">
-    <div class="case-no">${c.case_no||'—'}</div>
-    <div>${kubunBadgeInline(c.id,c.kubun)}</div>
-    <div>${statusBadgeInline(c.id,c.status)}</div>
-    <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.landowner_name||'—'}</div>
-    <div class="price-cell">${c.price?Number(c.price).toLocaleString()+' 円':'—'}</div>
-    <div style="font-size:13px;color:var(--text-muted)">${c.area_name||'—'}</div>
-    <div style="font-size:12px;color:var(--text-muted)">${formatDate(c.created_at)}</div>
-    <div class="actions-cell">
-      <button class="action-btn" onclick="openCaseEditModal('${c.id}')">✏️</button>
-      <button class="action-btn landowner" onclick="openDetail('${c.id}','landowner')">地権者</button>
-      <button class="action-btn land" onclick="openDetail('${c.id}','land')">土地</button>
-    </div>
-  </div>`).join('');
+  el.innerHTML=cases.map((c,i)=>{
+    const isChild=!!c.parent_case_no;
+    const displayNo=isChild?c.parent_case_no:(c.case_no||'—');
+    const caseNoHtml=isChild?`<span style="color:var(--text-muted);margin-right:4px">└</span>${displayNo}`:displayNo;
+    const branchHtml=isChild?`<span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700">${c.branch_no||''}</span>`:'<span style="color:var(--text-muted);font-size:11px">—</span>';
+    const addBranchBtn=isChild?'':`<button class="action-btn" style="border-color:rgba(240,180,41,.4);color:var(--accent)" onclick="openBranchModal('${(c.case_no||'').replace(/'/g,"\\'")}')" title="枝番を追加">＋枝</button>`;
+    return `<div class="case-row" style="grid-template-columns:120px 40px 140px 140px 140px 150px 80px 1fr 160px;animation-delay:${i*.03}s">
+      <div class="case-no"${isChild?' style="padding-left:8px"':''}>${caseNoHtml}</div>
+      <div style="text-align:center">${branchHtml}</div>
+      <div>${kubunBadgeInline(c.id,c.kubun)}</div>
+      <div>${statusBadgeInline(c.id,c.status)}</div>
+      <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.landowner_name||'—'}</div>
+      <div class="price-cell">${c.price?Number(c.price).toLocaleString()+' 円':'—'}</div>
+      <div style="font-size:13px;color:var(--text-muted)">${c.area_name||'—'}</div>
+      <div style="font-size:12px;color:var(--text-muted)">${formatDate(c.created_at)}</div>
+      <div class="actions-cell">
+        <button class="action-btn" onclick="openCaseEditModal('${c.id}')">✏️</button>
+        ${addBranchBtn}
+        <button class="action-btn landowner" onclick="openDetail('${c.id}','landowner')">地権者</button>
+        <button class="action-btn land" onclick="openDetail('${c.id}','land')">土地</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ======== 枝番機能: 親子ソートと表示整形 ========
+function sortCasesByParentChild(arr){
+  return [...arr].sort((a,b)=>{
+    const pa=a.parent_case_no||a.case_no||'';
+    const pb=b.parent_case_no||b.case_no||'';
+    const cmp=pa.localeCompare(pb,'ja');
+    if(cmp!==0)return cmp;
+    const ba=a.parent_case_no?(a.branch_no||0):-1;
+    const bb=b.parent_case_no?(b.branch_no||0):-1;
+    return ba-bb;
+  });
+}
+function displayCaseNoForMaster(cases){
+  if(!cases)return '—';
+  if(cases.parent_case_no){
+    return `${cases.parent_case_no}<span style="color:var(--accent);font-size:10px;margin-left:4px;font-weight:700">(枝${cases.branch_no||''})</span>`;
+  }
+  return cases.case_no||'—';
 }
 
 const KUBUN_LIST=['低圧太陽光','高圧太陽光','低圧蓄電池','高圧蓄電池','営農型太陽光'];
@@ -654,15 +683,54 @@ function safeUrl(url){
   return 'https://'+url;
 }
 
-function openNewCaseModal(){document.getElementById('newCaseModal').classList.add('open');}
+let currentBranchParent=null;
+function openNewCaseModal(){
+  currentBranchParent=null;
+  document.getElementById('newCaseModalTitle').textContent='新規案件登録';
+  document.getElementById('newCaseModalSubtitle').textContent='案件番号はエリア選択後に自動生成されます';
+  document.getElementById('newArea').disabled=false;
+  document.getElementById('newArea').value='';
+  document.getElementById('newKubun').value='';
+  document.getElementById('newStatus').value='UNKNOWN';
+  document.getElementById('newPrice').value='';
+  document.getElementById('newCaseModal').classList.add('open');
+}
+function openBranchModal(parentCaseNo){
+  const parent=allCases.find(c=>c.case_no===parentCaseNo);
+  if(!parent){showToast('親案件が見つかりません','error');return;}
+  if(parent.parent_case_no){showToast('枝番案件には枝番を追加できません','error');return;}
+  currentBranchParent=parent;
+  document.getElementById('newCaseModalTitle').textContent='🌿 枝番を追加';
+  document.getElementById('newCaseModalSubtitle').textContent=`親案件: ${parent.case_no}（${parent.area_name||''}）の枝番として追加`;
+  document.getElementById('newArea').value=parent.area_name||'';
+  document.getElementById('newArea').disabled=true;
+  document.getElementById('newKubun').value=parent.kubun||'';
+  document.getElementById('newStatus').value='UNKNOWN';
+  document.getElementById('newPrice').value='';
+  document.getElementById('newCaseModal').classList.add('open');
+}
 async function createCase(){
   const area=document.getElementById('newArea').value,kubun=document.getElementById('newKubun').value;
   if(!area||!kubun){showToast('エリアと発電区分は必須です','error');return;}
-  const{data:ex}=await db.from('cases').select('id').eq('area_name',area);
-  const case_no=`${area}-${String((ex?.length||0)+1).padStart(3,'0')}`;
-  const{error}=await db.from('cases').insert({case_no,kubun,status:document.getElementById('newStatus').value,area_name:area,price:document.getElementById('newPrice').value?Number(document.getElementById('newPrice').value):null});
+  let case_no,parent_case_no=null,branch_no=null;
+  if(currentBranchParent){
+    parent_case_no=currentBranchParent.case_no;
+    const{data:siblings}=await db.from('cases').select('branch_no').eq('parent_case_no',parent_case_no);
+    const maxBranch=(siblings||[]).reduce((m,s)=>Math.max(m,s.branch_no||0),0);
+    branch_no=maxBranch+1;
+    case_no=`${parent_case_no}_${String(branch_no).padStart(3,'0')}`;
+  }else{
+    const{data:ex}=await db.from('cases').select('id').eq('area_name',area).is('parent_case_no',null);
+    case_no=`${area}-${String((ex?.length||0)+1).padStart(3,'0')}`;
+  }
+  const{error}=await db.from('cases').insert({case_no,kubun,status:document.getElementById('newStatus').value,area_name:area,price:document.getElementById('newPrice').value?Number(document.getElementById('newPrice').value):null,parent_case_no,branch_no});
   if(error){showToast('登録エラー: '+error.message,'error');return;}
-  showToast(`案件 ${case_no} を登録しました`,'success');closeModal('newCaseModal');loadCases();
+  const msg=currentBranchParent?`枝番 ${parent_case_no}（枝${branch_no}）を追加しました`:`案件 ${case_no} を登録しました`;
+  showToast(msg,'success');
+  closeModal('newCaseModal');
+  document.getElementById('newArea').disabled=false;
+  currentBranchParent=null;
+  loadCases();
   ['newArea','newKubun','newPrice'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('newStatus').value='UNKNOWN';
 }
@@ -670,7 +738,8 @@ async function createCase(){
 async function openDetail(caseId,mode){
   currentCaseId=caseId;
   const c=allCases.find(x=>String(x.id)===String(caseId));if(!c)return;
-  document.getElementById('detailCaseInfo').innerHTML=`<span class="detail-case-no">${c.case_no}</span>${kubunBadge(c.kubun)}${statusBadge(c.status)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
+  const displayNo=c.parent_case_no?`${c.parent_case_no}<span style="color:var(--accent);font-size:12px;margin-left:6px;font-weight:700">(枝${c.branch_no||''})</span>`:c.case_no;
+  document.getElementById('detailCaseInfo').innerHTML=`<span class="detail-case-no">${displayNo}</span>${kubunBadge(c.kubun)}${statusBadge(c.status)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
   const tab=mode==='land'?'tab-land':'tab-landowner';
   document.querySelectorAll('.detail-tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab-pane').forEach(t=>t.classList.remove('active'));
@@ -741,8 +810,14 @@ function switchNav(btn,section){
 
 let allLandowners=[];
 async function loadLandownersMaster(){
-  const{data}=await db.from('landowner_info').select('*,cases(case_no,status,kubun,area_name)').order('case_id');
-  allLandowners=(data||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
+  const{data}=await db.from('landowner_info').select('*,cases(case_no,status,kubun,area_name,parent_case_no,branch_no)').order('case_id');
+  allLandowners=(data||[]).sort((a,b)=>{
+    const pa=a.cases?.parent_case_no||a.cases?.case_no||'';
+    const pb=b.cases?.parent_case_no||b.cases?.case_no||'';
+    const cmp=pa.localeCompare(pb,'ja');
+    if(cmp!==0)return cmp;
+    return (a.cases?.branch_no||0)-(b.cases?.branch_no||0);
+  });
   renderLandowners(allLandowners);
 }
 function filterLandowners(){
@@ -756,7 +831,7 @@ function renderLandowners(los){
   const el=document.getElementById('landownersList');
   if(!los||!los.length){el.innerHTML='<div class="empty-state"><div class="empty-state-icon">🧑</div><div class="empty-state-text">地権者情報が登録されていません</div></div>';return;}
   el.innerHTML=los.map((lo,i)=>`<div class="case-row" style="grid-template-columns:120px 160px 1fr 120px 140px 1fr 160px;animation-delay:${i*.03}s">
-    <div class="case-no">${lo.cases?.case_no||'—'}</div>
+    <div class="case-no">${displayCaseNoForMaster(lo.cases)}</div>
     <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lo.name||'—'}</div>
     <div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lo.postal_code?`<span style="color:#58a6ff;font-family:var(--font-mono)">〒${lo.postal_code}</span> `:''}${lo.address||'—'}</div>
     <div style="font-family:var(--font-mono);font-size:12px;color:var(--text)">${lo.price?Number(lo.price).toLocaleString()+' 円':'—'}</div>
@@ -769,12 +844,18 @@ function renderLandowners(los){
 let allLands=[];
 async function loadLandMaster(){
   const[ldRes,loRes]=await Promise.all([
-    db.from('land_info').select('*,cases(case_no,status,area_name,price)'),
+    db.from('land_info').select('*,cases(case_no,status,area_name,price,parent_case_no,branch_no)'),
     db.from('landowner_info').select('case_id,name')
   ]);
   const loMap={};
   (loRes.data||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
-  allLands=((ldRes.data||[]).map(l=>({...l,landowner_name:loMap[l.case_id]||''}))).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
+  allLands=((ldRes.data||[]).map(l=>({...l,landowner_name:loMap[l.case_id]||''}))).sort((a,b)=>{
+    const pa=a.cases?.parent_case_no||a.cases?.case_no||'';
+    const pb=b.cases?.parent_case_no||b.cases?.case_no||'';
+    const cmp=pa.localeCompare(pb,'ja');
+    if(cmp!==0)return cmp;
+    return (a.cases?.branch_no||0)-(b.cases?.branch_no||0);
+  });
   renderLands(allLands);
 }
 function filterLandMaster(){
@@ -797,7 +878,7 @@ function renderLands(lands){
     const hazText=hazRaw.includes('http')?hazRaw.split(/https?:\/\//)[0].replace(/\/\s*$/,'').trim():hazRaw;
     const mapUrl=land.google_map?safeUrl(land.google_map):(land.hazard&&land.hazard.includes('http')?land.hazard.match(/https?:\/\/\S+/)?.[0]:null);
     return `<div class="case-row" style="grid-template-columns:120px 140px 1fr 120px 100px 150px 150px 60px 80px;animation-delay:${i*.03}s">
-      <div class="case-no" style="cursor:pointer;text-decoration:underline;text-decoration-color:rgba(163,113,247,.4);" onclick="openDetail('${land.case_id}','land')">${land.cases?.case_no||'—'}</div>
+      <div class="case-no" style="cursor:pointer;text-decoration:underline;text-decoration-color:rgba(163,113,247,.4);" onclick="openDetail('${land.case_id}','land')">${displayCaseNoForMaster(land.cases)}</div>
       <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${land.landowner_name||'—'}</div>
       <div style="font-size:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${soZai}</div>
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--text)">${land.cases?.price?Number(land.cases.price).toLocaleString()+' 円':'—'}</div>
@@ -825,7 +906,7 @@ function renderRealestate(data){
   el.innerHTML=list.map((r,i)=>{
     const compIsAddr=r.company_name&&(r.company_name.includes('県')||r.company_name.includes('府')||r.company_name.includes('都')||r.company_name.includes('道')||r.company_name.includes('市')||r.company_name.includes('町'))&&r.company_name.length>10;
     return `<div class="case-row" style="grid-template-columns:120px 220px 140px 120px 1fr 80px;animation-delay:${i*.03}s">
-      <div class="case-no">${r.cases?.case_no||'—'}</div>
+      <div class="case-no">${displayCaseNoForMaster(r.cases)}</div>
       <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${compIsAddr?(r.contract_status||r.staff_name||'—'):(r.company_name||'—')}</div>
       <div style="font-size:13px;white-space:nowrap">${r.tel||'—'}</div>
       <div style="font-size:13px;color:var(--text-muted)">${compIsAddr?'—':(r.contract_status||'—')}</div>
@@ -835,8 +916,14 @@ function renderRealestate(data){
   }).join('');
 }
 async function loadRealestateMaster(){
-  const{data}=await db.from('realestate_info').select('*,cases(case_no,status)');
-  allRealestate=(data||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
+  const{data}=await db.from('realestate_info').select('*,cases(case_no,status,parent_case_no,branch_no)');
+  allRealestate=(data||[]).sort((a,b)=>{
+    const pa=a.cases?.parent_case_no||a.cases?.case_no||'';
+    const pb=b.cases?.parent_case_no||b.cases?.case_no||'';
+    const cmp=pa.localeCompare(pb,'ja');
+    if(cmp!==0)return cmp;
+    return (a.cases?.branch_no||0)-(b.cases?.branch_no||0);
+  });
   reSortOrder=null;
   document.querySelectorAll('#rePriceSortIcon,#rePriceSortIcon2').forEach(el=>el.textContent='↕');
   renderRealestate(allRealestate);
@@ -880,7 +967,8 @@ function autoExtractLatLng(){
 function openCaseEditModal(caseId){
   const c=allCases.find(x=>String(x.id)===String(caseId));if(!c)return;
   currentCaseId=caseId;
-  document.getElementById('editCaseNo').textContent=c.case_no;
+  const displayNo=c.parent_case_no?`${c.parent_case_no}（枝${c.branch_no||''}）`:c.case_no;
+  document.getElementById('editCaseNo').textContent=displayNo;
   document.getElementById('ec_kubun').value=c.kubun||'';
   document.getElementById('ec_status').value=c.status||'UNKNOWN';
   document.getElementById('ec_price').value=c.price||'';
@@ -888,17 +976,35 @@ function openCaseEditModal(caseId){
 }
 async function refreshAll(){
   const{data}=await db.from('cases').select('*').order('created_at',{ascending:false});
-  const{data:loData}=await db.from('landowner_info').select('*,cases(case_no,status,kubun,area_name)').order('case_id');
-  const{data:ldData}=await db.from('land_info').select('*,cases(case_no,status,area_name,price)');
-  const{data:reData}=await db.from('realestate_info').select('*,cases(case_no,area_name)');
+  const{data:loData}=await db.from('landowner_info').select('*,cases(case_no,status,kubun,area_name,parent_case_no,branch_no)').order('case_id');
+  const{data:ldData}=await db.from('land_info').select('*,cases(case_no,status,area_name,price,parent_case_no,branch_no)');
+  const{data:reData}=await db.from('realestate_info').select('*,cases(case_no,area_name,parent_case_no,branch_no)');
   const loMap={};
   (loData||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
-  allCases=((data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''}))).sort((a,b)=>(a.case_no||'').localeCompare(b.case_no||'','ja'));
+  allCases=sortCasesByParentChild((data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''})));
   updateStats(allCases);
   filterCases();
-  allLandowners=(loData||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
-  allLands=((ldData||[]).map(l=>({...l,landowner_name:loMap[l.case_id]||''}))).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
-  allRealestate=(reData||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
+  allLandowners=(loData||[]).sort((a,b)=>{
+    const pa=a.cases?.parent_case_no||a.cases?.case_no||'';
+    const pb=b.cases?.parent_case_no||b.cases?.case_no||'';
+    const cmp=pa.localeCompare(pb,'ja');
+    if(cmp!==0)return cmp;
+    return (a.cases?.branch_no||0)-(b.cases?.branch_no||0);
+  });
+  allLands=((ldData||[]).map(l=>({...l,landowner_name:loMap[l.case_id]||''}))).sort((a,b)=>{
+    const pa=a.cases?.parent_case_no||a.cases?.case_no||'';
+    const pb=b.cases?.parent_case_no||b.cases?.case_no||'';
+    const cmp=pa.localeCompare(pb,'ja');
+    if(cmp!==0)return cmp;
+    return (a.cases?.branch_no||0)-(b.cases?.branch_no||0);
+  });
+  allRealestate=(reData||[]).sort((a,b)=>{
+    const pa=a.cases?.parent_case_no||a.cases?.case_no||'';
+    const pb=b.cases?.parent_case_no||b.cases?.case_no||'';
+    const cmp=pa.localeCompare(pb,'ja');
+    if(cmp!==0)return cmp;
+    return (a.cases?.branch_no||0)-(b.cases?.branch_no||0);
+  });
   const vis=document.getElementById('landownersSection').style.display!=='none';
   const visLd=document.getElementById('landSection').style.display!=='none';
   const visRe=document.getElementById('realestateSection').style.display!=='none';
@@ -907,7 +1013,10 @@ async function refreshAll(){
   if(visRe)renderRealestate(allRealestate);
   if(currentCaseId){
     const c=allCases.find(x=>String(x.id)===String(currentCaseId));
-    if(c)document.getElementById('detailCaseInfo').innerHTML=`<span class="detail-case-no">${c.case_no}</span>${kubunBadge(c.kubun)}${statusBadge(c.status)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
+    if(c){
+      const displayNo=c.parent_case_no?`${c.parent_case_no}<span style="color:var(--accent);font-size:12px;margin-left:6px;font-weight:700">(枝${c.branch_no||''})</span>`:c.case_no;
+      document.getElementById('detailCaseInfo').innerHTML=`<span class="detail-case-no">${displayNo}</span>${kubunBadge(c.kubun)}${statusBadge(c.status)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
+    }
   }
 }
 async function saveCase(){
@@ -917,7 +1026,12 @@ async function saveCase(){
 }
 async function deleteCase(){
   const c=allCases.find(x=>String(x.id)===String(currentCaseId));
-  if(!confirm(`案件「${c?.case_no}」を削除しますか？\n関連する地権者・土地・商談記録もすべて削除されます。`))return;
+  const children=allCases.filter(x=>x.parent_case_no===c?.case_no);
+  let msg=`案件「${c?.case_no}」を削除しますか？\n関連する地権者・土地・商談記録もすべて削除されます。`;
+  if(children.length>0){
+    msg=`⚠ 親案件「${c?.case_no}」を削除すると、${children.length}件の枝番案件もすべて削除されます。\n（${children.map(x=>'枝'+x.branch_no).join('、')}）\n\n本当に削除しますか？`;
+  }
+  if(!confirm(msg))return;
   const{error}=await db.from('cases').delete().eq('id',currentCaseId);
   if(error){showToast('削除エラー','error');return;}
   showToast('案件を削除しました');closeModal('editCaseModal');await refreshAll();
