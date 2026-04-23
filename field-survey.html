@@ -3,23 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>地権者訪問マップ | SOLAR LAND MGR</title>
+<title>現地調査マップ | SOLAR LAND MGR</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="mobile-responsive.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
-<script type="module">
-  // pmtiles \u3068 \u30d9\u30af\u30bf\u30fc\u30bf\u30a4\u30eb\u30c7\u30b3\u30fc\u30c0\u3092\u8aad\u307f\u8fbc\u307f\u3001\u30b0\u30ed\u30fc\u30d0\u30eb\u306b\u30a8\u30af\u30b9\u30dd\u30fc\u30c8
-  import * as pmtilesModule from 'https://esm.sh/pmtiles@3.0.6';
-  const vtModule = await import('https://esm.sh/@mapbox/vector-tile@1.3.1');
-  const pbfModule = await import('https://esm.sh/pbf@3.2.1');
-  window.__PMT = new pmtilesModule.PMTiles('https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/aichi.pmtiles');
-  window.__VT = vtModule.VectorTile;
-  window.__Pbf = pbfModule.default;
-  window.dispatchEvent(new Event('pmtReady'));
-</script>
 <style>
   :root {
     --bg: #0d1117;
@@ -37,6 +26,7 @@
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: var(--bg); color: var(--text); font-family: var(--font-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
   .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 20px; height: 52px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 1000; }
   .header-left { display: flex; align-items: center; gap: 12px; }
   .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--text); }
@@ -44,21 +34,267 @@
   .logo-text { font-size: 14px; font-weight: 700; }
   .page-title { font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
   .page-title::before { content: '/'; color: var(--border); }
-  .phase-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; }
-  .phase-plan { background: rgba(88,166,255,0.15); color: var(--blue); border: 1px solid rgba(88,166,255,0.3); }
-  .phase-visit { background: rgba(240,180,41,0.15); color: var(--accent); border: 1px solid rgba(240,180,41,0.3); }
-  .legend { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--text-muted); }
-  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--text-muted); }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
   .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
   .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); font-family: var(--font-main); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
   .btn-ghost { background: none; color: var(--text-muted); }
   .btn-ghost:hover { background: var(--surface2); color: var(--text); }
-  .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); }
-  .btn-primary:hover { background: #e0a820; }
-  .btn-danger { background: var(--red); color: #fff; border-color: var(--red); }
+
   .map-wrapper { flex: 1; position: relative; overflow: hidden; }
   #map { width: 100%; height: 100%; }
+
   .leaflet-top.leaflet-left { display: none; }
+
+  .control-panel {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 110px;
+    transition: left 0.3s ease;
+  }
+  .control-panel.shifted { left: 272px; }
+
+  .action-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 200px; }
+  .action-panel-title { font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: .08em; text-transform: uppercase; }
+  .btn-start { background: var(--accent); color: #000; border: none; border-radius: 6px; padding: 8px 14px; font-family: var(--font-main); font-size: 12px; font-weight: 700; cursor: pointer; transition: background 0.15s; }
+  .btn-start:hover { background: #e0a820; }
+  .btn-start:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-reset { background: none; color: var(--red); border: 1px solid var(--red); border-radius: 6px; padding: 7px 14px; font-family: var(--font-main); font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+  .btn-reset:hover { background: rgba(248,81,73,0.1); }
+
+  .zoom-controls { position: absolute; bottom: 80px; right: 12px; z-index: 500; display: flex; flex-direction: column; gap: 2px; }
+  .zoom-btn { width: 32px; height: 32px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 18px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
+  .zoom-btn:hover { background: var(--surface2); }
+  .zoom-level { width: 32px; height: 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--accent); font-family: var(--font-mono); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+  .stats-overlay {
+    position: absolute;
+    top: 52px;
+    left: 12px;
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: left 0.3s ease;
+  }
+  .stats-overlay.shifted { left: 272px; }
+
+  .stat-pill { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .stat-pill-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ======== レイヤーコントロール（ハザード複数対応） ======== */
+  .layer-control {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 500;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 180px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* パネル折りたたみ・レスポンシブ対応 */
+  .layer-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    margin-bottom: 2px;
+  }
+  .layer-panel-toggle {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 6px;
+    transition: transform 0.2s;
+    line-height: 1;
+    border-radius: 4px;
+  }
+  .layer-panel-toggle:hover { background: var(--surface2); color: var(--text); }
+  .layer-control.collapsed .layer-panel-toggle { transform: rotate(-90deg); }
+  .layer-control.collapsed .layer-body { display: none; }
+  .layer-control.collapsed {
+    min-width: 0;
+    padding: 8px 12px;
+    max-height: none;
+    overflow: visible;
+  }
+  .layer-body { display: flex; flex-direction: column; gap: 6px; }
+  @media (max-width: 1024px) {
+    .layer-control {
+      font-size: 11px;
+      padding: 8px 10px;
+      min-width: 150px;
+      max-height: calc(100vh - 100px);
+    }
+    .layer-control .layer-item,
+    .layer-control .hazard-toggle-btn { font-size: 11px; }
+  }
+  @media (max-width: 480px) {
+    .layer-control {
+      max-width: 170px;
+      max-height: calc(100vh - 80px);
+      padding: 6px 8px;
+    }
+  }
+  .layer-title { font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 2px; }
+  .layer-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); cursor: pointer; }
+  .layer-item input[type=checkbox] { accent-color: var(--accent); }
+  .layer-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-top: 4px;
+    margin-bottom: 0px;
+    border-top: 1px solid var(--border);
+    padding-top: 6px;
+  }
+  /* ハザードトグルボタン */
+  .hazard-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 5px;
+    border: 1px solid transparent;
+    background: none;
+    font-family: var(--font-main);
+    width: 100%;
+    text-align: left;
+    transition: all 0.15s;
+  }
+  .hazard-toggle-btn:hover { background: var(--surface2); color: var(--text); }
+  .hazard-toggle-btn.active {
+    background: rgba(240,180,41,0.12);
+    border-color: rgba(240,180,41,0.4);
+    color: var(--accent);
+  }
+  .hazard-toggle-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--border);
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .hazard-toggle-btn.active .hazard-toggle-dot { background: var(--accent); }
+  /* 農振農用地ツールチップ */
+  .farmland-tooltip{background:#161b22;border:1px solid #f0b429;border-radius:6px;color:#e6edf3;font-size:12px;padding:4px 10px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);}
+  .farmland-tooltip::before{display:none;}
+
+  .survey-list-panel {
+    position: absolute;
+    top: 0; left: 0;
+    width: 260px;
+    height: 100%;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    z-index: 600;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    display: flex;
+    flex-direction: column;
+  }
+  .survey-list-panel.open { transform: translateX(0); }
+  .survey-list-header {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--surface2);
+    flex-shrink: 0;
+  }
+  .survey-list-title { font-size: 12px; font-weight: 700; color: var(--text); }
+  .survey-list-count { font-size: 11px; color: var(--accent); font-family: var(--font-mono); }
+  .survey-table-wrap { flex: 1; overflow-y: auto; padding: 8px; }
+  .survey-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .survey-table thead tr { background: var(--surface2); position: sticky; top: 0; z-index: 1; }
+  .survey-table th { padding: 7px 8px; text-align: left; font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .survey-table th:first-child { width: 36px; text-align: center; }
+  .survey-table td { padding: 7px 8px; border-bottom: 1px solid rgba(48,54,61,0.5); vertical-align: middle; color: var(--text); }
+  .survey-table td:first-child { text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--accent); font-weight: 700; }
+  .survey-table tr:hover td { background: var(--surface2); }
+  .survey-table tr.confirmed td { opacity: 0.5; }
+
+  .leaflet-popup-content-wrapper { background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: 10px !important; color: var(--text) !important; box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important; padding: 0 !important; min-width: 280px; }
+  .leaflet-popup-tip { background: var(--surface) !important; }
+  .leaflet-popup-content { margin: 0 !important; }
+  .popup-body { padding: 16px; font-family: var(--font-main); }
+  .popup-case-no { font-family: var(--font-mono); font-size: 13px; color: var(--accent); font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
+  .popup-status { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+  .popup-status.unchecked { background: rgba(240,180,41,0.15); color: var(--accent); }
+  .popup-status.checked { background: rgba(248,81,73,0.15); color: var(--red); }
+  .popup-status.planned { background: rgba(63,185,80,0.15); color: var(--green); }
+  .popup-info { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
+  .popup-row { display: flex; gap: 8px; font-size: 12px; line-height: 1.5; }
+  .popup-label { color: var(--text-muted); min-width: 72px; flex-shrink: 0; }
+  .popup-value { color: var(--text); }
+  .popup-landowner-link { color: var(--blue); cursor: pointer; text-decoration: underline; }
+  .popup-landowner-link:hover { color: var(--accent); }
+  .popup-divider { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+  .popup-comment { background: var(--bg); border-radius: 6px; padding: 8px 10px; font-size: 12px; color: var(--text-muted); margin-bottom: 10px; line-height: 1.5; font-style: italic; }
+  .popup-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .popup-btn { flex: 1; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border); background: none; color: var(--text); font-family: var(--font-main); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; text-align: center; min-width: 80px; }
+  .popup-btn:hover { background: var(--surface2); }
+  .popup-btn.confirm { background: var(--red); border-color: var(--red); color: #fff; }
+  .popup-btn.confirm:hover { background: #d9342b; }
+  .popup-btn.confirmed-label { background: rgba(248,81,73,0.1); border-color: var(--red); color: var(--red); cursor: default; }
+  .popup-btn.plan-btn { border-color: var(--green); color: var(--green); }
+  .popup-btn.plan-btn:hover { background: rgba(63,185,80,0.1); }
+  .popup-btn.planned-btn { background: rgba(63,185,80,0.15); border-color: var(--green); color: var(--green); }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 480px; transform: scale(0.95); transition: transform 0.2s; }
+  .modal-overlay.open .modal { transform: scale(1); }
+  .modal-header { padding: 18px 20px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .modal-title { font-size: 15px; font-weight: 700; }
+  .modal-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .modal-close { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 4px; border-radius: 4px; }
+  .modal-close:hover { background: var(--surface2); color: var(--text); }
+  .modal-body { padding: 18px 20px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .form-label { font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.06em; text-transform: uppercase; }
+  .form-textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; color: var(--text); font-family: var(--font-main); font-size: 13px; resize: vertical; min-height: 100px; transition: border-color 0.2s; }
+  .form-textarea:focus { outline: none; border-color: var(--accent); }
+  .modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+  .btn-primary { background: var(--red); color: #fff; border-color: var(--red); }
+  .btn-primary:hover { background: #d9342b; }
+
+  .side-panel { position: absolute; top: 0; right: 0; width: 320px; height: 100%; background: var(--surface); border-left: 1px solid var(--border); z-index: 600; transform: translateX(100%); transition: transform 0.3s ease; overflow-y: auto; display: flex; flex-direction: column; }
+  .side-panel.open { transform: translateX(0); }
+  .side-panel-header { padding: 16px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: var(--surface); z-index: 1; }
+  .side-panel-title { font-size: 14px; font-weight: 700; }
+  .side-panel-body { padding: 16px 18px; flex: 1; }
+  .info-item { margin-bottom: 14px; }
+  .info-label { font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 3px; }
+  .info-value { font-size: 13px; color: var(--text); line-height: 1.5; }
+
+  .toast-container { position: fixed; bottom: 20px; right: 60px; z-index: 3000; display: flex; flex-direction: column; gap: 8px; }
+  .toast { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 11px 16px; font-size: 13px; min-width: 220px; animation: slideIn 0.3s ease; display: flex; align-items: center; gap: 8px; }
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error { border-left: 3px solid var(--red); }
   /* ======== 地番検索 ======== */
   .chiban-search{position:absolute;top:12px;left:12px;z-index:501;width:260px;}
   .chiban-search input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px 8px 32px;color:var(--text);font-family:var(--font-main);font-size:12px;outline:none;}
@@ -68,293 +304,143 @@
   .chiban-result-item{padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid rgba(48,54,61,0.5);color:var(--text);}
   .chiban-result-item:hover{background:var(--surface2);}
   .chiban-result-item:last-child{border-bottom:none;}
-  .control-panel { position: absolute; top: 52px; left: 12px; z-index: 500; display: flex; flex-direction: column; gap: 8px; transition: left 0.3s ease; }
-  .control-panel.shifted { left: 272px; }
-  .stat-pill { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 12px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-  .stat-pill-dot { width: 8px; height: 8px; border-radius: 50%; }
-  .action-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 200px; }
-  .action-panel-title { font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 2px; }
-  .zoom-controls { position: absolute; bottom: 80px; right: 12px; z-index: 500; display: flex; flex-direction: column; gap: 2px; }
-  .zoom-btn { width: 32px; height: 32px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 18px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
-  .zoom-btn:hover { background: var(--surface2); }
-  .layer-control { position: absolute; top: 12px; right: 12px; z-index: 500; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 160px; max-height: calc(100vh - 120px); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
-  .layer-title { font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: .08em; text-transform: uppercase; }
-  .layer-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); cursor: pointer; }
-  .layer-item input[type=checkbox] { accent-color: var(--blue); }
-  /* ======== ハザード+都市計画+農振 コントロール（farmland-tracker互換） ======== */
-  .hazard-controls{position:absolute;top:130px;right:12px;z-index:500;display:flex;flex-direction:column;gap:4px;max-height:calc(100vh - 160px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;width:150px;}
-  /* ハザードパネル折りたたみ・レスポンシブ対応 */
-  .hazard-panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    cursor: pointer;
-    user-select: none;
-    padding: 4px 8px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    margin-bottom: 2px;
-    position: sticky;
-    top: 0;
-    z-index: 2;
-  }
-  .hazard-panel-title {
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--text-muted);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  .hazard-panel-toggle {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    font-size: 11px;
-    cursor: pointer;
-    padding: 2px 4px;
-    transition: transform 0.2s;
-    line-height: 1;
-    border-radius: 4px;
-  }
-  .hazard-panel-toggle:hover { background: var(--surface); color: var(--text); }
-  .hazard-controls.collapsed .hazard-panel-toggle { transform: rotate(-90deg); }
-  .hazard-controls.collapsed .hazard-body { display: none; }
-  .hazard-controls.collapsed {
-    max-height: none;
-    overflow: visible;
-    width: auto;
-    min-width: 120px;
-  }
-  .hazard-body { display: flex; flex-direction: column; gap: 4px; }
-  @media (max-width: 1024px) {
-    .layer-control {
-      font-size: 11px;
-      padding: 8px 10px;
-      min-width: 140px;
-      max-height: calc(100vh - 100px);
-    }
-    .layer-control .layer-item { font-size: 11px; }
-    .hazard-controls {
-      top: 120px;
-      width: 130px;
-      max-height: calc(100vh - 140px);
-    }
-    .hazard-controls .hazard-btn,
-    .hazard-controls .hazard-toggle-btn { font-size: 10px; padding: 4px 8px; }
-  }
-  @media (max-width: 480px) {
-    .layer-control {
-      max-width: 160px;
-      max-height: calc(100vh - 80px);
-      padding: 6px 8px;
-    }
-    .hazard-controls {
-      top: 110px;
-      width: 120px;
-      max-height: calc(100vh - 130px);
-    }
-  }
-  .hazard-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text-muted);font-family:var(--font-main);font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.15s;text-align:left;}
-  .hazard-btn:hover{background:var(--surface2);color:var(--text);}
-  .hazard-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(240,180,41,.12);}
-  .hazard-divider{border-top:1px solid var(--border);margin:2px 0;}
-  .hazard-toggle-btn{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-muted);cursor:pointer;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);font-family:var(--font-main);width:100%;text-align:left;transition:all 0.15s;font-weight:600;}
-  .hazard-toggle-dot{width:8px;height:8px;border-radius:50%;background:var(--border);flex-shrink:0;transition:background 0.15s;}
-  .hazard-toggle-btn.active{background:rgba(240,180,41,0.12);border-color:var(--accent);color:var(--accent);}
-  .hazard-toggle-btn.active .hazard-toggle-dot{background:var(--accent);}
-  .hazard-toggle-btn:hover{background:var(--surface2);color:var(--text);}
-  .farmland-tooltip{background:#161b22;border:1px solid #f0b429;border-radius:6px;color:#e6edf3;font-size:12px;padding:4px 10px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);}
-  .farmland-tooltip::before{display:none;}
-  .leaflet-popup-content-wrapper { background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: 10px !important; color: var(--text) !important; box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important; padding: 0 !important; min-width: 260px; }
-  .leaflet-popup-tip { background: var(--surface) !important; }
-  .leaflet-popup-content { margin: 0 !important; }
-  .popup-body { padding: 14px; font-family: var(--font-main); }
-  .popup-name { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
-  .popup-case-no { font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
-  .popup-info { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-  .popup-row { display: flex; gap: 8px; font-size: 12px; }
-  .popup-label { color: var(--text-muted); min-width: 56px; flex-shrink: 0; }
-  .popup-value { color: var(--text); }
-  .popup-divider { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
-  .popup-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-  .popup-btn { flex: 1; padding: 7px 8px; border-radius: 6px; border: 1px solid var(--border); background: none; color: var(--text); font-family: var(--font-main); font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.15s; text-align: center; min-width: 80px; }
-  .popup-btn:hover { background: var(--surface2); }
-  .popup-btn.select-btn { border-color: var(--blue); color: var(--blue); }
-  .popup-btn.select-btn:hover { background: rgba(88,166,255,0.1); }
-  .popup-btn.selected-btn { background: rgba(240,180,41,0.15); border-color: var(--accent); color: var(--accent); }
-  .popup-btn.nav-btn { background: var(--green); border-color: var(--green); color: #fff; font-weight: 700; }
-  .popup-btn.complete-btn { background: var(--red); border-color: var(--red); color: #fff; }
-  .popup-btn.completed-btn { background: rgba(248,81,73,0.1); border-color: var(--red); color: var(--red); cursor: default; }
-  .popup-btn.undo-btn { border-color: var(--text-muted); color: var(--text-muted); }
-  .popup-btn.undo-btn:hover { background: var(--surface2); color: var(--text); }
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
-  .modal-overlay.open { opacity: 1; pointer-events: all; }
-  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 480px; transform: scale(0.95); transition: transform 0.2s; }
-  .modal-overlay.open .modal { transform: scale(1); }
-  .modal-header { padding: 16px 20px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-  .modal-title { font-size: 15px; font-weight: 700; }
-  .modal-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-  .modal-close { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 4px; border-radius: 4px; }
-  .modal-close:hover { background: var(--surface2); color: var(--text); }
-  .modal-body { padding: 16px 20px; }
-  .modal-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
-  .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
-  .form-label { font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: .06em; text-transform: uppercase; }
-  .form-input, .form-textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 9px 12px; color: var(--text); font-family: var(--font-main); font-size: 13px; transition: border-color 0.2s; }
-  .form-input:focus, .form-textarea:focus { outline: none; border-color: var(--blue); }
-  .form-textarea { resize: vertical; min-height: 80px; }
-  .owner-list-panel { position: absolute; top: 0; left: 0; width: 260px; height: 100%; background: var(--surface); border-right: 1px solid var(--border); z-index: 600; transform: translateX(-100%); transition: transform 0.3s ease; display: flex; flex-direction: column; }
-  .owner-list-panel.open { transform: translateX(0); }
-  .owner-list-header { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--surface2); flex-shrink: 0; }
-  .owner-list-title { font-size: 12px; font-weight: 700; color: var(--text); }
-  .owner-list-count { font-size: 11px; color: var(--accent); font-family: var(--font-mono); }
-  .owner-table-wrap { flex: 1; overflow-y: auto; padding: 8px; }
-  .owner-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  .owner-table thead tr { background: var(--surface2); position: sticky; top: 0; z-index: 1; }
-  .owner-table th { padding: 7px 8px; text-align: left; font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  .owner-table th:first-child { width: 36px; text-align: center; }
-  .owner-table td { padding: 7px 8px; border-bottom: 1px solid rgba(48,54,61,0.5); vertical-align: middle; color: var(--text); }
-  .owner-table td:first-child { text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--accent); font-weight: 700; }
-  .owner-table tr:hover td { background: var(--surface2); }
-  .owner-table tr.visited td { opacity: 0.5; }
-  .owner-table tr.visited td:first-child::after { content: '\u2713'; color: var(--red); }
-  .side-panel { position: absolute; top: 0; right: 0; width: 280px; height: 100%; background: var(--surface); border-left: 1px solid var(--border); z-index: 600; transform: translateX(100%); transition: transform 0.3s ease; display: flex; flex-direction: column; }
-  .side-panel.open { transform: translateX(0); }
-  .side-panel-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--surface); }
-  .side-panel-title { font-size: 13px; font-weight: 700; }
-  .plan-list { flex: 1; overflow-y: auto; padding: 10px; }
-  .plan-item { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; border-left: 3px solid var(--blue); }
-  .plan-item.visited { border-left-color: var(--red); opacity: 0.6; }
-  .plan-item-name { font-size: 13px; font-weight: 600; }
-  .plan-item-case { font-family: var(--font-mono); font-size: 10px; color: var(--accent); margin-top: 2px; }
-  .plan-item-address { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
-  .toast-container { position: fixed; bottom: 20px; right: 60px; z-index: 3000; display: flex; flex-direction: column; gap: 8px; }
-  .toast { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 11px 16px; font-size: 13px; min-width: 220px; animation: slideIn 0.3s ease; display: flex; align-items: center; gap: 8px; }
-  .toast.success { border-left: 3px solid var(--green); }
-  .toast.error { border-left: 3px solid var(--red); }
+  .farmland-cluster { background: rgba(88,166,255,0.85); border-radius: 50%; border: 2px solid rgba(255,255,255,0.6); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-family: var(--font-mono); box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
   @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
-  .leaflet-tooltip { background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: 6px !important; color: var(--text) !important; font-family: var(--font-main) !important; font-size: 12px !important; font-weight: 500 !important; padding: 5px 10px !important; box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important; white-space: nowrap !important; }
-  .leaflet-tooltip-top::before { border-top-color: var(--border) !important; }
 
   /* ======== ドラッグ可能パネル 共通CSS ======== */
-  .drag-grip {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    height: 14px;
-    cursor: grab;
-    user-select: none;
-    background: linear-gradient(180deg, var(--surface2), var(--surface));
-    border-bottom: 1px solid var(--border);
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    position: relative;
-    flex-shrink: 0;
-  }
-  .drag-grip::before, .drag-grip::after {
-    content: '';
-    width: 3px;
-    height: 3px;
-    border-radius: 50%;
-    background: var(--text-muted);
-    box-shadow: 6px 0 0 var(--text-muted), 12px 0 0 var(--text-muted);
-  }
-  .drag-grip:hover { background: var(--surface); cursor: grab; }
-  .drag-grip:active { cursor: grabbing; }
   body.dragging-panel * { user-select: none !important; cursor: grabbing !important; }
   body.dragging-panel .draggable-panel { transition: none !important; }
-  .hazard-panel-header, .mc-panel-header { cursor: grab; }
-  .hazard-panel-header:active, .mc-panel-header:active { cursor: grabbing; }
+  .layer-panel-header, .mc-panel-header { cursor: grab; }
+  .layer-panel-header:active, .mc-panel-header:active { cursor: grabbing; }
   .draggable-panel { touch-action: none; }
 </style>
 </head>
 <body>
+
 <header class="header">
   <div class="header-left">
-    <a class="logo" href="index.html"><div class="logo-icon">☘️</div><span class="logo-text">SOLAR LAND MGR</span></a>
-    <span class="page-title">🚗 地権者訪問マップ</span>
-    <span class="phase-badge phase-plan" id="phaseBadge">📋 訪問計画モード</span>
+    <a class="logo" href="index.html">
+      <div class="logo-icon">&#9728;&#65039;</div>
+      <span class="logo-text">SOLAR LAND MGR</span>
+    </a>
+    <span class="page-title">&#128506; 現地調査マップ</span>
   </div>
   <div class="legend">
-    <div class="legend-item"><div class="legend-dot" style="background:#58a6ff"></div><span>未選択</span></div>
-    <div class="legend-item"><div class="legend-dot" style="background:#f0b429"></div><span>訪問予定</span></div>
-    <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div><span>訪問済</span></div>
-    <button class="btn btn-ghost" onclick="location.href='index.html'">← 案件一覧</button>
+    <div class="legend-item"><div class="legend-dot" style="background:#f0b429"></div><span>未確認</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#3fb950"></div><span>調査予定</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div><span>確認済</span></div>
+    <button class="btn btn-ghost" onclick="location.href='index.html'">&#8592; 案件一覧</button>
   </div>
 </header>
+
 <div class="map-wrapper">
   <div id="map"></div>
-  <!-- 地番・住所検索 -->
-  <div class="chiban-search" id="chibanSearch">
-    <span class="chiban-search-icon">🔍</span>
-    <input type="text" id="chibanInput" placeholder="市区町村 大字 地番で検索...">
-    <div class="chiban-results" id="chibanResults"></div>
-  </div>
-  <div class="owner-list-panel" id="ownerListPanel">
-    <div class="owner-list-header">
-      <span class="owner-list-title">📋 訪問予定リスト</span>
-      <span class="owner-list-count" id="ownerListCount">0件</span>
+
+  <!-- 調査リストパネル（左側） -->
+  <div class="survey-list-panel" id="surveyListPanel">
+    <div class="survey-list-header">
+      <span class="survey-list-title">&#128203; 調査予定リスト</span>
+      <span class="survey-list-count" id="surveyListCount">0件</span>
     </div>
-    <div class="owner-table-wrap">
-      <table class="owner-table">
-        <thead><tr><th>No</th><th>地権者名</th></tr></thead>
-        <tbody id="ownerTableBody"><tr><td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">フラグをクリックして<br>訪問予定を追加</td></tr></tbody>
+    <div class="survey-table-wrap">
+      <table class="survey-table">
+        <thead>
+          <tr><th>No</th><th>案件番号</th></tr>
+        </thead>
+        <tbody id="surveyTableBody">
+          <tr><td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">フラグをクリックして<br>調査予定を追加</td></tr>
+        </tbody>
       </table>
     </div>
   </div>
+
+  <!-- 地番・住所検索 -->
+  <div class="chiban-search" id="chibanSearch">
+    <span class="chiban-search-icon">&#128269;</span>
+    <input type="text" id="chibanInput" placeholder="市区町村 大字 地番で検索...">
+    <div class="chiban-results" id="chibanResults"></div>
+  </div>
+
+  <!-- 統計 -->
+  <div class="stats-overlay" id="statsOverlay">
+    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--accent)"></div><span id="statUnchecked">&mdash;</span> 件 未確認</div>
+    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--green)"></div><span id="statPlanned">0</span> 件 調査予定</div>
+    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--red)"></div><span id="statChecked">&mdash;</span> 件 確認済</div>
+  </div>
+
+  <!-- 調査計画パネル -->
   <div class="control-panel" id="controlPanel">
-    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--blue)"></div>全 <span id="statTotal">—</span> 件</div>
-    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--accent)"></div>訪問予定 <span id="statPlan">0</span> 件</div>
-    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--red)"></div>訪問済 <span id="statDone">0</span> 件</div>
     <div class="action-panel mc-collapsible" id="planPanel">
       <div class="mc-panel-header" onclick="toggleActionPanel('planPanel')">
-        <span class="mc-panel-title">📋 訪問計画モード</span>
-        <button class="mc-panel-toggle" type="button" aria-label="開閉">▼</button>
+        <span class="mc-panel-title">&#128203; 現地調査計画モード</span>
+        <button class="mc-panel-toggle" type="button" aria-label="開閉">&#9660;</button>
       </div>
       <div class="mc-panel-body">
-      <div class="action-panel-title">訪問計画モード</div>
-      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>訪問予定を選択してください</div>
-      <button class="btn btn-primary" onclick="startVisitMode()" id="startBtn" disabled>🚗 訪問開始</button>
-      <button class="btn btn-ghost" style="font-size:11px" onclick="togglePlanList()">📋 予定リスト（右）</button>
+      <div class="action-panel-title">現地調査計画モード</div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>調査予定を選択してください</div>
+      <button class="btn-start" onclick="startSurveyMode()" id="startBtn" disabled>&#128506; 調査開始</button>
       </div>
     </div>
-    <div class="action-panel mc-collapsible" id="visitPanel" style="display:none">
-      <div class="mc-panel-header" onclick="toggleActionPanel('visitPanel')">
-        <span class="mc-panel-title">🚗 訪問実行モード</span>
-        <button class="mc-panel-toggle" type="button" aria-label="開閉">▼</button>
+    <div class="action-panel mc-collapsible" id="surveyPanel" style="display:none">
+      <div class="mc-panel-header" onclick="toggleActionPanel('surveyPanel')">
+        <span class="mc-panel-title">&#128506; 調査実行モード</span>
+        <button class="mc-panel-toggle" type="button" aria-label="開閉">&#9660;</button>
       </div>
       <div class="mc-panel-body">
-      <div class="action-panel-title">訪問実行モード</div>
-      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>ナビを起動してください</div>
-      <button class="btn btn-ghost" style="font-size:11px" onclick="togglePlanList()">📋 予定リスト（右）</button>
-      <button class="btn btn-ghost" style="font-size:11px;color:var(--red);border-color:var(--red)" onclick="resetPlan()">🔄 計画をリセット</button>
+      <div class="action-panel-title">調査実行モード</div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>現地確認を記録してください</div>
+      <button class="btn-reset" onclick="resetSurvey()">&#128260; 計画をリセット</button>
       </div>
     </div>
   </div>
+
+  <!-- ======== レイヤーコントロール（ハザード複数対応） ======== -->
   <div class="layer-control" id="layerControl">
-    <div class="layer-title">地図レイヤー</div>
-    <label class="layer-item"><input type="checkbox" id="layerGsi" onchange="toggleLayer('gsi',this.checked)"> GSI 航空写真</label>
-    <label class="layer-item"><input type="checkbox" id="layerParcel" checked onchange="toggleLayer('parcel',this.checked)"> 地番境界</label>
-  </div>
-  <!-- ======== ハザード + 都市計画 + 農振 コントロール ======== -->
-  <div class="hazard-controls" id="hazardControls">
-    <div class="hazard-panel-header" onclick="toggleHazardPanel()">
-      <span class="hazard-panel-title">🚨 防災・都市計画</span>
-      <button class="hazard-panel-toggle" type="button" aria-label="開閉">▼</button>
+    <div class="layer-panel-header" onclick="toggleLayerPanel()">
+      <div class="layer-title">地図レイヤー</div>
+      <button class="layer-panel-toggle" type="button" aria-label="開閉">&#9660;</button>
     </div>
-    <div class="hazard-body">
-    <button class="hazard-btn" id="hzFlood" onclick="toggleHazard('flood')">&#127754; 浸水</button>
-    <button class="hazard-btn" id="hzInner" onclick="toggleHazard('inner')">&#128167; 内水</button>
-    <button class="hazard-btn" id="hzSediment" onclick="toggleDosyaPolygon()">&#9888; 土砂災害</button>
-    <button class="hazard-btn" id="hzTide" onclick="toggleHazard('tide')">&#127754; 高潮</button>
-    <button class="hazard-btn" id="hzTsunami" onclick="toggleHazard('tsunami')">&#127754; 津波</button>
-    <div class="hazard-divider"></div>
+    <div class="layer-body">
+    <label class="layer-item"><input type="checkbox" id="layerGsi" onchange="toggleLayer('gsi',this.checked)"> GSI 航空写真</label>
+    <label class="layer-item"><input type="checkbox" id="layerFarmland" onchange="toggleLayer('farmland',this.checked)"> 農地フラグ</label>
+    <!-- 農地区分凡例（農地フラグON時のみ表示） -->
+    <div id="farmlandLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);">
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">農振区分</div>
+      <div style="display:flex;flex-direction:column;gap:5px;font-size:11px;">
+        <div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#3b82f6;border:1.5px solid rgba(0,0,0,0.3);flex-shrink:0"></div>青地（農振内・農用地内）</div>
+        <div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#ffffff;border:1.5px solid #999;flex-shrink:0"></div>白地（農振内・農用地外）</div>
+        <div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#f472b6;border:1.5px solid rgba(0,0,0,0.3);flex-shrink:0"></div>農振外</div>
+        <div style="display:flex;align-items:center;gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#a855f7;border:1.5px solid rgba(0,0,0,0.3);flex-shrink:0"></div>調査中</div>
+      </div>
+    </div>
+    <label class="layer-item"><input type="checkbox" id="layerFude" onchange="toggleLayer('fude',this.checked)"> 筆ポリゴン</label>
+
+    <!-- ハザードマップ（5種類トグル） -->
+    <div class="layer-section-title">&#128680; ハザードマップ</div>
+    <button class="hazard-toggle-btn" id="btnHazard1" onclick="toggleHazard('hazard1')">
+      <span class="hazard-toggle-dot"></span>&#127754; 洪水浸水想定
+    </button>
+    <button class="hazard-toggle-btn" id="btnHazard3" onclick="toggleHazard('hazard3')">
+      <span class="hazard-toggle-dot"></span>&#127754; 津波浸水想定
+    </button>
+    <button class="hazard-toggle-btn" id="btnHazard4" onclick="toggleHazard('hazard4')">
+      <span class="hazard-toggle-dot"></span>&#127754; 高潮浸水想定
+    </button>
+    <button class="hazard-toggle-btn" id="btnHazard5" onclick="toggleHazard('hazard5')">
+      <span class="hazard-toggle-dot"></span>&#128167; 内水浸水想定
+    </button>
+    <!-- 土砂災害警戒区域ポリゴン -->
+    <div class="layer-section-title">&#9968;&#65039; 土砂警戒ポリゴン</div>
+    <button class="hazard-toggle-btn" id="btnDosyaPolygon" onclick="toggleDosyaPolygon()">
+      <span class="hazard-toggle-dot"></span>&#128506; 警戒区域ポリゴン
+    </button>
+
+    <!-- 都市計画情報 -->
+    <div class="layer-section-title">&#127961; 都市計画情報</div>
     <button class="hazard-toggle-btn" id="btnUrbanPlanning" onclick="toggleUrbanPlanning()">
       <span class="hazard-toggle-dot"></span>&#127968; 用途地域
     </button>
+    <!-- 用途地域凡例 -->
     <div id="urbanLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-height:200px;overflow-y:auto;">
       <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">用途地域</div>
       <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">
@@ -372,433 +458,1020 @@
         <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#CCF0FF;border:1px solid #aaa;flex-shrink:0"></div>工業専用</div>
       </div>
     </div>
-    <div class="hazard-divider"></div>
-    <button class="hazard-btn" id="hzNoshin" onclick="toggleNoshin()">&#127806; 農振農用地</button>
-    </div><!-- /.hazard-body -->
+
+    <!-- 農振農用地 -->
+    <div class="layer-section-title">&#127806; 農振農用地</div>
+    <button class="hazard-toggle-btn" id="btnNoshin" onclick="toggleNoshin()">
+      <span class="hazard-toggle-dot"></span>&#127806; 農振農用地
+    </button>
+    </div><!-- /.layer-body -->
   </div>
+
+  <!-- 背景の濃さ・彩度スライダー -->
+  <div class="bg-adjust-panel mc-collapsible" id="bgAdjustPanel" style="position:absolute;bottom:80px;left:12px;z-index:500;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;width:200px;">
+    <div class="mc-panel-header" onclick="toggleBgAdjust()">
+      <span class="mc-panel-title">&#127912; 背景マップ調整</span>
+      <button class="mc-panel-toggle" type="button" aria-label="開閉">&#9660;</button>
+    </div>
+    <div class="mc-panel-body">
+    <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;">&#127912; 背景マップ調整</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:3px;">明るさ</div>
+    <input type="range" id="baseMapBrightness" min="50" max="150" value="105"
+      style="width:100%;accent-color:var(--accent);cursor:pointer;margin-bottom:8px;"
+      oninput="updateBaseMap()">
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:3px;">彩度</div>
+    <input type="range" id="baseMapSaturation" min="0" max="200" value="50"
+      style="width:100%;accent-color:var(--accent);cursor:pointer;"
+      oninput="updateBaseMap()">
+    </div>
+  </div>
+
+  <!-- ズームボタン（右下） -->
   <div class="zoom-controls">
-    <button class="zoom-btn" onclick="map.zoomIn()">＋</button>
-    <button class="zoom-btn" onclick="map.zoomOut()">－</button>
+    <button class="zoom-btn" onclick="map.zoomIn()">&#65291;</button>
+    <div class="zoom-level" id="zoomLevel">6</div>
+    <button class="zoom-btn" onclick="map.zoomOut()">&#65293;</button>
   </div>
+
+  <!-- 地権者サイドパネル -->
   <div class="side-panel" id="sidePanel">
     <div class="side-panel-header">
-      <span class="side-panel-title">📋 訪問予定リスト</span>
-      <button class="modal-close" onclick="togglePlanList()">✕</button>
+      <span class="side-panel-title">&#129489; 地権者情報</span>
+      <button class="modal-close" onclick="closeSidePanel()">&#10005;</button>
     </div>
-    <div class="plan-list" id="planList"><div style="color:var(--text-muted);font-size:12px;padding:10px">訪問予定がありません</div></div>
+    <div class="side-panel-body" id="sidePanelBody"></div>
   </div>
-</div>
-<div class="modal-overlay" id="visitModal">
-  <div class="modal">
+
+</div><!-- /.map-wrapper -->
+
+<!-- 確認終了モーダル -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal" style="max-width:560px">
     <div class="modal-header">
-      <div><div class="modal-title">✅ 訪問完了・商談記録</div><div class="modal-subtitle" id="visitModalInfo"></div></div>
-      <button class="modal-close" onclick="closeModal('visitModal')">✕</button>
+      <div>
+        <div class="modal-title">&#9989; 現地確認終了</div>
+        <div class="modal-subtitle" id="confirmCaseNo"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal('confirmModal')">&#10005;</button>
     </div>
     <div class="modal-body">
-      <div class="form-group"><label class="form-label">訪問日</label><input class="form-input" type="date" id="visitDate"></div>
-      <div class="form-group"><label class="form-label">商談内容</label><textarea class="form-textarea" id="visitContent" placeholder="訪問結果・地権者の反応・次回アクションなど..."></textarea></div>
+      <div class="form-group">
+        <label class="form-label">現地確認コメント</label>
+        <textarea class="form-textarea" id="confirmComment" placeholder="確認した内容・状況・所感などを記入してください..."></textarea>
+      </div>
+      <div style="margin-top:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">&#128248; 現地写真（任意）</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">接道状況 &#9312;</div>
+            <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
+              <input type="file" accept="image/*" capture="environment" id="photo_road1" style="display:none" onchange="previewPhoto(this,'prev_road1')">
+              <img id="prev_road1" src="" style="width:100%;height:100%;object-fit:cover;display:none">
+              <div id="placeholder_road1" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして撮影</span></div>
+            </label>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">接道状況 &#9313;</div>
+            <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
+              <input type="file" accept="image/*" capture="environment" id="photo_road2" style="display:none" onchange="previewPhoto(this,'prev_road2')">
+              <img id="prev_road2" src="" style="width:100%;height:100%;object-fit:cover;display:none">
+              <div id="placeholder_road2" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして撮影</span></div>
+            </label>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">土地状態 &#9312;</div>
+            <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
+              <input type="file" accept="image/*" capture="environment" id="photo_land1" style="display:none" onchange="previewPhoto(this,'prev_land1')">
+              <img id="prev_land1" src="" style="width:100%;height:100%;object-fit:cover;display:none">
+              <div id="placeholder_land1" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして撮影</span></div>
+            </label>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">土地状態 &#9313;</div>
+            <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
+              <input type="file" accept="image/*" capture="environment" id="photo_land2" style="display:none" onchange="previewPhoto(this,'prev_land2')">
+              <img id="prev_land2" src="" style="width:100%;height:100%;object-fit:cover;display:none">
+              <div id="placeholder_land2" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして撮影</span></div>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div id="uploadProgress" style="display:none;margin-top:12px">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px" id="uploadStatus">アップロード中...</div>
+        <div style="background:var(--bg);border-radius:4px;height:6px;overflow:hidden">
+          <div id="uploadBar" style="height:100%;background:var(--green);width:0%;transition:width 0.3s"></div>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('visitModal')">キャンセル</button>
-      <button class="btn btn-danger" onclick="saveVisit()">訪問完了・フラグを赤に変更</button>
+      <button class="btn btn-ghost" onclick="closeModal('confirmModal')">キャンセル</button>
+      <button class="btn btn-primary" id="confirmSaveBtn" onclick="saveConfirm()">確認終了・フラグを赤に変更</button>
     </div>
   </div>
 </div>
+
 <div class="toast-container" id="toastContainer"></div>
+
 <script>
 const SUPABASE_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
-const WORKER_BASE = 'https://reinfolib-proxy.takumi-29b.workers.dev';
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
-let map, gsiLayer, parcelLayer;
-let markers = {};
-let planSet = new Set();
-let visitMode = false;
-let currentVisitCaseId = null;
-let currentLandownerId = null;
-/* ==== \u30c8\u30fc\u30b9\u30c8\u901a\u77e5 ==== */
-function showToast(msg, type){
-  var c=document.getElementById('toastContainer');
-  if(!c){ c=document.createElement('div'); c.id='toastContainer'; c.className='toast-container'; document.body.appendChild(c); }
-  var t=document.createElement('div'); t.className='toast '+(type||'success'); t.textContent=msg;
-  c.appendChild(t); setTimeout(function(){ if(t.parentNode)t.parentNode.removeChild(t); }, 4000);
-}
-/* ==== \u30cf\u30b6\u30fc\u30c95\u7a2e ==== */
+
+let map, gsiLayer, baseTileRef;
+
+// ======== ハザードレイヤー（5種類） ========
 const HAZARD_URLS = {
-  flood:   'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
-  inner:   'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_kuni_data/{z}/{x}/{y}.png',
-  sediment:'https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki_data/{z}/{x}/{y}.png',
-  tide:    'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
-  tsunami: 'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png'
+  hazard1: 'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  hazard3: 'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',
+  hazard4: 'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  hazard5: 'https://disaportaldata.gsi.go.jp/raster/01_naisui_shinsuishin_data/{z}/{x}/{y}.png',
 };
 let hazardLayers = {};
-function toggleHazard(type){
-  var btnId='hz'+type.charAt(0).toUpperCase()+type.slice(1);
-  var btn=document.getElementById(btnId);
-  if(hazardLayers[type]){
-    map.removeLayer(hazardLayers[type]); delete hazardLayers[type]; btn.classList.remove('active');
-  } else {
-    var layer=L.tileLayer(HAZARD_URLS[type],{opacity:0.7,maxZoom:18,attribution:'\u56fd\u571f\u4ea4\u901a\u7701'});
-    layer.addTo(map); layer.bringToFront(); hazardLayers[type]=layer; btn.classList.add('active');
-  }
-}
-/* ==== \u571f\u7802\u707d\u5bb3\u8b66\u6212\u30dd\u30ea\u30b4\u30f3 ==== */
-let dosyaLayer=null, dosyaEnabled=false, dosyaRenderTimer=null;
-function getDosyaStyle(phenomenon,areaType){
-  var isSpecial = areaType==='\u7279\u5225\u8b66\u6212\u533a\u57df';
-  var colorMap = {'\u571f\u77f3\u6d41':isSpecial?'#dc2626':'#f59e0b','\u6025\u50be\u659c\u5730\u306e\u5d29\u58ca':isSpecial?'#9f1239':'#f97316','\u5730\u3059\u3079\u308a':isSpecial?'#7c3aed':'#84cc16'};
-  var color = colorMap[phenomenon] || (isSpecial?'#dc2626':'#f59e0b');
-  return {fillColor:color,fillOpacity:isSpecial?0.35:0.2,color:color,weight:isSpecial?2:1.5,opacity:0.9};
-}
-function toggleDosyaPolygon(){
-  var btn=document.getElementById('hzSediment');
-  dosyaEnabled=!dosyaEnabled;
-  if(dosyaEnabled){ btn.classList.add('active'); loadDosya(); }
-  else { btn.classList.remove('active'); if(dosyaLayer){map.removeLayer(dosyaLayer);dosyaLayer=null;} map.off('moveend',renderDosyaInView); map.off('zoomend',renderDosyaInView); }
-}
-function renderDosyaInView(){ if(dosyaRenderTimer)clearTimeout(dosyaRenderTimer); dosyaRenderTimer=setTimeout(_doRenderDosya,300); }
-function _doRenderDosya(){ if(!dosyaEnabled)return; if(map.getZoom()<12){ if(dosyaLayer){map.removeLayer(dosyaLayer);dosyaLayer=null;} showToast('\u30ba\u30fc\u30e012\u4ee5\u4e0a\u3067\u571f\u7802\u8b66\u6212\u30dd\u30ea\u30b4\u30f3\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error'); return; } _fetchAndRenderDosya(); }
-async function _fetchAndRenderDosya(){
-  try {
-    var b = map.getBounds().pad(0.05);
-    var res = await db.rpc('get_dosya_in_bbox',{lat_min:b.getSouth(),lat_max:b.getNorth(),lng_min:b.getWest(),lng_max:b.getEast(),row_limit:300});
-    if(res.error||!res.data||!res.data.length)return;
-    if(dosyaLayer){map.removeLayer(dosyaLayer);dosyaLayer=null;}
-    var features = res.data.map(function(row){return{type:'Feature',geometry:row.geojson,properties:{area_name:row.area_name,phenomenon:row.phenomenon,area_type:row.area_type,city_name:row.city_name,area_code:row.area_code}};});
-    dosyaLayer = L.geoJSON({type:'FeatureCollection',features:features},{
-      style:function(f){return getDosyaStyle(f.properties.phenomenon,f.properties.area_type);},
-      onEachFeature:function(feature,layer){
-        var p=feature.properties;
-        var typeColor=p.area_type==='\u7279\u5225\u8b66\u6212\u533a\u57df'?'#dc2626':'#f59e0b';
-        layer.on('click',function(e){
-          L.popup({maxWidth:280,minWidth:220}).setLatLng(e.latlng).setContent('<div style="padding:12px;font-size:12px;"><div style="color:'+typeColor+';font-weight:700;margin-bottom:8px;">\u26a0\ufe0f \u571f\u7802\u707d\u5bb3'+p.area_type+'</div><div>\u73fe\u8c61\uff1a'+(p.phenomenon||'\u2014')+'</div><div>\u533a\u57df\u540d\uff1a'+(p.area_name||'\u2014')+'</div><div>\u5e02\u533a\u753a\u6751\uff1a'+(p.city_name||'\u2014')+'</div></div>').openOn(map);
-        });
-        layer.on('mouseover',function(){layer.setStyle({fillOpacity:0.55,weight:3});});
-        layer.on('mouseout',function(){if(dosyaLayer)dosyaLayer.resetStyle(layer);});
-      }
-    }).addTo(map);
-    dosyaLayer.bringToFront();
-  } catch(e){ showToast('\u571f\u7802\u8b66\u6212\u30dd\u30ea\u30b4\u30f3\u53d6\u5f97\u30a8\u30e9\u30fc','error'); }
-}
-function loadDosya(){ map.on('moveend',renderDosyaInView); map.on('zoomend',renderDosyaInView); renderDosyaInView(); }
-/* ==== \u8fb2\u632f\u8fb2\u7528\u5730 ==== */
-let noshinLayer=null, noshinLoading=false;
-function toggleNoshin(){
-  var btn=document.getElementById('hzNoshin');
-  if(noshinLayer){ map.removeLayer(noshinLayer); noshinLayer=null; btn.classList.remove('active'); showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3057\u305f','success'); return; }
-  if(noshinLoading)return;
-  noshinLoading=true; btn.classList.add('active');
-  showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u30c7\u30fc\u30bf\u3092\u8aad\u307f\u8fbc\u307f\u4e2d...','success');
-  fetch(WORKER_BASE+'/r2/noshin_aichi.geojson').then(function(r){return r.ok?r.json():Promise.reject('\u53d6\u5f97\u5931\u6557');}).then(function(geojson){
-    noshinLayer=L.geoJSON(geojson,{
-      style:{color:'#c8a000',weight:0.8,fillColor:'#ffe066',fillOpacity:0.45},
-      onEachFeature:function(feature,layer){ if(feature.properties&&feature.properties.city){ layer.bindTooltip('\u8fb2\u632f\u8fb2\u7528\u5730\uff1a'+feature.properties.city,{className:'farmland-tooltip',sticky:true}); } }
-    });
-    noshinLayer.addTo(map); noshinLoading=false; showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u3092\u8868\u793a\u4e2d','success');
-  }).catch(function(e){ noshinLoading=false; btn.classList.remove('active'); showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u306e\u8aad\u307f\u8fbc\u307f\u306b\u5931\u6557\u3057\u307e\u3057\u305f','error'); });
-}
-/* ==== \u7528\u9014\u5730\u57df (XKT002) ==== */
-const URBAN_API_BASE = WORKER_BASE + '/api';
-const YOTO_COLOR = {
-  '\u7b2c\u4e00\u7a2e\u4f4e\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df':'#FFC107','\u7b2c\u4e8c\u7a2e\u4f4e\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df':'#FF8F00',
-  '\u7b2c\u4e00\u7a2e\u4e2d\u9ad8\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df':'#4CAF50','\u7b2c\u4e8c\u7a2e\u4e2d\u9ad8\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df':'#81C784',
-  '\u7b2c\u4e00\u7a2e\u4f4f\u5c45\u5730\u57df':'#ADFF2F','\u7b2c\u4e8c\u7a2e\u4f4f\u5c45\u5730\u57df':'#D4FF8A','\u6e96\u4f4f\u5c45\u5730\u57df':'#FFC87A',
-  '\u8fd1\u96a3\u5546\u696d\u5730\u57df':'#FF9F40','\u5546\u696d\u5730\u57df':'#FF6EB4','\u6e96\u5de5\u696d\u5730\u57df':'#CC80FF',
-  '\u5de5\u696d\u5730\u57df':'#66B2FF','\u5de5\u696d\u5c02\u7528\u5730\u57df':'#40D4F4','\u7528\u9014\u5730\u57df\u5916':'#C8C8C8'
-};
-let urbanLayer=null, urbanEnabled=false, urbanRenderTimer=null;
-function latLngToTileXY(lat,lng,zoom){ var x=Math.floor((lng+180)/360*Math.pow(2,zoom)); var s=Math.sin(lat*Math.PI/180); var y=Math.floor((0.5-Math.log((1+s)/(1-s))/(4*Math.PI))*Math.pow(2,zoom)); return{x:x,y:y}; }
-function getTilesForBounds(bounds,zoom){ var nw=latLngToTileXY(bounds.getNorth(),bounds.getWest(),zoom); var se=latLngToTileXY(bounds.getSouth(),bounds.getEast(),zoom); var tiles=[]; for(var x=nw.x;x<=se.x;x++)for(var y=nw.y;y<=se.y;y++)tiles.push({x:x,y:y,z:zoom}); return tiles; }
-function toggleUrbanPlanning(){
-  var btn=document.getElementById('btnUrbanPlanning'); var legend=document.getElementById('urbanLegend');
-  urbanEnabled=!urbanEnabled;
-  if(urbanEnabled){ btn.classList.add('active'); if(legend)legend.style.display='block'; loadUrbanPlanning(); showToast('\ud83c\udfd9 \u7528\u9014\u5730\u57df\u3092ON\u306b\u3057\u307e\u3057\u305f','success'); }
-  else { btn.classList.remove('active'); if(legend)legend.style.display='none'; if(urbanLayer){map.removeLayer(urbanLayer);urbanLayer=null;} map.off('moveend',renderUrbanInView); map.off('zoomend',renderUrbanInView); showToast('\ud83c\udfd9 \u7528\u9014\u5730\u57df\u3092OFF\u306b\u3057\u307e\u3057\u305f','success'); }
-}
-function loadUrbanPlanning(){ map.on('moveend',renderUrbanInView); map.on('zoomend',renderUrbanInView); renderUrbanInView(); }
-function renderUrbanInView(){ if(urbanRenderTimer)clearTimeout(urbanRenderTimer); urbanRenderTimer=setTimeout(_doRenderUrban,400); }
-function _doRenderUrban(){
-  if(!urbanEnabled)return;
-  if(map.getZoom()<11){ if(urbanLayer){map.removeLayer(urbanLayer);urbanLayer=null;} showToast('\u30ba\u30fc\u30e011\u4ee5\u4e0a\u3067\u7528\u9014\u5730\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error'); return; }
-  _fetchAndRenderUrban();
-}
-async function _fetchAndRenderUrban(){
-  var bounds=map.getBounds();
-  var tileZoom=Math.min(Math.max(Math.floor(map.getZoom()),11),14);
-  var tiles=getTilesForBounds(bounds,tileZoom);
-  if(tiles.length>36){ if(urbanLayer){map.removeLayer(urbanLayer);urbanLayer=null;} showToast('\u3082\u3046\u5c11\u3057\u30ba\u30fc\u30e0\u30a4\u30f3\u3059\u308b\u3068\u7528\u9014\u5730\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error'); return; }
-  var allFeatures=[];
-  await Promise.all(tiles.map(async function(t){
-    try { var res=await fetch(URBAN_API_BASE+'/XKT002?response_format=geojson&z='+t.z+'&x='+t.x+'&y='+t.y); if(!res.ok)return; var data=await res.json(); if(data.features)allFeatures.push.apply(allFeatures,data.features); } catch(e){}
-  }));
-  if(!urbanEnabled)return;
-  if(urbanLayer){map.removeLayer(urbanLayer);urbanLayer=null;}
-  if(!allFeatures.length)return;
-  var seen=new Set();
-  var uniqueFeatures=allFeatures.filter(function(f){ var key=JSON.stringify((f.geometry&&f.geometry.coordinates&&f.geometry.coordinates[0]&&f.geometry.coordinates[0][0])||Math.random()); if(seen.has(key))return false; seen.add(key); return true; });
-  urbanLayer=L.geoJSON({type:'FeatureCollection',features:uniqueFeatures},{
-    style:function(feature){ var p=feature.properties||{}; var name=p.use_area_ja||''; var color=YOTO_COLOR[name]||'#dddddd'; return{fillColor:color,fillOpacity:0.45,color:'#aaaaaa',weight:0.4,opacity:0.6}; },
-    onEachFeature:function(feature,layer){
-      var p=feature.properties||{}; var name=p.use_area_ja||''; var label=name||'\u4e0d\u660e';
-      var kenpeiri=p.u_building_coverage_ratio_ja||'\u2014'; var yosekiri=p.u_floor_area_ratio_ja||'\u2014';
-      var city=p.city_name||''; var pref=p.prefecture||'';
-      layer.on('click',function(e){
-        L.popup({maxWidth:300,minWidth:240}).setLatLng(e.latlng).setContent('<div style="padding:12px;font-family:sans-serif;"><div style="color:#818cf8;font-size:13px;margin-bottom:10px;font-weight:700">\ud83c\udfd9 \u90fd\u5e02\u8a08\u753b\u60c5\u5831</div><div style="font-size:12px;line-height:1.8"><div><span style="color:#8b949e;display:inline-block;min-width:60px">\u7528\u9014\u5730\u57df</span><span style="font-weight:600">'+label+'</span></div><div><span style="color:#8b949e;display:inline-block;min-width:60px">\u5efa\u853d\u7387</span><span>'+kenpeiri+'</span></div><div><span style="color:#8b949e;display:inline-block;min-width:60px">\u5bb9\u7a4d\u7387</span><span>'+yosekiri+'</span></div>'+(city?'<div><span style="color:#8b949e;display:inline-block;min-width:60px">\u5e02\u533a\u753a\u6751</span><span>'+pref+' '+city+'</span></div>':'')+'</div><hr style="border:none;border-top:1px solid #30363d;margin:8px 0"><div style="font-size:11px;color:#aaa">\u56fd\u571f\u4ea4\u901a\u7701 \u4e0d\u52d5\u7523\u60c5\u5831\u30e9\u30a4\u30d6\u30e9\u30ea\uff08XKT002\uff09</div></div>').openOn(map);
-      });
-      layer.on('mouseover',function(){layer.setStyle({fillOpacity:0.85});});
-      layer.on('mouseout',function(){if(urbanLayer)urbanLayer.resetStyle(layer);});
-    }
-  }).addTo(map);
-  urbanLayer.bringToFront();
-}
+const hazardState = { hazard1: false, hazard3: false, hazard4: false, hazard5: false };
+
+let markers = {};
+let planSet = new Set();
+let surveyMode = false;
+let currentConfirmCaseId = null;
+
 function initMap() {
   map = L.map('map', { zoomControl: false }).setView([36.2048, 138.2529], 6);
-  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18 }).addTo(map);
-  gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18, opacity: 0.85 });
-  parcelLayer = protomapsL.leafletLayer({
-    url: 'https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/aichi.pmtiles',
-    paintRules: [{
-      dataLayer: 'parcels',
-      symbolizer: new protomapsL.PolygonSymbolizer({ fill: 'transparent', stroke: '#f85149', width: 1.2 })
-    }],
-    attribution: '\u5730\u756a: \u6cd5\u52d9\u7701 \u767b\u8a18\u6240\u5099\u4ed8\u5730\u56f3\u30c7\u30fc\u30bf'
+  baseTileRef = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18 }).addTo(map);
+  gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18, opacity: 0.85, zIndex: 1 });
+
+  const hazardOpts = { attribution: '\u00a9 \u30cf\u30b6\u30fc\u30c9\u30de\u30c3\u30d7\u30dd\u30fc\u30bf\u30eb\u30b5\u30a4\u30c8', maxZoom: 17, minZoom: 2, opacity: 0.7, errorTileUrl: '', zIndex: 2 };
+  Object.entries(HAZARD_URLS).forEach(([key, url]) => {
+    hazardLayers[key] = L.tileLayer(url, { ...hazardOpts });
   });
-  parcelLayer.addTo(map);
-  map.on('click', async function(ev) {
-    if (!window.__PMT || !window.__VT || !window.__Pbf) return;
-    const t = ev.originalEvent && ev.originalEvent.target;
-    if (t && (t.closest('.leaflet-marker-icon') || t.closest('.leaflet-popup'))) return;
-    const lng = ev.latlng.lng, lat = ev.latlng.lat;
-    const z = Math.min(Math.max(Math.floor(map.getZoom()), 14), 18);
-    const n = Math.pow(2, z);
-    const latR = lat * Math.PI / 180;
-    const tx = Math.floor((lng + 180) / 360 * n);
-    const ty = Math.floor((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n);
-    try {
-      const resp = await window.__PMT.getZxy(z, tx, ty);
-      if (!resp) return;
-      const tile = new window.__VT(new window.__Pbf(resp.data));
-      const layerNames = Object.keys(tile.layers);
-      if (!layerNames.length) return;
-      const layer = tile.layers[layerNames[0]];
-      const extent = layer.extent;
-      const pxFull = (lng + 180) / 360 * n * extent;
-      const pyFull = (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n * extent;
-      const px = pxFull - tx * extent;
-      const py = pyFull - ty * extent;
-      let foundProps = null;
-      for (let i = 0; i < layer.length; i++) {
-        const feat = layer.feature(i);
-        if (feat.type !== 3) continue;
-        const geom = feat.loadGeometry();
-        if (pointInPolygon(px, py, geom)) { foundProps = feat.properties; break; }
-      }
-      if (!foundProps) return;
-      L.popup({ maxWidth: 320, minWidth: 240 }).setLatLng(ev.latlng).setContent(buildParcelPopup(foundProps)).openOn(map);
-    } catch (e) { /* silent */ }
+
+  map.on('zoomend', () => {
+    document.getElementById('zoomLevel').textContent = map.getZoom();
   });
 }
-function pointInPolygon(x, y, rings) {
-  let inside = false;
-  for (const ring of rings) {
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const xi = ring[i].x, yi = ring[i].y;
-      const xj = ring[j].x, yj = ring[j].y;
-      const hit = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-      if (hit) inside = !inside;
-    }
-  }
-  return inside;
-}
-function toggleLayer(type, enabled) {
-  if (type === 'gsi') { enabled ? gsiLayer.addTo(map) : map.removeLayer(gsiLayer); }
-  else if (type === 'parcel') { enabled ? parcelLayer.addTo(map) : map.removeLayer(parcelLayer); }
-}
-async function loadData() {
-  const { data: los } = await db.from('landowner_info').select('*, cases(id, case_no, status)');
-  const { data: visits } = await db.from('visit_status').select('*');
-  if (!los) return;
-  let total = 0, done = 0;
-  los.forEach(lo => {
-    if (!lo.lat || !lo.lng) return;
-    if (lo.cases?.status === 'NG') return;
-    total++;
-    const caseId = lo.case_id;
-    const visit = visits?.find(v => v.case_id === caseId);
-    const isVisited = visit?.visited || false;
-    if (isVisited) done++;
-    const color = isVisited ? '#f85149' : '#58a6ff';
-    const icon = L.divIcon({ html: makeIconHtml(color), className: '', iconSize: [24,24], iconAnchor: [12,24], popupAnchor: [0,-26] });
-    const marker = L.marker([lo.lat, lo.lng], { icon });
-    marker.bindPopup(buildPopup(lo, caseId, isVisited, false), { maxWidth: 280, minWidth: 260 });
-    marker.bindTooltip(
-      `<span style="font-family:'Share Tech Mono',monospace;color:#f0b429;font-size:11px">${lo.cases?.case_no || ''}</span>\u3000${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}`,
-      { direction: 'top', offset: [0, -28], opacity: 1 }
-    );
-    marker.addTo(map);
-    markers[caseId] = { marker, lo, visit, isVisited };
-  });
-  document.getElementById('statTotal').textContent = total;
-  document.getElementById('statDone').textContent = done;
-}
-function makeIconHtml(color) {
-  return `<div style="width:24px;height:24px;background:${color};border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid rgba(0,0,0,0.3);box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`;
-}
-function buildPopup(lo, caseId, isVisited, isPlanned) {
-  const d = markers[caseId];
-  const visitedAt = d?.visit?.visited_at ? new Date(d.visit.visited_at).toLocaleDateString('ja-JP') : null;
-  let actionHtml = '';
-  if (isVisited) {
-    actionHtml = `<button class="popup-btn completed-btn" style="flex:1">\u2713 \u8a2a\u554f\u6e08\u307f\uff08${visitedAt || ''}\uff09</button><button class="popup-btn undo-btn" style="flex:0 0 auto;min-width:60px" onclick="unVisit('${caseId}')">\ud83d\udd04 \u89e3\u9664</button>`;
-  } else if (visitMode) {
-    actionHtml = `<button class="popup-btn nav-btn" onclick="startNav('${caseId}')">\ud83d\uddfa \u30ca\u30d3\u958b\u59cb</button><button class="popup-btn complete-btn" onclick="openVisitModal('${caseId}')">\u2705 \u5b8c\u4e86</button>`;
+
+function toggleHazard(type) {
+  const layer = hazardLayers[type];
+  if (!layer) return;
+  const btn = document.getElementById('btn' + type.charAt(0).toUpperCase() + type.slice(1));
+  hazardState[type] = !hazardState[type];
+  if (hazardState[type]) {
+    layer.addTo(map);
+    layer.bringToFront();
+    if (btn) btn.classList.add('active');
+    showToast(btn ? btn.textContent.trim() + ' \u3092ON\u306b\u3057\u307e\u3057\u305f' : '\u30cf\u30b6\u30fc\u30c9\u30de\u30c3\u30d7\u3092ON\u306b\u3057\u307e\u3057\u305f', 'success');
   } else {
-    if (planSet.has(caseId)) {
-      actionHtml = `<button class="popup-btn selected-btn" onclick="removePlan('${caseId}')">\u2713 \u4e88\u5b9a\u6e08\uff08\u30af\u30ea\u30c3\u30af\u3067\u89e3\u9664\uff09</button>`;
-    } else {
-      actionHtml = `<button class="popup-btn select-btn" onclick="addPlan('${caseId}')">\uff0b \u8a2a\u554f\u4e88\u5b9a\u306b\u8ffd\u52a0</button>`;
+    map.removeLayer(layer);
+    if (btn) btn.classList.remove('active');
+    showToast(btn ? btn.textContent.trim() + ' \u3092OFF\u306b\u3057\u307e\u3057\u305f' : '\u30cf\u30b6\u30fc\u30c9\u30de\u30c3\u30d7\u3092OFF\u306b\u3057\u307e\u3057\u305f', 'success');
+  }
+}
+
+function toggleLayer(type, enabled) {
+  if (type === 'gsi') {
+    enabled ? gsiLayer.addTo(map) : map.removeLayer(gsiLayer);
+    if (enabled) {
+      Object.entries(hazardState).forEach(([key, on]) => {
+        if (on && hazardLayers[key]) hazardLayers[key].bringToFront();
+      });
     }
   }
-  return `<div class="popup-body"><div class="popup-name"><span>${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}</span><span class="popup-case-no">${lo.cases?.case_no || ''}</span></div><div class="popup-info"><div class="popup-row"><span class="popup-label">\u4f4f\u6240</span><span class="popup-value">${lo.address || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u96fb\u8a71</span><span class="popup-value">${lo.tel || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u4fa1\u683c</span><span class="popup-value">${lo.price ? Number(lo.price).toLocaleString() + ' \u4e07\u5186' : '\u2014'}</span></div></div><hr class="popup-divider"><div class="popup-actions">${actionHtml}</div></div>`;
-}
-async function unVisit(caseId) {
-  if (!confirm('\u8a2a\u554f\u6e08\u307f\u3092\u89e3\u9664\u3057\u307e\u3059\u304b\uff1f')) return;
-  const { error } = await db.from('visit_status').update({ visited: false, visited_at: null, flag_color: 'blue' }).eq('case_id', caseId);
-  if (error) { showToast('\u89e3\u9664\u30a8\u30e9\u30fc: ' + error.message, 'error'); return; }
-  updateMarkerColor(caseId, planSet.has(caseId) ? '#f0b429' : '#58a6ff');
-  const d = markers[caseId];
-  if (d) { d.isVisited = false; d.visit = { visited: false }; d.marker.setPopupContent(buildPopup(d.lo, caseId, false, planSet.has(caseId))); }
-  document.getElementById('statDone').textContent = Math.max(0, parseInt(document.getElementById('statDone').textContent) - 1);
-  renderPlanList(); renderOwnerTable(); map.closePopup();
-  showToast('\u8a2a\u554f\u6e08\u307f\u3092\u89e3\u9664\u3057\u307e\u3057\u305f', 'success');
-}
-function addPlan(caseId) {
-  if (planSet.size >= 30) { showToast('\u8a2a\u554f\u4e88\u5b9a\u306f\u6700\u592730\u4ef6\u307e\u3067\u3067\u3059', 'error'); return; }
-  planSet.add(caseId);
-  updateMarkerColor(caseId, '#f0b429');
-  const d = markers[caseId];
-  if (d) d.marker.setPopupContent(buildPopup(d.lo, caseId, false, true));
-  updatePlanUI(); map.closePopup();
-  showToast('\u8a2a\u554f\u4e88\u5b9a\u306b\u8ffd\u52a0\u3057\u307e\u3057\u305f', 'success');
-}
-function removePlan(caseId) {
-  planSet.delete(caseId);
-  updateMarkerColor(caseId, '#58a6ff');
-  const d = markers[caseId];
-  if (d) d.marker.setPopupContent(buildPopup(d.lo, caseId, false, false));
-  updatePlanUI(); map.closePopup();
-  showToast('\u8a2a\u554f\u4e88\u5b9a\u304b\u3089\u89e3\u9664\u3057\u307e\u3057\u305f', 'success');
-}
-function updateMarkerColor(caseId, color) {
-  const d = markers[caseId];
-  if (!d) return;
-  d.marker.setIcon(L.divIcon({ html: makeIconHtml(color), className: '', iconSize: [24,24], iconAnchor: [12,24], popupAnchor: [0,-26] }));
-}
-function updatePlanUI() {
-  document.getElementById('statPlan').textContent = planSet.size;
-  document.getElementById('startBtn').disabled = planSet.size === 0;
-  renderPlanList(); renderOwnerTable();
-}
-function renderOwnerTable() {
-  const tbody = document.getElementById('ownerTableBody');
-  const countEl = document.getElementById('ownerListCount');
-  const panel = document.getElementById('ownerListPanel');
-  if (planSet.size === 0) {
-    panel.classList.remove('open');
-    tbody.innerHTML = '<tr><td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">\u30d5\u30e9\u30b0\u3092\u30af\u30ea\u30c3\u30af\u3057\u3066<br>\u8a2a\u554f\u4e88\u5b9a\u3092\u8ffd\u52a0</td></tr>';
-    countEl.textContent = '0\u4ef6'; return;
+  else if (type === 'farmland') {
+    if (enabled) {
+      if (!farmlandEnabled) loadFarmland();
+      else renderFarmlandInView();
+      document.getElementById('farmlandLegend').style.display = 'block';
+    } else {
+      farmlandEnabled = false;
+      if (farmlandLayer) { map.removeLayer(farmlandLayer); farmlandLayer = null; }
+      hideFarmlandCount();
+      document.getElementById('farmlandLegend').style.display = 'none';
+    }
   }
-  panel.classList.add('open');
-  document.querySelector('.control-panel').classList.add('shifted');
-  countEl.textContent = `${planSet.size}\u4ef6`;
-  const rows = [...planSet].map((caseId, idx) => {
-    const d = markers[caseId];
-    return `<tr class="${d?.isVisited ? 'visited' : ''}"><td>${idx + 1}</td><td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">${d?.lo?.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}</td></tr>`;
+  else if (type === 'fude') {
+    if (enabled) {
+      if (!fudeEnabled) loadFude();
+      else renderFudeInView();
+    } else {
+      fudeEnabled = false;
+      if (fudeLayer) { map.removeLayer(fudeLayer); fudeLayer = null; }
+    }
+  }
+}
+
+let farmlandLayer = null;
+let farmlandCountControl = null;
+function showFarmlandCount(count) {
+  const msg = count == null
+    ? '\ud83c\udf3e \u8fb2\u5730\u30d5\u30e9\u30b0\uff08\u30ba\u30fc\u30e015\u4ee5\u4e0a\u3067\u8868\u793a\uff09'
+    : `\ud83c\udf3e \u8fb2\u5730\u30d5\u30e9\u30b0 ${count.toLocaleString()} \u4ef6\uff08\u30ba\u30fc\u30e015\u4ee5\u4e0a\u3067\u8868\u793a\uff09`;
+  const existing = document.getElementById('farmlandCountBadge');
+  if (existing) { existing.textContent = msg; return; }
+  if (!farmlandCountControl) {
+    farmlandCountControl = L.control({ position: 'bottomleft' });
+    farmlandCountControl.onAdd = () => {
+      const d = L.DomUtil.create('div');
+      d.id = 'farmlandCountBadge';
+      d.style.cssText = 'background:rgba(88,166,255,0.85);color:#fff;font-family:monospace;font-size:12px;font-weight:700;padding:6px 12px;border-radius:16px;border:2px solid rgba(255,255,255,0.5);box-shadow:0 2px 6px rgba(0,0,0,0.4);pointer-events:none;margin-bottom:8px;';
+      return d;
+    };
+    farmlandCountControl.addTo(map);
+  }
+  const el = document.getElementById('farmlandCountBadge');
+  if (el) el.textContent = msg;
+}
+function hideFarmlandCount() {
+  if (farmlandCountControl) { farmlandCountControl.remove(); farmlandCountControl = null; }
+}
+const farmlandCanvas = L.canvas();
+let farmlandEnabled = false;
+const NOUSHINHOU_NAME = {1:'\u9752\u5730\uff08\u8fb2\u632f\u5185\u30fb\u8fb2\u7528\u5730\u5185\uff09',2:'\u767d\u5730\uff08\u8fb2\u632f\u5185\u30fb\u8fb2\u7528\u5730\u5916\uff09',3:'\u8fb2\u632f\u5916',0:'\u8abf\u67fb\u4e2d'};
+
+function getFarmlandColor(code) {
+  switch(code) {
+    case 1: return '#3b82f6';
+    case 2: return '#ffffff';
+    case 3: return '#f472b6';
+    default: return '#a855f7';
+  }
+}
+
+let farmlandRenderTimer = null;
+
+function renderFarmlandInView() {
+  if (farmlandRenderTimer) clearTimeout(farmlandRenderTimer);
+  farmlandRenderTimer = setTimeout(_doRenderFarmland, 200);
+}
+
+function _doRenderFarmland() {
+  if (!farmlandEnabled) return;
+  const zoom = map.getZoom();
+
+  if (zoom < 15) {
+    if (farmlandLayer) { map.removeLayer(farmlandLayer); farmlandLayer = null; }
+    showFarmlandCount(null);
+    return;
+  }
+
+  hideFarmlandCount();
+  _fetchAndRenderFarmland();
+}
+
+async function _fetchAndRenderFarmland() {
+  const b = map.getBounds().pad(0.1);
+  const { data, error } = await db.rpc('get_farmland_in_bbox', {
+    lat_min: b.getSouth(), lat_max: b.getNorth(),
+    lng_min: b.getWest(),  lng_max: b.getEast(),
+    row_limit: 10000
   });
-  const empty = Array(Math.max(0, 30 - planSet.size)).fill('<tr><td style="color:var(--border)">\u2014</td><td></td></tr>');
-  tbody.innerHTML = rows.join('') + empty.join('');
+  if (error || !data) return;
+
+  if (farmlandLayer) { map.removeLayer(farmlandLayer); farmlandLayer = null; }
+  const layers = [];
+  for (const f of data) {
+    const code = parseInt(f.noushin_code) || 0;
+    const color = getFarmlandColor(code);
+    const borderColor = color === '#ffffff' ? '#999999' : 'rgba(0,0,0,0.5)';
+    const m = L.circleMarker([f.lat, f.lng], {
+      renderer: farmlandCanvas, radius: 4,
+      fillColor: color, color: borderColor, weight: 1, fillOpacity: 1
+    });
+    m.bindPopup(`
+      <div class="popup-body">
+        <div class="popup-info">
+          <div class="popup-row"><span class="popup-label">\u8fb2\u632f\u533a\u5206</span><span class="popup-value">${NOUSHINHOU_NAME[code]||'\u2014'}</span></div>
+          <div class="popup-row"><span class="popup-label">\u4f4f\u6240</span><span class="popup-value">${f.address||'\u2014'}</span></div>
+          <div class="popup-row"><span class="popup-label">\u9762\u7a4d</span><span class="popup-value">${f.area_sqm ? Number(f.area_sqm).toLocaleString()+' \u33a1' : '\u2014'}</span></div>
+        </div>
+        <hr class="popup-divider">
+        <div style="font-size:11px;color:#aaa;margin-bottom:6px;line-height:1.5;">
+          \u30dc\u30bf\u30f3\u3092\u62bc\u3059\u3068\u4f4f\u6240\u304c\u30b3\u30d4\u30fc\u3055\u308c\u8fb2\u5730\u30ca\u30d3\u304c\u958b\u304d\u307e\u3059\u3002<br>\u8fb2\u5730\u30ca\u30d3\u306e\u300c\u4f4f\u6240\u304b\u3089\u63a2\u3059\u300d\u306b\u8cbc\u308a\u4ed8\u3051\u3066\u691c\u7d22\u3057\u3066\u304f\u3060\u3055\u3044\u3002
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="popup-btn" style="border-color:var(--green);color:var(--green)" onclick="openNouchiNavi(${f.lat},${f.lng},'${(f.address||'').replace(/'/g,'&apos;')}')">\ud83c\udf3e \u8fb2\u5730\u30ca\u30d3\u3067\u78ba\u8a8d</button>
+        </div>
+      </div>
+    `, { maxWidth: 280, minWidth: 220 });
+    layers.push(m);
+  }
+  farmlandLayer = L.layerGroup(layers).addTo(map);
 }
-function renderPlanList() {
-  const el = document.getElementById('planList');
-  if (planSet.size === 0) { el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:10px">\u8a2a\u554f\u4e88\u5b9a\u304c\u3042\u308a\u307e\u305b\u3093</div>'; return; }
-  el.innerHTML = [...planSet].map(caseId => {
-    const d = markers[caseId]; const lo = d?.lo;
-    return `<div class="plan-item ${d?.isVisited ? 'visited' : ''}"><div class="plan-item-name">${lo?.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'} ${d?.isVisited ? '\u2713' : ''}</div><div class="plan-item-case">${lo?.cases?.case_no || ''}</div><div class="plan-item-address">${lo?.address || ''}</div></div>`;
-  }).join('');
+
+function loadFarmland() {
+  farmlandEnabled = true;
+  map.on('moveend', renderFarmlandInView);
+  map.on('zoomend', renderFarmlandInView);
+  renderFarmlandInView();
 }
-function startVisitMode() {
-  visitMode = true;
+
+let fudeLayer = null;
+let fudeEnabled = false;
+const fudeCanvas = L.canvas();
+let fudeRenderTimer = null;
+
+function renderFudeInView() {
+  if (fudeRenderTimer) clearTimeout(fudeRenderTimer);
+  fudeRenderTimer = setTimeout(_doRenderFude, 200);
+}
+
+function _doRenderFude() {
+  if (!fudeEnabled) return;
+  if (map.getZoom() < 15) {
+    if (fudeLayer) { map.removeLayer(fudeLayer); fudeLayer = null; }
+    return;
+  }
+  _fetchAndRenderFude();
+}
+
+async function _fetchAndRenderFude() {
+  const b = map.getBounds().pad(0.1);
+  const { data, error } = await db.rpc('get_fude_in_bbox', {
+    lat_min: b.getSouth(), lat_max: b.getNorth(),
+    lng_min: b.getWest(),  lng_max: b.getEast(),
+    row_limit: 2000
+  });
+  if (error || !data) return;
+  if (fudeLayer) { map.removeLayer(fudeLayer); fudeLayer = null; }
+  const features = data.map(row => ({
+    type: 'Feature',
+    geometry: row.geometry,
+    properties: { land_type: row.land_type }
+  }));
+  fudeLayer = L.geoJSON({ type: 'FeatureCollection', features }, {
+    style: (feature) => {
+      const lt = feature.properties.land_type;
+      return {
+        fillColor: lt === 100 ? '#22c55e' : '#eab308',
+        fillOpacity: 0.15,
+        color: lt === 100 ? '#16a34a' : '#ca8a04',
+        weight: 1
+      };
+    },
+    onEachFeature: (feature, layer) => {
+      const lt = feature.properties.land_type;
+      const label = lt === 100 ? '\u7530\u30fb\u7551' : '\u63a1\u8349\u653e\u7267\u5730';
+      layer.on('click', function(e) {
+        const lat = e.latlng.lat;
+        const lng = e.latlng.lng;
+        layer.bindPopup(`
+          <div class="popup-body">
+            <div class="popup-case-no"><span>\ud83c\udf3e \u7b46\u30dd\u30ea\u30b4\u30f3</span></div>
+            <div class="popup-info">
+              <div class="popup-row"><span class="popup-label">\u571f\u5730\u7a2e\u5225</span><span class="popup-value">${label}</span></div>
+            </div>
+            <hr class="popup-divider">
+            <div style="font-size:11px;color:#aaa;margin-bottom:6px;line-height:1.5;">
+              \u30dc\u30bf\u30f3\u3092\u62bc\u3059\u3068\u8fb2\u5730\u30ca\u30d3\u304c\u958b\u304d\u307e\u3059\u3002<br>\u8fb2\u5730\u30ca\u30d3\u306e\u300c\u4f4f\u6240\u304b\u3089\u63a2\u3059\u300d\u3067\u5834\u6240\u3092\u691c\u7d22\u3057\u3066\u304f\u3060\u3055\u3044\u3002
+            </div>
+            <div style="display:flex;gap:6px">
+              <button class="popup-btn" style="border-color:var(--green);color:var(--green)" onclick="openNouchiNavi(${lat},${lng})">\ud83c\udf3e \u8fb2\u5730\u30ca\u30d3\u3067\u78ba\u8a8d</button>
+            </div>
+          </div>
+        `, { maxWidth: 280, minWidth: 220 }).openPopup(e.latlng);
+      });
+    }
+  }).addTo(map);
+  fudeLayer.bringToBack();
+}
+
+function updateBaseMap() {
+  const sat = document.getElementById('baseMapSaturation').value;
+  const bri = document.getElementById('baseMapBrightness').value;
+  if (baseTileRef && baseTileRef._container) {
+    baseTileRef._container.style.filter = `saturate(${sat}%) brightness(${bri}%)`;
+  }
+}
+
+function openNouchiNavi(lat, lng, address) {
+  if (address) {
+    navigator.clipboard.writeText(address).catch(() => {});
+    showToast(`\u4f4f\u6240\u3092\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f\uff1a${address}\u3000\u8fb2\u5730\u30ca\u30d3\u306e\u300c\u4f4f\u6240\u304b\u3089\u63a2\u3059\u300d\u3067\u691c\u7d22\u3057\u3066\u304f\u3060\u3055\u3044`, 'success');
+  }
+  const a = document.createElement('a');
+  a.href = `https://map.maff.go.jp/?zoom=${map.getZoom()}&lat=${lat}&lng=${lng}`;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function loadFude() {
+  fudeEnabled = true;
+  map.on('moveend', renderFudeInView);
+  map.on('zoomend', renderFudeInView);
+  renderFudeInView();
+}
+
+async function loadData() {
+  const { data: cases } = await db.from('cases').select('id, case_no, kubun, status, area_name');
+  const { data: lands } = await db.from('land_info').select('*');
+  const { data: surveys } = await db.from('field_survey_status').select('*');
+  const { data: landowners } = await db.from('landowner_info').select('id, case_id, name');
+  if (!cases) return;
+
+  let unchecked = 0, checked = 0;
+  cases.forEach(c => {
+    const land = lands?.find(l => l.case_id === c.id);
+    const survey = surveys?.find(s => s.case_id === c.id);
+    const landowner = landowners?.find(lo => lo.case_id === c.id);
+    if (!land?.lat || !land?.lng) return;
+
+    const confirmed = survey?.confirmed || false;
+    const color = confirmed ? '#f85149' : '#f0b429';
+    if (confirmed) checked++; else unchecked++;
+
+    const marker = L.marker([land.lat, land.lng], { icon: makeIcon(color) });
+    marker.bindPopup(buildPopup(c, land, survey, landowner), { maxWidth: 300, minWidth: 280 });
+    marker.addTo(map);
+    markers[c.id] = { marker, survey, land, landowner, case: c, confirmed };
+  });
+
+  document.getElementById('statUnchecked').textContent = unchecked;
+  document.getElementById('statChecked').textContent = checked;
+}
+
+function makeIcon(color) {
+  return L.divIcon({
+    html: `<div style="width:24px;height:24px;background:${color};border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid rgba(0,0,0,0.3);box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`,
+    className: '', iconSize: [24,24], iconAnchor: [12,24], popupAnchor: [0,-26]
+  });
+}
+
+function buildPopup(c, land, survey, landowner) {
+  const confirmed = survey?.confirmed || false;
+  const planned = planSet.has(c.id);
+  const comment = survey?.comment || '';
+  const photos = [survey?.photo_road1, survey?.photo_road2, survey?.photo_land1, survey?.photo_land2].filter(Boolean);
+
+  let statusHtml = confirmed
+    ? '<span class="popup-status checked">\u78ba\u8a8d\u6e08</span>'
+    : planned
+      ? '<span class="popup-status planned">\u8abf\u67fb\u4e88\u5b9a</span>'
+      : '<span class="popup-status unchecked">\u672a\u78ba\u8a8d</span>';
+
+  let planBtnHtml = '';
+  if (!confirmed && !surveyMode) {
+    planBtnHtml = planned
+      ? `<button class="popup-btn planned-btn" onclick="removePlan('${c.id}')">\u2713 \u4e88\u5b9a\u6e08\uff08\u89e3\u9664\uff09</button>`
+      : `<button class="popup-btn plan-btn" onclick="addPlan('${c.id}')">\uff0b \u8abf\u67fb\u4e88\u5b9a\u306b\u8ffd\u52a0</button>`;
+  }
+
+  return `
+    <div class="popup-body">
+      <div class="popup-case-no">
+        <span>${c.case_no}</span>
+        ${statusHtml}
+      </div>
+      <div class="popup-info">
+        <div class="popup-row"><span class="popup-label">\u6240\u5728</span><span class="popup-value">${land?.location || '\u2014'}</span></div>
+        <div class="popup-row"><span class="popup-label">\u9762\u7a4d</span><span class="popup-value">${land?.area_sqm ? Number(land.area_sqm).toLocaleString() + ' \u33a1' : '\u2014'}</span></div>
+        <div class="popup-row"><span class="popup-label">\u5730\u76ee</span><span class="popup-value">${land?.chiban || '\u2014'}</span></div>
+        <div class="popup-row"><span class="popup-label">\u30cf\u30b6\u30fc\u30c9</span><span class="popup-value">${land?.hazard || '\u2014'}</span></div>
+        <div class="popup-row"><span class="popup-label">\u5730\u6a29\u8005</span><span class="popup-value">${landowner?.name ? `<span class="popup-landowner-link" onclick="showLandownerPanel('${c.id}')">${landowner.name}</span>` : '\u2014'}</span></div>
+      </div>
+      ${comment ? `<hr class="popup-divider"><div class="popup-comment">\ud83d\udcac ${comment}</div>` : ''}
+      ${photos.length ? `<hr class="popup-divider"><div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:8px">${photos.map(url => `<a href="${url}" target="_blank"><img src="${url}" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:4px;border:1px solid var(--border)"></a>`).join('')}</div>` : ''}
+      <hr class="popup-divider">
+      <div class="popup-actions" style="flex-direction:column;gap:6px">
+        <div style="display:flex;gap:6px">
+          ${land?.google_map ? `<button class="popup-btn" onclick="window.open('${land.google_map}','_blank')">\ud83d\uddfa \u5730\u56f3</button>` : ''}
+          ${land?.lat && land?.lng ? `<button class="popup-btn" onclick="window.open('https://map.maff.go.jp/?zoom=17&lat=${land.lat}&lng=${land.lng}','_blank')" style="border-color:var(--green);color:var(--green)">\ud83c\udf3e \u8fb2\u5730\u30ca\u30d3</button>` : ''}
+          ${confirmed
+            ? `<button class="popup-btn confirmed-label" style="flex:1">\u2713 \u78ba\u8a8d\u6e08\u307f</button><button class="popup-btn" style="flex:1;border-color:var(--red);color:var(--red)" onclick="unConfirm('${c.id}')">\ud83d\udd04 \u89e3\u9664</button>`
+            : `<button class="popup-btn confirm" onclick="openConfirmModal('${c.id}','${c.case_no}')">\u78ba\u8a8d\u7d42\u4e86</button>`}
+        </div>
+        ${planBtnHtml ? `<div>${planBtnHtml}</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function addPlan(caseId) {
+  if (planSet.size >= 30) { showToast('\u8abf\u67fb\u4e88\u5b9a\u306f\u6700\u592730\u4ef6\u307e\u3067\u3067\u3059', 'error'); return; }
+  planSet.add(caseId);
+  const d = markers[caseId];
+  if (d && !d.confirmed) d.marker.setIcon(makeIcon('#3fb950'));
+  if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
+  updateSurveyUI();
+  map.closePopup();
+  showToast('\u8abf\u67fb\u4e88\u5b9a\u306b\u8ffd\u52a0\u3057\u307e\u3057\u305f', 'success');
+}
+
+function startSurveyMode() {
+  surveyMode = true;
   Object.keys(markers).forEach(caseId => {
     const d = markers[caseId];
-    if (!planSet.has(caseId) && !d.isVisited) map.removeLayer(d.marker);
-    else if (planSet.has(caseId) && !d.isVisited) d.marker.setPopupContent(buildPopup(d.lo, caseId, false, false));
+    if (!planSet.has(caseId) && !d.confirmed) map.removeLayer(d.marker);
+    if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
   });
   document.getElementById('planPanel').style.display = 'none';
-  document.getElementById('visitPanel').style.display = 'flex';
-  document.getElementById('phaseBadge').textContent = '\ud83d\ude97 \u8a2a\u554f\u5b9f\u884c\u30e2\u30fc\u30c9';
-  document.getElementById('phaseBadge').className = 'phase-badge phase-visit';
-  showToast('\u8a2a\u554f\u5b9f\u884c\u30e2\u30fc\u30c9\u306b\u5207\u308a\u66ff\u3048\u307e\u3057\u305f', 'success');
-  document.getElementById('sidePanel').classList.remove('open');
+  document.getElementById('surveyPanel').style.display = 'flex';
+  showToast('\u8abf\u67fb\u5b9f\u884c\u30e2\u30fc\u30c9\u306b\u5207\u308a\u66ff\u3048\u307e\u3057\u305f', 'success');
 }
-function startNav(caseId) {
-  const d = markers[caseId];
-  if (!d?.lo?.lat) return;
-  window.open(`https://www.google.com/maps/dir/?api=1&destination=${d.lo.lat},${d.lo.lng}&travelmode=driving`, '_blank');
-}
-async function openVisitModal(caseId) {
-  currentVisitCaseId = caseId;
-  const d = markers[caseId]; const lo = d?.lo;
-  document.getElementById('visitModalInfo').textContent = `${lo?.cases?.case_no || ''} ${lo?.name || ''}`;
-  document.getElementById('visitDate').value = new Date().toISOString().split('T')[0];
-  document.getElementById('visitContent').value = '';
-  currentLandownerId = lo?.id || null;
-  document.getElementById('visitModal').classList.add('open');
-  map.closePopup();
-}
-async function saveVisit() {
-  const date = document.getElementById('visitDate').value;
-  const content = document.getElementById('visitContent').value.trim();
-  if (!date || !content) { showToast('\u65e5\u4ed8\u3068\u5546\u8ac7\u5185\u5bb9\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044', 'error'); return; }
-  const caseId = currentVisitCaseId;
-  if (currentLandownerId) await db.from('negotiation_logs').insert({ landowner_id: currentLandownerId, log_date: date, content });
-  const { data: existing } = await db.from('visit_status').select('id').eq('case_id', caseId).single();
-  const payload = { visited: true, visited_at: new Date().toISOString(), flag_color: 'red' };
-  if (existing) { await db.from('visit_status').update(payload).eq('case_id', caseId); }
-  else { await db.from('visit_status').insert({ case_id: caseId, ...payload }); }
-  updateMarkerColor(caseId, '#f85149');
-  const d = markers[caseId];
-  if (d) { d.isVisited = true; d.visit = { visited: true, visited_at: new Date().toISOString() }; d.marker.setPopupContent(buildPopup(d.lo, caseId, true, false)); }
-  document.getElementById('statDone').textContent = parseInt(document.getElementById('statDone').textContent) + 1;
-  renderPlanList(); renderOwnerTable();
-  showToast('\u8a2a\u554f\u5b8c\u4e86\u3092\u8a18\u9332\u3057\u307e\u3057\u305f', 'success');
-  closeModal('visitModal');
-}
-function resetPlan() {
-  if (!confirm('\u8a2a\u554f\u8a08\u753b\u3092\u30ea\u30bb\u30c3\u30c8\u3057\u3066\u8a08\u753b\u30e2\u30fc\u30c9\u306b\u623b\u308a\u307e\u3059\u304b\uff1f')) return;
-  visitMode = false; planSet.clear();
+
+function resetSurvey() {
+  if (!confirm('\u8abf\u67fb\u8a08\u753b\u3092\u30ea\u30bb\u30c3\u30c8\u3057\u3066\u8a08\u753b\u30e2\u30fc\u30c9\u306b\u623b\u308a\u307e\u3059\u304b\uff1f')) return;
+  surveyMode = false;
+  planSet.clear();
   Object.keys(markers).forEach(caseId => {
     const d = markers[caseId];
-    updateMarkerColor(caseId, d.isVisited ? '#f85149' : '#58a6ff');
+    const color = d.confirmed ? '#f85149' : '#f0b429';
+    d.marker.setIcon(makeIcon(color));
     if (!map.hasLayer(d.marker)) d.marker.addTo(map);
-    d.marker.setPopupContent(buildPopup(d.lo, caseId, d.isVisited, false));
+    if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
   });
   document.getElementById('planPanel').style.display = 'flex';
-  document.getElementById('visitPanel').style.display = 'none';
-  document.getElementById('phaseBadge').textContent = '\ud83d\udccb \u8a2a\u554f\u8a08\u753b\u30e2\u30fc\u30c9';
-  document.getElementById('phaseBadge').className = 'phase-badge phase-plan';
-  updatePlanUI();
+  document.getElementById('surveyPanel').style.display = 'none';
+  updateSurveyUI();
 }
-function togglePlanList() { document.getElementById('sidePanel').classList.toggle('open'); }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-document.querySelectorAll('.modal-overlay').forEach(o => { o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); }); });
+
+function removePlan(caseId) {
+  planSet.delete(caseId);
+  const d = markers[caseId];
+  if (d && !d.confirmed) d.marker.setIcon(makeIcon('#f0b429'));
+  if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
+  updateSurveyUI();
+  map.closePopup();
+  showToast('\u8abf\u67fb\u4e88\u5b9a\u304b\u3089\u89e3\u9664\u3057\u307e\u3057\u305f', 'success');
+}
+
+function updateSurveyUI() {
+  document.getElementById('statPlanned').textContent = planSet.size;
+  const startBtn = document.getElementById('startBtn');
+  if (startBtn) startBtn.disabled = planSet.size === 0;
+  renderSurveyTable();
+}
+
+function renderSurveyTable() {
+  const tbody = document.getElementById('surveyTableBody');
+  const countEl = document.getElementById('surveyListCount');
+  const panel = document.getElementById('surveyListPanel');
+  const stats = document.getElementById('statsOverlay');
+
+  if (planSet.size === 0) {
+    panel.classList.remove('open');
+    stats.classList.remove('shifted');
+    tbody.innerHTML = '<tr><td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">\u30d5\u30e9\u30b0\u3092\u30af\u30ea\u30c3\u30af\u3057\u3066<br>\u8abf\u67fb\u4e88\u5b9a\u3092\u8ffd\u52a0</td></tr>';
+    countEl.textContent = '0\u4ef6';
+    return;
+  }
+
+  panel.classList.add('open');
+  stats.classList.add('shifted');
+  document.getElementById('controlPanel')?.classList.add('shifted');
+  countEl.textContent = `${planSet.size}\u4ef6`;
+
+  const rows = [...planSet].map((caseId, idx) => {
+    const d = markers[caseId];
+    const caseNo = d?.case?.case_no || '\u2014';
+    const conf = d?.confirmed ? 'confirmed' : '';
+    return `<tr class="${conf}"><td>${idx + 1}</td><td style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${caseNo}</td></tr>`;
+  });
+
+  const empty = Array(Math.max(0, 30 - planSet.size)).fill(
+    '<tr><td style="color:var(--border)">\u2014</td><td></td></tr>'
+  );
+
+  tbody.innerHTML = rows.join('') + empty.join('');
+}
+
+function openConfirmModal(caseId, caseNo) {
+  currentConfirmCaseId = caseId;
+  document.getElementById('confirmCaseNo').textContent = caseNo;
+  document.getElementById('confirmComment').value = '';
+  ['road1','road2','land1','land2'].forEach(key => {
+    const input = document.getElementById(`photo_${key}`);
+    const img = document.getElementById(`prev_${key}`);
+    const ph = document.getElementById(`placeholder_${key}`);
+    if (input) input.value = '';
+    if (img) { img.src = ''; img.style.display = 'none'; }
+    if (ph) ph.style.display = 'flex';
+  });
+  document.getElementById('uploadProgress').style.display = 'none';
+  document.getElementById('confirmModal').classList.add('open');
+  map.closePopup();
+}
+
+function previewPhoto(input, previewId) {
+  const file = input.files[0];
+  if (!file) return;
+  const img = document.getElementById(previewId);
+  const ph = document.getElementById(previewId.replace('prev_', 'placeholder_'));
+  const reader = new FileReader();
+  reader.onload = e => { img.src = e.target.result; img.style.display = 'block'; if (ph) ph.style.display = 'none'; };
+  reader.readAsDataURL(file);
+}
+
+async function uploadPhoto(file, caseId, label) {
+  if (!file) return null;
+  const ext = file.name.split('.').pop() || 'jpg';
+  const path = `${caseId}/${label}_${Date.now()}.${ext}`;
+  const { error } = await db.storage.from('survey-photos').upload(path, file, { upsert: true });
+  if (error) { console.error('upload error', error); return null; }
+  const { data } = db.storage.from('survey-photos').getPublicUrl(path);
+  return data.publicUrl;
+}
+
+async function saveConfirm() {
+  const comment = document.getElementById('confirmComment').value.trim();
+  const caseId = currentConfirmCaseId;
+  const btn = document.getElementById('confirmSaveBtn');
+  btn.disabled = true; btn.textContent = '\u4fdd\u5b58\u4e2d...';
+
+  const progress = document.getElementById('uploadProgress');
+  const bar = document.getElementById('uploadBar');
+  const status = document.getElementById('uploadStatus');
+  progress.style.display = 'block';
+
+  const photoKeys = ['road1','road2','land1','land2'];
+  const photoUrls = {};
+  let done = 0;
+  for (const key of photoKeys) {
+    const input = document.getElementById(`photo_${key}`);
+    const file = input?.files[0];
+    status.textContent = `\u5199\u771f\u3092\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u4e2d... (${done+1}/4)`;
+    bar.style.width = `${(done / 4) * 100}%`;
+    if (file) photoUrls[key] = await uploadPhoto(file, caseId, key);
+    done++;
+  }
+  bar.style.width = '100%'; status.textContent = '\u30c7\u30fc\u30bf\u3092\u4fdd\u5b58\u4e2d...';
+
+  const { data: existing } = await db.from('field_survey_status').select('id').eq('case_id', caseId).single();
+  const payload = { confirmed: true, confirmed_at: new Date().toISOString(), flag_color: 'red', comment, photo_road1: photoUrls['road1']||null, photo_road2: photoUrls['road2']||null, photo_land1: photoUrls['land1']||null, photo_land2: photoUrls['land2']||null };
+  let error;
+  if (existing) { ({ error } = await db.from('field_survey_status').update(payload).eq('case_id', caseId)); }
+  else { ({ error } = await db.from('field_survey_status').insert({ case_id: caseId, ...payload })); }
+
+  btn.disabled = false; btn.textContent = '\u78ba\u8a8d\u7d42\u4e86\u30fb\u30d5\u30e9\u30b0\u3092\u8d64\u306b\u5909\u66f4';
+  progress.style.display = 'none';
+  if (error) { showToast('\u4fdd\u5b58\u30a8\u30e9\u30fc: ' + error.message, 'error'); return; }
+
+  const d = markers[caseId];
+  if (d) {
+    d.confirmed = true;
+    d.survey = { confirmed: true, comment, ...photoUrls };
+    d.marker.setIcon(makeIcon('#f85149'));
+    d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
+  }
+
+  if (planSet.has(caseId)) { planSet.delete(caseId); updateSurveyUI(); }
+
+  const u = parseInt(document.getElementById('statUnchecked').textContent) - 1;
+  const c2 = parseInt(document.getElementById('statChecked').textContent) + 1;
+  document.getElementById('statUnchecked').textContent = Math.max(0, u);
+  document.getElementById('statChecked').textContent = c2;
+
+  showToast('\u73fe\u5730\u78ba\u8a8d\u30fb\u5199\u771f\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f', 'success');
+  closeModal('confirmModal');
+}
+
+async function showLandownerPanel(caseId) {
+  const d = markers[caseId];
+  if (!d?.landowner) return;
+  const { data } = await db.from('landowner_info').select('*').eq('case_id', caseId).single();
+  if (!data) return;
+  const { data: logs } = await db.from('negotiation_logs').select('*').eq('landowner_id', data.id).order('log_date', { ascending: false });
+
+  let html = `
+    <div class="info-item"><div class="info-label">\u6c0f\u540d</div><div class="info-value">${data.name || '\u2014'}</div></div>
+    <div class="info-item"><div class="info-label">\u4f4f\u6240</div><div class="info-value">${data.address || '\u2014'}</div></div>
+    <div class="info-item"><div class="info-label">\u96fb\u8a71\u756a\u53f7</div><div class="info-value">${data.tel || '\u2014'}</div></div>
+    <div class="info-item"><div class="info-label">\u4fa1\u683c\uff08\u4e07\u5186\uff09</div><div class="info-value">${data.price ? Number(data.price).toLocaleString() : '\u2014'}</div></div>
+    <div class="info-item"><div class="info-label">\u30e1\u30e2</div><div class="info-value">${data.memo || '\u2014'}</div></div>
+  `;
+  if (data.google_map) html += `<div class="info-item"><div class="info-label">Google\u30de\u30c3\u30d7</div><div class="info-value"><a href="${data.google_map}" target="_blank" style="color:var(--blue)">\ud83d\uddfa \u5730\u56f3\u3092\u958b\u304f</a></div></div>`;
+  const land = d.land;
+  if (land?.location) html += `<hr style="border-color:var(--border);margin:12px 0"><div class="info-item"><div class="info-label">\u26f0\ufe0f \u571f\u5730\u6240\u5728</div><div class="info-value">${land.location}</div></div>`;
+  if (logs && logs.length) {
+    html += `<hr style="border-color:var(--border);margin:12px 0"><div class="info-label" style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px">\ud83d\udccb \u5546\u8ac7\u8a18\u9332</div>`;
+    html += logs.map(log => `<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;border-left:2px solid var(--accent)"><div style="font-family:var(--font-mono);font-size:11px;color:var(--accent);margin-bottom:4px">${log.log_date}</div><div style="font-size:12px;color:var(--text);line-height:1.5">${log.content}</div></div>`).join('');
+  }
+
+  document.getElementById('sidePanelBody').innerHTML = html;
+  document.getElementById('sidePanel').classList.add('open');
+}
+
 function showToast(msg, type = 'success') {
-  const c = document.getElementById('toastContainer');
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  t.innerHTML = `<span>${type === 'success' ? '\u2713' : '\u2715'}</span><span>${msg}</span>`;
-  c.appendChild(t); setTimeout(() => t.remove(), 3000);
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
 }
+
+function closeSidePanel() { document.getElementById('sidePanel').classList.remove('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ======== \u571f\u7802\u707d\u5bb3\u8b66\u6212\u533a\u57df\u30dd\u30ea\u30b4\u30f3 ========
+let dosyaLayer = null;
+let dosyaEnabled = false;
+let dosyaRenderTimer = null;
+
+function getDosyaStyle(phenomenon, areaType) {
+  const isSpecial = areaType === '\u7279\u5225\u8b66\u6212\u533a\u57df';
+  const colorMap = {
+    '\u571f\u77f3\u6d41':         isSpecial ? '#dc2626' : '#f59e0b',
+    '\u6025\u50be\u659c\u5730\u306e\u5d29\u58ca': isSpecial ? '#9f1239' : '#f97316',
+    '\u5730\u3059\u3079\u308a':       isSpecial ? '#7c3aed' : '#84cc16',
+  };
+  const color = colorMap[phenomenon] || (isSpecial ? '#dc2626' : '#f59e0b');
+  return { fillColor: color, fillOpacity: isSpecial ? 0.35 : 0.2, color, weight: isSpecial ? 2 : 1.5, opacity: 0.9 };
+}
+
+function toggleDosyaPolygon() {
+  const btn = document.getElementById('btnDosyaPolygon');
+  dosyaEnabled = !dosyaEnabled;
+  if (dosyaEnabled) {
+    btn.classList.add('active');
+    loadDosya();
+  } else {
+    btn.classList.remove('active');
+    if (dosyaLayer) { map.removeLayer(dosyaLayer); dosyaLayer = null; }
+    map.off('moveend', renderDosyaInView);
+    map.off('zoomend', renderDosyaInView);
+  }
+}
+
+function renderDosyaInView() {
+  if (dosyaRenderTimer) clearTimeout(dosyaRenderTimer);
+  dosyaRenderTimer = setTimeout(_doRenderDosya, 300);
+}
+
+function _doRenderDosya() {
+  if (!dosyaEnabled) return;
+  if (map.getZoom() < 12) {
+    if (dosyaLayer) { map.removeLayer(dosyaLayer); dosyaLayer = null; }
+    showToast('\u30ba\u30fc\u30e0\u30ec\u30d9\u30eb12\u4ee5\u4e0a\u3067\u8868\u793a\u3055\u308c\u307e\u3059', 'error');
+    return;
+  }
+  _fetchAndRenderDosya();
+}
+
+async function _fetchAndRenderDosya() {
+  const b = map.getBounds().pad(0.05);
+  const { data, error } = await db.rpc('get_dosya_in_bbox', {
+    lat_min: b.getSouth(), lat_max: b.getNorth(),
+    lng_min: b.getWest(),  lng_max: b.getEast(),
+    row_limit: 300,
+  });
+  if (error || !data || !data.length) return;
+  if (dosyaLayer) { map.removeLayer(dosyaLayer); dosyaLayer = null; }
+  const features = data.map(row => ({
+    type: 'Feature', geometry: row.geojson,
+    properties: { area_name: row.area_name, phenomenon: row.phenomenon, area_type: row.area_type, city_name: row.city_name, area_code: row.area_code },
+  }));
+  dosyaLayer = L.geoJSON({ type: 'FeatureCollection', features }, {
+    style: f => getDosyaStyle(f.properties.phenomenon, f.properties.area_type),
+    onEachFeature: (feature, layer) => {
+      const p = feature.properties;
+      const typeColor = p.area_type === '\u7279\u5225\u8b66\u6212\u533a\u57df' ? '#dc2626' : '#f59e0b';
+      layer.on('click', function(e) {
+        L.popup({ maxWidth: 300, minWidth: 240 }).setLatLng(e.latlng).setContent(`
+          <div class="popup-body">
+            <div class="popup-case-no" style="font-size:13px;color:${typeColor};margin-bottom:10px">\u26a0\ufe0f \u571f\u7802\u707d\u5bb3${p.area_type}</div>
+            <div class="popup-info">
+              <div class="popup-row"><span class="popup-label">\u73fe\u8c61</span><span class="popup-value">${p.phenomenon||'\u2014'}</span></div>
+              <div class="popup-row"><span class="popup-label">\u533a\u57df\u540d</span><span class="popup-value">${p.area_name||'\u2014'}</span></div>
+              <div class="popup-row"><span class="popup-label">\u5e02\u533a\u753a\u6751</span><span class="popup-value">${p.city_name||'\u2014'}</span></div>
+              <div class="popup-row"><span class="popup-label">\u533a\u57df\u30b3\u30fc\u30c9</span><span class="popup-value" style="font-family:monospace;font-size:11px">${p.area_code||'\u2014'}</span></div>
+            </div>
+            <hr class="popup-divider">
+            <div style="font-size:11px;color:#aaa;line-height:1.5">
+              ${p.area_type==='\u7279\u5225\u8b66\u6212\u533a\u57df'?'\ud83d\udd34 \u5efa\u7bc9\u7269\u306e\u5012\u58ca\u30fb\u6d41\u5931\u304c\u751f\u3058\u308b\u6050\u308c\u306e\u3042\u308b\u533a\u57df\u3067\u3059':'\ud83d\udfe1 \u571f\u7802\u707d\u5bb3\u304c\u767a\u751f\u3057\u305f\u5834\u5408\u306b\u88ab\u5bb3\u3092\u53d7\u3051\u308b\u6050\u308c\u306e\u3042\u308b\u533a\u57df\u3067\u3059'}
+            </div>
+          </div>
+        `).openOn(map);
+      });
+      layer.on('mouseover', function() { layer.setStyle({ fillOpacity: 0.55, weight: 3 }); });
+      layer.on('mouseout', function() { dosyaLayer.resetStyle(layer); });
+    },
+  }).addTo(map);
+  dosyaLayer.bringToFront();
+}
+
+async function unConfirm(caseId) {
+  if (!confirm('\u73fe\u5730\u78ba\u8a8d\u3092\u89e3\u9664\u3057\u307e\u3059\u304b\uff1f')) return;
+  const { error } = await db.from('field_survey_status').update({
+    confirmed: false, confirmed_at: null, flag_color: 'yellow'
+  }).eq('case_id', caseId);
+  if (error) { showToast('\u89e3\u9664\u30a8\u30e9\u30fc: ' + error.message, 'error'); return; }
+  const d = markers[caseId];
+  if (d) {
+    d.confirmed = false;
+    d.survey = { ...d.survey, confirmed: false };
+    d.marker.setIcon(makeIcon('#f0b429'));
+    d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
+  }
+  const u = parseInt(document.getElementById('statUnchecked').textContent) + 1;
+  const c2 = Math.max(0, parseInt(document.getElementById('statChecked').textContent) - 1);
+  document.getElementById('statUnchecked').textContent = u;
+  document.getElementById('statChecked').textContent = c2;
+  map.closePopup();
+  showToast('\u73fe\u5730\u78ba\u8a8d\u3092\u89e3\u9664\u3057\u307e\u3057\u305f', 'success');
+}
+
+function loadDosya() {
+  map.on('moveend', renderDosyaInView);
+  map.on('zoomend', renderDosyaInView);
+  renderDosyaInView();
+}
+
+// ======== \u90fd\u5e02\u8a08\u753b\u60c5\u5831\uff08\u7528\u9014\u5730\u57df XKT002\uff09 ========
+const WORKER_BASE = 'https://reinfolib-proxy.takumi-29b.workers.dev/api';
+
+const YOTO_COLOR = {
+  '\u7b2c\u4e00\u7a2e\u4f4e\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df':   '#FFE066',
+  '\u7b2c\u4e8c\u7a2e\u4f4e\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df':   '#FFD700',
+  '\u7b2c\u4e00\u7a2e\u4e2d\u9ad8\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df': '#90EE90',
+  '\u7b2c\u4e8c\u7a2e\u4e2d\u9ad8\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df': '#B8F0B8',
+  '\u7b2c\u4e00\u7a2e\u4f4f\u5c45\u5730\u57df':           '#ADFF2F',
+  '\u7b2c\u4e8c\u7a2e\u4f4f\u5c45\u5730\u57df':           '#D4FF8A',
+  '\u6e96\u4f4f\u5c45\u5730\u57df':               '#FFC87A',
+  '\u8fd1\u96a3\u5546\u696d\u5730\u57df':             '#FF9F40',
+  '\u5546\u696d\u5730\u57df':                 '#FF6EB4',
+  '\u6e96\u5de5\u696d\u5730\u57df':             '#CC80FF',
+  '\u5de5\u696d\u5730\u57df':                 '#66B2FF',
+  '\u5de5\u696d\u5c02\u7528\u5730\u57df':             '#40D4F4',
+  '\u7528\u9014\u5730\u57df\u5916':               '#C8C8C8',
+};
+
+let urbanLayer = null;
+let urbanEnabled = false;
+let urbanRenderTimer = null;
+
+function latLngToTileXY(lat, lng, zoom) {
+  const x = Math.floor((lng + 180) / 360 * Math.pow(2, zoom));
+  const sinLat = Math.sin(lat * Math.PI / 180);
+  const y = Math.floor((0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * Math.pow(2, zoom));
+  return { x, y };
+}
+
+function getTilesForBounds(bounds, zoom) {
+  const nw = latLngToTileXY(bounds.getNorth(), bounds.getWest(), zoom);
+  const se = latLngToTileXY(bounds.getSouth(), bounds.getEast(), zoom);
+  const tiles = [];
+  for (let x = nw.x; x <= se.x; x++) {
+    for (let y = nw.y; y <= se.y; y++) {
+      tiles.push({ x, y, z: zoom });
+    }
+  }
+  return tiles;
+}
+
+function toggleUrbanPlanning() {
+  const btn = document.getElementById('btnUrbanPlanning');
+  const legend = document.getElementById('urbanLegend');
+  urbanEnabled = !urbanEnabled;
+  if (urbanEnabled) {
+    btn.classList.add('active');
+    if (legend) legend.style.display = 'block';
+    loadUrbanPlanning();
+    showToast('\ud83c\udfd9 \u7528\u9014\u5730\u57df\u3092ON\u306b\u3057\u307e\u3057\u305f', 'success');
+  } else {
+    btn.classList.remove('active');
+    if (legend) legend.style.display = 'none';
+    if (urbanLayer) { map.removeLayer(urbanLayer); urbanLayer = null; }
+    map.off('moveend', renderUrbanInView);
+    map.off('zoomend', renderUrbanInView);
+    showToast('\ud83c\udfd9 \u7528\u9014\u5730\u57df\u3092OFF\u306b\u3057\u307e\u3057\u305f', 'success');
+  }
+}
+
+function loadUrbanPlanning() {
+  map.on('moveend', renderUrbanInView);
+  map.on('zoomend', renderUrbanInView);
+  renderUrbanInView();
+}
+
+function renderUrbanInView() {
+  if (urbanRenderTimer) clearTimeout(urbanRenderTimer);
+  urbanRenderTimer = setTimeout(_doRenderUrban, 400);
+}
+
+function _doRenderUrban() {
+  if (!urbanEnabled) return;
+  if (map.getZoom() < 11) {
+    if (urbanLayer) { map.removeLayer(urbanLayer); urbanLayer = null; }
+    showToast('\u30ba\u30fc\u30e011\u4ee5\u4e0a\u3067\u7528\u9014\u5730\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059', 'error');
+    return;
+  }
+  _fetchAndRenderUrban();
+}
+
+async function _fetchAndRenderUrban() {
+  const bounds = map.getBounds();
+  const tileZoom = Math.min(Math.max(Math.floor(map.getZoom()), 11), 14);
+  const tiles = getTilesForBounds(bounds, tileZoom);
+
+  if (tiles.length > 36) {
+    if (urbanLayer) { map.removeLayer(urbanLayer); urbanLayer = null; }
+    showToast('\u3082\u3046\u5c11\u3057\u30ba\u30fc\u30e0\u30a4\u30f3\u3059\u308b\u3068\u7528\u9014\u5730\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059', 'error');
+    return;
+  }
+
+  const allFeatures = [];
+  await Promise.all(tiles.map(async ({ x, y, z }) => {
+    try {
+      const res = await fetch(`${WORKER_BASE}/XKT002?response_format=geojson&z=${z}&x=${x}&y=${y}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.features) allFeatures.push(...data.features);
+    } catch (e) { console.warn('urban fetch error', e); }
+  }));
+
+  if (!urbanEnabled) return;
+  if (urbanLayer) { map.removeLayer(urbanLayer); urbanLayer = null; }
+  if (!allFeatures.length) return;
+
+  const seen = new Set();
+  const uniqueFeatures = allFeatures.filter(f => {
+    const key = JSON.stringify(f.geometry?.coordinates?.[0]?.[0] || Math.random());
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  urbanLayer = L.geoJSON({ type: 'FeatureCollection', features: uniqueFeatures }, {
+    style: (feature) => {
+      const p = feature.properties || {};
+      const name = p.use_area_ja || '';
+      const color = YOTO_COLOR[name] ||
+        Object.entries(YOTO_COLOR).find(([k]) => name.includes(k.slice(0,4)))?.[1] ||
+        '#dddddd';
+      return { fillColor: color, fillOpacity: 0.30, color: '#aaaaaa', weight: 0.4, opacity: 0.6 };
+    },
+    onEachFeature: (feature, layer) => {
+      const p = feature.properties || {};
+      const name = p.use_area_ja || '';
+      const color = YOTO_COLOR[name] || '#dddddd';
+      const label = name || '\u4e0d\u660e';
+      const kenpeiri = p.u_building_coverage_ratio_ja || '\u2014';
+      const yosekiri = p.u_floor_area_ratio_ja || '\u2014';
+      const city = p.city_name || '';
+      const pref = p.prefecture || '';
+      layer.on('click', function(e) {
+        L.popup({ maxWidth: 300, minWidth: 240 }).setLatLng(e.latlng).setContent(`
+          <div class="popup-body">
+            <div class="popup-case-no" style="color:#818cf8;font-size:13px;margin-bottom:10px">\ud83c\udfd9 \u90fd\u5e02\u8a08\u753b\u60c5\u5831</div>
+            <div class="popup-info">
+              <div class="popup-row"><span class="popup-label">\u7528\u9014\u5730\u57df</span><span class="popup-value" style="font-weight:600">${label}</span></div>
+              <div class="popup-row"><span class="popup-label">\u5efa\u853d\u7387</span><span class="popup-value">${kenpeiri}</span></div>
+              <div class="popup-row"><span class="popup-label">\u5bb9\u7a4d\u7387</span><span class="popup-value">${yosekiri}</span></div>
+              ${city ? `<div class="popup-row"><span class="popup-label">\u5e02\u533a\u753a\u6751</span><span class="popup-value">${pref} ${city}</span></div>` : ''}
+            </div>
+            <hr class="popup-divider">
+            <div style="font-size:11px;color:#aaa;line-height:1.5">\u56fd\u571f\u4ea4\u901a\u7701 \u4e0d\u52d5\u7523\u60c5\u5831\u30e9\u30a4\u30d6\u30e9\u30ea\uff08XKT002\uff09</div>
+          </div>
+        `).openOn(map);
+      });
+      layer.on('mouseover', function() { layer.setStyle({ fillOpacity: 0.8 }); });
+      layer.on('mouseout', function() { if (urbanLayer) urbanLayer.resetStyle(layer); });
+    },
+  }).addTo(map);
+  urbanLayer.bringToBack();
+}
+
+// ======== \u8fb2\u632f\u8fb2\u7528\u5730 ========
+let noshinLayer = null;
+let noshinLoading = false;
+function toggleNoshin() {
+  const btn = document.getElementById('btnNoshin');
+  if (noshinLayer) {
+    map.removeLayer(noshinLayer);
+    noshinLayer = null;
+    btn.classList.remove('active');
+    showToast('\ud83c\udf3e \u8fb2\u632f\u8fb2\u7528\u5730\u3092OFF\u306b\u3057\u307e\u3057\u305f', 'success');
+    return;
+  }
+  if (noshinLoading) return;
+  noshinLoading = true;
+  btn.classList.add('active');
+  showToast('\ud83c\udf3e \u8fb2\u632f\u8fb2\u7528\u5730\u3092\u8aad\u307f\u8fbc\u307f\u4e2d...', 'success');
+  const base = WORKER_BASE.replace(/\/api\/?$/, '');
+  fetch(base + '/r2/noshin_aichi.geojson')
+    .then(r => r.ok ? r.json() : Promise.reject('\u53d6\u5f97\u5931\u6557'))
+    .then(geojson => {
+      noshinLayer = L.geoJSON(geojson, {
+        style: { color: '#c8a000', weight: 0.8, fillColor: '#ffe066', fillOpacity: 0.45 },
+        onEachFeature: (feature, layer) => {
+          if (feature.properties && feature.properties.city) {
+            layer.bindTooltip('\u8fb2\u632f\u8fb2\u7528\u5730\uff1a' + feature.properties.city, { className: 'farmland-tooltip', sticky: true });
+          }
+        }
+      });
+      noshinLayer.addTo(map);
+      noshinLoading = false;
+      showToast('\ud83c\udf3e \u8fb2\u632f\u8fb2\u7528\u5730\u3092\u8868\u793a\u4e2d', 'success');
+    })
+    .catch(e => {
+      noshinLoading = false;
+      btn.classList.remove('active');
+      showToast('\ud83c\udf3e \u8fb2\u632f\u8fb2\u7528\u5730\u306e\u8aad\u307f\u8fbc\u307f\u306b\u5931\u6557\u3057\u307e\u3057\u305f', 'error');
+    });
+}
+
 // ======== \u5730\u756a\u30fb\u4f4f\u6240\u691c\u7d22 ========
 let _searchTimer = null;
 let _boundaryLayer = null;
@@ -860,51 +1533,40 @@ function jumpToBoundary(idx, label) {
   document.getElementById('chibanResults').style.display = 'none';
   document.getElementById('chibanInput').value = label;
 }
-function buildParcelPopup(p) {
-  const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const area = p['\u9762\u7a4d'];
-  const areaText = area ? (Number(area).toLocaleString('ja-JP', {maximumFractionDigits: 1}) + ' m\u00b2') : null;
-  const rows = [
-    ['\u5e02\u533a\u753a\u6751\u540d', p['\u5e02\u533a\u753a\u6751\u540d']],
-    ['\u5927\u5b57\u540d',           p['\u5927\u5b57\u540d']],
-    ['\u5c0f\u5b57\u540d',           p['\u5c0f\u5b57\u540d']],
-    ['\u5730\u756a',                 p['\u5730\u756a']],
-    ['\u9762\u7a4d',                 areaText]
-  ].filter(r => r[1])
-   .map(r => `<tr><td style="color:var(--text-muted);padding:5px 14px 5px 0;font-size:11px;white-space:nowrap;vertical-align:top;font-weight:500">${r[0]}</td><td style="padding:5px 0;font-size:13px;word-break:break-all;font-weight:600;color:var(--text)">${esc(r[1])}</td></tr>`)
-   .join('');
-  return `<div style="padding:12px;min-width:220px"><div style="font-family:'Share Tech Mono',monospace;color:var(--accent);font-size:11px;margin-bottom:10px;letter-spacing:1px;border-bottom:1px solid var(--border);padding-bottom:7px">\u{1F4D0} \u5730\u756a\u60c5\u5831</div><table style="border-collapse:collapse;width:100%">${rows}</table></div>`;
-}
 function jumpToChiban(lat, lng, label) {
   map.setView([lat, lng], 17);
   L.popup({ maxWidth: 260 }).setLatLng([lat, lng])
-    .setContent(`<div style="padding:10px;font-size:12px">&#128205; ${label}</div>`)
+    .setContent(`<div style="padding:10px;font-family:var(--font-main);font-size:12px;color:var(--text)">&#128205; ${label}</div>`)
     .openOn(map);
   document.getElementById('chibanResults').style.display = 'none';
   document.getElementById('chibanInput').value = label;
 }
+
 initMap();
+setTimeout(() => { map.invalidateSize(); }, 100);
 loadData();
 
-// ======== \u30cf\u30b6\u30fc\u30c9\u30d1\u30cd\u30eb \u6298\u308a\u305f\u305f\u307f\u30c8\u30b0\u30eb ========
-function toggleHazardPanel() {
-  const hc = document.getElementById('hazardControls');
-  if (hc) hc.classList.toggle('collapsed');
+// ======== \u30ec\u30a4\u30e4\u30fc\u30d1\u30cd\u30eb \u6298\u308a\u305f\u305f\u307f\u30c8\u30b0\u30eb ========
+function toggleLayerPanel() {
+  const lc = document.getElementById('layerControl');
+  if (lc) lc.classList.toggle('collapsed');
 }
-// \u521d\u671f\u72b6\u614b\uff1a\u753b\u9762\u5e451024px\u4ee5\u4e0b\uff08iPad\u30fbiPhone\uff09\u3067\u306f\u6298\u308a\u305f\u305f\u307f
 if (window.innerWidth <= 1024) {
-  const hc = document.getElementById('hazardControls');
-  if (hc) hc.classList.add('collapsed');
+  const lc = document.getElementById('layerControl');
+  if (lc) lc.classList.add('collapsed');
 }
 
-// ======== \u30a2\u30af\u30b7\u30e7\u30f3\u30d1\u30cd\u30eb \u6298\u308a\u305f\u305f\u307f\u30c8\u30b0\u30eb\uff08C\u6848\u30e2\u30d0\u30a4\u30eb\u5bfe\u5fdc\uff09 ========
+// ======== \u30a2\u30af\u30b7\u30e7\u30f3\u30d1\u30cd\u30eb \u6298\u308a\u305f\u305f\u307f\u30c8\u30b0\u30eb ========
 function toggleActionPanel(id) {
   const el = document.getElementById(id);
   if (el) el.classList.toggle('collapsed');
 }
-// \u521d\u671f\u72b6\u614b\uff1a\u753b\u9762\u5e451024px\u4ee5\u4e0b\uff08iPad\u30fbiPhone\uff09\u3067\u306f\u6298\u308a\u305f\u305f\u307f
+function toggleBgAdjust() {
+  const el = document.getElementById('bgAdjustPanel');
+  if (el) el.classList.toggle('collapsed');
+}
 if (window.innerWidth <= 1024) {
-  ['planPanel', 'visitPanel'].forEach(function(id){
+  ['planPanel', 'surveyPanel', 'bgAdjustPanel'].forEach(function(id){
     const el = document.getElementById(id);
     if (el) el.classList.add('collapsed');
   });
@@ -916,7 +1578,10 @@ function initDraggablePanels(storageKeyPrefix, configs) {
     var panel = document.querySelector(cfg.id);
     if (!panel) return;
     panel.classList.add('draggable-panel');
-    var storageKey = 'dragPos_' + storageKeyPrefix + '_' + cfg.id.replace(/[^a-zA-Z0-9]/g, '_');
+    // \u65e7\u30ad\u30fc\u306e\u53e4\u3044\u30c7\u30fc\u30bf\u3092\u524a\u9664\uff08v2\u5316\u3067\u4e0d\u6574\u5408\u30c7\u30fc\u30bf\u3092\u7834\u68c4\uff09
+    var oldStorageKey = 'dragPos_' + storageKeyPrefix + '_' + cfg.id.replace(/[^a-zA-Z0-9]/g, '_');
+    try { localStorage.removeItem(oldStorageKey); } catch (_) {}
+    var storageKey = oldStorageKey + '_v2';
     var savedPos = null;
     try { savedPos = JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch (e) {}
     if (savedPos && typeof savedPos.left === 'number' && typeof savedPos.top === 'number') {
@@ -932,6 +1597,12 @@ function initDraggablePanels(storageKeyPrefix, configs) {
     handle.title = '\u30c9\u30e9\u30c3\u30b0\u3067\u79fb\u52d5\u30fb\u30c0\u30d6\u30eb\u30af\u30ea\u30c3\u30af\u3067\u4f4d\u7f6e\u30ea\u30bb\u30c3\u30c8';
     handle.style.cursor = 'grab';
     var SKIP_SELECTOR = 'button, input, select, textarea, a';
+    // \u30d1\u30cd\u30eb\u306eoffsetParent\u57fa\u6e96\u306e\u4f4d\u7f6e\u3092\u8a08\u7b97\u3059\u308b\u30d8\u30eb\u30d1\u30fc
+    function getParentOffset() {
+      var op = panel.offsetParent || document.body;
+      var r = op.getBoundingClientRect();
+      return { left: r.left, top: r.top };
+    }
     handle.addEventListener('dblclick', function(e) {
       if (e.target.closest(SKIP_SELECTOR)) return;
       e.stopPropagation();
@@ -945,24 +1616,30 @@ function initDraggablePanels(storageKeyPrefix, configs) {
       dragging = true;
       document.body.classList.add('dragging-panel');
       var rect = panel.getBoundingClientRect();
-      // \u30af\u30ea\u30c3\u30af\u4f4d\u7f6e\u3068\u30d1\u30cd\u30eb\u5de6\u4e0a\u306e\u76f8\u5bfe\u8ddd\u96e2\u3092\u8a18\u9332\uff08\u30c9\u30e9\u30c3\u30b0\u4e2d\u3053\u306e\u4f4d\u7f6e\u3092\u7dad\u6301\uff09
+      var po = getParentOffset();
+      // \u30ab\u30fc\u30bd\u30eb\u3068\u30d1\u30cd\u30eb\u5de6\u4e0a\u306e\u76f8\u5bfe\u8ddd\u96e2\u3092\u8a18\u9332
       offsetX = e.clientX - rect.left;
       offsetY = e.clientY - rect.top;
-      panel.style.left = rect.left + 'px'; panel.style.top = rect.top + 'px';
+      // \u89aa\u8981\u7d20\u57fa\u6e96\u3067panel\u306e\u73fe\u5728\u4f4d\u7f6e\u3092\u30bb\u30c3\u30c8\uff08viewport \u2192 offsetParent\u57fa\u6e96\u306b\u5909\u63db\uff09
+      panel.style.left = (rect.left - po.left) + 'px';
+      panel.style.top = (rect.top - po.top) + 'px';
       panel.style.right = 'auto'; panel.style.bottom = 'auto';
       try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+      e.stopPropagation();
       e.preventDefault();
     });
     handle.addEventListener('pointermove', function(e) {
       if (!dragging) return;
-      // \u30dd\u30a4\u30f3\u30bf\u4f4d\u7f6e\u304b\u3089offset\u3092\u5f15\u304f\u2192\u30ab\u30fc\u30bd\u30eb\u306f\u5e38\u306b\u30d1\u30cd\u30eb\u5185\u306e\u540c\u3058\u4f4d\u7f6e\u306b\u6b8b\u308b
-      var newLeft = e.clientX - offsetX;
-      var newTop = e.clientY - offsetY;
+      var po = getParentOffset();
+      // \u30d1\u30cd\u30eb\u306e\u65b0\u3057\u3044\u4f4d\u7f6e = \u30ab\u30fc\u30bd\u30eb\u4f4d\u7f6e - offset - \u89aa\u8981\u7d20\u4f4d\u7f6e\uff08offsetParent\u57fa\u6e96\uff09
+      var newLeft = e.clientX - offsetX - po.left;
+      var newTop = e.clientY - offsetY - po.top;
       var rect = panel.getBoundingClientRect();
-      var maxLeft = window.innerWidth - 16;
-      var maxTop = window.innerHeight - 16;
+      // \u5883\u754c\u30c1\u30a7\u30c3\u30af\u3082offsetParent\u57fa\u6e96\u3067\u8a08\u7b97
+      var maxLeft = window.innerWidth - po.left - 16;
+      var maxTop = window.innerHeight - po.top - 16;
       var minLeft = -(rect.width - 16);
-      var minTop = 0;
+      var minTop = -po.top;
       if (newLeft < minLeft) newLeft = minLeft;
       if (newLeft > maxLeft) newLeft = maxLeft;
       if (newTop < minTop) newTop = minTop;
@@ -982,12 +1659,13 @@ function initDraggablePanels(storageKeyPrefix, configs) {
     handle.addEventListener('pointercancel', endDrag);
   });
 }
-// landowner-visit\u5c02\u7528\u306e\u30c9\u30e9\u30c3\u30b0\u30d1\u30cd\u30eb\u521d\u671f\u5316
-initDraggablePanels('landownerVisit', [
+// field-survey\u5c02\u7528\u306e\u30c9\u30e9\u30c3\u30b0\u30d1\u30cd\u30eb\u521d\u671f\u5316
+initDraggablePanels('fieldSurvey', [
   { id: '#chibanSearch' },
+  { id: '#statsOverlay' },
   { id: '#controlPanel' },
-  { id: '#layerControl' },
-  { id: '#hazardControls', handle: '.hazard-panel-header' }
+  { id: '#layerControl', handle: '.layer-panel-header' },
+  { id: '#bgAdjustPanel', handle: '.mc-panel-header' }
 ]);
 </script>
 <script src="mobile-responsive.js"></script>
