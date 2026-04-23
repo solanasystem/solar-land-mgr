@@ -219,7 +219,7 @@
   .owner-table td:first-child { text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--accent); font-weight: 700; }
   .owner-table tr:hover td { background: var(--surface2); }
   .owner-table tr.visited td { opacity: 0.5; }
-  .owner-table tr.visited td:first-child::after { content: '✓'; color: var(--red); }
+  .owner-table tr.visited td:first-child::after { content: '\u2713'; color: var(--red); }
   .side-panel { position: absolute; top: 0; right: 0; width: 280px; height: 100%; background: var(--surface); border-left: 1px solid var(--border); z-index: 600; transform: translateX(100%); transition: transform 0.3s ease; display: flex; flex-direction: column; }
   .side-panel.open { transform: translateX(0); }
   .side-panel-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--surface); }
@@ -237,138 +237,169 @@
   @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
   .leaflet-tooltip { background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: 6px !important; color: var(--text) !important; font-family: var(--font-main) !important; font-size: 12px !important; font-weight: 500 !important; padding: 5px 10px !important; box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important; white-space: nowrap !important; }
   .leaflet-tooltip-top::before { border-top-color: var(--border) !important; }
+
+  /* ======== ドラッグ可能パネル 共通CSS ======== */
+  .drag-grip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: 14px;
+    cursor: grab;
+    user-select: none;
+    background: linear-gradient(180deg, var(--surface2), var(--surface));
+    border-bottom: 1px solid var(--border);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .drag-grip::before, .drag-grip::after {
+    content: '';
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    box-shadow: 6px 0 0 var(--text-muted), 12px 0 0 var(--text-muted);
+  }
+  .drag-grip:hover { background: var(--surface); cursor: grab; }
+  .drag-grip:active { cursor: grabbing; }
+  body.dragging-panel * { user-select: none !important; cursor: grabbing !important; }
+  .hazard-panel-header, .mc-panel-header { cursor: grab; }
+  .hazard-panel-header:active, .mc-panel-header:active { cursor: grabbing; }
+  .draggable-panel { touch-action: none; }
 </style>
 </head>
 <body>
 <header class="header">
   <div class="header-left">
-    <a class="logo" href="index.html"><div class="logo-icon">☀️</div><span class="logo-text">SOLAR LAND MGR</span></a>
-    <span class="page-title">🚗 地権者訪問マップ</span>
-    <span class="phase-badge phase-plan" id="phaseBadge">📋 訪問計画モード</span>
+    <a class="logo" href="index.html"><div class="logo-icon">\u2618\ufe0f</div><span class="logo-text">SOLAR LAND MGR</span></a>
+    <span class="page-title">\ud83d\ude97 \u5730\u6a29\u8005\u8a2a\u554f\u30de\u30c3\u30d7</span>
+    <span class="phase-badge phase-plan" id="phaseBadge">\ud83d\udccb \u8a2a\u554f\u8a08\u753b\u30e2\u30fc\u30c9</span>
   </div>
   <div class="legend">
-    <div class="legend-item"><div class="legend-dot" style="background:#58a6ff"></div><span>未選択</span></div>
-    <div class="legend-item"><div class="legend-dot" style="background:#f0b429"></div><span>訪問予定</span></div>
-    <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div><span>訪問済</span></div>
-    <button class="btn btn-ghost" onclick="location.href='index.html'">← 案件一覧</button>
+    <div class="legend-item"><div class="legend-dot" style="background:#58a6ff"></div><span>\u672a\u9078\u629e</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f0b429"></div><span>\u8a2a\u554f\u4e88\u5b9a</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div><span>\u8a2a\u554f\u6e08</span></div>
+    <button class="btn btn-ghost" onclick="location.href='index.html'">\u2190 \u6848\u4ef6\u4e00\u89a7</button>
   </div>
 </header>
 <div class="map-wrapper">
   <div id="map"></div>
   <!-- 地番・住所検索 -->
   <div class="chiban-search" id="chibanSearch">
-    <span class="chiban-search-icon">🔍</span>
-    <input type="text" id="chibanInput" placeholder="市区町村 大字 地番で検索...">
+    <span class="chiban-search-icon">\ud83d\udd0d</span>
+    <input type="text" id="chibanInput" placeholder="\u5e02\u533a\u753a\u6751 \u5927\u5b57 \u5730\u756a\u3067\u691c\u7d22...">
     <div class="chiban-results" id="chibanResults"></div>
   </div>
   <div class="owner-list-panel" id="ownerListPanel">
     <div class="owner-list-header">
-      <span class="owner-list-title">📋 訪問予定リスト</span>
-      <span class="owner-list-count" id="ownerListCount">0件</span>
+      <span class="owner-list-title">\ud83d\udccb \u8a2a\u554f\u4e88\u5b9a\u30ea\u30b9\u30c8</span>
+      <span class="owner-list-count" id="ownerListCount">0\u4ef6</span>
     </div>
     <div class="owner-table-wrap">
       <table class="owner-table">
-        <thead><tr><th>No</th><th>地権者名</th></tr></thead>
-        <tbody id="ownerTableBody"><tr><td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">フラグをクリックして<br>訪問予定を追加</td></tr></tbody>
+        <thead><tr><th>No</th><th>\u5730\u6a29\u8005\u540d</th></tr></thead>
+        <tbody id="ownerTableBody"><tr><td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">\u30d5\u30e9\u30b0\u3092\u30af\u30ea\u30c3\u30af\u3057\u3066<br>\u8a2a\u554f\u4e88\u5b9a\u3092\u8ffd\u52a0</td></tr></tbody>
       </table>
     </div>
   </div>
-  <div class="control-panel">
-    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--blue)"></div>全 <span id="statTotal">—</span> 件</div>
-    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--accent)"></div>訪問予定 <span id="statPlan">0</span> 件</div>
-    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--red)"></div>訪問済 <span id="statDone">0</span> 件</div>
+  <div class="control-panel" id="controlPanel">
+    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--blue)"></div>\u5168 <span id="statTotal">\u2014</span> \u4ef6</div>
+    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--accent)"></div>\u8a2a\u554f\u4e88\u5b9a <span id="statPlan">0</span> \u4ef6</div>
+    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--red)"></div>\u8a2a\u554f\u6e08 <span id="statDone">0</span> \u4ef6</div>
     <div class="action-panel mc-collapsible" id="planPanel">
       <div class="mc-panel-header" onclick="toggleActionPanel('planPanel')">
-        <span class="mc-panel-title">📋 訪問計画モード</span>
-        <button class="mc-panel-toggle" type="button" aria-label="開閉">▼</button>
+        <span class="mc-panel-title">\ud83d\udccb \u8a2a\u554f\u8a08\u753b\u30e2\u30fc\u30c9</span>
+        <button class="mc-panel-toggle" type="button" aria-label="\u958b\u9589">\u25bc</button>
       </div>
       <div class="mc-panel-body">
-      <div class="action-panel-title">訪問計画モード</div>
-      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>訪問予定を選択してください</div>
-      <button class="btn btn-primary" onclick="startVisitMode()" id="startBtn" disabled>🚗 訪問開始</button>
-      <button class="btn btn-ghost" style="font-size:11px" onclick="togglePlanList()">📋 予定リスト（右）</button>
+      <div class="action-panel-title">\u8a2a\u554f\u8a08\u753b\u30e2\u30fc\u30c9</div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">\u30d5\u30e9\u30b0\u3092\u30af\u30ea\u30c3\u30af\u3057\u3066<br>\u8a2a\u554f\u4e88\u5b9a\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044</div>
+      <button class="btn btn-primary" onclick="startVisitMode()" id="startBtn" disabled>\ud83d\ude97 \u8a2a\u554f\u958b\u59cb</button>
+      <button class="btn btn-ghost" style="font-size:11px" onclick="togglePlanList()">\ud83d\udccb \u4e88\u5b9a\u30ea\u30b9\u30c8\uff08\u53f3\uff09</button>
       </div>
     </div>
     <div class="action-panel mc-collapsible" id="visitPanel" style="display:none">
       <div class="mc-panel-header" onclick="toggleActionPanel('visitPanel')">
-        <span class="mc-panel-title">🚗 訪問実行モード</span>
-        <button class="mc-panel-toggle" type="button" aria-label="開閉">▼</button>
+        <span class="mc-panel-title">\ud83d\ude97 \u8a2a\u554f\u5b9f\u884c\u30e2\u30fc\u30c9</span>
+        <button class="mc-panel-toggle" type="button" aria-label="\u958b\u9589">\u25bc</button>
       </div>
       <div class="mc-panel-body">
-      <div class="action-panel-title">訪問実行モード</div>
-      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>ナビを起動してください</div>
-      <button class="btn btn-ghost" style="font-size:11px" onclick="togglePlanList()">📋 予定リスト（右）</button>
-      <button class="btn btn-ghost" style="font-size:11px;color:var(--red);border-color:var(--red)" onclick="resetPlan()">🔄 計画をリセット</button>
+      <div class="action-panel-title">\u8a2a\u554f\u5b9f\u884c\u30e2\u30fc\u30c9</div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">\u30d5\u30e9\u30b0\u3092\u30af\u30ea\u30c3\u30af\u3057\u3066<br>\u30ca\u30d3\u3092\u8d77\u52d5\u3057\u3066\u304f\u3060\u3055\u3044</div>
+      <button class="btn btn-ghost" style="font-size:11px" onclick="togglePlanList()">\ud83d\udccb \u4e88\u5b9a\u30ea\u30b9\u30c8\uff08\u53f3\uff09</button>
+      <button class="btn btn-ghost" style="font-size:11px;color:var(--red);border-color:var(--red)" onclick="resetPlan()">\ud83d\udd04 \u8a08\u753b\u3092\u30ea\u30bb\u30c3\u30c8</button>
       </div>
     </div>
   </div>
-  <div class="layer-control">
-    <div class="layer-title">地図レイヤー</div>
-    <label class="layer-item"><input type="checkbox" id="layerGsi" onchange="toggleLayer('gsi',this.checked)"> GSI 航空写真</label>
-    <label class="layer-item"><input type="checkbox" id="layerParcel" checked onchange="toggleLayer('parcel',this.checked)"> 地番境界</label>
+  <div class="layer-control" id="layerControl">
+    <div class="layer-title">\u5730\u56f3\u30ec\u30a4\u30e4\u30fc</div>
+    <label class="layer-item"><input type="checkbox" id="layerGsi" onchange="toggleLayer('gsi',this.checked)"> GSI \u822a\u7a7a\u5199\u771f</label>
+    <label class="layer-item"><input type="checkbox" id="layerParcel" checked onchange="toggleLayer('parcel',this.checked)"> \u5730\u756a\u5883\u754c</label>
   </div>
   <!-- ======== ハザード + 都市計画 + 農振 コントロール ======== -->
   <div class="hazard-controls" id="hazardControls">
     <div class="hazard-panel-header" onclick="toggleHazardPanel()">
-      <span class="hazard-panel-title">🚨 防災・都市計画</span>
-      <button class="hazard-panel-toggle" type="button" aria-label="開閉">▼</button>
+      <span class="hazard-panel-title">\ud83d\udea8 \u9632\u707d\u30fb\u90fd\u5e02\u8a08\u753b</span>
+      <button class="hazard-panel-toggle" type="button" aria-label="\u958b\u9589">\u25bc</button>
     </div>
     <div class="hazard-body">
-    <button class="hazard-btn" id="hzFlood" onclick="toggleHazard('flood')">&#127754; 浸水</button>
-    <button class="hazard-btn" id="hzInner" onclick="toggleHazard('inner')">&#128167; 内水</button>
-    <button class="hazard-btn" id="hzSediment" onclick="toggleDosyaPolygon()">&#9888; 土砂災害</button>
-    <button class="hazard-btn" id="hzTide" onclick="toggleHazard('tide')">&#127754; 高潮</button>
-    <button class="hazard-btn" id="hzTsunami" onclick="toggleHazard('tsunami')">&#127754; 津波</button>
+    <button class="hazard-btn" id="hzFlood" onclick="toggleHazard('flood')">&#127754; \u6d78\u6c34</button>
+    <button class="hazard-btn" id="hzInner" onclick="toggleHazard('inner')">&#128167; \u5185\u6c34</button>
+    <button class="hazard-btn" id="hzSediment" onclick="toggleDosyaPolygon()">&#9888; \u571f\u7802\u707d\u5bb3</button>
+    <button class="hazard-btn" id="hzTide" onclick="toggleHazard('tide')">&#127754; \u9ad8\u6f6e</button>
+    <button class="hazard-btn" id="hzTsunami" onclick="toggleHazard('tsunami')">&#127754; \u6d25\u6ce2</button>
     <div class="hazard-divider"></div>
     <button class="hazard-toggle-btn" id="btnUrbanPlanning" onclick="toggleUrbanPlanning()">
-      <span class="hazard-toggle-dot"></span>&#127968; 用途地域
+      <span class="hazard-toggle-dot"></span>&#127968; \u7528\u9014\u5730\u57df
     </button>
     <div id="urbanLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-height:200px;overflow-y:auto;">
-      <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">用途地域</div>
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">\u7528\u9014\u5730\u57df</div>
       <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFFFD2;border:1px solid #aaa;flex-shrink:0"></div>第1種低層住居専用</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFFFC0;border:1px solid #aaa;flex-shrink:0"></div>第2種低層住居専用</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#DFF1CB;border:1px solid #aaa;flex-shrink:0"></div>第1種中高層住居専用</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#F0FFE1;border:1px solid #aaa;flex-shrink:0"></div>第2種中高層住居専用</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFFFD2;border:1px solid #aaa;flex-shrink:0"></div>第1種住居</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFF1E2;border:1px solid #aaa;flex-shrink:0"></div>第2種住居</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFE4CC;border:1px solid #aaa;flex-shrink:0"></div>準住居</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFD4A0;border:1px solid #aaa;flex-shrink:0"></div>近隣商業</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFB3D2;border:1px solid #aaa;flex-shrink:0"></div>商業</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#E1B3FF;border:1px solid #aaa;flex-shrink:0"></div>準工業</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#B3D4FF;border:1px solid #aaa;flex-shrink:0"></div>工業</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#CCF0FF;border:1px solid #aaa;flex-shrink:0"></div>工業専用</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFFFD2;border:1px solid #aaa;flex-shrink:0"></div>\u7b2c1\u7a2e\u4f4e\u5c64\u4f4f\u5c45\u5c02\u7528</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFFFC0;border:1px solid #aaa;flex-shrink:0"></div>\u7b2c2\u7a2e\u4f4e\u5c64\u4f4f\u5c45\u5c02\u7528</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#DFF1CB;border:1px solid #aaa;flex-shrink:0"></div>\u7b2c1\u7a2e\u4e2d\u9ad8\u5c64\u4f4f\u5c45\u5c02\u7528</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#F0FFE1;border:1px solid #aaa;flex-shrink:0"></div>\u7b2c2\u7a2e\u4e2d\u9ad8\u5c64\u4f4f\u5c45\u5c02\u7528</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFFFD2;border:1px solid #aaa;flex-shrink:0"></div>\u7b2c1\u7a2e\u4f4f\u5c45</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFF1E2;border:1px solid #aaa;flex-shrink:0"></div>\u7b2c2\u7a2e\u4f4f\u5c45</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFE4CC;border:1px solid #aaa;flex-shrink:0"></div>\u6e96\u4f4f\u5c45</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFD4A0;border:1px solid #aaa;flex-shrink:0"></div>\u8fd1\u96a3\u5546\u696d</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFB3D2;border:1px solid #aaa;flex-shrink:0"></div>\u5546\u696d</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#E1B3FF;border:1px solid #aaa;flex-shrink:0"></div>\u6e96\u5de5\u696d</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#B3D4FF;border:1px solid #aaa;flex-shrink:0"></div>\u5de5\u696d</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#CCF0FF;border:1px solid #aaa;flex-shrink:0"></div>\u5de5\u696d\u5c02\u7528</div>
       </div>
     </div>
     <div class="hazard-divider"></div>
-    <button class="hazard-btn" id="hzNoshin" onclick="toggleNoshin()">&#127806; 農振農用地</button>
+    <button class="hazard-btn" id="hzNoshin" onclick="toggleNoshin()">&#127806; \u8fb2\u632f\u8fb2\u7528\u5730</button>
     </div><!-- /.hazard-body -->
   </div>
   <div class="zoom-controls">
-    <button class="zoom-btn" onclick="map.zoomIn()">＋</button>
-    <button class="zoom-btn" onclick="map.zoomOut()">－</button>
+    <button class="zoom-btn" onclick="map.zoomIn()">\uff0b</button>
+    <button class="zoom-btn" onclick="map.zoomOut()">\uff0d</button>
   </div>
   <div class="side-panel" id="sidePanel">
     <div class="side-panel-header">
-      <span class="side-panel-title">📋 訪問予定リスト</span>
-      <button class="modal-close" onclick="togglePlanList()">✕</button>
+      <span class="side-panel-title">\ud83d\udccb \u8a2a\u554f\u4e88\u5b9a\u30ea\u30b9\u30c8</span>
+      <button class="modal-close" onclick="togglePlanList()">\u2715</button>
     </div>
-    <div class="plan-list" id="planList"><div style="color:var(--text-muted);font-size:12px;padding:10px">訪問予定がありません</div></div>
+    <div class="plan-list" id="planList"><div style="color:var(--text-muted);font-size:12px;padding:10px">\u8a2a\u554f\u4e88\u5b9a\u304c\u3042\u308a\u307e\u305b\u3093</div></div>
   </div>
 </div>
 <div class="modal-overlay" id="visitModal">
   <div class="modal">
     <div class="modal-header">
-      <div><div class="modal-title">✅ 訪問完了・商談記録</div><div class="modal-subtitle" id="visitModalInfo"></div></div>
-      <button class="modal-close" onclick="closeModal('visitModal')">✕</button>
+      <div><div class="modal-title">\u2705 \u8a2a\u554f\u5b8c\u4e86\u30fb\u5546\u8ac7\u8a18\u9332</div><div class="modal-subtitle" id="visitModalInfo"></div></div>
+      <button class="modal-close" onclick="closeModal('visitModal')">\u2715</button>
     </div>
     <div class="modal-body">
-      <div class="form-group"><label class="form-label">訪問日</label><input class="form-input" type="date" id="visitDate"></div>
-      <div class="form-group"><label class="form-label">商談内容</label><textarea class="form-textarea" id="visitContent" placeholder="訪問結果・地権者の反応・次回アクションなど..."></textarea></div>
+      <div class="form-group"><label class="form-label">\u8a2a\u554f\u65e5</label><input class="form-input" type="date" id="visitDate"></div>
+      <div class="form-group"><label class="form-label">\u5546\u8ac7\u5185\u5bb9</label><textarea class="form-textarea" id="visitContent" placeholder="\u8a2a\u554f\u7d50\u679c\u30fb\u5730\u6a29\u8005\u306e\u53cd\u5fdc\u30fb\u6b21\u56de\u30a2\u30af\u30b7\u30e7\u30f3\u306a\u3069..."></textarea></div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('visitModal')">キャンセル</button>
-      <button class="btn btn-danger" onclick="saveVisit()">訪問完了・フラグを赤に変更</button>
+      <button class="btn btn-ghost" onclick="closeModal('visitModal')">\u30ad\u30e3\u30f3\u30bb\u30eb</button>
+      <button class="btn btn-danger" onclick="saveVisit()">\u8a2a\u554f\u5b8c\u4e86\u30fb\u30d5\u30e9\u30b0\u3092\u8d64\u306b\u5909\u66f4</button>
     </div>
   </div>
 </div>
@@ -385,14 +416,14 @@ let planSet = new Set();
 let visitMode = false;
 let currentVisitCaseId = null;
 let currentLandownerId = null;
-/* ==== トースト通知 ==== */
+/* ==== \u30c8\u30fc\u30b9\u30c8\u901a\u77e5 ==== */
 function showToast(msg, type){
   var c=document.getElementById('toastContainer');
   if(!c){ c=document.createElement('div'); c.id='toastContainer'; c.className='toast-container'; document.body.appendChild(c); }
   var t=document.createElement('div'); t.className='toast '+(type||'success'); t.textContent=msg;
   c.appendChild(t); setTimeout(function(){ if(t.parentNode)t.parentNode.removeChild(t); }, 4000);
 }
-/* ==== ハザード5種（洪水/内水/土砂/高潮/津波） ==== */
+/* ==== \u30cf\u30b6\u30fc\u30c95\u7a2e ==== */
 const HAZARD_URLS = {
   flood:   'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
   inner:   'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_kuni_data/{z}/{x}/{y}.png',
@@ -411,7 +442,7 @@ function toggleHazard(type){
     layer.addTo(map); layer.bringToFront(); hazardLayers[type]=layer; btn.classList.add('active');
   }
 }
-/* ==== 土砂災害警戒ポリゴン ==== */
+/* ==== \u571f\u7802\u707d\u5bb3\u8b66\u6212\u30dd\u30ea\u30b4\u30f3 ==== */
 let dosyaLayer=null, dosyaEnabled=false, dosyaRenderTimer=null;
 function getDosyaStyle(phenomenon,areaType){
   var isSpecial = areaType==='\u7279\u5225\u8b66\u6212\u533a\u57df';
@@ -450,7 +481,7 @@ async function _fetchAndRenderDosya(){
   } catch(e){ showToast('\u571f\u7802\u8b66\u6212\u30dd\u30ea\u30b4\u30f3\u53d6\u5f97\u30a8\u30e9\u30fc','error'); }
 }
 function loadDosya(){ map.on('moveend',renderDosyaInView); map.on('zoomend',renderDosyaInView); renderDosyaInView(); }
-/* ==== 農振農用地 ==== */
+/* ==== \u8fb2\u632f\u8fb2\u7528\u5730 ==== */
 let noshinLayer=null, noshinLoading=false;
 function toggleNoshin(){
   var btn=document.getElementById('hzNoshin');
@@ -466,7 +497,7 @@ function toggleNoshin(){
     noshinLayer.addTo(map); noshinLoading=false; showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u3092\u8868\u793a\u4e2d','success');
   }).catch(function(e){ noshinLoading=false; btn.classList.remove('active'); showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u306e\u8aad\u307f\u8fbc\u307f\u306b\u5931\u6557\u3057\u307e\u3057\u305f','error'); });
 }
-/* ==== 用途地域 (XKT002) ==== */
+/* ==== \u7528\u9014\u5730\u57df (XKT002) ==== */
 const URBAN_API_BASE = WORKER_BASE + '/api';
 const YOTO_COLOR = {
   '\u7b2c\u4e00\u7a2e\u4f4e\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df':'#FFC107','\u7b2c\u4e8c\u7a2e\u4f4e\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df':'#FF8F00',
@@ -522,15 +553,15 @@ async function _fetchAndRenderUrban(){
 }
 function initMap() {
   map = L.map('map', { zoomControl: false }).setView([36.2048, 138.2529], 6);
-  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '© 国土地理院', maxZoom: 18 }).addTo(map);
-  gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '© 国土地理院', maxZoom: 18, opacity: 0.85 });
+  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18 }).addTo(map);
+  gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18, opacity: 0.85 });
   parcelLayer = protomapsL.leafletLayer({
     url: 'https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/aichi.pmtiles',
     paintRules: [{
       dataLayer: 'parcels',
       symbolizer: new protomapsL.PolygonSymbolizer({ fill: 'transparent', stroke: '#f85149', width: 1.2 })
     }],
-    attribution: '地番: 法務省 登記所備付地図データ'
+    attribution: '\u5730\u756a: \u6cd5\u52d9\u7701 \u767b\u8a18\u6240\u5099\u4ed8\u5730\u56f3\u30c7\u30fc\u30bf'
   });
   parcelLayer.addTo(map);
   map.on('click', async function(ev) {
@@ -601,7 +632,7 @@ async function loadData() {
     const marker = L.marker([lo.lat, lo.lng], { icon });
     marker.bindPopup(buildPopup(lo, caseId, isVisited, false), { maxWidth: 280, minWidth: 260 });
     marker.bindTooltip(
-      `<span style="font-family:'Share Tech Mono',monospace;color:#f0b429;font-size:11px">${lo.cases?.case_no || ''}</span>　${lo.name || '（氏名未登録）'}`,
+      `<span style="font-family:'Share Tech Mono',monospace;color:#f0b429;font-size:11px">${lo.cases?.case_no || ''}</span>\u3000${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}`,
       { direction: 'top', offset: [0, -28], opacity: 1 }
     );
     marker.addTo(map);
@@ -618,37 +649,37 @@ function buildPopup(lo, caseId, isVisited, isPlanned) {
   const visitedAt = d?.visit?.visited_at ? new Date(d.visit.visited_at).toLocaleDateString('ja-JP') : null;
   let actionHtml = '';
   if (isVisited) {
-    actionHtml = `<button class="popup-btn completed-btn" style="flex:1">✓ 訪問済み（${visitedAt || ''}）</button><button class="popup-btn undo-btn" style="flex:0 0 auto;min-width:60px" onclick="unVisit('${caseId}')">🔄 解除</button>`;
+    actionHtml = `<button class="popup-btn completed-btn" style="flex:1">\u2713 \u8a2a\u554f\u6e08\u307f\uff08${visitedAt || ''}\uff09</button><button class="popup-btn undo-btn" style="flex:0 0 auto;min-width:60px" onclick="unVisit('${caseId}')">\ud83d\udd04 \u89e3\u9664</button>`;
   } else if (visitMode) {
-    actionHtml = `<button class="popup-btn nav-btn" onclick="startNav('${caseId}')">🗺 ナビ開始</button><button class="popup-btn complete-btn" onclick="openVisitModal('${caseId}')">✅ 完了</button>`;
+    actionHtml = `<button class="popup-btn nav-btn" onclick="startNav('${caseId}')">\ud83d\uddfa \u30ca\u30d3\u958b\u59cb</button><button class="popup-btn complete-btn" onclick="openVisitModal('${caseId}')">\u2705 \u5b8c\u4e86</button>`;
   } else {
     if (planSet.has(caseId)) {
-      actionHtml = `<button class="popup-btn selected-btn" onclick="removePlan('${caseId}')">✓ 予定済（クリックで解除）</button>`;
+      actionHtml = `<button class="popup-btn selected-btn" onclick="removePlan('${caseId}')">\u2713 \u4e88\u5b9a\u6e08\uff08\u30af\u30ea\u30c3\u30af\u3067\u89e3\u9664\uff09</button>`;
     } else {
-      actionHtml = `<button class="popup-btn select-btn" onclick="addPlan('${caseId}')">＋ 訪問予定に追加</button>`;
+      actionHtml = `<button class="popup-btn select-btn" onclick="addPlan('${caseId}')">\uff0b \u8a2a\u554f\u4e88\u5b9a\u306b\u8ffd\u52a0</button>`;
     }
   }
-  return `<div class="popup-body"><div class="popup-name"><span>${lo.name || '（氏名未登録）'}</span><span class="popup-case-no">${lo.cases?.case_no || ''}</span></div><div class="popup-info"><div class="popup-row"><span class="popup-label">住所</span><span class="popup-value">${lo.address || '—'}</span></div><div class="popup-row"><span class="popup-label">電話</span><span class="popup-value">${lo.tel || '—'}</span></div><div class="popup-row"><span class="popup-label">価格</span><span class="popup-value">${lo.price ? Number(lo.price).toLocaleString() + ' 万円' : '—'}</span></div></div><hr class="popup-divider"><div class="popup-actions">${actionHtml}</div></div>`;
+  return `<div class="popup-body"><div class="popup-name"><span>${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}</span><span class="popup-case-no">${lo.cases?.case_no || ''}</span></div><div class="popup-info"><div class="popup-row"><span class="popup-label">\u4f4f\u6240</span><span class="popup-value">${lo.address || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u96fb\u8a71</span><span class="popup-value">${lo.tel || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u4fa1\u683c</span><span class="popup-value">${lo.price ? Number(lo.price).toLocaleString() + ' \u4e07\u5186' : '\u2014'}</span></div></div><hr class="popup-divider"><div class="popup-actions">${actionHtml}</div></div>`;
 }
 async function unVisit(caseId) {
-  if (!confirm('訪問済みを解除しますか？')) return;
+  if (!confirm('\u8a2a\u554f\u6e08\u307f\u3092\u89e3\u9664\u3057\u307e\u3059\u304b\uff1f')) return;
   const { error } = await db.from('visit_status').update({ visited: false, visited_at: null, flag_color: 'blue' }).eq('case_id', caseId);
-  if (error) { showToast('解除エラー: ' + error.message, 'error'); return; }
+  if (error) { showToast('\u89e3\u9664\u30a8\u30e9\u30fc: ' + error.message, 'error'); return; }
   updateMarkerColor(caseId, planSet.has(caseId) ? '#f0b429' : '#58a6ff');
   const d = markers[caseId];
   if (d) { d.isVisited = false; d.visit = { visited: false }; d.marker.setPopupContent(buildPopup(d.lo, caseId, false, planSet.has(caseId))); }
   document.getElementById('statDone').textContent = Math.max(0, parseInt(document.getElementById('statDone').textContent) - 1);
   renderPlanList(); renderOwnerTable(); map.closePopup();
-  showToast('訪問済みを解除しました', 'success');
+  showToast('\u8a2a\u554f\u6e08\u307f\u3092\u89e3\u9664\u3057\u307e\u3057\u305f', 'success');
 }
 function addPlan(caseId) {
-  if (planSet.size >= 30) { showToast('訪問予定は最大30件までです', 'error'); return; }
+  if (planSet.size >= 30) { showToast('\u8a2a\u554f\u4e88\u5b9a\u306f\u6700\u592730\u4ef6\u307e\u3067\u3067\u3059', 'error'); return; }
   planSet.add(caseId);
   updateMarkerColor(caseId, '#f0b429');
   const d = markers[caseId];
   if (d) d.marker.setPopupContent(buildPopup(d.lo, caseId, false, true));
   updatePlanUI(); map.closePopup();
-  showToast('訪問予定に追加しました', 'success');
+  showToast('\u8a2a\u554f\u4e88\u5b9a\u306b\u8ffd\u52a0\u3057\u307e\u3057\u305f', 'success');
 }
 function removePlan(caseId) {
   planSet.delete(caseId);
@@ -656,7 +687,7 @@ function removePlan(caseId) {
   const d = markers[caseId];
   if (d) d.marker.setPopupContent(buildPopup(d.lo, caseId, false, false));
   updatePlanUI(); map.closePopup();
-  showToast('訪問予定から解除しました', 'success');
+  showToast('\u8a2a\u554f\u4e88\u5b9a\u304b\u3089\u89e3\u9664\u3057\u307e\u3057\u305f', 'success');
 }
 function updateMarkerColor(caseId, color) {
   const d = markers[caseId];
@@ -674,25 +705,25 @@ function renderOwnerTable() {
   const panel = document.getElementById('ownerListPanel');
   if (planSet.size === 0) {
     panel.classList.remove('open');
-    tbody.innerHTML = '<tr><td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">フラグをクリックして<br>訪問予定を追加</td></tr>';
-    countEl.textContent = '0件'; return;
+    tbody.innerHTML = '<tr><td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">\u30d5\u30e9\u30b0\u3092\u30af\u30ea\u30c3\u30af\u3057\u3066<br>\u8a2a\u554f\u4e88\u5b9a\u3092\u8ffd\u52a0</td></tr>';
+    countEl.textContent = '0\u4ef6'; return;
   }
   panel.classList.add('open');
   document.querySelector('.control-panel').classList.add('shifted');
-  countEl.textContent = `${planSet.size}件`;
+  countEl.textContent = `${planSet.size}\u4ef6`;
   const rows = [...planSet].map((caseId, idx) => {
     const d = markers[caseId];
-    return `<tr class="${d?.isVisited ? 'visited' : ''}"><td>${idx + 1}</td><td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">${d?.lo?.name || '（氏名未登録）'}</td></tr>`;
+    return `<tr class="${d?.isVisited ? 'visited' : ''}"><td>${idx + 1}</td><td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">${d?.lo?.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}</td></tr>`;
   });
-  const empty = Array(Math.max(0, 30 - planSet.size)).fill('<tr><td style="color:var(--border)">—</td><td></td></tr>');
+  const empty = Array(Math.max(0, 30 - planSet.size)).fill('<tr><td style="color:var(--border)">\u2014</td><td></td></tr>');
   tbody.innerHTML = rows.join('') + empty.join('');
 }
 function renderPlanList() {
   const el = document.getElementById('planList');
-  if (planSet.size === 0) { el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:10px">訪問予定がありません</div>'; return; }
+  if (planSet.size === 0) { el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:10px">\u8a2a\u554f\u4e88\u5b9a\u304c\u3042\u308a\u307e\u305b\u3093</div>'; return; }
   el.innerHTML = [...planSet].map(caseId => {
     const d = markers[caseId]; const lo = d?.lo;
-    return `<div class="plan-item ${d?.isVisited ? 'visited' : ''}"><div class="plan-item-name">${lo?.name || '（氏名未登録）'} ${d?.isVisited ? '✓' : ''}</div><div class="plan-item-case">${lo?.cases?.case_no || ''}</div><div class="plan-item-address">${lo?.address || ''}</div></div>`;
+    return `<div class="plan-item ${d?.isVisited ? 'visited' : ''}"><div class="plan-item-name">${lo?.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'} ${d?.isVisited ? '\u2713' : ''}</div><div class="plan-item-case">${lo?.cases?.case_no || ''}</div><div class="plan-item-address">${lo?.address || ''}</div></div>`;
   }).join('');
 }
 function startVisitMode() {
@@ -704,9 +735,9 @@ function startVisitMode() {
   });
   document.getElementById('planPanel').style.display = 'none';
   document.getElementById('visitPanel').style.display = 'flex';
-  document.getElementById('phaseBadge').textContent = '🚗 訪問実行モード';
+  document.getElementById('phaseBadge').textContent = '\ud83d\ude97 \u8a2a\u554f\u5b9f\u884c\u30e2\u30fc\u30c9';
   document.getElementById('phaseBadge').className = 'phase-badge phase-visit';
-  showToast('訪問実行モードに切り替えました', 'success');
+  showToast('\u8a2a\u554f\u5b9f\u884c\u30e2\u30fc\u30c9\u306b\u5207\u308a\u66ff\u3048\u307e\u3057\u305f', 'success');
   document.getElementById('sidePanel').classList.remove('open');
 }
 function startNav(caseId) {
@@ -727,7 +758,7 @@ async function openVisitModal(caseId) {
 async function saveVisit() {
   const date = document.getElementById('visitDate').value;
   const content = document.getElementById('visitContent').value.trim();
-  if (!date || !content) { showToast('日付と商談内容を入力してください', 'error'); return; }
+  if (!date || !content) { showToast('\u65e5\u4ed8\u3068\u5546\u8ac7\u5185\u5bb9\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044', 'error'); return; }
   const caseId = currentVisitCaseId;
   if (currentLandownerId) await db.from('negotiation_logs').insert({ landowner_id: currentLandownerId, log_date: date, content });
   const { data: existing } = await db.from('visit_status').select('id').eq('case_id', caseId).single();
@@ -739,11 +770,11 @@ async function saveVisit() {
   if (d) { d.isVisited = true; d.visit = { visited: true, visited_at: new Date().toISOString() }; d.marker.setPopupContent(buildPopup(d.lo, caseId, true, false)); }
   document.getElementById('statDone').textContent = parseInt(document.getElementById('statDone').textContent) + 1;
   renderPlanList(); renderOwnerTable();
-  showToast('訪問完了を記録しました', 'success');
+  showToast('\u8a2a\u554f\u5b8c\u4e86\u3092\u8a18\u9332\u3057\u307e\u3057\u305f', 'success');
   closeModal('visitModal');
 }
 function resetPlan() {
-  if (!confirm('訪問計画をリセットして計画モードに戻りますか？')) return;
+  if (!confirm('\u8a2a\u554f\u8a08\u753b\u3092\u30ea\u30bb\u30c3\u30c8\u3057\u3066\u8a08\u753b\u30e2\u30fc\u30c9\u306b\u623b\u308a\u307e\u3059\u304b\uff1f')) return;
   visitMode = false; planSet.clear();
   Object.keys(markers).forEach(caseId => {
     const d = markers[caseId];
@@ -753,7 +784,7 @@ function resetPlan() {
   });
   document.getElementById('planPanel').style.display = 'flex';
   document.getElementById('visitPanel').style.display = 'none';
-  document.getElementById('phaseBadge').textContent = '📋 訪問計画モード';
+  document.getElementById('phaseBadge').textContent = '\ud83d\udccb \u8a2a\u554f\u8a08\u753b\u30e2\u30fc\u30c9';
   document.getElementById('phaseBadge').className = 'phase-badge phase-plan';
   updatePlanUI();
 }
@@ -764,10 +795,10 @@ function showToast(msg, type = 'success') {
   const c = document.getElementById('toastContainer');
   const t = document.createElement('div');
   t.className = `toast ${type}`;
-  t.innerHTML = `<span>${type === 'success' ? '✓' : '✕'}</span><span>${msg}</span>`;
+  t.innerHTML = `<span>${type === 'success' ? '\u2713' : '\u2715'}</span><span>${msg}</span>`;
   c.appendChild(t); setTimeout(() => t.remove(), 3000);
 }
-// ======== 地番・住所検索 ========
+// ======== \u5730\u756a\u30fb\u4f4f\u6240\u691c\u7d22 ========
 let _searchTimer = null;
 let _boundaryLayer = null;
 let _boundaryCache = [];
@@ -785,7 +816,7 @@ async function _searchChiban(q, res) {
   if (_boundaryLayer) { map.removeLayer(_boundaryLayer); _boundaryLayer = null; }
   _boundaryCache = [];
   let html = '';
-  if (/[市町村区郡]/.test(q)) {
+  if (/[\u5e02\u753a\u6751\u533a\u90e1]/.test(q)) {
     try {
       const url = 'https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(q) + '&polygon_geojson=1&format=json&countrycodes=jp&limit=3&accept-language=ja';
       const nr = await fetch(url);
@@ -854,29 +885,109 @@ function jumpToChiban(lat, lng, label) {
 initMap();
 loadData();
 
-// ======== ハザードパネル 折りたたみトグル ========
+// ======== \u30cf\u30b6\u30fc\u30c9\u30d1\u30cd\u30eb \u6298\u308a\u305f\u305f\u307f\u30c8\u30b0\u30eb ========
 function toggleHazardPanel() {
   const hc = document.getElementById('hazardControls');
   if (hc) hc.classList.toggle('collapsed');
 }
-// 初期状態：画面幅1024px以下（iPad・iPhone）では折りたたみ
+// \u521d\u671f\u72b6\u614b\uff1a\u753b\u9762\u5e451024px\u4ee5\u4e0b\uff08iPad\u30fbiPhone\uff09\u3067\u306f\u6298\u308a\u305f\u305f\u307f
 if (window.innerWidth <= 1024) {
   const hc = document.getElementById('hazardControls');
   if (hc) hc.classList.add('collapsed');
 }
 
-// ======== アクションパネル 折りたたみトグル（C案モバイル対応） ========
+// ======== \u30a2\u30af\u30b7\u30e7\u30f3\u30d1\u30cd\u30eb \u6298\u308a\u305f\u305f\u307f\u30c8\u30b0\u30eb\uff08C\u6848\u30e2\u30d0\u30a4\u30eb\u5bfe\u5fdc\uff09 ========
 function toggleActionPanel(id) {
   const el = document.getElementById(id);
   if (el) el.classList.toggle('collapsed');
 }
-// 初期状態：画面幅1024px以下（iPad・iPhone）では折りたたみ
+// \u521d\u671f\u72b6\u614b\uff1a\u753b\u9762\u5e451024px\u4ee5\u4e0b\uff08iPad\u30fbiPhone\uff09\u3067\u306f\u6298\u308a\u305f\u305f\u307f
 if (window.innerWidth <= 1024) {
   ['planPanel', 'visitPanel'].forEach(function(id){
     const el = document.getElementById(id);
     if (el) el.classList.add('collapsed');
   });
 }
+
+// ======== \u30c9\u30e9\u30c3\u30b0\u53ef\u80fd\u30d1\u30cd\u30eb \u5171\u901aJS\uff083\u30de\u30c3\u30d7\u5171\u901a\uff09========
+function initDraggablePanels(storageKeyPrefix, configs) {
+  configs.forEach(function(cfg) {
+    var panel = document.querySelector(cfg.id);
+    if (!panel) return;
+    panel.classList.add('draggable-panel');
+    var storageKey = 'dragPos_' + storageKeyPrefix + '_' + cfg.id.replace(/[^a-zA-Z0-9]/g, '_');
+    var savedPos = null;
+    try { savedPos = JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch (e) {}
+    if (savedPos && typeof savedPos.left === 'number' && typeof savedPos.top === 'number') {
+      panel.style.left = savedPos.left + 'px';
+      panel.style.top = savedPos.top + 'px';
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+    }
+    var handle = null;
+    if (cfg.handle) handle = panel.querySelector(cfg.handle);
+    if (!handle) {
+      handle = document.createElement('div');
+      handle.className = 'drag-grip';
+      handle.title = '\u30c9\u30e9\u30c3\u30b0\u3067\u79fb\u52d5\u30fb\u30c0\u30d6\u30eb\u30af\u30ea\u30c3\u30af\u3067\u4f4d\u7f6e\u30ea\u30bb\u30c3\u30c8';
+      panel.insertBefore(handle, panel.firstChild);
+    } else {
+      handle.title = '\u30c9\u30e9\u30c3\u30b0\u3067\u79fb\u52d5\u30fb\u30c0\u30d6\u30eb\u30af\u30ea\u30c3\u30af\u3067\u4f4d\u7f6e\u30ea\u30bb\u30c3\u30c8';
+    }
+    handle.addEventListener('dblclick', function(e) {
+      e.stopPropagation();
+      localStorage.removeItem(storageKey);
+      panel.style.left = ''; panel.style.top = ''; panel.style.right = ''; panel.style.bottom = '';
+      if (typeof showToast === 'function') showToast('\u4f4d\u7f6e\u3092\u521d\u671f\u5316\u3057\u307e\u3057\u305f', 'success');
+    });
+    var dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
+    handle.addEventListener('pointerdown', function(e) {
+      if (e.target.tagName === 'BUTTON' || e.target.closest('button.mc-panel-toggle, button.hazard-panel-toggle, button.layer-panel-toggle, input, select, textarea')) return;
+      dragging = true;
+      document.body.classList.add('dragging-panel');
+      var rect = panel.getBoundingClientRect();
+      startLeft = rect.left; startTop = rect.top;
+      panel.style.left = startLeft + 'px'; panel.style.top = startTop + 'px';
+      panel.style.right = 'auto'; panel.style.bottom = 'auto';
+      startX = e.clientX; startY = e.clientY;
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+    });
+    handle.addEventListener('pointermove', function(e) {
+      if (!dragging) return;
+      var newLeft = startLeft + (e.clientX - startX);
+      var newTop = startTop + (e.clientY - startY);
+      var rect = panel.getBoundingClientRect();
+      var maxLeft = window.innerWidth - 16;
+      var maxTop = window.innerHeight - 16;
+      var minLeft = -(rect.width - 16);
+      var minTop = 0;
+      if (newLeft < minLeft) newLeft = minLeft;
+      if (newLeft > maxLeft) newLeft = maxLeft;
+      if (newTop < minTop) newTop = minTop;
+      if (newTop > maxTop) newTop = maxTop;
+      panel.style.left = newLeft + 'px'; panel.style.top = newTop + 'px';
+    });
+    function endDrag(e) {
+      if (!dragging) return;
+      dragging = false;
+      document.body.classList.remove('dragging-panel');
+      try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+      var left = parseFloat(panel.style.left) || 0;
+      var top = parseFloat(panel.style.top) || 0;
+      try { localStorage.setItem(storageKey, JSON.stringify({ left: left, top: top })); } catch (_) {}
+    }
+    handle.addEventListener('pointerup', endDrag);
+    handle.addEventListener('pointercancel', endDrag);
+  });
+}
+// landowner-visit\u5c02\u7528\u306e\u30c9\u30e9\u30c3\u30b0\u30d1\u30cd\u30eb\u521d\u671f\u5316
+initDraggablePanels('landownerVisit', [
+  { id: '#chibanSearch' },
+  { id: '#controlPanel' },
+  { id: '#layerControl' },
+  { id: '#hazardControls', handle: '.hazard-panel-header' }
+]);
 </script>
 <script src="mobile-responsive.js"></script>
 </body>
