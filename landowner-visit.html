@@ -281,7 +281,7 @@
     </div>
   </div>
   <div class="control-panel" id="controlPanel">
-    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--blue)"></div>全 <span id="statTotal">—</span> 件</div>
+    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--blue)"></div>未選択 <span id="statUnselected">—</span> 件</div>
     <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--accent)"></div>訪問予定 <span id="statPlan">0</span> 件</div>
     <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--red)"></div>訪問済 <span id="statDone">0</span> 件</div>
     <div class="action-panel mc-collapsible" id="planPanel">
@@ -614,8 +614,23 @@ async function loadData() {
     marker.addTo(map);
     markers[caseId] = { marker, lo, visit, isVisited };
   });
-  document.getElementById('statTotal').textContent = total;
-  document.getElementById('statDone').textContent = done;
+  recalcVisitStats();
+}
+
+/* 凡例と対応した排他的な件数カウント：未選択 + 訪問予定 + 訪問済 = 総数 */
+function recalcVisitStats() {
+  let unselected = 0, planned = 0, done = 0;
+  Object.entries(markers).forEach(([caseId, d]) => {
+    if (d.isVisited) done++;
+    else if (planSet.has(caseId)) planned++;
+    else unselected++;
+  });
+  const sU = document.getElementById('statUnselected');
+  const sP = document.getElementById('statPlan');
+  const sD = document.getElementById('statDone');
+  if (sU) sU.textContent = unselected;
+  if (sP) sP.textContent = planned;
+  if (sD) sD.textContent = done;
 }
 function makeIconHtml(color) {
   return `<div style="width:24px;height:24px;background:${color};border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid rgba(0,0,0,0.3);box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`;
@@ -644,7 +659,7 @@ async function unVisit(caseId) {
   updateMarkerColor(caseId, planSet.has(caseId) ? '#f0b429' : '#58a6ff');
   const d = markers[caseId];
   if (d) { d.isVisited = false; d.visit = { visited: false }; d.marker.setPopupContent(buildPopup(d.lo, caseId, false, planSet.has(caseId))); }
-  document.getElementById('statDone').textContent = Math.max(0, parseInt(document.getElementById('statDone').textContent) - 1);
+  recalcVisitStats();
   renderPlanList(); renderOwnerTable(); map.closePopup();
   showToast('\u8a2a\u554f\u6e08\u307f\u3092\u89e3\u9664\u3057\u307e\u3057\u305f', 'success');
 }
@@ -671,7 +686,7 @@ function updateMarkerColor(caseId, color) {
   d.marker.setIcon(L.divIcon({ html: makeIconHtml(color), className: '', iconSize: [24,24], iconAnchor: [12,24], popupAnchor: [0,-26] }));
 }
 function updatePlanUI() {
-  document.getElementById('statPlan').textContent = planSet.size;
+  recalcVisitStats();
   document.getElementById('startBtn').disabled = planSet.size === 0;
   renderPlanList(); renderOwnerTable();
 }
@@ -744,7 +759,9 @@ async function saveVisit() {
   updateMarkerColor(caseId, '#f85149');
   const d = markers[caseId];
   if (d) { d.isVisited = true; d.visit = { visited: true, visited_at: new Date().toISOString() }; d.marker.setPopupContent(buildPopup(d.lo, caseId, true, false)); }
-  document.getElementById('statDone').textContent = parseInt(document.getElementById('statDone').textContent) + 1;
+  /* 訪問完了したものはplanSetからも除外し、カウントを再計算 */
+  if (planSet.has(caseId)) planSet.delete(caseId);
+  recalcVisitStats();
   renderPlanList(); renderOwnerTable();
   showToast('\u8a2a\u554f\u5b8c\u4e86\u3092\u8a18\u9332\u3057\u307e\u3057\u305f', 'success');
   closeModal('visitModal');
