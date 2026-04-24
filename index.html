@@ -1117,13 +1117,21 @@ const LO_STATUS_COLORS={
 };
 const LO_STATUS_ORDER=['NOT VISITED','THINKING↑','THINKING→','THINKING↓','OK','SUCCESS','NON MEET','NG','UNKNOWN'];
 
-function renderLandownerStatusDashboard(filteredList){
+function renderLandownerStatusDashboard(_unused){
+  /* 地権者マスターダッシュボードは常に「選択中の電力会社 × NG除外」の全体集計を表示
+     （画面下のリストフィルタ（ステータス/検索）には影響されない） */
   const counts={};LO_STATUS_ORDER.forEach(s=>counts[s]=0);
-  (filteredList||[]).forEach(lo=>{
-    const st=lo.cases?.status||'UNKNOWN';
-    if(counts[st]!==undefined)counts[st]++;
+  (allLandowners||[]).forEach(lo=>{
+    let st=lo.cases?.status||'UNKNOWN';
+    if(st==='NG')return;/* NGは常に除外 */
+    if(currentPowerCompany&&getPowerCompanyFromArea(lo.cases?.area_name)!==currentPowerCompany)return;
+    /* LO_STATUS_ORDERにない値はUNKNOWNに寄せる */
+    if(counts[st]===undefined)st='UNKNOWN';
+    counts[st]++;
   });
-  const total=LO_STATUS_ORDER.reduce((s,k)=>s+counts[k],0);
+  /* NGはダッシュボードから除外するので、凡例でも非表示にする（件数は0固定） */
+  const displayOrder=LO_STATUS_ORDER.filter(s=>s!=='NG');
+  const total=displayOrder.reduce((s,k)=>s+counts[k],0);
   const totalEl=document.getElementById('landownerDonutTotal');
   const svg=document.getElementById('landownerDonut');
   const legendEl=document.getElementById('landownerDonutLegend');
@@ -1134,7 +1142,7 @@ function renderLandownerStatusDashboard(filteredList){
   if(total===0){
     segs=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="transparent" stroke="#30363d" stroke-width="6"/>`;
   }else{
-    LO_STATUS_ORDER.forEach(st=>{
+    displayOrder.forEach(st=>{
       const n=counts[st]||0;
       if(n===0)return;
       const pct=(n/total)*100;
@@ -1144,7 +1152,7 @@ function renderLandownerStatusDashboard(filteredList){
     });
   }
   svg.innerHTML=segs;
-  legendEl.innerHTML=LO_STATUS_ORDER.map(st=>{
+  legendEl.innerHTML=displayOrder.map(st=>{
     const n=counts[st]||0;
     const col=LO_STATUS_COLORS[st];
     const faded=n===0?'opacity:.4;':'';
@@ -1159,7 +1167,8 @@ function filterLandowners(){
     if(currentPowerCompany&&getPowerCompanyFromArea(lo.cases?.area_name)!==currentPowerCompany)return false;
     return !status||lo.cases?.status===status;
   });
-  renderLandownerStatusDashboard(filtered);
+  /* ダッシュボードは filtered ではなく内部で全体集計（ステータスフィルタの影響を受けない） */
+  renderLandownerStatusDashboard();
   renderLandowners(filtered);
 }
 function renderLandowners(los){
