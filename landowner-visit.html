@@ -37,7 +37,7 @@
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: var(--bg); color: var(--text); font-family: var(--font-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 20px; height: 52px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 1000; }
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 20px; min-height: 52px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 1000; flex-wrap: wrap; gap: 8px; }
   .header-left { display: flex; align-items: center; gap: 12px; }
   .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--text); }
   .logo-icon { width: 28px; height: 28px; background: linear-gradient(135deg, #f0b429, #e85d04); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
@@ -47,9 +47,33 @@
   .phase-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; }
   .phase-plan { background: rgba(88,166,255,0.15); color: var(--blue); border: 1px solid rgba(88,166,255,0.3); }
   .phase-visit { background: rgba(240,180,41,0.15); color: var(--accent); border: 1px solid rgba(240,180,41,0.3); }
-  .legend { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--text-muted); }
+  .legend { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--text-muted); flex-wrap: wrap; }
   .legend-item { display: flex; align-items: center; gap: 4px; }
   .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  /* ========= Dashboard bar (header 2段目) ========= */
+  .dashboard-bar {
+    width:100%; background:#0d1117; border-top:1px solid var(--border); border-bottom:1px solid var(--border);
+    padding:6px 12px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; overflow-x:auto;
+    overflow-y:hidden; scrollbar-width:thin;
+  }
+  .pc-tabs { display:flex; gap:3px; flex-wrap:wrap; }
+  .pc-tab {
+    padding:4px 10px; background:rgba(255,255,255,.03); border:1px solid var(--border); border-radius:5px;
+    color:var(--text-muted); font-size:11px; font-weight:500; cursor:pointer; transition:all .15s; white-space:nowrap;
+  }
+  .pc-tab:hover { background:var(--surface2); color:var(--text); }
+  .pc-tab.active { background:rgba(240,180,41,.15); border-color:var(--accent); color:var(--accent); font-weight:700; }
+  .pc-tab .pc-count { font-family:var(--font-mono); font-size:9px; margin-left:3px; opacity:.7; }
+  .status-chart-wrap { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .donut-wrap { display:flex; align-items:center; gap:8px; }
+  .donut-svg { flex-shrink:0; }
+  .donut-legend { display:flex; flex-direction:column; gap:1px; font-size:10px; line-height:1.3; max-height:64px; flex-wrap:wrap; }
+  .donut-legend-item { display:flex; align-items:center; gap:4px; color:var(--text-muted); white-space:nowrap; }
+  .donut-legend-swatch { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
+  .donut-legend-count { color:var(--text); font-family:var(--font-mono); font-weight:600; margin-left:2px; }
+  .donut-total { text-align:center; }
+  .donut-total-num { font-family:var(--font-mono); font-size:16px; font-weight:700; color:var(--text); line-height:1; }
+  .donut-total-lbl { font-size:9px; color:var(--text-muted); letter-spacing:.05em; }
   .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); font-family: var(--font-main); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
   .btn-ghost { background: none; color: var(--text-muted); }
   .btn-ghost:hover { background: var(--surface2); color: var(--text); }
@@ -254,12 +278,25 @@
     <span class="phase-badge phase-plan" id="phaseBadge">📋 訪問計画モード</span>
   </div>
   <div class="legend">
-    <div class="legend-item"><div class="legend-dot" style="background:#58a6ff"></div><span>未選択</span></div>
-    <div class="legend-item"><div class="legend-dot" style="background:#f0b429"></div><span>訪問予定</span></div>
-    <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div><span>訪問済</span></div>
+    <div class="legend-item"><span style="font-size:14px;color:var(--text-muted);">●</span><span>未選択</span></div>
+    <div class="legend-item"><span style="font-size:14px;color:var(--text-muted);">◆</span><span>訪問予定</span></div>
+    <div class="legend-item"><span style="font-size:14px;color:var(--text-muted);">★</span><span>訪問済</span></div>
+    <span style="color:var(--text-muted);font-size:11px;">（色＝案件ステータス）</span>
     <button class="btn btn-ghost" onclick="location.href='index.html'">← 案件一覧</button>
   </div>
 </header>
+<!-- ダッシュボードバー：電力会社タブ + ドーナツ + 凡例 -->
+<div class="dashboard-bar" id="dashboardBar">
+  <div class="pc-tabs" id="pcTabs"></div>
+  <div style="flex:1;min-width:12px;"></div>
+  <div class="status-chart-wrap">
+    <div class="donut-wrap">
+      <svg class="donut-svg" id="donutChart" width="64" height="64" viewBox="0 0 42 42"></svg>
+      <div class="donut-total"><div class="donut-total-num" id="donutTotal">0</div><div class="donut-total-lbl">TOTAL</div></div>
+    </div>
+    <div class="donut-legend" id="donutLegend"></div>
+  </div>
+</div>
 <div class="map-wrapper">
   <div id="map"></div>
   <!-- 地番・住所検索 -->
@@ -281,9 +318,6 @@
     </div>
   </div>
   <div class="control-panel" id="controlPanel">
-    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--blue)"></div>未選択 <span id="statUnselected">—</span> 件</div>
-    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--accent)"></div>訪問予定 <span id="statPlan">0</span> 件</div>
-    <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--red)"></div>訪問済 <span id="statDone">0</span> 件</div>
     <div class="action-panel mc-collapsible" id="planPanel">
       <div class="mc-panel-header" onclick="toggleActionPanel('planPanel')">
         <span class="mc-panel-title">📋 訪問計画モード</span>
@@ -392,6 +426,63 @@ let planSet = new Set();
 let visitMode = false;
 let currentVisitCaseId = null;
 let currentLandownerId = null;
+let allLandowners = [];/* 生データ：電力会社タブで再フィルタするため保持 */
+let currentPowerCompany = '中部電力';/* 電力会社タブで選択中 */
+
+/* ========== ステータス色定義（index.htmlと統一） ========== */
+const STATUS_COLORS = {
+  'NOT VISITED': { fill: '#ef4444', stroke: '#991b1b' },
+  'THINKING↑':   { fill: '#fca5a5', stroke: '#b91c1c' },
+  'THINKING→':   { fill: '#eab308', stroke: '#854d0e' },
+  'THINKING↓':   { fill: '#84cc16', stroke: '#4d7c0f' },
+  'OK':          { fill: '#38bdf8', stroke: '#0369a1' },
+  'SUCCESS':     { fill: '#f97316', stroke: '#9a3412' },
+  'NON MEET':    { fill: '#d1d5db', stroke: '#4b5563' },
+  'NG':          { fill: '#4b5563', stroke: '#1f2937' },
+  'UNKNOWN':     { fill: '#40826d', stroke: '#14532d' }
+};
+const STATUS_ORDER = ['NOT VISITED','THINKING↑','THINKING→','THINKING↓','OK','SUCCESS','NON MEET','UNKNOWN'];/* NGは非表示 */
+
+/* ========== 電力会社マッピング（index.htmlと統一） ========== */
+const POWER_COMPANIES = ['北海道電力','東北電力','東京電力','中部電力','北陸電力','関西電力','中国電力','四国電力','九州電力','沖縄電力'];
+const PREF_TO_POWER = {'北海道':'北海道電力','青森県':'東北電力','岩手県':'東北電力','宮城県':'東北電力','秋田県':'東北電力','山形県':'東北電力','福島県':'東北電力','新潟県':'東北電力','東京都':'東京電力','神奈川県':'東京電力','埼玉県':'東京電力','千葉県':'東京電力','栃木県':'東京電力','群馬県':'東京電力','茨城県':'東京電力','山梨県':'東京電力','静岡県':'中部電力','愛知県':'中部電力','岐阜県':'中部電力','三重県':'中部電力','長野県':'中部電力','富山県':'北陸電力','石川県':'北陸電力','福井県':'北陸電力','大阪府':'関西電力','京都府':'関西電力','兵庫県':'関西電力','奈良県':'関西電力','和歌山県':'関西電力','滋賀県':'関西電力','岡山県':'中国電力','広島県':'中国電力','山口県':'中国電力','島根県':'中国電力','鳥取県':'中国電力','香川県':'四国電力','徳島県':'四国電力','愛媛県':'四国電力','高知県':'四国電力','福岡県':'九州電力','佐賀県':'九州電力','長崎県':'九州電力','熊本県':'九州電力','大分県':'九州電力','宮崎県':'九州電力','鹿児島県':'九州電力','沖縄県':'沖縄電力'};
+const AREA_TO_PREF = {'名古屋':'愛知県','豊橋':'愛知県','岡崎':'愛知県','一宮':'愛知県','瀬戸':'愛知県','半田':'愛知県','春日井':'愛知県','豊川':'愛知県','津島':'愛知県','碧南':'愛知県','刈谷':'愛知県','豊田':'愛知県','安城':'愛知県','西尾':'愛知県','蒲郡':'愛知県','犬山':'愛知県','常滑':'愛知県','江南':'愛知県','小牧':'愛知県','稲沢':'愛知県','新城':'愛知県','東海':'愛知県','大府':'愛知県','知多':'愛知県','知立':'愛知県','尾張旭':'愛知県','高浜':'愛知県','岩倉':'愛知県','豊明':'愛知県','日進':'愛知県','田原':'愛知県','愛西':'愛知県','清須':'愛知県','北名古屋':'愛知県','弥富':'愛知県','みよし':'愛知県','あま':'愛知県','長久手':'愛知県','東郷':'愛知県','豊山':'愛知県','大口':'愛知県','扶桑':'愛知県','大治':'愛知県','蟹江':'愛知県','飛島':'愛知県','阿久比':'愛知県','東浦':'愛知県','南知多':'愛知県','美浜':'愛知県','武豊':'愛知県','幸田':'愛知県','設楽':'愛知県','東栄':'愛知県','豊根':'愛知県'};
+const BROAD_REGION_TO_POWER = {'北海道':'北海道電力','東北':'東北電力','関東':'東京電力','中部':'中部電力','北陸':'北陸電力','関西':'関西電力','近畿':'関西電力','中国':'中国電力','四国':'四国電力','九州':'九州電力','沖縄':'沖縄電力'};
+function normalizeAreaKey(areaName){ if(!areaName) return ''; return String(areaName).replace(/(市|町|村|区)$/,'').trim(); }
+function getPowerCompanyFromArea(areaName){
+  if(!areaName) return null;
+  if(BROAD_REGION_TO_POWER[areaName]) return BROAD_REGION_TO_POWER[areaName];
+  const key = normalizeAreaKey(areaName);
+  const pref = AREA_TO_PREF[key];
+  if(pref) return PREF_TO_POWER[pref] || null;
+  return null;
+}
+
+/* ========== SVGマーカー生成（18px、形状×ステータス色×訪問状態） ========== */
+function makeStatusIcon(status, visitState) {
+  /* visitState: 'unselected' | 'planned' | 'visited' */
+  const col = STATUS_COLORS[status] || STATUS_COLORS['UNKNOWN'];
+  const size = 18;
+  let shape = '';
+  if (visitState === 'planned') {
+    /* ◆ ダイヤ */
+    shape = `<polygon points="9,1 17,9 9,17 1,9" fill="${col.fill}" stroke="${col.stroke}" stroke-width="2"/>`;
+  } else if (visitState === 'visited') {
+    /* ★ 星 */
+    shape = `<polygon points="9,1 11.2,6.5 17,6.9 12.5,10.6 14,16.5 9,13.3 4,16.5 5.5,10.6 1,6.9 6.8,6.5" fill="${col.fill}" stroke="${col.stroke}" stroke-width="1.5" stroke-linejoin="round"/>`;
+  } else {
+    /* ● 円 */
+    shape = `<circle cx="9" cy="9" r="7.5" fill="${col.fill}" stroke="${col.stroke}" stroke-width="2"/>`;
+  }
+  const html = `<svg width="${size}" height="${size}" viewBox="0 0 18 18" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5))">${shape}</svg>`;
+  return L.divIcon({ html, className: '', iconSize: [size,size], iconAnchor: [size/2,size/2], popupAnchor: [0,-size/2-2] });
+}
+function visitStateOf(caseId, isVisited) {
+  if (isVisited) return 'visited';
+  if (planSet.has(caseId)) return 'planned';
+  return 'unselected';
+}
+
 /* ==== \u30c8\u30fc\u30b9\u30c8\u901a\u77e5 ==== */
 function showToast(msg, type){
   var c=document.getElementById('toastContainer');
@@ -591,46 +682,136 @@ function toggleLayer(type, enabled) {
   else if (type === 'parcel') { enabled ? parcelLayer.addTo(map) : map.removeLayer(parcelLayer); }
 }
 async function loadData() {
-  const { data: los } = await db.from('landowner_info').select('*, cases(id, case_no, status)');
+  const { data: los } = await db.from('landowner_info').select('*, cases(id, case_no, status, area_name)');
   const { data: visits } = await db.from('visit_status').select('*');
   if (!los) return;
-  let total = 0, done = 0;
-  los.forEach(lo => {
-    if (!lo.lat || !lo.lng) return;
-    if (lo.cases?.status === 'NG') return;
-    total++;
-    const caseId = lo.case_id;
-    const visit = visits?.find(v => v.case_id === caseId);
-    const isVisited = visit?.visited || false;
-    if (isVisited) done++;
-    const color = isVisited ? '#f85149' : '#58a6ff';
-    const icon = L.divIcon({ html: makeIconHtml(color), className: '', iconSize: [24,24], iconAnchor: [12,24], popupAnchor: [0,-26] });
-    const marker = L.marker([lo.lat, lo.lng], { icon });
-    marker.bindPopup(buildPopup(lo, caseId, isVisited, false), { maxWidth: 280, minWidth: 260 });
-    marker.bindTooltip(
-      `<span style="font-family:'Share Tech Mono',monospace;color:#f0b429;font-size:11px">${lo.cases?.case_no || ''}</span>\u3000${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}`,
-      { direction: 'top', offset: [0, -28], opacity: 1 }
-    );
-    marker.addTo(map);
-    markers[caseId] = { marker, lo, visit, isVisited };
+  allLandowners = los.map(lo => {
+    const v = visits?.find(x => x.case_id === lo.case_id);
+    return { ...lo, _visit: v, _isVisited: v?.visited || false };
   });
+  renderMarkersForCurrentPower();
+  renderPowerCompanyTabs();
   recalcVisitStats();
 }
 
-/* 凡例と対応した排他的な件数カウント：未選択 + 訪問予定 + 訪問済 = 総数 */
-function recalcVisitStats() {
-  let unselected = 0, planned = 0, done = 0;
-  Object.entries(markers).forEach(([caseId, d]) => {
-    if (d.isVisited) done++;
-    else if (planSet.has(caseId)) planned++;
-    else unselected++;
+function clearMarkers(){
+  Object.keys(markers).forEach(cid => { try { map.removeLayer(markers[cid].marker); } catch(e){} });
+  markers = {};
+}
+
+function renderMarkersForCurrentPower(){
+  clearMarkers();
+  allLandowners.forEach(lo => {
+    if (!lo.lat || !lo.lng) return;
+    const st = lo.cases?.status || 'UNKNOWN';
+    if (st === 'NG') return;/* NGは地図非表示 */
+    /* 電力会社フィルタ */
+    const pc = getPowerCompanyFromArea(lo.cases?.area_name);
+    if (currentPowerCompany && pc !== currentPowerCompany) return;
+
+    const caseId = lo.case_id;
+    const isVisited = lo._isVisited;
+    const vs = visitStateOf(caseId, isVisited);
+    const icon = makeStatusIcon(st, vs);
+    const marker = L.marker([lo.lat, lo.lng], { icon });
+    marker.bindPopup(buildPopup(lo, caseId, isVisited, planSet.has(caseId)), { maxWidth: 280, minWidth: 260 });
+    marker.bindTooltip(
+      `<span style="font-family:'Share Tech Mono',monospace;color:#f0b429;font-size:11px">${lo.cases?.case_no || ''}</span>\u3000${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}\u3000<span style="color:#94a3b8;font-size:10px;">[${st}]</span>`,
+      { direction: 'top', offset: [0, -22], opacity: 1 }
+    );
+    marker.addTo(map);
+    markers[caseId] = { marker, lo, visit: lo._visit, isVisited, status: st };
   });
-  const sU = document.getElementById('statUnselected');
-  const sP = document.getElementById('statPlan');
-  const sD = document.getElementById('statDone');
-  if (sU) sU.textContent = unselected;
-  if (sP) sP.textContent = planned;
-  if (sD) sD.textContent = done;
+}
+
+/* 凡例と対応した排他的な件数カウント + ダッシュボード描画 */
+function recalcVisitStats() {
+  renderStatusDonut();
+  renderPowerCompanyTabs();
+}
+
+/* 現在選択中の電力会社に属する地権者のステータス別集計（NG除く） */
+function getStatusCountsForCurrentPower() {
+  const counts = {};
+  STATUS_ORDER.forEach(s => counts[s] = 0);
+  allLandowners.forEach(lo => {
+    if (!lo.lat || !lo.lng) return;
+    const st = lo.cases?.status || 'UNKNOWN';
+    if (st === 'NG') return;
+    const pc = getPowerCompanyFromArea(lo.cases?.area_name);
+    if (currentPowerCompany && pc !== currentPowerCompany) return;
+    if (counts[st] !== undefined) counts[st]++;
+  });
+  return counts;
+}
+
+/* ドーナツ（SVG） + 凡例レンダリング */
+function renderStatusDonut() {
+  const counts = getStatusCountsForCurrentPower();
+  const total = STATUS_ORDER.reduce((s,k) => s + (counts[k]||0), 0);
+  const svg = document.getElementById('donutChart');
+  const totalEl = document.getElementById('donutTotal');
+  const legendEl = document.getElementById('donutLegend');
+  if (!svg || !totalEl || !legendEl) return;
+  totalEl.textContent = total;
+
+  /* ドーナツ描画：stroke-dasharrayで各セグメント */
+  const cx = 21, cy = 21, r = 15.9155;/* 周長=100 */
+  let offset = 25;/* 12時位置から開始 */
+  let segs = '';
+  if (total === 0) {
+    segs = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="transparent" stroke="#30363d" stroke-width="6"/>`;
+  } else {
+    STATUS_ORDER.forEach(st => {
+      const n = counts[st] || 0;
+      if (n === 0) return;
+      const pct = (n / total) * 100;
+      const col = STATUS_COLORS[st];
+      segs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="transparent" stroke="${col.fill}" stroke-width="6" stroke-dasharray="${pct} ${100-pct}" stroke-dashoffset="${-offset+25}" transform="rotate(-90 ${cx} ${cy})"/>`;
+      offset += pct;
+    });
+  }
+  svg.innerHTML = segs;
+  legendEl.innerHTML = STATUS_ORDER.map(st => {
+    const n = counts[st] || 0;
+    const col = STATUS_COLORS[st];
+    const faded = n === 0 ? 'opacity:.4;' : '';
+    return `<div class="donut-legend-item" style="${faded}"><span class="donut-legend-swatch" style="background:${col.fill};border:1px solid ${col.stroke};"></span>${st}<span class="donut-legend-count">${n}</span></div>`;
+  }).join('');
+}
+
+/* 電力会社タブ（件数バッジ付き） */
+function renderPowerCompanyTabs() {
+  const counts = {};
+  POWER_COMPANIES.forEach(pc => counts[pc] = 0);
+  allLandowners.forEach(lo => {
+    if (!lo.lat || !lo.lng) return;
+    const st = lo.cases?.status || 'UNKNOWN';
+    if (st === 'NG') return;
+    const pc = getPowerCompanyFromArea(lo.cases?.area_name);
+    if (pc && counts[pc] !== undefined) counts[pc]++;
+  });
+  const tabs = document.getElementById('pcTabs');
+  if (!tabs) return;
+  tabs.innerHTML = POWER_COMPANIES.map(pc => {
+    const n = counts[pc] || 0;
+    const active = pc === currentPowerCompany ? ' active' : '';
+    const empty = n === 0 ? ' style="opacity:.4"' : '';
+    return `<button class="pc-tab${active}"${empty} onclick="setPowerCompany('${pc}')">${pc}<span class="pc-count">(${n})</span></button>`;
+  }).join('');
+}
+
+function setPowerCompany(pc) {
+  if (currentPowerCompany === pc) return;
+  currentPowerCompany = pc;
+  /* 電力会社を切り替えたら訪問予定はリセット（別エリアとの混在を防ぐ） */
+  planSet.clear();
+  visitMode = false;
+  renderMarkersForCurrentPower();
+  renderPowerCompanyTabs();
+  renderStatusDonut();
+  updatePlanUI();
+  showToast('電力会社を切り替えました：' + pc, 'success');
 }
 function makeIconHtml(color) {
   return `<div style="width:24px;height:24px;background:${color};border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid rgba(0,0,0,0.3);box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`;
@@ -680,14 +861,21 @@ function removePlan(caseId) {
   updatePlanUI(); map.closePopup();
   showToast('\u8a2a\u554f\u4e88\u5b9a\u304b\u3089\u89e3\u9664\u3057\u307e\u3057\u305f', 'success');
 }
-function updateMarkerColor(caseId, color) {
+function updateMarkerColor(caseId, _color) {
+  /* 旧API互換。色指定は無視し、内部状態（status＋訪問状態）からアイコンを再生成 */
+  refreshMarkerIcon(caseId);
+}
+function refreshMarkerIcon(caseId) {
   const d = markers[caseId];
   if (!d) return;
-  d.marker.setIcon(L.divIcon({ html: makeIconHtml(color), className: '', iconSize: [24,24], iconAnchor: [12,24], popupAnchor: [0,-26] }));
+  const st = d.status || 'UNKNOWN';
+  const vs = visitStateOf(caseId, d.isVisited);
+  d.marker.setIcon(makeStatusIcon(st, vs));
 }
 function updatePlanUI() {
   recalcVisitStats();
-  document.getElementById('startBtn').disabled = planSet.size === 0;
+  const startBtn = document.getElementById('startBtn');
+  if (startBtn) startBtn.disabled = planSet.size === 0;
   renderPlanList(); renderOwnerTable();
 }
 function renderOwnerTable() {
