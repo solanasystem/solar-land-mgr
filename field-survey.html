@@ -27,16 +27,40 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: var(--bg); color: var(--text); font-family: var(--font-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 20px; height: 52px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 1000; }
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 20px; min-height: 52px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 1000; flex-wrap:wrap; gap:8px; }
   .header-left { display: flex; align-items: center; gap: 12px; }
   .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--text); }
   .logo-icon { width: 28px; height: 28px; background: linear-gradient(135deg, #f0b429, #e85d04); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
   .logo-text { font-size: 14px; font-weight: 700; }
   .page-title { font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
   .page-title::before { content: '/'; color: var(--border); }
-  .legend { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--text-muted); }
+  .legend { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--text-muted); flex-wrap:wrap; }
   .legend-item { display: flex; align-items: center; gap: 5px; }
   .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  /* ========= Dashboard bar ========= */
+  .dashboard-bar {
+    width:100%; background:#0d1117; border-top:1px solid var(--border); border-bottom:1px solid var(--border);
+    padding:6px 12px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; overflow-x:auto;
+    overflow-y:hidden; scrollbar-width:thin;
+  }
+  .pc-tabs { display:flex; gap:3px; flex-wrap:wrap; }
+  .pc-tab {
+    padding:4px 10px; background:rgba(255,255,255,.03); border:1px solid var(--border); border-radius:5px;
+    color:var(--text-muted); font-size:11px; font-weight:500; cursor:pointer; transition:all .15s; white-space:nowrap;
+  }
+  .pc-tab:hover { background:var(--surface2); color:var(--text); }
+  .pc-tab.active { background:rgba(240,180,41,.15); border-color:var(--accent); color:var(--accent); font-weight:700; }
+  .pc-tab .pc-count { font-family:var(--font-mono); font-size:9px; margin-left:3px; opacity:.7; }
+  .status-chart-wrap { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .donut-wrap { display:flex; align-items:center; gap:8px; }
+  .donut-svg { flex-shrink:0; }
+  .donut-legend { display:flex; flex-direction:column; gap:1px; font-size:10px; line-height:1.3; max-height:64px; flex-wrap:wrap; }
+  .donut-legend-item { display:flex; align-items:center; gap:4px; color:var(--text-muted); white-space:nowrap; }
+  .donut-legend-swatch { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
+  .donut-legend-count { color:var(--text); font-family:var(--font-mono); font-weight:600; margin-left:2px; }
+  .donut-total { text-align:center; }
+  .donut-total-num { font-family:var(--font-mono); font-size:16px; font-weight:700; color:var(--text); line-height:1; }
+  .donut-total-lbl { font-size:9px; color:var(--text-muted); letter-spacing:.05em; }
   .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); font-family: var(--font-main); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
   .btn-ghost { background: none; color: var(--text-muted); }
   .btn-ghost:hover { background: var(--surface2); color: var(--text); }
@@ -326,12 +350,25 @@
     <span class="page-title">&#128506; 現地調査マップ</span>
   </div>
   <div class="legend">
-    <div class="legend-item"><div class="legend-dot" style="background:#f0b429"></div><span>未確認</span></div>
-    <div class="legend-item"><div class="legend-dot" style="background:#3fb950"></div><span>調査予定</span></div>
-    <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div><span>確認済</span></div>
+    <div class="legend-item"><span style="font-size:14px;color:var(--text-muted);">●</span><span>未確認</span></div>
+    <div class="legend-item"><span style="font-size:14px;color:var(--text-muted);">◆</span><span>調査予定</span></div>
+    <div class="legend-item"><span style="font-size:14px;color:var(--text-muted);">★</span><span>確認済</span></div>
+    <span style="color:var(--text-muted);font-size:11px;">（色＝案件ステータス）</span>
     <button class="btn btn-ghost" onclick="location.href='index.html'">&#8592; 案件一覧</button>
   </div>
 </header>
+<!-- ダッシュボードバー：電力会社タブ + ドーナツ + 凡例 -->
+<div class="dashboard-bar" id="dashboardBar">
+  <div class="pc-tabs" id="pcTabs"></div>
+  <div style="flex:1;min-width:12px;"></div>
+  <div class="status-chart-wrap">
+    <div class="donut-wrap">
+      <svg class="donut-svg" id="donutChart" width="64" height="64" viewBox="0 0 42 42"></svg>
+      <div class="donut-total"><div class="donut-total-num" id="donutTotal">0</div><div class="donut-total-lbl">TOTAL</div></div>
+    </div>
+    <div class="donut-legend" id="donutLegend"></div>
+  </div>
+</div>
 
 <div class="map-wrapper">
   <div id="map"></div>
@@ -361,8 +398,8 @@
     <div class="chiban-results" id="chibanResults"></div>
   </div>
 
-  <!-- 統計 -->
-  <div class="stats-overlay" id="statsOverlay">
+  <!-- 旧統計オーバーレイ：ダッシュボードに統合したため非表示 -->
+  <div class="stats-overlay" id="statsOverlay" style="display:none">
     <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--accent)"></div><span id="statUnchecked">&mdash;</span> 件 未確認</div>
     <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--green)"></div><span id="statPlanned">0</span> 件 調査予定</div>
     <div class="stat-pill"><div class="stat-pill-dot" style="background:var(--red)"></div><span id="statChecked">&mdash;</span> 件 確認済</div>
@@ -594,6 +631,59 @@ let markers = {};
 let planSet = new Set();
 let surveyMode = false;
 let currentConfirmCaseId = null;
+let allCases = [];/* 生データを保持（電力会社切替時の再描画に使用） */
+let allLands = [], allSurveys = [], allLandowners = [];
+let currentPowerCompany = '中部電力';
+
+/* ========== ステータス色定義（index.htmlと統一） ========== */
+const STATUS_COLORS = {
+  'NOT VISITED': { fill: '#ef4444', stroke: '#991b1b' },
+  'THINKING↑':   { fill: '#fca5a5', stroke: '#b91c1c' },
+  'THINKING→':   { fill: '#eab308', stroke: '#854d0e' },
+  'THINKING↓':   { fill: '#84cc16', stroke: '#4d7c0f' },
+  'OK':          { fill: '#38bdf8', stroke: '#0369a1' },
+  'SUCCESS':     { fill: '#f97316', stroke: '#9a3412' },
+  'NON MEET':    { fill: '#d1d5db', stroke: '#4b5563' },
+  'NG':          { fill: '#4b5563', stroke: '#1f2937' },
+  'UNKNOWN':     { fill: '#40826d', stroke: '#14532d' }
+};
+const STATUS_ORDER = ['NOT VISITED','THINKING↑','THINKING→','THINKING↓','OK','SUCCESS','NON MEET','UNKNOWN'];
+
+/* ========== 電力会社マッピング ========== */
+const POWER_COMPANIES = ['北海道電力','東北電力','東京電力','中部電力','北陸電力','関西電力','中国電力','四国電力','九州電力','沖縄電力'];
+const PREF_TO_POWER = {'北海道':'北海道電力','青森県':'東北電力','岩手県':'東北電力','宮城県':'東北電力','秋田県':'東北電力','山形県':'東北電力','福島県':'東北電力','新潟県':'東北電力','東京都':'東京電力','神奈川県':'東京電力','埼玉県':'東京電力','千葉県':'東京電力','栃木県':'東京電力','群馬県':'東京電力','茨城県':'東京電力','山梨県':'東京電力','静岡県':'中部電力','愛知県':'中部電力','岐阜県':'中部電力','三重県':'中部電力','長野県':'中部電力','富山県':'北陸電力','石川県':'北陸電力','福井県':'北陸電力','大阪府':'関西電力','京都府':'関西電力','兵庫県':'関西電力','奈良県':'関西電力','和歌山県':'関西電力','滋賀県':'関西電力','岡山県':'中国電力','広島県':'中国電力','山口県':'中国電力','島根県':'中国電力','鳥取県':'中国電力','香川県':'四国電力','徳島県':'四国電力','愛媛県':'四国電力','高知県':'四国電力','福岡県':'九州電力','佐賀県':'九州電力','長崎県':'九州電力','熊本県':'九州電力','大分県':'九州電力','宮崎県':'九州電力','鹿児島県':'九州電力','沖縄県':'沖縄電力'};
+const AREA_TO_PREF = {'名古屋':'愛知県','豊橋':'愛知県','岡崎':'愛知県','一宮':'愛知県','瀬戸':'愛知県','半田':'愛知県','春日井':'愛知県','豊川':'愛知県','津島':'愛知県','碧南':'愛知県','刈谷':'愛知県','豊田':'愛知県','安城':'愛知県','西尾':'愛知県','蒲郡':'愛知県','犬山':'愛知県','常滑':'愛知県','江南':'愛知県','小牧':'愛知県','稲沢':'愛知県','新城':'愛知県','東海':'愛知県','大府':'愛知県','知多':'愛知県','知立':'愛知県','尾張旭':'愛知県','高浜':'愛知県','岩倉':'愛知県','豊明':'愛知県','日進':'愛知県','田原':'愛知県','愛西':'愛知県','清須':'愛知県','北名古屋':'愛知県','弥富':'愛知県','みよし':'愛知県','あま':'愛知県','長久手':'愛知県','東郷':'愛知県','豊山':'愛知県','大口':'愛知県','扶桑':'愛知県','大治':'愛知県','蟹江':'愛知県','飛島':'愛知県','阿久比':'愛知県','東浦':'愛知県','南知多':'愛知県','美浜':'愛知県','武豊':'愛知県','幸田':'愛知県','設楽':'愛知県','東栄':'愛知県','豊根':'愛知県'};
+const BROAD_REGION_TO_POWER = {'北海道':'北海道電力','東北':'東北電力','関東':'東京電力','中部':'中部電力','北陸':'北陸電力','関西':'関西電力','近畿':'関西電力','中国':'中国電力','四国':'四国電力','九州':'九州電力','沖縄':'沖縄電力'};
+function normalizeAreaKey(a){ if(!a)return''; return String(a).replace(/(市|町|村|区)$/,'').trim(); }
+function getPowerCompanyFromArea(a){
+  if(!a)return null;
+  if(BROAD_REGION_TO_POWER[a])return BROAD_REGION_TO_POWER[a];
+  const k=normalizeAreaKey(a); const p=AREA_TO_PREF[k];
+  if(p)return PREF_TO_POWER[p]||null;
+  return null;
+}
+
+/* ========== SVGマーカー生成（18px、形状×ステータス色×調査状態） ========== */
+function makeStatusIcon(status, surveyState) {
+  /* surveyState: 'unchecked' | 'planned' | 'confirmed' */
+  const col = STATUS_COLORS[status] || STATUS_COLORS['UNKNOWN'];
+  const size = 18;
+  let shape = '';
+  if (surveyState === 'planned') {
+    shape = `<polygon points="9,1 17,9 9,17 1,9" fill="${col.fill}" stroke="${col.stroke}" stroke-width="2"/>`;
+  } else if (surveyState === 'confirmed') {
+    shape = `<polygon points="9,1 11.2,6.5 17,6.9 12.5,10.6 14,16.5 9,13.3 4,16.5 5.5,10.6 1,6.9 6.8,6.5" fill="${col.fill}" stroke="${col.stroke}" stroke-width="1.5" stroke-linejoin="round"/>`;
+  } else {
+    shape = `<circle cx="9" cy="9" r="7.5" fill="${col.fill}" stroke="${col.stroke}" stroke-width="2"/>`;
+  }
+  const html = `<svg width="${size}" height="${size}" viewBox="0 0 18 18" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5))">${shape}</svg>`;
+  return L.divIcon({ html, className: '', iconSize: [size,size], iconAnchor: [size/2,size/2], popupAnchor: [0,-size/2-2] });
+}
+function surveyStateOf(caseId, confirmed) {
+  if (confirmed) return 'confirmed';
+  if (planSet.has(caseId)) return 'planned';
+  return 'unchecked';
+}
 
 function initMap() {
   map = L.map('map', { zoomControl: false }).setView([36.2048, 138.2529], 6);
@@ -869,32 +959,52 @@ async function loadData() {
   const { data: surveys } = await db.from('field_survey_status').select('*');
   const { data: landowners } = await db.from('landowner_info').select('id, case_id, name');
   if (!cases) return;
-
-  let unchecked = 0, checked = 0;
-  cases.forEach(c => {
-    const land = lands?.find(l => l.case_id === c.id);
-    const survey = surveys?.find(s => s.case_id === c.id);
-    const landowner = landowners?.find(lo => lo.case_id === c.id);
-    if (!land?.lat || !land?.lng) return;
-
-    const confirmed = survey?.confirmed || false;
-    const color = confirmed ? '#f85149' : '#f0b429';
-    if (confirmed) checked++; else unchecked++;
-
-    const marker = L.marker([land.lat, land.lng], { icon: makeIcon(color) });
-    marker.bindPopup(buildPopup(c, land, survey, landowner), { maxWidth: 300, minWidth: 280 });
-    marker.addTo(map);
-    markers[c.id] = { marker, survey, land, landowner, case: c, confirmed };
-  });
-
+  allCases = cases; allLands = lands || []; allSurveys = surveys || []; allLandowners = landowners || [];
+  renderMarkersForCurrentPower();
+  renderPowerCompanyTabs();
   recalcFieldStats();
 }
 
+function clearMarkers(){
+  Object.keys(markers).forEach(cid => { try { map.removeLayer(markers[cid].marker); } catch(e){} });
+  markers = {};
+}
+
+function renderMarkersForCurrentPower(){
+  clearMarkers();
+  allCases.forEach(c => {
+    const land = allLands.find(l => l.case_id === c.id);
+    const survey = allSurveys.find(s => s.case_id === c.id);
+    const landowner = allLandowners.find(lo => lo.case_id === c.id);
+    if (!land?.lat || !land?.lng) return;
+    const st = c.status || 'UNKNOWN';
+    if (st === 'NG') return;/* NGは地図非表示 */
+    const pc = getPowerCompanyFromArea(c.area_name);
+    if (currentPowerCompany && pc !== currentPowerCompany) return;
+
+    const confirmed = survey?.confirmed || false;
+    const ss = surveyStateOf(c.id, confirmed);
+    const icon = makeStatusIcon(st, ss);
+    const marker = L.marker([land.lat, land.lng], { icon });
+    marker.bindPopup(buildPopup(c, land, survey, landowner), { maxWidth: 300, minWidth: 280 });
+    marker.addTo(map);
+    markers[c.id] = { marker, survey, land, landowner, case: c, confirmed, status: st };
+  });
+}
+
 function makeIcon(color) {
+  /* 旧API互換のため保持（未使用）*/
   return L.divIcon({
     html: `<div style="width:24px;height:24px;background:${color};border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid rgba(0,0,0,0.3);box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`,
     className: '', iconSize: [24,24], iconAnchor: [12,24], popupAnchor: [0,-26]
   });
+}
+function refreshMarkerIcon(caseId) {
+  const d = markers[caseId];
+  if (!d) return;
+  const st = d.status || 'UNKNOWN';
+  const ss = surveyStateOf(caseId, d.confirmed);
+  d.marker.setIcon(makeStatusIcon(st, ss));
 }
 
 function buildPopup(c, land, survey, landowner) {
@@ -950,7 +1060,7 @@ function addPlan(caseId) {
   if (planSet.size >= 30) { showToast('\u8abf\u67fb\u4e88\u5b9a\u306f\u6700\u592730\u4ef6\u307e\u3067\u3067\u3059', 'error'); return; }
   planSet.add(caseId);
   const d = markers[caseId];
-  if (d && !d.confirmed) d.marker.setIcon(makeIcon('#3fb950'));
+  refreshMarkerIcon(caseId);
   if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
   updateSurveyUI();
   map.closePopup();
@@ -975,8 +1085,7 @@ function resetSurvey() {
   planSet.clear();
   Object.keys(markers).forEach(caseId => {
     const d = markers[caseId];
-    const color = d.confirmed ? '#f85149' : '#f0b429';
-    d.marker.setIcon(makeIcon(color));
+    refreshMarkerIcon(caseId);
     if (!map.hasLayer(d.marker)) d.marker.addTo(map);
     if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
   });
@@ -988,7 +1097,7 @@ function resetSurvey() {
 function removePlan(caseId) {
   planSet.delete(caseId);
   const d = markers[caseId];
-  if (d && !d.confirmed) d.marker.setIcon(makeIcon('#f0b429'));
+  refreshMarkerIcon(caseId);
   if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
   updateSurveyUI();
   map.closePopup();
@@ -1002,17 +1111,100 @@ function updateSurveyUI() {
   renderSurveyTable();
 }
 
-/* 凡例と対応した排他的な件数カウント：未確認 + 調査予定 + 確認済 = 総数 */
+/* 凡例と対応した排他的な件数カウント + ダッシュボード描画 */
 function recalcFieldStats() {
+  /* 旧 stat pill（非表示だが値は維持） */
   let unchecked = 0, planned = 0, confirmed = 0;
   Object.entries(markers).forEach(([caseId, d]) => {
     if (d.confirmed) confirmed++;
     else if (planSet.has(caseId)) planned++;
     else unchecked++;
   });
-  document.getElementById('statUnchecked').textContent = unchecked;
-  document.getElementById('statPlanned').textContent = planned;
-  document.getElementById('statChecked').textContent = confirmed;
+  const sU = document.getElementById('statUnchecked'); if (sU) sU.textContent = unchecked;
+  const sP = document.getElementById('statPlanned'); if (sP) sP.textContent = planned;
+  const sC = document.getElementById('statChecked'); if (sC) sC.textContent = confirmed;
+  /* ダッシュボード */
+  renderStatusDonut();
+  renderPowerCompanyTabs();
+}
+
+function getStatusCountsForCurrentPower() {
+  const counts = {};
+  STATUS_ORDER.forEach(s => counts[s] = 0);
+  allCases.forEach(c => {
+    const land = allLands.find(l => l.case_id === c.id);
+    if (!land?.lat || !land?.lng) return;
+    const st = c.status || 'UNKNOWN';
+    if (st === 'NG') return;
+    const pc = getPowerCompanyFromArea(c.area_name);
+    if (currentPowerCompany && pc !== currentPowerCompany) return;
+    if (counts[st] !== undefined) counts[st]++;
+  });
+  return counts;
+}
+
+function renderStatusDonut() {
+  const counts = getStatusCountsForCurrentPower();
+  const total = STATUS_ORDER.reduce((s,k) => s + (counts[k]||0), 0);
+  const svg = document.getElementById('donutChart');
+  const totalEl = document.getElementById('donutTotal');
+  const legendEl = document.getElementById('donutLegend');
+  if (!svg || !totalEl || !legendEl) return;
+  totalEl.textContent = total;
+  const cx = 21, cy = 21, r = 15.9155;
+  let offset = 25;
+  let segs = '';
+  if (total === 0) {
+    segs = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="transparent" stroke="#30363d" stroke-width="6"/>`;
+  } else {
+    STATUS_ORDER.forEach(st => {
+      const n = counts[st] || 0;
+      if (n === 0) return;
+      const pct = (n / total) * 100;
+      const col = STATUS_COLORS[st];
+      segs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="transparent" stroke="${col.fill}" stroke-width="6" stroke-dasharray="${pct} ${100-pct}" stroke-dashoffset="${-offset+25}" transform="rotate(-90 ${cx} ${cy})"/>`;
+      offset += pct;
+    });
+  }
+  svg.innerHTML = segs;
+  legendEl.innerHTML = STATUS_ORDER.map(st => {
+    const n = counts[st] || 0;
+    const col = STATUS_COLORS[st];
+    const faded = n === 0 ? 'opacity:.4;' : '';
+    return `<div class="donut-legend-item" style="${faded}"><span class="donut-legend-swatch" style="background:${col.fill};border:1px solid ${col.stroke};"></span>${st}<span class="donut-legend-count">${n}</span></div>`;
+  }).join('');
+}
+
+function renderPowerCompanyTabs() {
+  const counts = {};
+  POWER_COMPANIES.forEach(pc => counts[pc] = 0);
+  allCases.forEach(c => {
+    const land = allLands.find(l => l.case_id === c.id);
+    if (!land?.lat || !land?.lng) return;
+    const st = c.status || 'UNKNOWN';
+    if (st === 'NG') return;
+    const pc = getPowerCompanyFromArea(c.area_name);
+    if (pc && counts[pc] !== undefined) counts[pc]++;
+  });
+  const tabs = document.getElementById('pcTabs');
+  if (!tabs) return;
+  tabs.innerHTML = POWER_COMPANIES.map(pc => {
+    const n = counts[pc] || 0;
+    const active = pc === currentPowerCompany ? ' active' : '';
+    const empty = n === 0 ? ' style="opacity:.4"' : '';
+    return `<button class="pc-tab${active}"${empty} onclick="setPowerCompany('${pc}')">${pc}<span class="pc-count">(${n})</span></button>`;
+  }).join('');
+}
+
+function setPowerCompany(pc) {
+  if (currentPowerCompany === pc) return;
+  currentPowerCompany = pc;
+  planSet.clear();
+  surveyMode = false;
+  renderMarkersForCurrentPower();
+  recalcFieldStats();
+  updateSurveyUI();
+  showToast('電力会社を切り替えました：' + pc, 'success');
 }
 
 function renderSurveyTable() {
@@ -1123,7 +1315,7 @@ async function saveConfirm() {
   if (d) {
     d.confirmed = true;
     d.survey = { confirmed: true, comment, ...photoUrls };
-    d.marker.setIcon(makeIcon('#f85149'));
+    refreshMarkerIcon(caseId);
     d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
   }
 
@@ -1269,7 +1461,7 @@ async function unConfirm(caseId) {
   if (d) {
     d.confirmed = false;
     d.survey = { ...d.survey, confirmed: false };
-    d.marker.setIcon(makeIcon('#f0b429'));
+    refreshMarkerIcon(caseId);
     d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
   }
   recalcFieldStats();
