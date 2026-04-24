@@ -1971,10 +1971,11 @@ async function openEditSalesModal(introId){
 }
 
 async function populateSalesModalSelects(){
-  /* 案件セレクト */
+  /* 案件セレクト（NGは除外、status フィールドも取得） */
   const caseSel=document.getElementById('si_case_id');
-  const cases=(allCases&&allCases.length?allCases:(await db.from('cases').select('id,case_no,area_name,parent_case_no,branch_no').order('case_no')).data||[]);
-  caseSel.innerHTML='<option value="">選択してください</option>'+cases.map(c=>{
+  const cases=(allCases&&allCases.length?allCases:(await db.from('cases').select('id,case_no,area_name,parent_case_no,branch_no,status').order('case_no')).data||[]);
+  const validCases=cases.filter(c=>c.status!=='NG');
+  caseSel.innerHTML='<option value="">選択してください</option>'+validCases.map(c=>{
     const no=c.parent_case_no?`${c.parent_case_no}_${String(c.branch_no||0).padStart(3,'0')}`:c.case_no;
     return `<option value="${c.id}">${no} (${c.area_name||'—'})</option>`;
   }).join('');
