@@ -40,6 +40,17 @@
   .pc-tab.active{background:rgba(240,180,41,.15);border-color:var(--accent);color:var(--accent);font-weight:700;}
   .pc-tab.empty{opacity:.4;}
   .pc-tab .pc-count{font-family:var(--font-mono);font-size:10px;margin-left:4px;opacity:.7;}
+  /* ======= ステータスダッシュボード（地権者マスター） ======= */
+  .status-dashboard{padding:10px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:#0d1117;border-bottom:1px solid var(--border);}
+  .sd-donut-wrap{display:flex;align-items:center;gap:10px;}
+  .sd-total{text-align:center;min-width:44px;}
+  .sd-total-num{font-family:var(--font-mono);font-size:20px;font-weight:700;color:var(--text);line-height:1;}
+  .sd-total-lbl{font-size:10px;color:var(--text-muted);letter-spacing:.08em;}
+  .sd-legend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--text-muted);}
+  .sd-legend-item{display:flex;align-items:center;gap:5px;white-space:nowrap;}
+  .sd-swatch{width:10px;height:10px;border-radius:2px;flex-shrink:0;}
+  .sd-count{color:var(--text);font-family:var(--font-mono);font-weight:600;margin-left:2px;}
+  .sd-title{font-size:11px;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-right:6px;}
   .main{padding:8px 24px 20px;max-width:1400px;margin:0 auto;}
   .search-box{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 12px;color:var(--text);font-family:var(--font-main);font-size:13px;width:240px;transition:border-color .2s;}
   .search-box:focus{outline:none;border-color:var(--accent);}
@@ -174,6 +185,7 @@
   <button class="nav-btn" onclick="switchNav(this,'land')" style="color:#58a6ff">土地情報マスター</button>
   <button class="nav-btn" onclick="switchNav(this,'realestate')" style="color:#f0b429">不動産会社マスター</button>
   <button class="nav-btn" onclick="switchNav(this,'introcompany')" style="color:#ec4899">📣 紹介先企業マスタ</button>
+  <button class="nav-btn" onclick="switchNav(this,'sales')" style="color:#0ea5e9">📈 販売管理</button>
   <button class="nav-btn" onclick="location.href='farmland-tracker.html'" style="color:#22c55e">🌾 農地変化トラッカー</button>
 </nav>
 <div id="stickyZone">
@@ -203,6 +215,17 @@
     </div>
   </div>
   <div id="landownersStickyBlock" style="display:none">
+    <div class="status-dashboard" id="landownerStatusDashboard">
+      <span class="sd-title">📊 ステータス別 地権者数</span>
+      <div class="sd-donut-wrap">
+        <svg id="landownerDonut" width="60" height="60" viewBox="0 0 42 42" style="flex-shrink:0"></svg>
+        <div class="sd-total">
+          <div class="sd-total-num" id="landownerDonutTotal">0</div>
+          <div class="sd-total-lbl">TOTAL</div>
+        </div>
+      </div>
+      <div class="sd-legend" id="landownerDonutLegend"></div>
+    </div>
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;">
         <select class="filter-select" id="filterLoStatus" onchange="filterLandowners()">
@@ -267,6 +290,31 @@
       <div style="text-align:center">ステータス</div><div style="text-align:center">操作</div>
     </div>
   </div>
+  <div id="salesStickyBlock" style="display:none">
+    <div class="sticky-toolbar">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <input class="search-box" type="text" placeholder="案件No・企業名で検索..." id="siSearchInput" oninput="filterSalesIntroductions()">
+        <select class="filter-select" id="siFilterStatus" onchange="filterSalesIntroductions()">
+          <option value="">全ての紹介ステータス</option>
+          <option>紹介中</option><option>契約済</option><option>失注</option>
+          <option>キャンセル</option><option>完了</option>
+        </select>
+        <select class="filter-select" id="siFilterPaymentStatus" onchange="filterSalesIntroductions()">
+          <option value="">全ての入金状況</option>
+          <option value="all_paid">全額入金済</option>
+          <option value="partial">一部入金</option>
+          <option value="unpaid">未入金</option>
+          <option value="overdue">遅延あり</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="openNewSalesModal()" style="background:#0ea5e9;border-color:#0284c7">＋ 新規紹介登録</button>
+    </div>
+    <div class="cases-table-header" style="grid-template-columns:120px 180px 90px 90px 130px 130px 100px 90px">
+      <div>案件No</div><div>紹介先企業</div><div style="text-align:center">紹介日</div>
+      <div style="text-align:center">契約日</div><div style="text-align:right">契約金額</div>
+      <div>入金進捗</div><div style="text-align:center">ステータス</div><div style="text-align:center">操作</div>
+    </div>
+  </div>
 </div>
 <main class="main">
   <div class="cases-table" id="casesSection">
@@ -283,6 +331,9 @@
   </div>
   <div class="cases-table" id="introcompanySection" style="display:none">
     <div id="introcompanyList"><div class="loading"><div class="spinner"></div>読み込み中...</div></div>
+  </div>
+  <div class="cases-table" id="salesSection" style="display:none">
+    <div id="salesList"><div class="loading"><div class="spinner"></div>読み込み中...</div></div>
   </div>
   <div id="farmlandSection" style="display:none;">
 
@@ -618,6 +669,57 @@
     </div>
   </div>
 </div>
+<div class="modal-overlay" id="salesModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div><div class="modal-title" id="salesModalTitle">📈 新規紹介登録</div><div class="modal-subtitle">案件を販売先企業へ紹介</div></div>
+      <button class="modal-close" onclick="closeModal('salesModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">案件 *</label>
+          <select class="form-select" id="si_case_id"><option value="">選択してください</option></select></div>
+        <div class="form-group"><label class="form-label">紹介先企業 *</label>
+          <select class="form-select" id="si_company_id"><option value="">選択してください</option></select></div>
+      </div>
+      <div style="margin:16px 0 8px;padding:6px 10px;background:rgba(14,165,233,.08);border-left:3px solid #0ea5e9;font-size:11px;font-weight:700;color:#0ea5e9;letter-spacing:.08em;">ステータス日付</div>
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">案件紹介日</label><input class="form-input" type="date" id="si_introduced_date"></div>
+        <div class="form-group"><label class="form-label">案件契約日</label><input class="form-input" type="date" id="si_contracted_date"></div>
+        <div class="form-group"><label class="form-label">電力申請日</label><input class="form-input" type="date" id="si_power_application_date"></div>
+        <div class="form-group"><label class="form-label">電力負担金額（円）</label><input class="form-input" type="number" id="si_power_cost" placeholder="例：500000"></div>
+        <div class="form-group"><label class="form-label">農地転用申請日</label><input class="form-input" type="date" id="si_farmland_conv_application_date"></div>
+        <div class="form-group"><label class="form-label">農転許可日</label><input class="form-input" type="date" id="si_farmland_conv_approval_date"></div>
+        <div class="form-group"><label class="form-label">請求書発行日</label><input class="form-input" type="date" id="si_invoice_issued_date"></div>
+        <div class="form-group"><label class="form-label">紹介ステータス</label>
+          <select class="form-select" id="si_status">
+            <option>紹介中</option><option>契約済</option><option>失注</option>
+            <option>キャンセル</option><option>完了</option>
+          </select></div>
+      </div>
+      <div style="margin:16px 0 8px;padding:6px 10px;background:rgba(34,197,94,.08);border-left:3px solid #22c55e;font-size:11px;font-weight:700;color:#22c55e;letter-spacing:.08em;">契約金額・入金計画</div>
+      <div class="form-grid">
+        <div class="form-group full"><label class="form-label">契約金額（円）*</label>
+          <input class="form-input" type="number" id="si_contract_amount" placeholder="販売先に請求する合計金額" oninput="recalcPaymentAmounts()"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
+        <label class="form-label" style="margin:0;">入金計画（1〜3回分割）</label>
+        <button class="btn" type="button" onclick="addPaymentRow()" style="background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.4);padding:4px 12px;font-size:12px;">＋行追加</button>
+      </div>
+      <div id="si_paymentRows" style="margin-top:8px;"></div>
+      <div id="si_paymentSummary" style="margin-top:8px;padding:8px 12px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text-muted);text-align:right;"></div>
+      <div class="form-grid" style="margin-top:14px;">
+        <div class="form-group full"><label class="form-label">メモ</label>
+          <textarea class="form-textarea" id="si_notes" placeholder="交渉経緯・留意事項など"></textarea></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="si_deleteBtn" onclick="deleteSalesIntroduction()" style="display:none;color:#f85149;margin-right:auto;border-color:rgba(248,81,73,.4)">🗑 削除</button>
+      <button class="btn btn-ghost" onclick="closeModal('salesModal')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveSalesIntroduction()" style="background:#0ea5e9;border-color:#0284c7">保存</button>
+    </div>
+  </div>
+</div>
 <div class="toast-container" id="toastContainer"></div>
 <script>
 const SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
@@ -673,6 +775,10 @@ function setPowerCompany(pc){
   /* 紹介先企業タブが表示中なら再フィルタ */
   if(document.getElementById('introcompanySection')?.style.display!=='none'){
     filterIntroductionCompanies();
+  }
+  /* 販売管理タブが表示中なら再フィルタ */
+  if(document.getElementById('salesSection')?.style.display!=='none'){
+    filterSalesIntroductions();
   }
 }
 function getAreasForCurrentPower(){
@@ -965,13 +1071,13 @@ async function saveLog(){
 function switchNav(btn,section){
   document.querySelectorAll('.nav-btn').forEach(b=>{b.classList.remove('active');b.style.borderBottomColor='transparent';});
   btn.classList.add('active');
-  btn.style.borderBottomColor=({'cases':'#a371f7','landowners':'#3fb950','land':'#58a6ff','realestate':'#f0b429','introcompany':'#ec4899','farmland':'#22c55e'})[section]||'var(--accent)';
-  ['cases','landowners','land','realestate','introcompany','farmland'].forEach(s=>{
+  btn.style.borderBottomColor=({'cases':'#a371f7','landowners':'#3fb950','land':'#58a6ff','realestate':'#f0b429','introcompany':'#ec4899','sales':'#0ea5e9','farmland':'#22c55e'})[section]||'var(--accent)';
+  ['cases','landowners','land','realestate','introcompany','sales','farmland'].forEach(s=>{
     const sb=document.getElementById(s+'StickyBlock');if(sb)sb.style.display=s===section?'block':'none';
     const sectionEl=document.getElementById(
       s==='cases'?'casesSection':s==='landowners'?'landownersSection':
       s==='land'?'landSection':s==='realestate'?'realestateSection':
-      s==='introcompany'?'introcompanySection':'farmlandSection'
+      s==='introcompany'?'introcompanySection':s==='sales'?'salesSection':'farmlandSection'
     );
     if(sectionEl)sectionEl.style.display=s===section?'block':'none';
   });
@@ -979,6 +1085,7 @@ function switchNav(btn,section){
   else if(section==='land')loadLandMaster();
   else if(section==='realestate')loadRealestateMaster();
   else if(section==='introcompany')loadIntroductionCompanies();
+  else if(section==='sales')loadSalesIntroductions();
   else if(section==='cases')loadCases();
   else if(section==='farmland')initFarmlandSection();
 }
@@ -996,13 +1103,64 @@ async function loadLandownersMaster(){
   renderLandowners(allLandowners);
   filterLandowners();
 }
+/* ===== 地権者マスター ステータス別ダッシュボード ===== */
+const LO_STATUS_COLORS={
+  'NOT VISITED':{fill:'#ef4444',stroke:'#991b1b'},
+  'THINKING↑':  {fill:'#fca5a5',stroke:'#b91c1c'},
+  'THINKING→':  {fill:'#eab308',stroke:'#854d0e'},
+  'THINKING↓':  {fill:'#84cc16',stroke:'#4d7c0f'},
+  'OK':         {fill:'#38bdf8',stroke:'#0369a1'},
+  'SUCCESS':    {fill:'#f97316',stroke:'#9a3412'},
+  'NON MEET':   {fill:'#d1d5db',stroke:'#4b5563'},
+  'NG':         {fill:'#4b5563',stroke:'#1f2937'},
+  'UNKNOWN':    {fill:'#40826d',stroke:'#14532d'}
+};
+const LO_STATUS_ORDER=['NOT VISITED','THINKING↑','THINKING→','THINKING↓','OK','SUCCESS','NON MEET','NG','UNKNOWN'];
+
+function renderLandownerStatusDashboard(filteredList){
+  const counts={};LO_STATUS_ORDER.forEach(s=>counts[s]=0);
+  (filteredList||[]).forEach(lo=>{
+    const st=lo.cases?.status||'UNKNOWN';
+    if(counts[st]!==undefined)counts[st]++;
+  });
+  const total=LO_STATUS_ORDER.reduce((s,k)=>s+counts[k],0);
+  const totalEl=document.getElementById('landownerDonutTotal');
+  const svg=document.getElementById('landownerDonut');
+  const legendEl=document.getElementById('landownerDonutLegend');
+  if(!totalEl||!svg||!legendEl)return;
+  totalEl.textContent=total;
+  const cx=21,cy=21,r=15.9155;
+  let offset=25,segs='';
+  if(total===0){
+    segs=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="transparent" stroke="#30363d" stroke-width="6"/>`;
+  }else{
+    LO_STATUS_ORDER.forEach(st=>{
+      const n=counts[st]||0;
+      if(n===0)return;
+      const pct=(n/total)*100;
+      const col=LO_STATUS_COLORS[st];
+      segs+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="transparent" stroke="${col.fill}" stroke-width="6" stroke-dasharray="${pct} ${100-pct}" stroke-dashoffset="${-offset+25}" transform="rotate(-90 ${cx} ${cy})"/>`;
+      offset+=pct;
+    });
+  }
+  svg.innerHTML=segs;
+  legendEl.innerHTML=LO_STATUS_ORDER.map(st=>{
+    const n=counts[st]||0;
+    const col=LO_STATUS_COLORS[st];
+    const faded=n===0?'opacity:.4;':'';
+    return `<div class="sd-legend-item" style="${faded}"><span class="sd-swatch" style="background:${col.fill};border:1px solid ${col.stroke};"></span>${st}<span class="sd-count">${n}</span></div>`;
+  }).join('');
+}
+
 function filterLandowners(){
   const status=document.getElementById('filterLoStatus').value;
-  renderLandowners(allLandowners.filter(lo=>{
+  const filtered=allLandowners.filter(lo=>{
     if(ngBlind&&lo.cases?.status==='NG')return false;
     if(currentPowerCompany&&getPowerCompanyFromArea(lo.cases?.area_name)!==currentPowerCompany)return false;
     return !status||lo.cases?.status===status;
-  }));
+  });
+  renderLandownerStatusDashboard(filtered);
+  renderLandowners(filtered);
 }
 function renderLandowners(los){
   const el=document.getElementById('landownersList');
@@ -1665,6 +1823,312 @@ function openGoogleMapForCompany(){
   window.open(url,'_blank');
 }
 /* ========== /紹介先企業マスタ ========== */
+
+/* ========== 販売管理（sales_introductions + sales_payments） ========== */
+let allSalesIntroductions=[],allSalesPayments=[],currentSalesIntroId=null;
+let paymentRowsState=[];/* [{payment_type,percentage,amount,scheduled_date,actual_date,status,notes,id?}] */
+
+async function loadSalesIntroductions(){
+  try{
+    const[siRes,spRes]=await Promise.all([
+      db.from('sales_introductions').select('*,cases(case_no,area_name,parent_case_no,branch_no),introduction_companies(company_name)').order('introduced_date',{ascending:false,nullsFirst:false}),
+      db.from('sales_payments').select('*').order('payment_order')
+    ]);
+    if(siRes.error){
+      const el=document.getElementById('salesList');
+      if(el)el.innerHTML='<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">販売管理テーブルが未作成の可能性があります<br><small style="color:var(--text-muted)">Supabase SQL Editor で sales_tables_create.sql を実行してください</small><br><small style="color:var(--red)">'+siRes.error.message+'</small></div></div>';
+      return;
+    }
+    allSalesIntroductions=siRes.data||[];
+    allSalesPayments=spRes.data||[];
+    filterSalesIntroductions();
+  }catch(e){showToast('接続エラー: '+e.message,'error');}
+}
+
+function getPaymentsForIntro(introId){
+  return allSalesPayments.filter(p=>p.introduction_id===introId).sort((a,b)=>(a.payment_order||0)-(b.payment_order||0));
+}
+
+function getPaymentProgress(introId){
+  const pays=getPaymentsForIntro(introId);
+  if(!pays.length)return{total:0,paid:0,count:0,paidCount:0,overdue:false};
+  const today=new Date().toISOString().split('T')[0];
+  let total=0,paid=0,paidCount=0,overdue=false;
+  pays.forEach(p=>{
+    const amt=Number(p.amount||0);total+=amt;
+    if(p.status==='入金済'){paid+=amt;paidCount++;}
+    else if(p.scheduled_date && p.scheduled_date<today && p.status!=='取消')overdue=true;
+  });
+  return{total,paid,count:pays.length,paidCount,overdue};
+}
+
+function filterSalesIntroductions(){
+  const q=(document.getElementById('siSearchInput')?.value||'').toLowerCase();
+  const status=document.getElementById('siFilterStatus')?.value||'';
+  const pstatus=document.getElementById('siFilterPaymentStatus')?.value||'';
+  renderSalesIntroductions(allSalesIntroductions.filter(si=>{
+    /* 電力会社タブ連動：案件のエリアから電力会社を判定 */
+    if(currentPowerCompany){
+      const pc=getPowerCompanyFromArea(si.cases?.area_name);
+      if(pc && pc!==currentPowerCompany)return false;
+      if(!pc)return false;/* 未マッピングは非表示 */
+    }
+    if(q){
+      const hay=((si.cases?.case_no||'')+' '+(si.introduction_companies?.company_name||'')).toLowerCase();
+      if(!hay.includes(q))return false;
+    }
+    if(status && si.status!==status)return false;
+    if(pstatus){
+      const prog=getPaymentProgress(si.id);
+      if(pstatus==='all_paid' && !(prog.count>0 && prog.paidCount===prog.count))return false;
+      if(pstatus==='partial' && !(prog.paidCount>0 && prog.paidCount<prog.count))return false;
+      if(pstatus==='unpaid' && prog.paidCount>0)return false;
+      if(pstatus==='overdue' && !prog.overdue)return false;
+    }
+    return true;
+  }));
+}
+
+function renderSalesIntroductions(list){
+  const el=document.getElementById('salesList');
+  if(!el)return;
+  if(!list||!list.length){el.innerHTML='<div class="empty-state"><div class="empty-state-icon">📈</div><div class="empty-state-text">該当する紹介がありません</div></div>';return;}
+  el.innerHTML=list.map((si,i)=>{
+    const caseNo=si.cases?.parent_case_no?`${si.cases.parent_case_no}_${String(si.cases.branch_no||0).padStart(3,'0')}`:(si.cases?.case_no||'—');
+    const statusColor={'紹介中':'#6b7280','契約済':'#22c55e','失注':'#f85149','キャンセル':'#f85149','完了':'#0ea5e9'}[si.status]||'#6b7280';
+    const prog=getPaymentProgress(si.id);
+    const progPct=prog.total>0?Math.round(prog.paid/prog.total*100):0;
+    const progColor=prog.overdue?'#f85149':(progPct===100?'#22c55e':progPct>0?'#f0b429':'#6b7280');
+    const progLabel=prog.count===0?'計画なし':`${prog.paidCount}/${prog.count} (${progPct}%)`;
+    return `<div class="case-row" style="grid-template-columns:120px 180px 90px 90px 130px 130px 100px 90px;animation-delay:${i*.03}s">
+      <div class="case-no">${caseNo}</div>
+      <div style="font-weight:600;color:#ec4899;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(si.introduction_companies?.company_name||'').replace(/"/g,'&quot;')}">${si.introduction_companies?.company_name||'—'}</div>
+      <div style="font-size:12px;text-align:center">${si.introduced_date||'—'}</div>
+      <div style="font-size:12px;text-align:center;color:${si.contracted_date?'#22c55e':'var(--text-muted)'}">${si.contracted_date||'—'}</div>
+      <div style="font-family:var(--font-mono);font-size:12px;text-align:right">${si.contract_amount?Number(si.contract_amount).toLocaleString()+' 円':'—'}</div>
+      <div style="font-size:11px">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="flex:1;height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden;"><div style="height:100%;width:${progPct}%;background:${progColor};transition:width .3s;"></div></div>
+          <span style="color:${progColor};font-family:var(--font-mono);font-size:10px;white-space:nowrap;">${progLabel}</span>
+        </div>
+      </div>
+      <div style="text-align:center"><span style="display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${statusColor}22;color:${statusColor};border:1px solid ${statusColor}66;white-space:nowrap">${si.status||'—'}</span></div>
+      <div class="actions-cell"><button class="action-btn" onclick="openEditSalesModal(${si.id})">✏️ 編集</button></div>
+    </div>`;
+  }).join('');
+}
+
+/* モーダル：紹介登録・編集 */
+async function openNewSalesModal(){
+  currentSalesIntroId=null;
+  await populateSalesModalSelects();
+  document.getElementById('salesModalTitle').textContent='📈 新規紹介登録';
+  ['si_introduced_date','si_contracted_date','si_power_application_date','si_power_cost','si_farmland_conv_application_date','si_farmland_conv_approval_date','si_invoice_issued_date','si_contract_amount','si_notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('si_case_id').value='';
+  document.getElementById('si_company_id').value='';
+  document.getElementById('si_status').value='紹介中';
+  document.getElementById('si_introduced_date').value=new Date().toISOString().split('T')[0];
+  paymentRowsState=[];
+  renderPaymentRows();
+  document.getElementById('si_deleteBtn').style.display='none';
+  document.getElementById('salesModal').classList.add('open');
+}
+
+async function openEditSalesModal(introId){
+  const si=allSalesIntroductions.find(x=>x.id===introId);
+  if(!si){showToast('紹介データが見つかりません','error');return;}
+  currentSalesIntroId=si.id;
+  await populateSalesModalSelects();
+  document.getElementById('salesModalTitle').textContent='📈 紹介情報の編集';
+  document.getElementById('si_case_id').value=si.case_id||'';
+  document.getElementById('si_company_id').value=si.company_id||'';
+  document.getElementById('si_introduced_date').value=si.introduced_date||'';
+  document.getElementById('si_contracted_date').value=si.contracted_date||'';
+  document.getElementById('si_power_application_date').value=si.power_application_date||'';
+  document.getElementById('si_power_cost').value=si.power_cost||'';
+  document.getElementById('si_farmland_conv_application_date').value=si.farmland_conv_application_date||'';
+  document.getElementById('si_farmland_conv_approval_date').value=si.farmland_conv_approval_date||'';
+  document.getElementById('si_invoice_issued_date').value=si.invoice_issued_date||'';
+  document.getElementById('si_contract_amount').value=si.contract_amount||'';
+  document.getElementById('si_status').value=si.status||'紹介中';
+  document.getElementById('si_notes').value=si.notes||'';
+  paymentRowsState=getPaymentsForIntro(si.id).map(p=>({
+    id:p.id,payment_type:p.payment_type,percentage:p.percentage,amount:p.amount,
+    scheduled_date:p.scheduled_date,actual_date:p.actual_date,status:p.status,notes:p.notes
+  }));
+  renderPaymentRows();
+  document.getElementById('si_deleteBtn').style.display='inline-block';
+  document.getElementById('salesModal').classList.add('open');
+}
+
+async function populateSalesModalSelects(){
+  /* 案件セレクト */
+  const caseSel=document.getElementById('si_case_id');
+  const cases=(allCases&&allCases.length?allCases:(await db.from('cases').select('id,case_no,area_name,parent_case_no,branch_no').order('case_no')).data||[]);
+  caseSel.innerHTML='<option value="">選択してください</option>'+cases.map(c=>{
+    const no=c.parent_case_no?`${c.parent_case_no}_${String(c.branch_no||0).padStart(3,'0')}`:c.case_no;
+    return `<option value="${c.id}">${no} (${c.area_name||'—'})</option>`;
+  }).join('');
+  /* 企業セレクト */
+  const coSel=document.getElementById('si_company_id');
+  const companies=allIntroductionCompanies.length?allIntroductionCompanies:((await db.from('introduction_companies').select('id,company_name').order('company_name')).data||[]);
+  coSel.innerHTML='<option value="">選択してください</option>'+companies.map(c=>`<option value="${c.id}">${c.company_name}</option>`).join('');
+}
+
+/* 入金行のUI */
+function addPaymentRow(){
+  if(paymentRowsState.length>=3){showToast('入金行は最大3行までです','error');return;}
+  const defaultType=paymentRowsState.length===0?'手付金':paymentRowsState.length===1?'中間金':'残金';
+  paymentRowsState.push({payment_type:defaultType,percentage:null,amount:null,scheduled_date:null,actual_date:null,status:'未入金',notes:''});
+  renderPaymentRows();
+}
+
+function removePaymentRow(idx){
+  paymentRowsState.splice(idx,1);
+  renderPaymentRows();
+}
+
+function renderPaymentRows(){
+  const el=document.getElementById('si_paymentRows');
+  if(!el)return;
+  if(!paymentRowsState.length){el.innerHTML='<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:12px;border:1px dashed var(--border);border-radius:6px;">行追加ボタンから入金計画を登録してください</div>';updatePaymentSummary();return;}
+  el.innerHTML=paymentRowsState.map((p,i)=>`
+    <div style="display:grid;grid-template-columns:90px 80px 140px 130px 100px 30px;gap:6px;padding:6px 8px;margin-bottom:4px;background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:6px;align-items:center;">
+      <select class="form-select" style="padding:4px 8px;font-size:12px;" onchange="updatePaymentField(${i},'payment_type',this.value)">
+        <option${p.payment_type==='手付金'?' selected':''}>手付金</option>
+        <option${p.payment_type==='中間金'?' selected':''}>中間金</option>
+        <option${p.payment_type==='残金'?' selected':''}>残金</option>
+      </select>
+      <input class="form-input" type="number" step="0.01" placeholder="%" value="${p.percentage||''}" style="padding:4px 8px;font-size:12px;" oninput="updatePaymentField(${i},'percentage',this.value);recalcAmountFromPct(${i})">
+      <input class="form-input" type="number" placeholder="金額" value="${p.amount||''}" style="padding:4px 8px;font-size:12px;" oninput="updatePaymentField(${i},'amount',this.value);recalcPctFromAmount(${i})">
+      <input class="form-input" type="date" value="${p.scheduled_date||''}" style="padding:4px 6px;font-size:11px;" oninput="updatePaymentField(${i},'scheduled_date',this.value)" title="入金予定日">
+      <select class="form-select" style="padding:4px 8px;font-size:11px;" onchange="updatePaymentField(${i},'status',this.value)">
+        <option${p.status==='未入金'?' selected':''}>未入金</option>
+        <option${p.status==='入金済'?' selected':''}>入金済</option>
+        <option${p.status==='遅延'?' selected':''}>遅延</option>
+        <option${p.status==='取消'?' selected':''}>取消</option>
+      </select>
+      <button type="button" onclick="removePaymentRow(${i})" style="background:none;border:1px solid rgba(248,81,73,.4);color:#f85149;border-radius:4px;cursor:pointer;padding:2px 4px;font-size:11px;">🗑</button>
+    </div>
+    ${p.status==='入金済'?`<div style="display:flex;gap:6px;margin:-2px 0 4px 98px;align-items:center;"><label style="font-size:10px;color:var(--text-muted);">実入金日:</label><input class="form-input" type="date" value="${p.actual_date||''}" style="padding:3px 6px;font-size:11px;width:140px;" oninput="updatePaymentField(${i},'actual_date',this.value)"></div>`:''}
+  `).join('');
+  updatePaymentSummary();
+}
+
+function updatePaymentField(idx,field,value){
+  if(!paymentRowsState[idx])return;
+  if(['percentage','amount'].includes(field))paymentRowsState[idx][field]=value?Number(value):null;
+  else paymentRowsState[idx][field]=value||null;
+  if(['percentage','amount','payment_type','status','scheduled_date','actual_date'].includes(field))updatePaymentSummary();
+}
+
+function recalcAmountFromPct(idx){
+  const total=Number(document.getElementById('si_contract_amount').value||0);
+  const pct=Number(paymentRowsState[idx]?.percentage||0);
+  if(total>0&&pct>0){
+    const amt=Math.round(total*pct/100);
+    paymentRowsState[idx].amount=amt;
+    renderPaymentRows();
+  }
+}
+
+function recalcPctFromAmount(idx){
+  const total=Number(document.getElementById('si_contract_amount').value||0);
+  const amt=Number(paymentRowsState[idx]?.amount||0);
+  if(total>0&&amt>0){
+    paymentRowsState[idx].percentage=Number((amt/total*100).toFixed(2));
+    renderPaymentRows();
+  }
+}
+
+function recalcPaymentAmounts(){
+  /* 契約金額変更時：%が入っている行の金額を再計算 */
+  const total=Number(document.getElementById('si_contract_amount').value||0);
+  if(total<=0){updatePaymentSummary();return;}
+  let changed=false;
+  paymentRowsState.forEach(p=>{
+    if(p.percentage&&(!p.amount||Math.abs(p.amount-Math.round(total*p.percentage/100))>1)){
+      p.amount=Math.round(total*p.percentage/100);changed=true;
+    }
+  });
+  if(changed)renderPaymentRows();else updatePaymentSummary();
+}
+
+function updatePaymentSummary(){
+  const el=document.getElementById('si_paymentSummary');if(!el)return;
+  const totalPct=paymentRowsState.reduce((s,p)=>s+(Number(p.percentage)||0),0);
+  const totalAmt=paymentRowsState.reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const contract=Number(document.getElementById('si_contract_amount').value||0);
+  const diffPct=Math.abs(totalPct-100)<0.01?'#22c55e':'#f85149';
+  const diffAmt=Math.abs(totalAmt-contract)<1?'#22c55e':'#f85149';
+  el.innerHTML=`合計: <span style="color:${diffPct};font-family:var(--font-mono);font-weight:700;">${totalPct.toFixed(2)}%</span> / <span style="color:${diffAmt};font-family:var(--font-mono);font-weight:700;">¥${totalAmt.toLocaleString()}</span>${contract>0?` <span style="color:var(--text-muted);">（契約金額 ¥${contract.toLocaleString()}）</span>`:''}`;
+}
+
+async function saveSalesIntroduction(){
+  const g=id=>document.getElementById(id).value;
+  const case_id=g('si_case_id'),company_id=g('si_company_id');
+  if(!case_id||!company_id){showToast('案件と紹介先企業を選択してください','error');return;}
+  const contract_amount=g('si_contract_amount');
+  if(!contract_amount){showToast('契約金額は必須です（手入力）','error');return;}
+  const payload={
+    case_id:Number(case_id),
+    company_id:Number(company_id),
+    introduced_date:g('si_introduced_date')||null,
+    contracted_date:g('si_contracted_date')||null,
+    power_application_date:g('si_power_application_date')||null,
+    power_cost:g('si_power_cost')?Number(g('si_power_cost')):null,
+    farmland_conv_application_date:g('si_farmland_conv_application_date')||null,
+    farmland_conv_approval_date:g('si_farmland_conv_approval_date')||null,
+    invoice_issued_date:g('si_invoice_issued_date')||null,
+    contract_amount:Number(contract_amount),
+    status:g('si_status')||'紹介中',
+    notes:g('si_notes')||null
+  };
+  let introId=currentSalesIntroId,error;
+  if(currentSalesIntroId){
+    ({error}=await db.from('sales_introductions').update(payload).eq('id',currentSalesIntroId));
+  }else{
+    const{data,error:insErr}=await db.from('sales_introductions').insert(payload).select('id').single();
+    error=insErr;introId=data?.id;
+  }
+  if(error){
+    const msg=error.message.includes('uq_sales_introductions_case_company')?'この案件×企業の組合せは既に登録されています':('保存エラー: '+error.message);
+    showToast(msg,'error');return;
+  }
+  /* sales_payments 差分同期（既存全削除→再insert 方式：行数が少ないので単純化） */
+  if(introId){
+    await db.from('sales_payments').delete().eq('introduction_id',introId);
+    if(paymentRowsState.length){
+      const payRows=paymentRowsState.map((p,i)=>({
+        introduction_id:introId,
+        payment_type:p.payment_type||'手付金',
+        payment_order:i+1,
+        percentage:p.percentage||null,
+        amount:p.amount||null,
+        scheduled_date:p.scheduled_date||null,
+        actual_date:p.actual_date||null,
+        status:p.status||'未入金',
+        notes:p.notes||null
+      }));
+      const{error:payErr}=await db.from('sales_payments').insert(payRows);
+      if(payErr){showToast('入金計画の保存でエラー: '+payErr.message,'error');return;}
+    }
+  }
+  showToast(currentSalesIntroId?'紹介情報を更新しました':'新規紹介を登録しました','success');
+  closeModal('salesModal');
+  await loadSalesIntroductions();
+}
+
+async function deleteSalesIntroduction(){
+  if(!currentSalesIntroId)return;
+  if(!confirm('この紹介情報と関連する入金計画を全て削除します。よろしいですか？'))return;
+  const{error}=await db.from('sales_introductions').delete().eq('id',currentSalesIntroId);
+  if(error){showToast('削除エラー: '+error.message,'error');return;}
+  showToast('紹介情報を削除しました','success');
+  closeModal('salesModal');
+  await loadSalesIntroductions();
+}
+/* ========== /販売管理 ========== */
 
 document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');}));
 
