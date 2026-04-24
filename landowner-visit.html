@@ -293,6 +293,14 @@
     <div class="donut-wrap">
       <svg class="donut-svg" id="donutChart" width="64" height="64" viewBox="0 0 42 42"></svg>
       <div class="donut-total"><div class="donut-total-num" id="donutTotal">0</div><div class="donut-total-lbl">TOTAL</div></div>
+      <div class="donut-total" style="margin-left:4px;border-left:1px solid #30363d;padding-left:10px;">
+        <div class="donut-total-num" id="mapShownCount" style="color:#22c55e;">0</div>
+        <div class="donut-total-lbl">MAP表示</div>
+      </div>
+      <div class="donut-total" style="margin-left:0;">
+        <div class="donut-total-num" id="noCoordsCount" style="color:#94a3b8;font-size:12px;">0</div>
+        <div class="donut-total-lbl">座標未登録</div>
+      </div>
     </div>
     <div class="donut-legend" id="donutLegend"></div>
   </div>
@@ -730,17 +738,18 @@ function recalcVisitStats() {
   renderPowerCompanyTabs();
 }
 
-/* 現在選択中の電力会社に属する地権者のステータス別集計（NG除く） */
+/* 現在選択中の電力会社に属する全地権者のステータス別集計（NG除く、座標有無問わず） */
 function getStatusCountsForCurrentPower() {
   const counts = {};
   STATUS_ORDER.forEach(s => counts[s] = 0);
   allLandowners.forEach(lo => {
-    if (!lo.lat || !lo.lng) return;
-    const st = lo.cases?.status || 'UNKNOWN';
+    let st = lo.cases?.status || 'UNKNOWN';
     if (st === 'NG') return;
     const pc = getPowerCompanyFromArea(lo.cases?.area_name);
     if (currentPowerCompany && pc !== currentPowerCompany) return;
-    if (counts[st] !== undefined) counts[st]++;
+    /* STATUS_ORDERにない値はUNKNOWNに寄せる */
+    if (counts[st] === undefined) st = 'UNKNOWN';
+    counts[st]++;
   });
   return counts;
 }
@@ -752,8 +761,22 @@ function renderStatusDonut() {
   const svg = document.getElementById('donutChart');
   const totalEl = document.getElementById('donutTotal');
   const legendEl = document.getElementById('donutLegend');
+  const mapShownEl = document.getElementById('mapShownCount');
+  const noCoordsEl = document.getElementById('noCoordsCount');
   if (!svg || !totalEl || !legendEl) return;
   totalEl.textContent = total;
+
+  /* マップに表示中の件数（座標あり＋NG除く＋現在の電力会社） */
+  let shown = 0, noCoords = 0;
+  allLandowners.forEach(lo => {
+    const st = lo.cases?.status || 'UNKNOWN';
+    if (st === 'NG') return;
+    const pc = getPowerCompanyFromArea(lo.cases?.area_name);
+    if (currentPowerCompany && pc !== currentPowerCompany) return;
+    if (lo.lat && lo.lng) shown++; else noCoords++;
+  });
+  if (mapShownEl) mapShownEl.textContent = shown;
+  if (noCoordsEl) noCoordsEl.textContent = noCoords;
 
   /* ドーナツ描画：stroke-dasharrayで各セグメント */
   const cx = 21, cy = 21, r = 15.9155;/* 周長=100 */
@@ -780,12 +803,11 @@ function renderStatusDonut() {
   }).join('');
 }
 
-/* 電力会社タブ（件数バッジ付き） */
+/* 電力会社タブ（件数バッジ付き：NG除く、座標有無問わず） */
 function renderPowerCompanyTabs() {
   const counts = {};
   POWER_COMPANIES.forEach(pc => counts[pc] = 0);
   allLandowners.forEach(lo => {
-    if (!lo.lat || !lo.lng) return;
     const st = lo.cases?.status || 'UNKNOWN';
     if (st === 'NG') return;
     const pc = getPowerCompanyFromArea(lo.cases?.area_name);
