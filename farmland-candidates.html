@@ -45,13 +45,10 @@ tbody tr{border-bottom:1px solid var(--border);transition:background 0.1s;}
 tbody tr:hover{background:var(--surface);}
 tbody tr.status-approached{background:rgba(255,140,0,0.05);}
 tbody tr.status-approached:hover{background:rgba(255,140,0,0.10);}
-tbody tr.status-contacted{background:rgba(192,38,211,0.05);}
-tbody tr.status-contacted:hover{background:rgba(192,38,211,0.10);}
 tbody td{padding:10px 12px;font-size:12px;vertical-align:middle;}
 
 .status-badge{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;}
 .status-badge.approached{background:rgba(255,140,0,0.2);color:var(--orange);border:1px solid rgba(255,140,0,0.4);}
-.status-badge.contacted{background:rgba(192,38,211,0.2);color:var(--fuchsia);border:1px solid rgba(192,38,211,0.4);}
 .status-badge.none{background:rgba(139,148,158,0.15);color:var(--text-muted);border:1px solid rgba(139,148,158,0.3);}
 
 .intent-sell{color:#3fb950;font-weight:600;}
@@ -83,9 +80,6 @@ tbody td{padding:10px 12px;font-size:12px;vertical-align:middle;}
 .action-btn.approach{color:var(--orange);border-color:rgba(255,140,0,0.3);}
 .action-btn.approach:hover{background:rgba(255,140,0,0.1);border-color:var(--orange);}
 .action-btn.approach.active{background:rgba(255,140,0,0.2);border-color:var(--orange);}
-.action-btn.contact{color:var(--fuchsia);border-color:rgba(192,38,211,0.3);}
-.action-btn.contact:hover{background:rgba(192,38,211,0.1);border-color:var(--fuchsia);}
-.action-btn.contact.active{background:rgba(192,38,211,0.2);border-color:var(--fuchsia);}
 .action-btn.ng{color:var(--red);border-color:rgba(248,81,73,0.3);}
 .action-btn.ng:hover{background:rgba(248,81,73,0.15);border-color:var(--red);}
 .action-btn.promote{color:var(--green);border-color:rgba(63,185,80,0.4);}
@@ -138,7 +132,6 @@ th.col-action,td.col-action{width:240px;}
   <div class="stat-item"><div class="stat-dot" style="background:#4a9eff;"></div><span class="stat-label">賃借希望</span><span class="stat-count" id="statRent">0</span></div>
   <div class="stat-item"><div class="stat-dot" style="background:var(--text-muted);"></div><span class="stat-label">未アプローチ</span><span class="stat-count" id="statNone">0</span></div>
   <div class="stat-item"><div class="stat-dot" style="background:#ff8c00;"></div><span class="stat-label">アプローチ済み</span><span class="stat-count" id="statApproached">0</span></div>
-  <div class="stat-item"><div class="stat-dot" style="background:#c026d3;"></div><span class="stat-label">打診済み</span><span class="stat-count" id="statContacted">0</span></div>
 </div>
 
 <div class="filter-bar">
@@ -163,7 +156,6 @@ th.col-action,td.col-action{width:240px;}
     <option value="all">すべて</option>
     <option value="none">未アプローチ</option>
     <option value="approached">アプローチ済み</option>
-    <option value="contacted">打診済み</option>
   </select>
   <button class="btn btn-ghost" onclick="resetFilters()" style="font-size:11px;margin-left:auto;">&#8635; リセット</button>
   <button class="btn btn-ghost" onclick="loadData()" style="font-size:11px;">&#8635; 再読込</button>
@@ -231,13 +223,17 @@ async function loadData(){
       db.from('farmland_ng_list').select('feature_id').limit(10000),
       db.from('farmland_status').select('feature_id,status').limit(10000),
       db.from('farmland_comments').select('feature_id,comment').limit(10000),
-      db.from('farmland_promoted').select('feature_id').limit(10000)
+      db.from('farmland_promoted').select('feature_id').limit(10000),
+      db.from('cases').select('id,area_name').limit(10000),
+      db.from('land_info').select('case_id,lat,lng').not('lat','is',null).limit(10000)
     ]);
     var snapshots=results[0].data||[];
     var ngList=results[1].data||[];
     var statuses=results[2].data||[];
     var comments=results[3].data||[];
     var promotedList=results[4].data||[];
+    var caseList=results[5].data||[];
+    var landList=results[6].data||[];
     var ngSet={};
     ngList.forEach(function(d){ngSet[d.feature_id]=true;});
     var promotedSet={};
@@ -246,6 +242,40 @@ async function loadData(){
     statuses.forEach(function(d){statusMap[d.feature_id]=d.status;});
     var commentMap={};
     comments.forEach(function(d){commentMap[d.feature_id]=d.comment||'';});
+    // === 自動同期：アプローチ済×案件マスター登録済み（同市区町村＋座標100m以内）を検出 ===
+    var caseAreaMap={};
+    caseList.forEach(function(c){if(c.id&&c.area_name)caseAreaMap[c.id]=c.area_name;});
+    var landByArea={};
+    landList.forEach(function(l){
+      var aname=caseAreaMap[l.case_id];
+      if(!aname||l.lat==null||l.lng==null)return;
+      if(!landByArea[aname])landByArea[aname]=[];
+      landByArea[aname].push({case_id:l.case_id,lat:Number(l.lat),lng:Number(l.lng)});
+    });
+    var autoPromoteRecords=[];
+    snapshots.forEach(function(f){
+      if(ngSet[f.feature_id]||promotedSet[f.feature_id])return;
+      if(statusMap[f.feature_id]!=='approached')return;
+      if(f.lat==null||f.lng==null||!f.city)return;
+      var candidates=landByArea[f.city];
+      if(!candidates||!candidates.length)return;
+      var fLat=Number(f.lat),fLng=Number(f.lng);
+      if(isNaN(fLat)||isNaN(fLng))return;
+      for(var i=0;i<candidates.length;i++){
+        var d=haversineMeters(fLat,fLng,candidates[i].lat,candidates[i].lng);
+        if(d<=100){
+          autoPromoteRecords.push({feature_id:f.feature_id,case_id:candidates[i].case_id,remarks:'auto:approached_match'});
+          promotedSet[f.feature_id]=true;
+          break;
+        }
+      }
+    });
+    // 自動同期分を farmland_promoted へ一括登録
+    if(autoPromoteRecords.length){
+      try{
+        await db.from('farmland_promoted').upsert(autoPromoteRecords,{onConflict:'feature_id',ignoreDuplicates:true});
+      }catch(e){console.warn('\u81ea\u52d5\u540c\u671f\u8a18\u9332\u8b66\u544a:',e);}
+    }
     farmlands=snapshots.filter(function(f){return !ngSet[f.feature_id]&&!promotedSet[f.feature_id];}).map(function(f){
       return Object.assign({},f,{
         status:statusMap[f.feature_id]||null,
@@ -284,7 +314,6 @@ function getFilteredSorted(){
   }
   if(filters.status==='none')list=list.filter(function(f){return !f.status;});
   else if(filters.status==='approached')list=list.filter(function(f){return f.status==='approached';});
-  else if(filters.status==='contacted')list=list.filter(function(f){return f.status==='contacted';});
   list.sort(function(a,b){
     var va,vb;
     switch(sortBy){
@@ -320,7 +349,6 @@ function renderRow(f){
   var rowClass=f.status?'status-'+f.status:'';
   var statusBadge='';
   if(f.status==='approached')statusBadge='<span class="status-badge approached">&#128222; \u30a2\u30d7\u30ed\u30fc\u30c1</span>';
-  else if(f.status==='contacted')statusBadge='<span class="status-badge contacted">&#9995; \u6253\u8a3a</span>';
   else statusBadge='<span class="status-badge none">\u672a</span>';
   var intentHtml='';
   if(f.intent==='\u58f2\u308a\u305f\u3044')intentHtml='<span class="intent-sell">\u58f2\u308a\u305f\u3044</span>';
@@ -346,7 +374,6 @@ function renderRow(f){
     mapCellHtml='<span class="map-link disabled" title="\u5ea7\u6a19\u672a\u767b\u9332">&#128506;</span>';
   }
   var approachActive=f.status==='approached'?'active':'';
-  var contactActive=f.status==='contacted'?'active':'';
   var commentEscaped=(f.comment||'').replace(/"/g,'&quot;');
   return '<tr class="'+rowClass+'" data-id="'+f.feature_id+'">'+
     '<td class="col-status">'+statusBadge+'</td>'+
@@ -360,7 +387,6 @@ function renderRow(f){
     '<td class="col-comment"><input type="text" class="comment-input" value="'+commentEscaped+'" placeholder="\u30e1\u30e2..." onblur="saveComment(\''+f.feature_id+'\',this)"></td>'+
     '<td class="col-action"><div class="action-cell">'+
       '<button class="action-btn approach '+approachActive+'" onclick="setStatus(\''+f.feature_id+'\',\'approached\')" title="\u30a2\u30d7\u30ed\u30fc\u30c1\u6e08\u307f">&#128222;</button>'+
-      '<button class="action-btn contact '+contactActive+'" onclick="setStatus(\''+f.feature_id+'\',\'contacted\')" title="\u6253\u8a3a\u6e08\u307f">&#9995;</button>'+
       (f.status?'<button class="action-btn" onclick="setStatus(\''+f.feature_id+'\',null)" title="\u30b9\u30c6\u30fc\u30bf\u30b9\u89e3\u9664">&#8630;</button>':'')+
       '<button class="action-btn promote" onclick="promoteToCase(\''+f.feature_id+'\',this)" title="\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u3078\u6607\u683c">&#128640;</button>'+
       '<button class="action-btn ng" onclick="setNg(\''+f.feature_id+'\')" title="NG\u5224\u5b9a">&#128683;</button>'+
@@ -375,12 +401,11 @@ function formatPrice(p){
 }
 
 function updateStats(list){
-  var stats={total:list.length,sell:0,rent:0,none:0,approached:0,contacted:0};
+  var stats={total:list.length,sell:0,rent:0,none:0,approached:0};
   list.forEach(function(f){
     if(f.intent==='\u58f2\u308a\u305f\u3044')stats.sell++;
     else if(f.intent==='\u8cb8\u3057\u305f\u3044')stats.rent++;
     if(f.status==='approached')stats.approached++;
-    else if(f.status==='contacted')stats.contacted++;
     else stats.none++;
   });
   document.getElementById('statTotal').textContent=stats.total;
@@ -388,7 +413,6 @@ function updateStats(list){
   document.getElementById('statRent').textContent=stats.rent;
   document.getElementById('statNone').textContent=stats.none;
   document.getElementById('statApproached').textContent=stats.approached;
-  document.getElementById('statContacted').textContent=stats.contacted;
 }
 
 function updateSortIcons(){
@@ -435,7 +459,7 @@ async function setStatus(featureId,status){
     }else{
       var res=await db.from('farmland_status').upsert({feature_id:featureId,status:status,updated_at:new Date().toISOString()},{onConflict:'feature_id'});
       if(res.error)throw new Error(res.error.message);
-      var label=status==='approached'?'\u30a2\u30d7\u30ed\u30fc\u30c1\u6e08\u307f':'\u6253\u8a3a\u6e08\u307f';
+      var label='\u30a2\u30d7\u30ed\u30fc\u30c1\u6e08\u307f';
       showToast(label+'\u306b\u8a2d\u5b9a\u3057\u307e\u3057\u305f','success');
     }
     var f=farmlands.find(function(x){return x.feature_id===featureId;});
@@ -486,6 +510,16 @@ document.getElementById('filterStatus').addEventListener('change',function(){fil
 
 // 初期読み込み
 loadData();
+
+// ======== 2点間距離（メートル、ハーバサイン公式） ========
+function haversineMeters(lat1,lng1,lat2,lng2){
+  var R=6371000;
+  var toRad=function(d){return d*Math.PI/180;};
+  var dLat=toRad(lat2-lat1);
+  var dLng=toRad(lng2-lng1);
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return 2*R*Math.asin(Math.sqrt(a));
+}
 
 // ======== 案件マスターへ昇格 ========
 async function promoteToCase(featureId,btnEl){
