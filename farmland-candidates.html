@@ -86,6 +86,16 @@ tbody td{padding:10px 12px;font-size:12px;vertical-align:middle;}
 .action-btn.promote:hover{background:rgba(63,185,80,0.15);border-color:var(--green);}
 .action-btn.promote:disabled{opacity:0.5;cursor:wait;}
 
+/* 一括選択バー */
+.bulk-bar{background:linear-gradient(90deg,rgba(63,185,80,0.15),rgba(63,185,80,0.05));border-bottom:1px solid var(--green);padding:8px 20px;display:none;align-items:center;gap:12px;flex-shrink:0;}
+.bulk-bar.active{display:flex;}
+.bulk-count{font-size:13px;color:var(--green);font-weight:700;font-family:var(--font-mono);}
+.bulk-btn{padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);font-family:var(--font-main);}
+.bulk-btn.danger{background:rgba(248,81,73,0.15);color:var(--red);border-color:rgba(248,81,73,0.5);}
+.bulk-btn.danger:hover{background:rgba(248,81,73,0.25);}
+.bulk-btn.ghost{background:none;color:var(--text-muted);}
+.bulk-btn.ghost:hover{background:var(--surface2);color:var(--text);}
+
 .loading-overlay{position:absolute;inset:0;background:rgba(13,17,23,.8);z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;}
 .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -102,6 +112,8 @@ tbody td{padding:10px 12px;font-size:12px;vertical-align:middle;}
 @keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
 
 /* 列幅調整 */
+th.col-check,td.col-check{width:36px;text-align:center;padding:6px 4px;}
+.col-check input[type="checkbox"]{cursor:pointer;width:14px;height:14px;accent-color:var(--accent);}
 th.col-no,td.col-no{width:42px;text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:11px;}
 th.col-status,td.col-status{width:60px;}
 th.col-city,td.col-city{width:80px;}
@@ -162,11 +174,18 @@ th.col-action,td.col-action{width:240px;}
   <button class="btn btn-ghost" onclick="loadData()" style="font-size:11px;">&#8635; 再読込</button>
 </div>
 
+<div class="bulk-bar" id="bulkBar">
+  <span class="bulk-count" id="bulkCount">選択中: 0件</span>
+  <button class="bulk-btn danger" onclick="bulkExclude()">&#10006; 一括候補除外</button>
+  <button class="bulk-btn ghost" onclick="clearSelection()">選択解除</button>
+</div>
+
 <div class="table-container" id="tableContainer">
   <div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div><div class="loading-text" id="loadingText">データを読み込み中...</div></div>
   <table>
     <thead>
       <tr>
+        <th class="col-check"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)"></th>
         <th class="col-no">No.</th>
         <th class="col-status">ステータス</th>
         <th class="col-city sortable" onclick="setSort('city')">市区町村 <span class="sort-icon" id="sortIconCity"></span></th>
@@ -337,7 +356,8 @@ function renderTable(){
   updateSortIcons();
   var tbody=document.getElementById('tbody');
   if(list.length===0){
-    tbody.innerHTML='<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-muted);">\u8a72\u5f53\u3059\u308b\u5019\u88dc\u304c\u3042\u308a\u307e\u305b\u3093</td></tr>';
+    tbody.innerHTML='<tr><td colspan="12" style="text-align:center;padding:40px;color:var(--text-muted);">\u8a72\u5f53\u3059\u308b\u5019\u88dc\u304c\u3042\u308a\u307e\u305b\u3093</td></tr>';
+    updateBulkBar();
     return;
   }
   var html='';
@@ -345,6 +365,8 @@ function renderTable(){
     html+=renderRow(list[i],i+1);
   }
   tbody.innerHTML=html;
+  updateBulkBar();
+  syncSelectAllCheckbox();
 }
 
 function renderRow(f,rowNo){
@@ -377,7 +399,9 @@ function renderRow(f,rowNo){
   }
   var approachActive=f.status==='approached'?'active':'';
   var commentEscaped=(f.comment||'').replace(/"/g,'&quot;');
+  var checked=selectedFeatures[f.feature_id]?'checked':'';
   return '<tr class="'+rowClass+'" data-id="'+f.feature_id+'">'+
+    '<td class="col-check"><input type="checkbox" '+checked+' onchange="toggleSelect(\''+f.feature_id+'\',this)"></td>'+
     '<td class="col-no">'+rowNo+'</td>'+
     '<td class="col-status">'+statusBadge+'</td>'+
     '<td class="col-city">'+(f.city||'-')+'</td>'+
@@ -513,6 +537,81 @@ document.getElementById('filterStatus').addEventListener('change',function(){fil
 
 // 初期読み込み
 loadData();
+
+// ======== 選択管理＆一括候補除外 ========
+var selectedFeatures={};
+
+function toggleSelect(featureId,cb){
+  if(cb.checked)selectedFeatures[featureId]=true;
+  else delete selectedFeatures[featureId];
+  updateBulkBar();
+  syncSelectAllCheckbox();
+}
+
+function toggleSelectAll(cb){
+  var list=getFilteredSorted();
+  if(cb.checked){
+    list.forEach(function(f){selectedFeatures[f.feature_id]=true;});
+  }else{
+    list.forEach(function(f){delete selectedFeatures[f.feature_id];});
+  }
+  // 行のチェックボックス更新
+  var rowCbs=document.querySelectorAll('#tbody input[type="checkbox"]');
+  rowCbs.forEach(function(c){c.checked=cb.checked;});
+  updateBulkBar();
+}
+
+function clearSelection(){
+  selectedFeatures={};
+  var rowCbs=document.querySelectorAll('#tbody input[type="checkbox"]');
+  rowCbs.forEach(function(c){c.checked=false;});
+  var sa=document.getElementById('selectAllCheckbox');
+  if(sa){sa.checked=false;sa.indeterminate=false;}
+  updateBulkBar();
+}
+
+function syncSelectAllCheckbox(){
+  var sa=document.getElementById('selectAllCheckbox');
+  if(!sa)return;
+  var list=getFilteredSorted();
+  if(!list.length){sa.checked=false;sa.indeterminate=false;return;}
+  var sel=0;
+  list.forEach(function(f){if(selectedFeatures[f.feature_id])sel++;});
+  if(sel===0){sa.checked=false;sa.indeterminate=false;}
+  else if(sel===list.length){sa.checked=true;sa.indeterminate=false;}
+  else{sa.checked=false;sa.indeterminate=true;}
+}
+
+function updateBulkBar(){
+  var keys=Object.keys(selectedFeatures);
+  var bar=document.getElementById('bulkBar');
+  var cnt=document.getElementById('bulkCount');
+  if(keys.length>0){
+    bar.classList.add('active');
+    cnt.textContent='\u9078\u629e\u4e2d: '+keys.length+'\u4ef6';
+  }else{
+    bar.classList.remove('active');
+  }
+}
+
+async function bulkExclude(){
+  var keys=Object.keys(selectedFeatures);
+  if(!keys.length)return;
+  var msg=keys.length+'\u4ef6\u306e\u5019\u88dc\u3092\u4e00\u89a7\u304b\u3089\u9664\u5916\u3057\u307e\u3059\u3002\n\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u5074\u306e\u30c7\u30fc\u30bf\u306b\u306f\u5f71\u97ff\u3057\u307e\u305b\u3093\u3002\n\u3088\u308d\u3057\u3044\u3067\u3059\u304b\uff1f';
+  if(!window.confirm(msg))return;
+  var records=keys.map(function(fid){return {feature_id:fid,case_id:null,remarks:'manual_dup_exclude'};});
+  try{
+    var res=await db.from('farmland_promoted').upsert(records,{onConflict:'feature_id'});
+    if(res.error)throw new Error(res.error.message);
+    // 一覧から該当行を削除
+    farmlands=farmlands.filter(function(f){return !selectedFeatures[f.feature_id];});
+    selectedFeatures={};
+    renderTable();
+    showToast(keys.length+'\u4ef6\u3092\u5019\u88dc\u4e00\u89a7\u304b\u3089\u9664\u5916\u3057\u307e\u3057\u305f','success');
+  }catch(e){
+    showToast('\u9664\u5916\u30a8\u30e9\u30fc: '+e.message,'error');
+  }
+}
 
 // ======== 2点間距離（メートル、ハーバサイン公式） ========
 function haversineMeters(lat1,lng1,lat2,lng2){
