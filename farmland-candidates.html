@@ -88,6 +88,9 @@ tbody td{padding:10px 12px;font-size:12px;vertical-align:middle;}
 .action-btn.contact.active{background:rgba(192,38,211,0.2);border-color:var(--fuchsia);}
 .action-btn.ng{color:var(--red);border-color:rgba(248,81,73,0.3);}
 .action-btn.ng:hover{background:rgba(248,81,73,0.15);border-color:var(--red);}
+.action-btn.promote{color:var(--green);border-color:rgba(63,185,80,0.4);}
+.action-btn.promote:hover{background:rgba(63,185,80,0.15);border-color:var(--green);}
+.action-btn.promote:disabled{opacity:0.5;cursor:wait;}
 
 .loading-overlay{position:absolute;inset:0;background:rgba(13,17,23,.8);z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;}
 .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;}
@@ -114,7 +117,7 @@ th.col-price,td.col-price{width:100px;text-align:right;font-family:var(--font-mo
 th.col-chintai,td.col-chintai{width:100px;text-align:right;font-family:var(--font-mono);}
 th.col-map,td.col-map{width:50px;text-align:center;}
 th.col-comment,td.col-comment{min-width:180px;}
-th.col-action,td.col-action{width:200px;}
+th.col-action,td.col-action{width:240px;}
 </style>
 </head>
 <body>
@@ -227,19 +230,23 @@ async function loadData(){
       db.from('farmland_snapshots').select('*').eq('snapshot_date',latestDate).limit(10000),
       db.from('farmland_ng_list').select('feature_id').limit(10000),
       db.from('farmland_status').select('feature_id,status').limit(10000),
-      db.from('farmland_comments').select('feature_id,comment').limit(10000)
+      db.from('farmland_comments').select('feature_id,comment').limit(10000),
+      db.from('farmland_promoted').select('feature_id').limit(10000)
     ]);
     var snapshots=results[0].data||[];
     var ngList=results[1].data||[];
     var statuses=results[2].data||[];
     var comments=results[3].data||[];
+    var promotedList=results[4].data||[];
     var ngSet={};
     ngList.forEach(function(d){ngSet[d.feature_id]=true;});
+    var promotedSet={};
+    promotedList.forEach(function(d){promotedSet[d.feature_id]=true;});
     var statusMap={};
     statuses.forEach(function(d){statusMap[d.feature_id]=d.status;});
     var commentMap={};
     comments.forEach(function(d){commentMap[d.feature_id]=d.comment||'';});
-    farmlands=snapshots.filter(function(f){return !ngSet[f.feature_id];}).map(function(f){
+    farmlands=snapshots.filter(function(f){return !ngSet[f.feature_id]&&!promotedSet[f.feature_id];}).map(function(f){
       return Object.assign({},f,{
         status:statusMap[f.feature_id]||null,
         comment:commentMap[f.feature_id]||''
@@ -355,6 +362,7 @@ function renderRow(f){
       '<button class="action-btn approach '+approachActive+'" onclick="setStatus(\''+f.feature_id+'\',\'approached\')" title="\u30a2\u30d7\u30ed\u30fc\u30c1\u6e08\u307f">&#128222;</button>'+
       '<button class="action-btn contact '+contactActive+'" onclick="setStatus(\''+f.feature_id+'\',\'contacted\')" title="\u6253\u8a3a\u6e08\u307f">&#9995;</button>'+
       (f.status?'<button class="action-btn" onclick="setStatus(\''+f.feature_id+'\',null)" title="\u30b9\u30c6\u30fc\u30bf\u30b9\u89e3\u9664">&#8630;</button>':'')+
+      '<button class="action-btn promote" onclick="promoteToCase(\''+f.feature_id+'\',this)" title="\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u3078\u6607\u683c">&#128640;</button>'+
       '<button class="action-btn ng" onclick="setNg(\''+f.feature_id+'\')" title="NG\u5224\u5b9a">&#128683;</button>'+
     '</div></td>'+
   '</tr>';
@@ -478,6 +486,64 @@ document.getElementById('filterStatus').addEventListener('change',function(){fil
 
 // 初期読み込み
 loadData();
+
+// ======== 案件マスターへ昇格 ========
+async function promoteToCase(featureId,btnEl){
+  var f=null;
+  for(var i=0;i<farmlands.length;i++){if(farmlands[i].feature_id===featureId){f=farmlands[i];break;}}
+  if(!f){showToast('\u5bfe\u8c61\u30c7\u30fc\u30bf\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093','error');return;}
+  if(!f.city){showToast('\u5e02\u533a\u753a\u6751\u304c\u672a\u8a2d\u5b9a\u306e\u305f\u3081\u6607\u683c\u3067\u304d\u307e\u305b\u3093','error');return;}
+  var areaName=f.city;
+  var msg='\u300c'+areaName+'\u300d\u306e\u6848\u4ef6\u3068\u3057\u3066\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u3078\u6607\u683c\u3057\u307e\u3059\u304b\uff1f\n\u8aa4\u30af\u30ea\u30c3\u30af\u3060\u3068\u5019\u88dc\u4e00\u89a7\u304b\u3089\u6d88\u3048\u307e\u3059\uff08\u5fa9\u5143\u53ef\u80fd\uff09\u3002';
+  if(!window.confirm(msg))return;
+  if(btnEl){btnEl.disabled=true;}
+  var createdCaseId=null;
+  try{
+    // 1. 同area_nameの既存親案件数を取得して採番
+    var exRes=await db.from('cases').select('id').eq('area_name',areaName).is('parent_case_no',null);
+    if(exRes.error)throw new Error('\u63a1\u756a\u53d6\u5f97\u30a8\u30e9\u30fc: '+exRes.error.message);
+    var caseNo=areaName+'-'+String(((exRes.data&&exRes.data.length)||0)+1).padStart(3,'0');
+    // 2. cases へINSERT
+    var caseInsert=await db.from('cases').insert({
+      case_no:caseNo,
+      kubun:'\u4f4e\u5727\u592a\u967d\u5149',
+      status:'NOT VISITED',
+      area_name:areaName,
+      price:f.price?Number(f.price):null,
+      parent_case_no:null,
+      branch_no:null
+    }).select('id').single();
+    if(caseInsert.error)throw new Error('cases\u767b\u9332\u30a8\u30e9\u30fc: '+caseInsert.error.message);
+    createdCaseId=caseInsert.data.id;
+    // 3. land_info へINSERT（座標・面積・所在地）
+    var landRes=await db.from('land_info').insert({
+      case_id:createdCaseId,
+      area_sqm:f.area_sqm?Number(f.area_sqm):null,
+      location:f.address||'',
+      lat:(f.lat!=null&&!isNaN(f.lat))?Number(f.lat):null,
+      lng:(f.lng!=null&&!isNaN(f.lng))?Number(f.lng):null
+    });
+    if(landRes.error){console.warn('land_info\u767b\u9332\u8b66\u544a:',landRes.error);}
+    // 4. farmland_promoted へINSERT（候補一覧から除外）
+    var promotedRes=await db.from('farmland_promoted').insert({
+      feature_id:featureId,
+      case_id:createdCaseId
+    });
+    if(promotedRes.error)throw new Error('\u6607\u683c\u8a18\u9332\u30a8\u30e9\u30fc: '+promotedRes.error.message);
+    // 5. 成功：候補一覧から該当行を削除して再描画
+    farmlands=farmlands.filter(function(x){return x.feature_id!==featureId;});
+    renderTable();
+    updateStats(getFilteredSorted());
+    showToast('\u6848\u4ef6 '+caseNo+' \u3068\u3057\u3066\u767b\u9332\u3057\u307e\u3057\u305f','success');
+  }catch(e){
+    // ロールバック：作成されたcasesを削除
+    if(createdCaseId){
+      try{await db.from('cases').delete().eq('id',createdCaseId);}catch(_){}
+    }
+    showToast('\u6607\u683c\u5931\u6557: '+e.message,'error');
+    if(btnEl){btnEl.disabled=false;}
+  }
+}
 
 // ======== 地図プレビュー（ホバーで航空写真表示） ========
 function showMapPreview(el){
