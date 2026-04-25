@@ -196,6 +196,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   .hazard-panel-header, .mc-panel-header { cursor: grab; }
   .hazard-panel-header:active, .mc-panel-header:active { cursor: grabbing; }
   .draggable-panel { touch-action: none; }
+
+  /* 開拓候補からジャンプ時の強調マーカー */
+  .highlight-marker{position:relative;}
+  .highlight-marker .hl-pulse{position:absolute;left:50%;top:50%;width:48px;height:48px;margin-left:-24px;margin-top:-24px;border-radius:50%;background:rgba(248,81,73,0.45);animation:hl-pulse 1.4s infinite ease-out;pointer-events:none;}
+  .highlight-marker .hl-dot{position:absolute;left:50%;top:50%;width:16px;height:16px;margin-left:-8px;margin-top:-8px;border-radius:50%;background:#f85149;border:3px solid #fff;box-shadow:0 0 12px rgba(248,81,73,0.9);pointer-events:none;}
+  @keyframes hl-pulse{0%{transform:scale(0.5);opacity:1}100%{transform:scale(2.4);opacity:0}}
 </style>
 </head>
 <body>
@@ -1130,6 +1136,30 @@ function jumpToChiban(lat,lng,label){
   document.getElementById('chibanInput').value=label;
 }
 initMap();
+// === URLパラメータからの初期位置設定（farmland-candidates.htmlからのジャンプ用） ===
+(function(){
+  try{
+    var params=new URLSearchParams(window.location.search);
+    var lat=parseFloat(params.get('lat'));
+    var lng=parseFloat(params.get('lng'));
+    var zoom=parseInt(params.get('zoom'),10);
+    var highlight=params.get('highlight')==='1';
+    if(!isNaN(lat)&&!isNaN(lng)){
+      map.setView([lat,lng],isNaN(zoom)?15:zoom);
+      if(highlight){
+        var hlIcon=L.divIcon({
+          className:'highlight-marker',
+          html:'<div class="hl-pulse"></div><div class="hl-dot"></div>',
+          iconSize:[48,48],
+          iconAnchor:[24,24]
+        });
+        var hlMarker=L.marker([lat,lng],{icon:hlIcon,interactive:false,zIndexOffset:9999}).addTo(map);
+        // 8秒後に自動で消す
+        setTimeout(function(){if(hlMarker){map.removeLayer(hlMarker);}},8000);
+      }
+    }
+  }catch(e){console.warn('URL param init error:',e);}
+})();
 Promise.all([loadNgList(),loadFarmlandStatuses(),loadFarmlandComments()]).then(function(){loadDates();});
 
 // ======== ハザードパネル 折りたたみトグル ========
