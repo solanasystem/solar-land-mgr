@@ -126,6 +126,26 @@
   .detail-case-no{font-family:var(--font-mono);font-size:20px;font-weight:700;color:var(--accent);}
   .detail-tabs{display:flex;gap:0;}
   .detail-tab{padding:10px 18px;background:none;border:none;color:var(--text-muted);font-family:var(--font-main);font-size:13px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;}
+  /* ======= 未来の農地マップ version 監視ウィジェット ======= */
+  .nouchi-version-widget{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 24px;margin-bottom:16px;}
+  .nouchi-version-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;}
+  .nouchi-version-title-text{font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;}
+  .nouchi-version-refresh{font-size:11px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:4px;padding:3px 10px;cursor:pointer;font-family:var(--font-main);transition:all .15s;}
+  .nouchi-version-refresh:hover{color:var(--text);border-color:var(--accent);}
+  .nouchi-version-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;}
+  .nouchi-city-card{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;transition:all .2s;}
+  .nouchi-city-card.recent{border-color:#ef4444;background:rgba(239,68,68,.08);box-shadow:0 0 12px rgba(239,68,68,.15);}
+  .nouchi-city-card.month{border-color:#fde047;background:rgba(253,224,71,.05);}
+  .nouchi-city-name{font-size:14px;font-weight:700;color:var(--text);margin-bottom:6px;}
+  .nouchi-city-version{font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--accent);}
+  .nouchi-city-version.recent{color:#ef4444;}
+  .nouchi-city-meta{font-size:10px;color:var(--text-muted);margin-top:4px;line-height:1.5;}
+  .nouchi-version-history{margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-muted);}
+  .nouchi-version-history-title{font-weight:700;margin-bottom:6px;color:var(--text);}
+  .nouchi-version-history-row{padding:4px 0;display:flex;justify-content:space-between;gap:8px;border-bottom:1px dashed rgba(255,255,255,.05);}
+  .nouchi-version-history-row:last-child{border-bottom:none;}
+  .nouchi-version-history-row .nh-change{color:var(--text);}
+  .nouchi-version-history-row .nh-change strong{color:#ef4444;}
   .detail-tab:hover{color:var(--text);}.detail-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
   .detail-body{padding:20px 24px;}.tab-pane{display:none;}.tab-pane.active{display:block;}
   .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;}
@@ -186,6 +206,7 @@
   <button class="nav-btn" onclick="switchNav(this,'realestate')" style="color:#f0b429">不動産会社マスター</button>
   <button class="nav-btn" onclick="switchNav(this,'introcompany')" style="color:#ec4899">📣 紹介先企業マスタ</button>
   <button class="nav-btn" onclick="switchNav(this,'sales')" style="color:#0ea5e9">📈 販売管理</button>
+  <button class="nav-btn" onclick="switchNav(this,'farmland')" style="color:#22c55e">🌱 未来の農地マップ</button>
   <button class="nav-btn" onclick="location.href='farmland-tracker.html'" style="color:#22c55e">🌾 農地変化トラッカー</button>
 </nav>
 <div id="stickyZone">
@@ -351,6 +372,21 @@
         onmouseover="this.style.background='#16a34a'" onmouseout="this.style.background='#22c55e'">
         ↗ 未来の農地マップを開く
       </a>
+    </div>
+
+    <!-- version 監視ウィジェット（自動更新検知） -->
+    <div class="nouchi-version-widget">
+      <div class="nouchi-version-title">
+        <span class="nouchi-version-title-text">📡 データ更新状況（毎日02:00自動チェック）</span>
+        <button onclick="loadNouchiVersionStatus()" class="nouchi-version-refresh">↻ 今すぐ更新</button>
+      </div>
+      <div class="nouchi-version-grid" id="nouchiVersionGrid">
+        <div style="grid-column:1/-1;text-align:center;color:var(--text-muted);font-size:12px;padding:8px;">読み込み中...</div>
+      </div>
+      <div class="nouchi-version-history" id="nouchiVersionHistoryBox" style="display:none;">
+        <div class="nouchi-version-history-title">📅 直近の更新履歴</div>
+        <div id="nouchiVersionHistoryList"></div>
+      </div>
     </div>
 
     <!-- 凡例 -->
@@ -2166,6 +2202,7 @@ function initFarmlandSection(){
   const lastEl=document.getElementById('farmlandLastChecked');
   if(memoEl)memoEl.value=memo;
   if(lastEl&&lastCheck)lastEl.textContent='最終確認: '+lastCheck;
+  loadNouchiVersionStatus();
 }
 
 function saveFarmlandMemo(){
@@ -2181,6 +2218,61 @@ function recordFarmlandCheck(){
   if(el)el.textContent='最終確認: '+now;
   showToast('確認日時を記録しました','success');
 }
+
+/* ========== 未来の農地マップ version 監視ウィジェット ========== */
+const NOUCHI_MONITOR_URL = 'https://future-nouchi-monitor.takumi-kurimoto.workers.dev/status';
+const NOUCHI_CITY_ORDER = ['toyohashi','tahara','gamagori','minamichita'];
+const NOUCHI_CITY_FALLBACK = {toyohashi:'豊橋市',tahara:'田原市',gamagori:'蒲郡市',minamichita:'南知多町'};
+
+async function loadNouchiVersionStatus(){
+  const grid=document.getElementById('nouchiVersionGrid');
+  const historyBox=document.getElementById('nouchiVersionHistoryBox');
+  const historyList=document.getElementById('nouchiVersionHistoryList');
+  if(!grid)return;
+  grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);font-size:12px;padding:8px;">読み込み中...</div>';
+  try{
+    const res=await fetch(NOUCHI_MONITOR_URL,{cache:'no-store'});
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const data=await res.json();
+    const current=data.current||[];
+    const history=data.history||[];
+    if(!current.length||current.error){
+      grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);font-size:12px;padding:8px;">データがまだありません</div>';
+      return;
+    }
+    const sorted=[];
+    NOUCHI_CITY_ORDER.forEach(code=>{const c=current.find(x=>x.city_code===code);if(c)sorted.push(c);});
+    const now=Date.now();
+    grid.innerHTML=sorted.map(c=>{
+      const changedAt=c.last_changed_at?new Date(c.last_changed_at):null;
+      const checkedAt=c.last_checked_at?new Date(c.last_checked_at):null;
+      const diffDays=changedAt?(now-changedAt.getTime())/(1000*60*60*24):999;
+      let cls='',label='⏸ 安定';
+      if(diffDays<=7){cls='recent';label='🆕 最近更新';}
+      else if(diffDays<=30){cls='month';label='📅 1ヶ月以内';}
+      const cname=c.city_name||NOUCHI_CITY_FALLBACK[c.city_code]||c.city_code;
+      return `<div class="nouchi-city-card ${cls}">
+        <div class="nouchi-city-name">${cname}</div>
+        <div class="nouchi-city-version ${cls}">v${c.current_version||'?'}</div>
+        <div class="nouchi-city-meta">${label}<br>${changedAt?'最終更新: '+formatNouchiDate(changedAt):'更新履歴なし'}<br>${checkedAt?'最終確認: '+formatNouchiDate(checkedAt):''}</div>
+      </div>`;
+    }).join('');
+    const realChanges=history.filter(h=>h.previous_version!==null&&h.previous_version!==undefined);
+    if(realChanges.length){
+      historyBox.style.display='block';
+      historyList.innerHTML=realChanges.slice(0,5).map(h=>`<div class="nouchi-version-history-row"><span class="nh-change">${h.city_name}: v${h.previous_version} → <strong>v${h.version}</strong></span><span>${formatNouchiDate(new Date(h.detected_at))}</span></div>`).join('');
+    }else{
+      historyBox.style.display='none';
+    }
+  }catch(e){
+    grid.innerHTML=`<div style="grid-column:1/-1;text-align:center;color:var(--red);font-size:12px;padding:8px;">取得エラー: ${e.message}</div>`;
+  }
+}
+
+function formatNouchiDate(d){
+  return d.toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+/* ========== /未来の農地マップ version 監視ウィジェット ========== */
 
 function showToast(msg,type='success'){
   const c=document.getElementById('toastContainer'),t=document.createElement('div');
