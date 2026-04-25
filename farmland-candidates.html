@@ -57,8 +57,21 @@ tbody td{padding:10px 12px;font-size:12px;vertical-align:middle;}
 .intent-sell{color:#3fb950;font-weight:600;}
 .intent-rent{color:#4a9eff;font-weight:600;}
 
-.map-link{color:var(--accent);font-size:14px;text-decoration:none;padding:3px 6px;border-radius:4px;transition:background 0.1s;}
+.map-link{color:var(--accent);font-size:14px;text-decoration:none;padding:3px 6px;border-radius:4px;transition:background 0.1s;cursor:pointer;}
 .map-link:hover{background:var(--surface2);}
+.map-link.disabled{opacity:0.3;cursor:not-allowed;}
+
+/* 地図プレビューポップアップ */
+#mapPreview{position:fixed;display:none;z-index:9999;background:var(--surface);border:1px solid var(--accent);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.6);padding:6px;pointer-events:none;}
+.preview-map{position:relative;width:320px;height:320px;overflow:hidden;border-radius:4px;background:#000;}
+.preview-tiles{position:absolute;left:0;top:0;width:768px;height:768px;}
+.preview-tiles img{position:absolute;width:256px;height:256px;}
+.preview-marker{position:absolute;left:50%;top:50%;width:18px;height:18px;margin-left:-9px;margin-top:-18px;background:#f85149;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 6px rgba(0,0,0,0.6);}
+.preview-marker::after{content:'';position:absolute;left:50%;top:50%;width:6px;height:6px;margin-left:-3px;margin-top:-3px;background:#fff;border-radius:50%;}
+.preview-info{padding:6px 4px 2px;font-size:11px;color:var(--text);line-height:1.5;max-width:320px;}
+.preview-info-line{display:flex;align-items:center;gap:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.preview-info-line.address{color:var(--text);}
+.preview-info-line.area{color:var(--accent);font-family:var(--font-mono);}
 
 .comment-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:5px 8px;color:var(--text);font-family:var(--font-main);font-size:12px;outline:none;transition:border-color 0.1s;}
 .comment-input:focus{border-color:var(--accent);}
@@ -311,7 +324,20 @@ function renderRow(f){
   var chintai=extras[3]||'';
   var chintaiStr=chintai?formatPrice(chintai):'-';
   var areaStr=f.area_sqm?Number(f.area_sqm).toLocaleString()+' m\u00b2':'-';
-  var mapUrl='https://www.google.com/maps?q='+f.lat+','+f.lng;
+  var hasCoord=(f.lat!=null&&f.lng!=null&&!isNaN(f.lat)&&!isNaN(f.lng));
+  var mapCellHtml;
+  if(hasCoord){
+    var addrEsc=(f.address||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    mapCellHtml='<span class="map-link" '+
+      'data-lat="'+f.lat+'" data-lng="'+f.lng+'" '+
+      'data-address="'+addrEsc+'" '+
+      'data-area="'+(f.area_sqm||'')+'" '+
+      'onmouseenter="showMapPreview(this)" onmouseleave="hideMapPreview()" '+
+      'onclick="jumpToTracker(this)" '+
+      'title="\u30db\u30d0\u30fc\u3067\u5730\u56f3\u30d7\u30ec\u30d3\u30e5\u30fc\u30fb\u30af\u30ea\u30c3\u30af\u3067\u8fb2\u5730\u5909\u5316\u30c8\u30e9\u30c3\u30ab\u30fc\u3078\u30b8\u30e3\u30f3\u30d7">&#128506;</span>';
+  }else{
+    mapCellHtml='<span class="map-link disabled" title="\u5ea7\u6a19\u672a\u767b\u9332">&#128506;</span>';
+  }
   var approachActive=f.status==='approached'?'active':'';
   var contactActive=f.status==='contacted'?'active':'';
   var commentEscaped=(f.comment||'').replace(/"/g,'&quot;');
@@ -323,7 +349,7 @@ function renderRow(f){
     '<td class="col-intent">'+intentHtml+'</td>'+
     '<td class="col-price">'+priceStr+'</td>'+
     '<td class="col-chintai">'+chintaiStr+'</td>'+
-    '<td class="col-map"><a class="map-link" href="'+mapUrl+'" target="_blank" title="Google\u30de\u30c3\u30d7\u3067\u958b\u304f">&#128506;</a></td>'+
+    '<td class="col-map">'+mapCellHtml+'</td>'+
     '<td class="col-comment"><input type="text" class="comment-input" value="'+commentEscaped+'" placeholder="\u30e1\u30e2..." onblur="saveComment(\''+f.feature_id+'\',this)"></td>'+
     '<td class="col-action"><div class="action-cell">'+
       '<button class="action-btn approach '+approachActive+'" onclick="setStatus(\''+f.feature_id+'\',\'approached\')" title="\u30a2\u30d7\u30ed\u30fc\u30c1\u6e08\u307f">&#128222;</button>'+
@@ -450,8 +476,78 @@ document.getElementById('filterIntent').addEventListener('change',function(){fil
 document.getElementById('filterPrice').addEventListener('change',function(){filters.price=this.value;renderTable();});
 document.getElementById('filterStatus').addEventListener('change',function(){filters.status=this.value;renderTable();});
 
-// \u521d\u671f\u8aad\u307f\u8fbc\u307f
+// 初期読み込み
 loadData();
+
+// ======== 地図プレビュー（ホバーで航空写真表示） ========
+function showMapPreview(el){
+  var lat=parseFloat(el.getAttribute('data-lat'));
+  var lng=parseFloat(el.getAttribute('data-lng'));
+  if(isNaN(lat)||isNaN(lng))return;
+  var address=el.getAttribute('data-address')||'';
+  var area=el.getAttribute('data-area')||'';
+  var preview=document.getElementById('mapPreview');
+  var zoom=15;
+  var n=Math.pow(2,zoom);
+  var worldX=(lng+180)/360*n*256;
+  var latRad=lat*Math.PI/180;
+  var worldY=(1-Math.log(Math.tan(latRad)+1/Math.cos(latRad))/Math.PI)/2*n*256;
+  var centerTileX=Math.floor(worldX/256);
+  var centerTileY=Math.floor(worldY/256);
+  var offX=worldX-centerTileX*256;
+  var offY=worldY-centerTileY*256;
+  // 3x3タイル合成（中心点を窓中央(160,160)に配置）
+  var tilesHtml='';
+  for(var dy=-1;dy<=1;dy++){
+    for(var dx=-1;dx<=1;dx++){
+      var tx=centerTileX+dx;
+      var ty=centerTileY+dy;
+      var px=(dx+1)*256;
+      var py=(dy+1)*256;
+      tilesHtml+='<img src="https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/'+zoom+'/'+tx+'/'+ty+'.jpg" style="left:'+px+'px;top:'+py+'px;" onerror="this.style.display=\'none\'">';
+    }
+  }
+  var shiftX=160-256-offX;
+  var shiftY=160-256-offY;
+  var info='';
+  if(address)info+='<div class="preview-info-line address">\ud83d\udccd '+address+'</div>';
+  if(area)info+='<div class="preview-info-line area">\ud83d\udcd0 '+Number(area).toLocaleString()+' m\u00b2</div>';
+  preview.innerHTML=
+    '<div class="preview-map">'+
+      '<div class="preview-tiles" style="transform:translate('+shiftX+'px,'+shiftY+'px);">'+tilesHtml+'</div>'+
+      '<div class="preview-marker"></div>'+
+    '</div>'+
+    '<div class="preview-info">'+info+'</div>';
+  // 位置決定（アイコンの右側）
+  var rect=el.getBoundingClientRect();
+  preview.style.left=(rect.right+8)+'px';
+  preview.style.top=rect.top+'px';
+  preview.style.display='block';
+  // 画面右端・下端を超える場合は反対側へ移動
+  setTimeout(function(){
+    var pr=preview.getBoundingClientRect();
+    if(pr.right>window.innerWidth-8){
+      preview.style.left=(rect.left-pr.width-8)+'px';
+    }
+    if(pr.bottom>window.innerHeight-8){
+      preview.style.top=(window.innerHeight-pr.height-8)+'px';
+    }
+    if(parseFloat(preview.style.top)<8){
+      preview.style.top='8px';
+    }
+  },0);
+}
+function hideMapPreview(){
+  document.getElementById('mapPreview').style.display='none';
+}
+function jumpToTracker(el){
+  var lat=parseFloat(el.getAttribute('data-lat'));
+  var lng=parseFloat(el.getAttribute('data-lng'));
+  if(isNaN(lat)||isNaN(lng))return;
+  hideMapPreview();
+  window.location.href='farmland-tracker.html?lat='+lat+'&lng='+lng+'&zoom=17&highlight=1';
+}
 </script>
+<div id="mapPreview"></div>
 </body>
 </html>
