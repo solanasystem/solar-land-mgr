@@ -374,11 +374,11 @@
       </a>
     </div>
 
-    <!-- version 監視ウィジェット（自動更新検知） -->
+    <!-- version 監視ウィジェット（手動取得） -->
     <div class="nouchi-version-widget">
       <div class="nouchi-version-title">
-        <span class="nouchi-version-title-text">📡 データ更新状況（毎日02:00自動チェック）</span>
-        <button onclick="loadNouchiVersionStatus()" class="nouchi-version-refresh">↻ 今すぐ更新</button>
+        <span class="nouchi-version-title-text">📡 データ更新状況（手動取得）</span>
+        <button onclick="loadNouchiVersionStatus(true)" class="nouchi-version-refresh" id="nouchiFetchBtn">☁️ cloudgis.jpから最新を取得</button>
       </div>
       <div class="nouchi-version-grid" id="nouchiVersionGrid">
         <div style="grid-column:1/-1;text-align:center;color:var(--text-muted);font-size:12px;padding:8px;">読み込み中...</div>
@@ -2220,18 +2220,33 @@ function recordFarmlandCheck(){
 }
 
 /* ========== 未来の農地マップ version 監視ウィジェット ========== */
-const NOUCHI_MONITOR_URL = 'https://future-nouchi-monitor.takumi-kurimoto.workers.dev/status';
+const NOUCHI_MONITOR_BASE = 'https://future-nouchi-monitor.takumi-kurimoto.workers.dev';
 const NOUCHI_CITY_ORDER = ['toyohashi','tahara','gamagori','minamichita'];
 const NOUCHI_CITY_FALLBACK = {toyohashi:'豊橋市',tahara:'田原市',gamagori:'蒲郡市',minamichita:'南知多町'};
 
-async function loadNouchiVersionStatus(){
+async function loadNouchiVersionStatus(live=false){
   const grid=document.getElementById('nouchiVersionGrid');
   const historyBox=document.getElementById('nouchiVersionHistoryBox');
   const historyList=document.getElementById('nouchiVersionHistoryList');
+  const btn=document.getElementById('nouchiFetchBtn');
   if(!grid)return;
-  grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);font-size:12px;padding:8px;">読み込み中...</div>';
+  const btnOriginalText=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent=live?'☁️ 取得中...':'読込中...';}
+  grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);font-size:12px;padding:8px;">'+(live?'cloudgis.jpから取得中...':'読み込み中...')+'</div>';
   try{
-    const res=await fetch(NOUCHI_MONITOR_URL,{cache:'no-store'});
+    if(live){
+      const checkRes=await fetch(NOUCHI_MONITOR_BASE+'/check',{cache:'no-store'});
+      if(!checkRes.ok)throw new Error('取得失敗 HTTP '+checkRes.status);
+      const checkData=await checkRes.json();
+      if(checkData.error)throw new Error(checkData.error);
+      const changes=(checkData.results||[]).filter(r=>r.status==='CHANGED');
+      if(changes.length){
+        showToast(`✨ ${changes.length}件の更新を検知: ${changes.map(c=>c.name+'(v'+c.from+'→v'+c.to+')').join(', ')}`,'success');
+      }else{
+        showToast('✓ 取得完了（変更なし）','success');
+      }
+    }
+    const res=await fetch(NOUCHI_MONITOR_BASE+'/status',{cache:'no-store'});
     if(!res.ok)throw new Error('HTTP '+res.status);
     const data=await res.json();
     const current=data.current||[];
@@ -2266,6 +2281,9 @@ async function loadNouchiVersionStatus(){
     }
   }catch(e){
     grid.innerHTML=`<div style="grid-column:1/-1;text-align:center;color:var(--red);font-size:12px;padding:8px;">取得エラー: ${e.message}</div>`;
+    if(live)showToast('取得エラー: '+e.message,'error');
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent=btnOriginalText||'☁️ cloudgis.jpから最新を取得';}
   }
 }
 
