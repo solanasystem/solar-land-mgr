@@ -252,8 +252,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <div class="legend-item"><div class="legend-marker" style="background:#22d3ee;"></div>SUCCESS&amp;OK</div>
     <div class="legend-item"><div class="legend-marker" style="background:#a855f7;border-color:#3b82f6;border-width:3px;"></div>💬 コメント有り</div>
     <div class="legend-item"><div class="legend-marker" style="background:#bbf7d0;border-color:#16a34a;border-style:dashed;border-width:2px;border-radius:2px;"></div>農振農用地（緑破線）</div>
-    <div class="legend-item"><div class="legend-marker" style="background:#fb923c;border-color:#c2410c;"></div>📋 公開農地（売買）</div>
-    <div class="legend-item"><div class="legend-marker" style="background:#fbbf24;border-color:#b45309;"></div>📋 公開農地（賃貸借＋売買）</div>
     </div>
   </div>
   <div class="zoom-controls">
@@ -307,8 +305,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     </div>
     <div class="hazard-divider"></div>
     <button class="hazard-btn" id="hzNoshin" onclick="toggleNoshin()">&#127806; 農振農用地</button>
-    <div class="hazard-divider"></div>
-    <button class="hazard-btn" id="hzPublicFarmland" onclick="togglePublicFarmland()">&#128203; 公開農地マッチング</button>
     </div><!-- /.hazard-body -->
   </div>
   <div class="side-panel" id="sidePanel">
@@ -604,120 +600,7 @@ function onZoomChangeForNoshin(){
     }
   }
 }
-// 公開農地マッチング情報レイヤー（中野市等の自治体公開データ）
-var publicFarmlandLayer=null;var publicFarmlandLoading=false;var publicFarmlandData=null;
-function togglePublicFarmland(){
-  var btn=document.getElementById('hzPublicFarmland');
-  if(publicFarmlandLayer){
-    map.removeLayer(publicFarmlandLayer);
-    publicFarmlandLayer=null;
-    btn.classList.remove('active');
-    showToast('公開農地マッチングを非表示にしました','success');
-    return;
-  }
-  if(publicFarmlandLoading)return;
-  publicFarmlandLoading=true;
-  btn.classList.add('active');
-  showToast('公開農地マッチングデータを読み込み中...','success');
-  // 既にデータがあれば再利用
-  if(publicFarmlandData){
-    renderPublicFarmlandLayer(publicFarmlandData);
-    publicFarmlandLoading=false;
-    return;
-  }
-  // Supabaseから取得
-  db.from('public_farmland_listings')
-    .select('id,district,oaza,aza,chiban,chimoku,area_sqm,nourin_kubun,genkyo,genkyo_detail,ryudoka_kubun,lat,lng,geocode_confidence,promoted_to_case,public_farmland_sources(prefecture,municipality,source_name)')
-    .not('lat','is',null)
-    .limit(5000)
-    .then(function(res){
-      publicFarmlandLoading=false;
-      if(res.error){
-        btn.classList.remove('active');
-        showToast('公開農地マッチング取得エラー: '+res.error.message,'error');
-        return;
-      }
-      publicFarmlandData=res.data||[];
-      renderPublicFarmlandLayer(publicFarmlandData);
-    });
-}
-function renderPublicFarmlandLayer(data){
-  if(!data||!data.length){
-    showToast('公開農地マッチング: データがありません','error');
-    document.getElementById('hzPublicFarmland').classList.remove('active');
-    return;
-  }
-  var markers=data.map(function(item){
-    // 流動化区分別の色: 「売買」のみ→オレンジ / 「賃貸借、売買」→黄
-    var ryudoka=item.ryudoka_kubun||'';
-    var hasChinshaku=ryudoka.indexOf('賃貸借')>=0;
-    var fillColor=hasChinshaku?'#fbbf24':'#fb923c';
-    var borderColor=hasChinshaku?'#b45309':'#c2410c';
-    // 候補化済みは枠線を青系に変更
-    if(item.promoted_to_case){borderColor='#3b82f6';}
-    var mk=L.circleMarker([item.lat,item.lng],{
-      radius:7,
-      fillColor:fillColor,
-      color:borderColor,
-      weight:item.promoted_to_case?3:2,
-      fillOpacity:0.85
-    });
-    var src=item.public_farmland_sources||{};
-    var label=(src.municipality||'')+' '+(item.oaza||'')+(item.aza||'')+' '+(item.chiban||'');
-    mk.bindTooltip('📋 '+label,{direction:'top',permanent:false,opacity:0.95,className:'farmland-tooltip'});
-    mk.on('click',function(){showPublicFarmlandDetail(item);});
-    mk._publicFarmlandItem=item;
-    return mk;
-  });
-  publicFarmlandLayer=L.featureGroup(markers).addTo(map);
-  if(markersLayer)markersLayer.bringToFront();
-  showToast('公開農地マッチング '+data.length+'件 を表示中','success');
-}
-function showPublicFarmlandDetail(item){
-  var src=item.public_farmland_sources||{};
-  var sp=document.getElementById('sidePanel');
-  var sb=document.getElementById('sidePanelBody');
-  // 流動化区分の色
-  var ryudoka=item.ryudoka_kubun||'';
-  var hasChinshaku=ryudoka.indexOf('賃貸借')>=0;
-  var ryudokaBadge=hasChinshaku
-    ?'<span style="background:#fbbf24;color:#000;padding:2px 8px;border-radius:4px;font-weight:600;">'+ryudoka+'</span>'
-    :'<span style="background:#fb923c;color:#fff;padding:2px 8px;border-radius:4px;font-weight:600;">'+ryudoka+'</span>';
-  // 信頼度
-  var conf=item.geocode_confidence||'';
-  var confBadge=conf==='high'?'<span style="color:#3fb950;">●</span> 高':conf==='medium'?'<span style="color:#fbbf24;">●</span> 中':'<span style="color:#f85149;">●</span> 低';
-  // eMAFFリンク
-  var emaffUrl='https://map.maff.go.jp/?z=18&clat='+item.lat+'&clon='+item.lng;
-  var html=''
-    +'<div style="margin-bottom:8px;"><span style="background:#a371f7;color:#fff;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;">📋 公開農地マッチング情報</span></div>'
-    +'<div style="font-size:13px;color:var(--text-muted);margin-bottom:4px;">'+(src.prefecture||'')+(src.municipality||'')+'</div>'
-    +'<div style="font-size:16px;font-weight:700;margin-bottom:12px;">'+(item.oaza||'')+(item.aza||'')+' '+(item.chiban||'')+'</div>'
-    +'<table style="width:100%;font-size:13px;border-collapse:collapse;">'
-    +'<tr><td style="padding:4px 0;color:var(--text-muted);width:90px;">地目</td><td>'+(item.chimoku||'—')+'</td></tr>'
-    +'<tr><td style="padding:4px 0;color:var(--text-muted);">面積</td><td>'+(item.area_sqm?Number(item.area_sqm).toLocaleString()+' ㎡':'—')+'</td></tr>'
-    +'<tr><td style="padding:4px 0;color:var(--text-muted);">農振区分</td><td>'+(item.nourin_kubun||'—')+'</td></tr>'
-    +'<tr><td style="padding:4px 0;color:var(--text-muted);">現況</td><td>'+(item.genkyo||'—')+'</td></tr>'
-    +'<tr><td style="padding:4px 0;color:var(--text-muted);">現況詳細</td><td>'+(item.genkyo_detail||'—')+'</td></tr>'
-    +'<tr><td style="padding:4px 0;color:var(--text-muted);">流動化区分</td><td>'+ryudokaBadge+'</td></tr>'
-    +'<tr><td style="padding:4px 0;color:var(--text-muted);">座標精度</td><td>'+confBadge+'</td></tr>'
-    +'<tr><td style="padding:4px 0;color:var(--text-muted);">候補化</td><td>'+(item.promoted_to_case?'<span style="color:#3b82f6;font-weight:600;">✓ 候補化済み</span>':'未')+'</td></tr>'
-    +'</table>'
-    +'<div style="margin-top:14px;display:flex;flex-direction:column;gap:6px;">'
-    +'<div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:6px;padding:8px;font-size:11px;color:#fbbf24;line-height:1.5;">⚠️ マーカー位置は字レベルの概略です（誤差100〜200m）。<br>正確な地番位置は下記リンクから確認してください。</div>'
-    +'<a href="'+emaffUrl+'" target="_blank" class="btn btn-ghost" style="text-align:center;text-decoration:none;font-size:13px;">📍 eMAFF農地ナビで詳細確認</a>'
-    +'<button class="btn btn-primary" onclick="promoteToCandidate(\''+item.id+'\')" '+(item.promoted_to_case?'disabled style="opacity:0.5;"':'')+' style="font-size:13px;">'+(item.promoted_to_case?'✓ 候補化済み':'🚀 開拓候補へ昇格')+'</button>'
-    +'</div>'
-    +'<div style="margin-top:8px;font-size:11px;color:var(--text-muted);line-height:1.5;">出典: '+(src.source_name||'—')+'<br>※「開拓候補へ昇格」機能はF6で実装予定</div>';
-  sb.innerHTML=html;
-  sp.classList.add('open');
-  // 防災・都市計画パネルを左にスライド（既存仕様に合わせる）
-  var hc=document.getElementById('hazardControls');
-  if(hc&&window.matchMedia('(min-width:1025px)').matches)hc.classList.add('shifted');
-}
-function promoteToCandidate(listingId){
-  // F6で実装予定。現状はプレースホルダ
-  showToast('開拓候補への昇格機能はF6で実装予定です','success');
-}
+
 var CITIES=[{name:'\u84b2\u90e1\u5e02',slug:'gamagori',xMin:14433,xMax:14443,yMin:6495,yMax:6503},{name:'\u8c4a\u6a4b\u5e02',slug:'toyohashi',xMin:14439,xMax:14451,yMin:6496,yMax:6509},{name:'\u7530\u539f\u5e02',slug:'tahara',xMin:14425,xMax:14445,yMin:6502,yMax:6515},{name:'\u5ca1\u5d0e\u5e02',slug:'okazaki',xMin:14428,xMax:14440,yMin:6486,yMax:6497},{name:'\u897f\u5c3e\u5e02',slug:'nishio',xMin:14423,xMax:14432,yMin:6491,yMax:6501},{name:'\u8c4a\u5ddd\u5e02',slug:'toyokawa',xMin:14440,xMax:14449,yMin:6494,yMax:6502},{name:'\u5e78\u7530\u753a',slug:'kota',xMin:14431,xMax:14437,yMin:6492,yMax:6499},{name:'\u78a7\u5357\u5e02',slug:'hekinan',xMin:14425,xMax:14428,yMin:6493,yMax:6497},{name:'\u9ad8\u6d5c\u5e02',slug:'takahama',xMin:14425,xMax:14429,yMin:6491,yMax:6495},{name:'\u5b89\u57ce\u5e02',slug:'anjo',xMin:14427,xMax:14433,yMin:6489,yMax:6494},{name:'\u77e5\u591a\u5e02',slug:'chita',xMin:14418,xMax:14424,yMin:6486,yMax:6491},{name:'\u5357\u77e5\u591a\u753a',slug:'minamichita',xMin:14418,xMax:14426,yMin:6502,yMax:6510},{name:'\u7f8e\u6d5c\u753a',slug:'mihama',xMin:14420,xMax:14425,yMin:6499,yMax:6505},{name:'\u6b66\u8c4a\u753a',slug:'taketoyo',xMin:14421,xMax:14426,yMin:6495,yMax:6499}];
 function getTileVersion(){var d=new Date();return String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');}
 function decodePBFTile(buf){var pbf=new Pbf(new Uint8Array(buf));var layers={};pbf.readFields(function(tag,layers,pbf){if(tag===3){var layer={name:'',version:1,extent:4096,keys:[],values:[],features:[]};pbf.readMessage(readVTLayer,layer);if(layer.name)layers[layer.name]=layer;}},layers);return layers;}
@@ -1607,7 +1490,6 @@ initMap();
     var lng=parseFloat(params.get('lng'));
     var zoom=parseInt(params.get('zoom'),10);
     var highlight=params.get('highlight')==='1';
-    var openPublicFarmland=params.get('openPublicFarmland')==='1';
     var searchQuery=params.get('search');
     if(!isNaN(lat)&&!isNaN(lng)){
       map.setView([lat,lng],isNaN(zoom)?15:zoom);
@@ -1627,16 +1509,6 @@ initMap();
     if(searchQuery){
       var searchInput=document.getElementById('chibanInput');
       if(searchInput)searchInput.value=searchQuery;
-    }
-    if(openPublicFarmland){
-      // データ読込みが完了した後にONにする（少し遅延）
-      setTimeout(function(){
-        var btn=document.getElementById('hzPublicFarmland');
-        // 公開農地マッチング ボタンが既にONなら何もしない
-        if(btn&&!btn.classList.contains('active')){
-          togglePublicFarmland();
-        }
-      },800);
     }
   }catch(e){console.warn('URL param init error:',e);}
 })();
