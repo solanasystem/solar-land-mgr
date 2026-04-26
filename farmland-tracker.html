@@ -355,25 +355,40 @@ var noshinLoading=false;
 var noshinCache={};
 var noshinCurrentPref=null;
 // 県別の境界（地図中心の緯度経度から県を判定する矩形範囲）+ ファイルパス
+// ※矩形は実際の県境にできるだけ合わせて精密化（重複時は距離で判定）
 var NOSHIN_PREF_BOUNDS={
-  aichi:    {latMin:34.5,latMax:35.5,lngMin:136.5,lngMax:137.9, file:WORKER_BASE+'/r2/noshin_aichi.geojson',name:'愛知県'},
-  tochigi:  {latMin:36.2,latMax:37.2,lngMin:139.3,lngMax:140.3, file:'data/noshin/noshin_tochigi.geojson', name:'栃木県'},
-  gunma:    {latMin:36.0,latMax:37.1,lngMin:138.4,lngMax:139.7, file:'data/noshin/noshin_gunma.geojson',   name:'群馬県'},
-  saitama:  {latMin:35.7,latMax:36.3,lngMin:138.7,lngMax:139.9, file:'data/noshin/noshin_saitama.geojson', name:'埼玉県'},
-  chiba:    {latMin:34.9,latMax:36.1,lngMin:139.7,lngMax:140.9, file:'data/noshin/noshin_chiba.geojson',   name:'千葉県'},
-  nagano:   {latMin:35.2,latMax:37.0,lngMin:137.3,lngMax:138.7, file:'data/noshin/noshin_nagano.geojson',  name:'長野県'},
-  gifu:     {latMin:35.1,latMax:36.5,lngMin:136.3,lngMax:137.7, file:'data/noshin/noshin_gifu.geojson',    name:'岐阜県'},
-  shizuoka: {latMin:34.5,latMax:35.7,lngMin:137.5,lngMax:139.2, file:'data/noshin/noshin_shizuoka.geojson',name:'静岡県'},
-  mie:      {latMin:33.7,latMax:35.3,lngMin:135.9,lngMax:136.9, file:'data/noshin/noshin_mie.geojson',     name:'三重県'},
-  shiga:    {latMin:34.8,latMax:35.7,lngMin:135.8,lngMax:136.5, file:'data/noshin/noshin_shiga.geojson',   name:'滋賀県'}
+  // 北関東・東関東
+  tochigi:  {latMin:36.2,  latMax:37.2,  lngMin:139.3,  lngMax:140.3,  file:'data/noshin/noshin_tochigi.geojson', name:'栃木県'},
+  gunma:    {latMin:36.0,  latMax:37.1,  lngMin:138.4,  lngMax:139.7,  file:'data/noshin/noshin_gunma.geojson',   name:'群馬県'},
+  saitama:  {latMin:35.75, latMax:36.3,  lngMin:138.7,  lngMax:140.0,  file:'data/noshin/noshin_saitama.geojson', name:'埼玉県'},
+  chiba:    {latMin:34.9,  latMax:36.1,  lngMin:139.7,  lngMax:140.9,  file:'data/noshin/noshin_chiba.geojson',   name:'千葉県'},
+  // 中部・東海（県境を経度で精密分割）
+  nagano:   {latMin:35.2,  latMax:37.0,  lngMin:137.45, lngMax:138.7,  file:'data/noshin/noshin_nagano.geojson',  name:'長野県'},
+  gifu:     {latMin:35.1,  latMax:36.5,  lngMin:136.3,  lngMax:137.45, file:'data/noshin/noshin_gifu.geojson',    name:'岐阜県'},
+  shizuoka: {latMin:34.55, latMax:35.4,  lngMin:137.5,  lngMax:139.2,  file:'data/noshin/noshin_shizuoka.geojson',name:'静岡県'},
+  aichi:    {latMin:34.5,  latMax:35.4,  lngMin:136.5,  lngMax:137.5,  file:WORKER_BASE+'/r2/noshin_aichi.geojson',name:'愛知県'},
+  // 近畿
+  mie:      {latMin:33.7,  latMax:35.1,  lngMin:135.9,  lngMax:136.9,  file:'data/noshin/noshin_mie.geojson',     name:'三重県'},
+  shiga:    {latMin:34.8,  latMax:35.7,  lngMin:135.8,  lngMax:136.5,  file:'data/noshin/noshin_shiga.geojson',   name:'滋賀県'}
 };
 function detectNoshinPref(){
   var c=map.getCenter();
+  var candidates=[];
   for(var key in NOSHIN_PREF_BOUNDS){
     var b=NOSHIN_PREF_BOUNDS[key];
-    if(c.lat>=b.latMin&&c.lat<=b.latMax&&c.lng>=b.lngMin&&c.lng<=b.lngMax){return key;}
+    if(c.lat>=b.latMin&&c.lat<=b.latMax&&c.lng>=b.lngMin&&c.lng<=b.lngMax){
+      // 矩形中心からの距離を計算
+      var cx=(b.latMin+b.latMax)/2;
+      var cy=(b.lngMin+b.lngMax)/2;
+      var dist=(c.lat-cx)*(c.lat-cx)+(c.lng-cy)*(c.lng-cy);
+      candidates.push({key:key,dist:dist});
+    }
   }
-  return null;
+  if(candidates.length===0)return null;
+  if(candidates.length===1)return candidates[0].key;
+  // 複数候補なら矩形中心により近いものを選ぶ（保険）
+  candidates.sort(function(a,b){return a.dist-b.dist;});
+  return candidates[0].key;
 }
 function toggleNoshin(){
   var btn=document.getElementById('hzNoshin');
