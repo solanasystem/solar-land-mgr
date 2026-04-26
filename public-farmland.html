@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>公開農地マッチング ダッシュボード - SOLAR LAND MGR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="mobile-responsive.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;--accent:#f0b429;--green:#3fb950;--red:#f85149;--blue:#3b82f6;--cyan:#22d3ee;--purple:#a855f7;--orange:#fb923c;--text:#e6edf3;--text-muted:#8b949e;--font-main:'Zen Kaku Gothic New',sans-serif;--font-mono:'Share Tech Mono',monospace;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--font-main);font-size:14px;min-height:100vh;}
+a{color:var(--blue);text-decoration:none;}
+a:hover{text-decoration:underline;}
+button{font-family:inherit;cursor:pointer;}
+
+/* ========== HEADER ========== */
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;position:sticky;top:0;z-index:100;}
+.brand{display:flex;align-items:center;gap:10px;font-weight:900;letter-spacing:1px;}
+.brand-logo{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),#fb923c);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.brand-title{font-size:18px;}
+.brand-sub{font-size:12px;color:var(--text-muted);font-weight:400;margin-left:8px;}
+.nav-links{display:flex;gap:8px;align-items:center;}
+.btn{padding:8px 14px;border-radius:6px;font-size:13px;font-weight:600;border:1px solid var(--border);background:var(--surface2);color:var(--text);transition:all 0.15s;text-decoration:none;display:inline-flex;align-items:center;gap:6px;}
+.btn:hover{background:var(--border);text-decoration:none;}
+.btn-ghost{background:transparent;}
+.btn-primary{background:var(--accent);color:#000;border-color:var(--accent);}
+.btn-primary:hover{background:#e0a420;color:#000;}
+.btn-primary:disabled{opacity:0.5;cursor:not-allowed;}
+.btn-success{background:var(--green);color:#000;border-color:var(--green);}
+.btn-success:hover{background:#34a045;color:#000;}
+
+/* ========== MAIN ========== */
+main{max-width:1400px;margin:0 auto;padding:20px;}
+
+/* ========== SUMMARY CARDS ========== */
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;}
+.card-label{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;}
+.card-value{font-size:24px;font-weight:700;color:var(--text);font-family:var(--font-mono);}
+.card-value.accent{color:var(--accent);}
+.card-value.green{color:var(--green);}
+.card-value.blue{color:var(--blue);}
+.card-sub{font-size:11px;color:var(--text-muted);margin-top:4px;}
+
+/* ========== BREADCRUMB ========== */
+.breadcrumb{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted);margin-bottom:14px;flex-wrap:wrap;}
+.breadcrumb-item{color:var(--text-muted);cursor:pointer;}
+.breadcrumb-item:hover{color:var(--accent);text-decoration:underline;}
+.breadcrumb-item.current{color:var(--text);font-weight:600;cursor:default;}
+.breadcrumb-item.current:hover{text-decoration:none;}
+.breadcrumb-sep{color:var(--text-muted);}
+
+/* ========== VIEW: PREFECTURE GRID ========== */
+.pref-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;}
+.pref-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;cursor:pointer;transition:all 0.2s;position:relative;}
+.pref-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 4px 16px rgba(240,180,41,0.15);}
+.pref-card-name{font-size:18px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.pref-stats{display:flex;flex-direction:column;gap:6px;font-size:12px;}
+.pref-stat-row{display:flex;justify-content:space-between;align-items:center;}
+.pref-stat-label{color:var(--text-muted);}
+.pref-stat-value{font-family:var(--font-mono);font-weight:700;}
+
+/* ========== VIEW: TABLE ========== */
+.data-table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.data-table thead{background:var(--surface2);}
+.data-table th{padding:12px 14px;text-align:left;font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid var(--border);}
+.data-table td{padding:12px 14px;font-size:13px;border-bottom:1px solid var(--border);}
+.data-table tr:last-child td{border-bottom:none;}
+.data-table tbody tr{transition:background 0.1s;cursor:pointer;}
+.data-table tbody tr:hover{background:rgba(240,180,41,0.05);}
+.data-table .num{font-family:var(--font-mono);text-align:right;}
+
+/* ========== BADGES ========== */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;line-height:1.6;}
+.badge-high{background:rgba(63,185,80,0.15);color:var(--green);border:1px solid rgba(63,185,80,0.3);}
+.badge-medium{background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);}
+.badge-low{background:rgba(248,81,73,0.15);color:var(--red);border:1px solid rgba(248,81,73,0.3);}
+.badge-na{background:rgba(139,148,158,0.15);color:var(--text-muted);border:1px solid rgba(139,148,158,0.3);}
+.badge-promoted{background:rgba(59,130,246,0.15);color:var(--blue);border:1px solid rgba(59,130,246,0.3);}
+.badge-baibai{background:#fb923c;color:#fff;}
+.badge-chintai{background:#fbbf24;color:#000;}
+
+/* ========== EMPTY / LOADING ========== */
+.empty{text-align:center;padding:60px 20px;color:var(--text-muted);}
+.empty-icon{font-size:48px;margin-bottom:12px;}
+.loading{display:flex;justify-content:center;align-items:center;padding:60px 20px;color:var(--text-muted);font-size:13px;}
+.loading::before{content:"";display:inline-block;width:18px;height:18px;border:2px solid var(--text-muted);border-top-color:var(--accent);border-radius:50%;margin-right:10px;animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ========== SLIDE PANEL ========== */
+.side-panel{position:fixed;top:0;right:-480px;width:480px;max-width:100vw;height:100vh;background:var(--surface);border-left:1px solid var(--border);transition:right 0.25s ease-out;z-index:200;overflow-y:auto;display:flex;flex-direction:column;}
+.side-panel.open{right:0;}
+.side-panel-header{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--surface2);position:sticky;top:0;z-index:1;}
+.side-panel-title{font-size:14px;font-weight:700;}
+.close-btn{background:transparent;border:none;color:var(--text-muted);font-size:22px;line-height:1;cursor:pointer;padding:4px 8px;}
+.close-btn:hover{color:var(--text);}
+.side-panel-body{padding:18px;flex:1;}
+.detail-row{display:grid;grid-template-columns:110px 1fr;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.detail-row:last-child{border-bottom:none;}
+.detail-label{color:var(--text-muted);}
+.detail-value{font-weight:500;word-break:break-all;}
+.detail-section-title{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin:18px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+
+/* ========== TOAST ========== */
+.toast-container{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:1000;}
+.toast{padding:10px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:500;animation:slideIn 0.25s ease-out;max-width:340px;}
+.toast.success{border-color:var(--green);color:var(--green);}
+.toast.error{border-color:var(--red);color:var(--red);}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0;}to{transform:translateX(0);opacity:1;}}
+
+/* ========== FILTERS ========== */
+.filters{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;}
+.filter-input{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit;min-width:200px;}
+.filter-input:focus{outline:none;border-color:var(--accent);}
+.filter-select{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit;cursor:pointer;}
+
+/* ========== RESPONSIVE ========== */
+@media (max-width:1024px){
+  header{padding:10px 12px;flex-wrap:wrap;}
+  .brand-sub{display:none;}
+  main{padding:12px;}
+  .pref-grid{grid-template-columns:1fr;}
+  .data-table{font-size:12px;}
+  .data-table th, .data-table td{padding:8px 10px;}
+  .side-panel{width:100%;right:-100%;}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-logo">🌾</div>
+    <div>
+      <div class="brand-title">SOLAR LAND MGR</div>
+      <div class="brand-sub">公開農地マッチング ダッシュボード</div>
+    </div>
+  </div>
+  <nav class="nav-links">
+    <a href="index.html" class="btn btn-ghost">← 案件一覧</a>
+    <a href="farmland-tracker.html" class="btn btn-ghost">🌱 農地変更トラッカー</a>
+    <a href="farmland-candidates.html" class="btn btn-ghost">📋 開拓候補</a>
+    <a href="emaff-importer.html" class="btn btn-ghost">📥 eMAFFインポーター</a>
+  </nav>
+</header>
+
+<main>
+
+  <!-- サマリーカード -->
+  <section class="summary" id="summarySection">
+    <div class="card">
+      <div class="card-label">対応自治体</div>
+      <div class="card-value" id="cardSourceCount">—</div>
+      <div class="card-sub">公開農地マッチングシステム</div>
+    </div>
+    <div class="card">
+      <div class="card-label">公開物件総数</div>
+      <div class="card-value accent" id="cardListingCount">—</div>
+      <div class="card-sub">全都道府県合計</div>
+    </div>
+    <div class="card">
+      <div class="card-label">高精度ジオコード済</div>
+      <div class="card-value green" id="cardHighCount">—</div>
+      <div class="card-sub">eMAFF番地レベル</div>
+    </div>
+    <div class="card">
+      <div class="card-label">候補化済み</div>
+      <div class="card-value blue" id="cardPromotedCount">—</div>
+      <div class="card-sub">案件化された物件</div>
+    </div>
+  </section>
+
+  <!-- パンくず -->
+  <nav class="breadcrumb" id="breadcrumb"></nav>
+
+  <!-- フィルター -->
+  <div class="filters" id="filters" style="display:none;">
+    <input type="text" class="filter-input" id="searchInput" placeholder="🔍 字名・地番で検索">
+    <select class="filter-select" id="precisionFilter">
+      <option value="">全精度</option>
+      <option value="high">🟢 高精度のみ</option>
+      <option value="other">🟡 字レベル以下</option>
+    </select>
+    <select class="filter-select" id="ryudokaFilter">
+      <option value="">全流動化区分</option>
+      <option value="売買">売買含む</option>
+      <option value="賃貸借">賃貸借含む</option>
+    </select>
+    <select class="filter-select" id="promotedFilter">
+      <option value="">全状態</option>
+      <option value="yes">候補化済み</option>
+      <option value="no">未候補化</option>
+    </select>
+  </div>
+
+  <!-- ビューコンテンツ -->
+  <section id="viewContent">
+    <div class="loading">データを読み込み中...</div>
+  </section>
+
+</main>
+
+<!-- 詳細パネル -->
+<aside class="side-panel" id="sidePanel">
+  <div class="side-panel-header">
+    <div class="side-panel-title">📋 公開農地 詳細</div>
+    <button class="close-btn" onclick="closeSidePanel()">✕</button>
+  </div>
+  <div class="side-panel-body" id="sidePanelBody"></div>
+</aside>
+
+<!-- トースト -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// ============================================================
+// SOLAR LAND MGR - 公開農地マッチング ダッシュボード（F5）
+// ============================================================
+
+// ---- Supabase接続 ----
+var SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
+var SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+var db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+// ---- 状態 ----
+var allSources=[];        // public_farmland_sources 全件
+var allListings=[];       // public_farmland_listings 全件
+var hierarchy={};         // { 県名: { 市町村名: { source, listings:[] } } }
+var currentView='prefecture';  // 'prefecture' | 'municipality' | 'listing'
+var currentPrefecture=null;
+var currentSourceId=null;
+var currentDetailItem=null;
+
+// ---- ユーティリティ ----
+function showToast(msg,type){
+  type=type||'success';
+  var c=document.getElementById('toastContainer');
+  var el=document.createElement('div');
+  el.className='toast '+type;
+  el.textContent=msg;
+  c.appendChild(el);
+  setTimeout(function(){el.style.opacity='0';el.style.transform='translateX(100%)';el.style.transition='all 0.25s';setTimeout(function(){el.remove();},300);},2800);
+}
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtNum(n){
+  if(n==null||isNaN(n))return '—';
+  return Number(n).toLocaleString();
+}
+function precisionBadge(conf){
+  if(conf==='high')return '<span class="badge badge-high">● 高</span>';
+  if(conf==='medium')return '<span class="badge badge-medium">● 中</span>';
+  if(conf==='low')return '<span class="badge badge-low">● 低</span>';
+  return '<span class="badge badge-na">● 未</span>';
+}
+function ryudokaBadge(rk){
+  if(!rk)return '—';
+  var hasBaibai=rk.indexOf('\u58f2\u8cb7')>=0||rk.indexOf('\u58f2\u5374')>=0;
+  var hasChintai=rk.indexOf('\u8cc1\u8cb8\u501f')>=0;
+  if(hasChintai&&hasBaibai)return '<span class="badge badge-chintai">'+escapeHtml(rk)+'</span>';
+  if(hasChintai)return '<span class="badge badge-chintai">'+escapeHtml(rk)+'</span>';
+  if(hasBaibai)return '<span class="badge badge-baibai">'+escapeHtml(rk)+'</span>';
+  return '<span class="badge badge-na">'+escapeHtml(rk)+'</span>';
+}
+
+// ---- データ取得 ----
+async function loadAllData(){
+  try{
+    // 並列で取得
+    var srcRes=await db.from('public_farmland_sources').select('*');
+    if(srcRes.error)throw new Error('sources: '+srcRes.error.message);
+    allSources=srcRes.data||[];
+
+    var listRes=await db.from('public_farmland_listings').select('*').limit(20000);
+    if(listRes.error)throw new Error('listings: '+listRes.error.message);
+    allListings=listRes.data||[];
+
+    buildHierarchy();
+    renderSummary();
+    renderCurrentView();
+  }catch(e){
+    document.getElementById('viewContent').innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><div>データ取得エラー：'+escapeHtml(e.message)+'</div></div>';
+    showToast('読込エラー: '+e.message,'error');
+  }
+}
+
+function buildHierarchy(){
+  hierarchy={};
+  allSources.forEach(function(s){
+    var pref=s.prefecture||'\u4e0d\u660e';
+    var muni=s.municipality||'\u4e0d\u660e';
+    if(!hierarchy[pref])hierarchy[pref]={};
+    hierarchy[pref][muni]={source:s,listings:[]};
+  });
+  var srcById={};
+  allSources.forEach(function(s){srcById[s.id]=s;});
+  allListings.forEach(function(l){
+    var s=srcById[l.source_id];
+    if(!s)return;
+    var pref=s.prefecture||'\u4e0d\u660e';
+    var muni=s.municipality||'\u4e0d\u660e';
+    if(hierarchy[pref]&&hierarchy[pref][muni]){
+      hierarchy[pref][muni].listings.push(l);
+    }
+  });
+}
+
+// ---- サマリー ----
+function renderSummary(){
+  document.getElementById('cardSourceCount').textContent=fmtNum(allSources.length);
+  document.getElementById('cardListingCount').textContent=fmtNum(allListings.length);
+  var high=allListings.filter(function(l){return l.geocode_confidence==='high';}).length;
+  var promoted=allListings.filter(function(l){return l.promoted_to_case===true;}).length;
+  document.getElementById('cardHighCount').textContent=fmtNum(high);
+  document.getElementById('cardPromotedCount').textContent=fmtNum(promoted);
+}
+
+// ---- パンくず ----
+function renderBreadcrumb(){
+  var bc=document.getElementById('breadcrumb');
+  var html='<span class="breadcrumb-item current" onclick="goToPrefectureView()" style="cursor:pointer;">🏠 全国</span>';
+  if(currentView==='municipality'||currentView==='listing'){
+    html='<span class="breadcrumb-item" onclick="goToPrefectureView()">🏠 全国</span>';
+    html+='<span class="breadcrumb-sep">/</span>';
+    if(currentView==='municipality'){
+      html+='<span class="breadcrumb-item current">'+escapeHtml(currentPrefecture)+'</span>';
+    }else{
+      html+='<span class="breadcrumb-item" onclick="goToMunicipalityView(\''+escapeHtml(currentPrefecture).replace(/'/g,"\\'")+'\')">'+escapeHtml(currentPrefecture)+'</span>';
+      html+='<span class="breadcrumb-sep">/</span>';
+      var src=allSources.find(function(s){return s.id===currentSourceId;});
+      var muniName=src?src.municipality:'';
+      html+='<span class="breadcrumb-item current">'+escapeHtml(muniName)+'</span>';
+    }
+  }
+  bc.innerHTML=html;
+}
+
+// ---- ナビゲーション ----
+function goToPrefectureView(){
+  currentView='prefecture';
+  currentPrefecture=null;
+  currentSourceId=null;
+  document.getElementById('filters').style.display='none';
+  renderCurrentView();
+}
+function goToMunicipalityView(prefecture){
+  currentView='municipality';
+  currentPrefecture=prefecture;
+  currentSourceId=null;
+  document.getElementById('filters').style.display='none';
+  renderCurrentView();
+}
+function goToListingView(sourceId){
+  currentView='listing';
+  currentSourceId=sourceId;
+  document.getElementById('filters').style.display='flex';
+  renderCurrentView();
+}
+
+// ---- ビューレンダリング ----
+function renderCurrentView(){
+  renderBreadcrumb();
+  if(currentView==='prefecture')renderPrefectureGrid();
+  else if(currentView==='municipality')renderMunicipalityTable();
+  else if(currentView==='listing')renderListingTable();
+}
+
+function renderPrefectureGrid(){
+  var content=document.getElementById('viewContent');
+  var prefs=Object.keys(hierarchy).sort();
+  if(!prefs.length){
+    content.innerHTML='<div class="empty"><div class="empty-icon">🌱</div><div>公開農地データがまだありません</div></div>';
+    return;
+  }
+  var html='<div class="pref-grid">';
+  prefs.forEach(function(pref){
+    var munis=hierarchy[pref];
+    var muniNames=Object.keys(munis);
+    var totalListings=0,totalHigh=0,totalPromoted=0;
+    muniNames.forEach(function(m){
+      var ls=munis[m].listings;
+      totalListings+=ls.length;
+      totalHigh+=ls.filter(function(l){return l.geocode_confidence==='high';}).length;
+      totalPromoted+=ls.filter(function(l){return l.promoted_to_case===true;}).length;
+    });
+    var prefEsc=escapeHtml(pref).replace(/'/g,"\\'");
+    html+='<div class="pref-card" onclick="goToMunicipalityView(\''+prefEsc+'\')">';
+    html+='<div class="pref-card-name">📍 '+escapeHtml(pref)+'</div>';
+    html+='<div class="pref-stats">';
+    html+='<div class="pref-stat-row"><span class="pref-stat-label">対応自治体</span><span class="pref-stat-value">'+muniNames.length+' 自治体</span></div>';
+    html+='<div class="pref-stat-row"><span class="pref-stat-label">公開物件</span><span class="pref-stat-value accent">'+fmtNum(totalListings)+' 件</span></div>';
+    html+='<div class="pref-stat-row"><span class="pref-stat-label">高精度</span><span class="pref-stat-value" style="color:var(--green);">'+fmtNum(totalHigh)+' 件</span></div>';
+    html+='<div class="pref-stat-row"><span class="pref-stat-label">候補化済</span><span class="pref-stat-value" style="color:var(--blue);">'+fmtNum(totalPromoted)+' 件</span></div>';
+    html+='</div></div>';
+  });
+  html+='</div>';
+  content.innerHTML=html;
+}
+
+function renderMunicipalityTable(){
+  var content=document.getElementById('viewContent');
+  var munis=hierarchy[currentPrefecture]||{};
+  var muniNames=Object.keys(munis).sort();
+  if(!muniNames.length){
+    content.innerHTML='<div class="empty"><div class="empty-icon">🌱</div><div>'+escapeHtml(currentPrefecture)+'のデータがありません</div></div>';
+    return;
+  }
+  var html='<table class="data-table">';
+  html+='<thead><tr><th>市町村</th><th>公開システム</th><th class="num">物件数</th><th class="num">高精度</th><th class="num">候補化</th><th>ソース</th></tr></thead>';
+  html+='<tbody>';
+  muniNames.forEach(function(m){
+    var info=munis[m];
+    var src=info.source;
+    var ls=info.listings;
+    var high=ls.filter(function(l){return l.geocode_confidence==='high';}).length;
+    var promoted=ls.filter(function(l){return l.promoted_to_case===true;}).length;
+    html+='<tr onclick="goToListingView(\''+src.id+'\')">';
+    html+='<td><strong>'+escapeHtml(m)+'</strong></td>';
+    html+='<td>'+escapeHtml(src.source_name||'—')+'</td>';
+    html+='<td class="num">'+fmtNum(ls.length)+'</td>';
+    html+='<td class="num">'+(high>0?'<span style="color:var(--green);font-weight:700;">'+fmtNum(high)+'</span>':fmtNum(high))+'</td>';
+    html+='<td class="num">'+(promoted>0?'<span style="color:var(--blue);font-weight:700;">'+fmtNum(promoted)+'</span>':fmtNum(promoted))+'</td>';
+    html+='<td onclick="event.stopPropagation();">';
+    if(src.source_url){
+      html+='<a href="'+escapeHtml(src.source_url)+'" target="_blank" rel="noopener">🔗 開く</a>';
+    }else{
+      html+='<span style="color:var(--text-muted);">—</span>';
+    }
+    html+='</td>';
+    html+='</tr>';
+  });
+  html+='</tbody></table>';
+  content.innerHTML=html;
+}
+
+function renderListingTable(){
+  var content=document.getElementById('viewContent');
+  var info=null;
+  Object.keys(hierarchy).forEach(function(p){
+    Object.keys(hierarchy[p]).forEach(function(m){
+      if(hierarchy[p][m].source.id===currentSourceId){
+        info=hierarchy[p][m];
+      }
+    });
+  });
+  if(!info){
+    content.innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><div>自治体データが見つかりません</div></div>';
+    return;
+  }
+  var listings=applyListingFilters(info.listings);
+  if(!listings.length){
+    content.innerHTML='<div class="empty"><div class="empty-icon">🔍</div><div>条件に一致する物件がありません</div></div>';
+    return;
+  }
+  var html='<div style="margin-bottom:10px;font-size:13px;color:var(--text-muted);">'+fmtNum(listings.length)+' / '+fmtNum(info.listings.length)+' 件表示</div>';
+  html+='<table class="data-table">';
+  html+='<thead><tr><th>大字</th><th>字</th><th>地番</th><th>地目</th><th class="num">面積(㎡)</th><th>流動化区分</th><th>精度</th><th>状態</th></tr></thead>';
+  html+='<tbody>';
+  listings.forEach(function(l){
+    html+='<tr onclick="showListingDetail('+l.id+')">';
+    html+='<td>'+escapeHtml(l.oaza||'—')+'</td>';
+    html+='<td>'+escapeHtml(l.aza||'—')+'</td>';
+    html+='<td><strong>'+escapeHtml(l.chiban||'—')+'</strong></td>';
+    html+='<td>'+escapeHtml(l.chimoku||'—')+'</td>';
+    html+='<td class="num">'+fmtNum(l.area_sqm)+'</td>';
+    html+='<td>'+ryudokaBadge(l.ryudoka_kubun)+'</td>';
+    html+='<td>'+precisionBadge(l.geocode_confidence)+'</td>';
+    html+='<td>'+(l.promoted_to_case?'<span class="badge badge-promoted">✓ 候補化済</span>':'<span style="color:var(--text-muted);font-size:12px;">未</span>')+'</td>';
+    html+='</tr>';
+  });
+  html+='</tbody></table>';
+  content.innerHTML=html;
+}
+
+function applyListingFilters(listings){
+  var q=(document.getElementById('searchInput').value||'').toLowerCase().trim();
+  var prec=document.getElementById('precisionFilter').value;
+  var ryud=document.getElementById('ryudokaFilter').value;
+  var prom=document.getElementById('promotedFilter').value;
+  return listings.filter(function(l){
+    if(q){
+      var hay=((l.oaza||'')+(l.aza||'')+(l.chiban||'')).toLowerCase();
+      if(hay.indexOf(q)<0)return false;
+    }
+    if(prec==='high'&&l.geocode_confidence!=='high')return false;
+    if(prec==='other'&&l.geocode_confidence==='high')return false;
+    if(ryud&&!(l.ryudoka_kubun||'').includes(ryud))return false;
+    if(prom==='yes'&&!l.promoted_to_case)return false;
+    if(prom==='no'&&l.promoted_to_case)return false;
+    return true;
+  });
+}
+
+// ---- 詳細パネル ----
+function showListingDetail(id){
+  var l=allListings.find(function(x){return x.id===id;});
+  if(!l)return;
+  currentDetailItem=l;
+  var src=allSources.find(function(s){return s.id===l.source_id;})||{};
+  var sb=document.getElementById('sidePanelBody');
+  var hasCoord=l.lat!=null&&l.lng!=null;
+  var emaffUrl=hasCoord?'https://map.maff.go.jp/?z=18&clat='+l.lat+'&clon='+l.lng:'';
+  var trackerUrl=hasCoord?'farmland-tracker.html?lat='+l.lat+'&lng='+l.lng+'&zoom=18&highlight=1':'';
+  var googleUrl=hasCoord?'https://www.google.com/maps?q='+l.lat+','+l.lng:'';
+
+  var html='';
+  html+='<div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;">';
+  html+=precisionBadge(l.geocode_confidence);
+  if(l.promoted_to_case)html+='<span class="badge badge-promoted">✓ 候補化済み</span>';
+  html+='</div>';
+  html+='<div style="font-size:13px;color:var(--text-muted);margin-bottom:4px;">'+escapeHtml((src.prefecture||'')+(src.municipality||''))+'</div>';
+  html+='<div style="font-size:18px;font-weight:700;margin-bottom:14px;">'+escapeHtml((l.oaza||'')+(l.aza||'')+' '+(l.chiban||''))+'</div>';
+
+  html+='<div class="detail-section-title">🌾 物件情報</div>';
+  html+='<div class="detail-row"><div class="detail-label">大字</div><div class="detail-value">'+escapeHtml(l.oaza||'—')+'</div></div>';
+  html+='<div class="detail-row"><div class="detail-label">字</div><div class="detail-value">'+escapeHtml(l.aza||'—')+'</div></div>';
+  html+='<div class="detail-row"><div class="detail-label">地番</div><div class="detail-value">'+escapeHtml(l.chiban||'—')+'</div></div>';
+  html+='<div class="detail-row"><div class="detail-label">地目</div><div class="detail-value">'+escapeHtml(l.chimoku||'—')+'</div></div>';
+  html+='<div class="detail-row"><div class="detail-label">面積</div><div class="detail-value">'+fmtNum(l.area_sqm)+' ㎡</div></div>';
+  html+='<div class="detail-row"><div class="detail-label">農振区分</div><div class="detail-value">'+escapeHtml(l.nourin_kubun||'—')+'</div></div>';
+  html+='<div class="detail-row"><div class="detail-label">現況</div><div class="detail-value">'+escapeHtml(l.genkyo||'—')+'</div></div>';
+  html+='<div class="detail-row"><div class="detail-label">現況詳細</div><div class="detail-value">'+escapeHtml(l.genkyo_detail||'—')+'</div></div>';
+  html+='<div class="detail-row"><div class="detail-label">流動化区分</div><div class="detail-value">'+ryudokaBadge(l.ryudoka_kubun)+'</div></div>';
+
+  html+='<div class="detail-section-title">📍 位置情報</div>';
+  html+='<div class="detail-row"><div class="detail-label">座標精度</div><div class="detail-value">'+precisionBadge(l.geocode_confidence)+'</div></div>';
+  if(hasCoord){
+    html+='<div class="detail-row"><div class="detail-label">緯度経度</div><div class="detail-value" style="font-family:var(--font-mono);font-size:12px;">'+l.lat.toFixed(6)+', '+l.lng.toFixed(6)+'</div></div>';
+  }else{
+    html+='<div class="detail-row"><div class="detail-label">緯度経度</div><div class="detail-value" style="color:var(--text-muted);">未ジオコード</div></div>';
+  }
+  if(l.geocode_confidence!=='high'&&hasCoord){
+    html+='<div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:6px;padding:8px 10px;font-size:11px;color:#fbbf24;line-height:1.5;margin-top:8px;">⚠️ 字レベルの概略位置（誤差100〜200m）。eMAFFで詳細確認推奨。</div>';
+  }
+
+  if(l.raw_text){
+    html+='<div class="detail-section-title">📝 元データ</div>';
+    html+='<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;">'+escapeHtml(l.raw_text)+'</div>';
+  }
+
+  html+='<div class="detail-section-title">🔗 出典</div>';
+  html+='<div class="detail-row"><div class="detail-label">公開システム</div><div class="detail-value">'+escapeHtml(src.source_name||'—')+'</div></div>';
+  if(src.source_url){
+    html+='<div class="detail-row"><div class="detail-label">サイト</div><div class="detail-value"><a href="'+escapeHtml(src.source_url)+'" target="_blank" rel="noopener">🔗 開く</a></div></div>';
+  }
+
+  html+='<div class="detail-section-title">⚡ アクション</div>';
+  html+='<div style="display:flex;flex-direction:column;gap:8px;">';
+  if(hasCoord){
+    html+='<a href="'+escapeHtml(trackerUrl)+'" class="btn btn-ghost" style="text-align:center;">🗺️ 農地変更トラッカーで地図を見る</a>';
+    html+='<a href="'+escapeHtml(emaffUrl)+'" target="_blank" rel="noopener" class="btn btn-ghost" style="text-align:center;">📍 eMAFF農地ナビで確認</a>';
+    html+='<a href="'+escapeHtml(googleUrl)+'" target="_blank" rel="noopener" class="btn btn-ghost" style="text-align:center;">🌐 Googleマップで開く</a>';
+  }
+  if(l.promoted_to_case){
+    html+='<button class="btn" disabled style="opacity:0.5;text-align:center;">✓ 候補化済み</button>';
+  }else{
+    html+='<button class="btn btn-success" onclick="promoteToCandidate('+l.id+')" style="text-align:center;">🚀 開拓候補へ昇格</button>';
+  }
+  html+='</div>';
+  html+='<div style="margin-top:10px;font-size:11px;color:var(--text-muted);line-height:1.5;">※「開拓候補へ昇格」機能は F6 で本実装予定。現状は <code>promoted_to_case</code> フラグの更新のみ。</div>';
+
+  sb.innerHTML=html;
+  document.getElementById('sidePanel').classList.add('open');
+}
+
+function closeSidePanel(){
+  document.getElementById('sidePanel').classList.remove('open');
+}
+
+// ---- 候補化（F6プレースホルダ：フラグ更新のみ） ----
+async function promoteToCandidate(listingId){
+  if(!confirm('\u3053\u306e\u7269\u4ef6\u3092\u958b\u62d3\u5019\u88dc\u306b\u6607\u683c\u3057\u307e\u3059\u3002\u3088\u308d\u3057\u3044\u3067\u3059\u304b\uff1f\n\uff08F6\u3067\u672c\u5b9f\u88c5\u4e88\u5b9a\u3001\u73fe\u72b6\u306f\u30d5\u30e9\u30b0\u3092\u7acb\u3066\u308b\u306e\u307f\uff09'))return;
+  try{
+    var res=await db.from('public_farmland_listings').update({promoted_to_case:true}).eq('id',listingId);
+    if(res.error)throw new Error(res.error.message);
+    // ローカル状態も更新
+    var l=allListings.find(function(x){return x.id===listingId;});
+    if(l)l.promoted_to_case=true;
+    showToast('\u5019\u88dc\u5316\u30d5\u30e9\u30b0\u3092\u7acb\u3066\u307e\u3057\u305f\u3002F6\u3067\u672c\u5b9f\u88c5\u4e88\u5b9a\u3002','success');
+    renderSummary();
+    renderCurrentView();
+    if(currentDetailItem&&currentDetailItem.id===listingId){
+      showListingDetail(listingId);  // パネル再描画
+    }
+  }catch(e){
+    showToast('\u30a8\u30e9\u30fc: '+e.message,'error');
+  }
+}
+
+// ---- フィルター変更時の再描画 ----
+['searchInput','precisionFilter','ryudokaFilter','promotedFilter'].forEach(function(id){
+  var el=document.getElementById(id);
+  if(el){
+    el.addEventListener('input',function(){if(currentView==='listing')renderListingTable();});
+    el.addEventListener('change',function(){if(currentView==='listing')renderListingTable();});
+  }
+});
+
+// ---- 起動 ----
+loadAllData();
+</script>
+
+<script src="mobile-responsive.js"></script>
+</body>
+</html>
