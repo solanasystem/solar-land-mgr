@@ -562,7 +562,7 @@ function showListingDetail(id){
     html+='<button class="btn btn-success" onclick="promoteToCandidate('+l.id+')" style="text-align:center;">🚀 開拓候補へ昇格</button>';
   }
   html+='</div>';
-  html+='<div style="margin-top:10px;font-size:11px;color:var(--text-muted);line-height:1.5;">※「開拓候補へ昇格」機能は F6 で本実装予定。現状は <code>promoted_to_case</code> フラグの更新のみ。</div>';
+  html+='<div style="margin-top:10px;font-size:11px;color:var(--text-muted);line-height:1.5;">※昇格すると案件マスター（index.html）に新規案件として登録されます。誤クリックの場合は案件マスター側から手動削除してください。</div>';
 
   sb.innerHTML=html;
   document.getElementById('sidePanel').classList.add('open');
@@ -572,24 +572,118 @@ function closeSidePanel(){
   document.getElementById('sidePanel').classList.remove('open');
 }
 
-// ---- 候補化（F6プレースホルダ：フラグ更新のみ） ----
+// ---- 候補化（F6本実装：cases / land_info / farmland_promoted への登録） ----
+var _promotionInFlight={};
+
 async function promoteToCandidate(listingId){
-  if(!confirm('\u3053\u306e\u7269\u4ef6\u3092\u958b\u62d3\u5019\u88dc\u306b\u6607\u683c\u3057\u307e\u3059\u3002\u3088\u308d\u3057\u3044\u3067\u3059\u304b\uff1f\n\uff08F6\u3067\u672c\u5b9f\u88c5\u4e88\u5b9a\u3001\u73fe\u72b6\u306f\u30d5\u30e9\u30b0\u3092\u7acb\u3066\u308b\u306e\u307f\uff09'))return;
+  if(_promotionInFlight[listingId])return;
+  _promotionInFlight[listingId]=true;
   try{
-    var res=await db.from('public_farmland_listings').update({promoted_to_case:true}).eq('id',listingId);
-    if(res.error)throw new Error(res.error.message);
-    // ローカル状態も更新
     var l=allListings.find(function(x){return x.id===listingId;});
-    if(l)l.promoted_to_case=true;
-    showToast('\u5019\u88dc\u5316\u30d5\u30e9\u30b0\u3092\u7acb\u3066\u307e\u3057\u305f\u3002F6\u3067\u672c\u5b9f\u88c5\u4e88\u5b9a\u3002','success');
-    renderSummary();
-    renderCurrentView();
-    if(currentDetailItem&&currentDetailItem.id===listingId){
-      showListingDetail(listingId);  // パネル再描画
+    if(!l){showToast('\u5bfe\u8c61\u30c7\u30fc\u30bf\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093','error');return;}
+    if(l.promoted_to_case){showToast('\u65e2\u306b\u5019\u88dc\u5316\u6e08\u307f\u3067\u3059','error');return;}
+    var src=allSources.find(function(s){return s.id===l.source_id;});
+    if(!src||!src.municipality){showToast('\u81ea\u6cbb\u4f53\u60c5\u5831\u304c\u4e0d\u8db3\u3057\u3066\u3044\u308b\u305f\u3081\u6607\u683c\u3067\u304d\u307e\u305b\u3093','error');return;}
+
+    // area_name = 市町村名（既存規約に合わせる）
+    var areaName=src.municipality;
+    var featureId='pubH_'+l.id;
+
+    // 採番予定取得（同area_nameの既存親案件数+1）
+    var exRes=await db.from('cases').select('id').eq('area_name',areaName).is('parent_case_no',null);
+    if(exRes.error){showToast('\u63a1\u756a\u53d6\u5f97\u30a8\u30e9\u30fc: '+exRes.error.message,'error');return;}
+    var nextNum=((exRes.data&&exRes.data.length)||0)+1;
+    var caseNo=areaName+'-'+String(nextNum).padStart(3,'0');
+
+    // 確認ダイアログ
+    var confirmMsg='\u6848\u4ef6\u300c'+caseNo+'\u300d\u3068\u3057\u3066\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u306b\u767b\u9332\u3057\u307e\u3059\u3002\n\n'
+      +'\u25a0\u7269\u4ef6: '+(l.oaza||'')+(l.aza||'')+' '+(l.chiban||'')+'\n'
+      +'\u25a0\u81ea\u6cbb\u4f53: '+(src.prefecture||'')+(src.municipality||'')+'\n'
+      +'\u25a0\u9762\u7a4d: '+(l.area_sqm?Number(l.area_sqm).toLocaleString()+' \u33a1':'\u672a\u767b\u9332')+'\n'
+      +'\u25a0\u6d41\u52d5\u5316\u533a\u5206: '+(l.ryudoka_kubun||'\u2014')+'\n\n'
+      +'\u3088\u308d\u3057\u3044\u3067\u3059\u304b\uff1f\n\uff08\u8aa4\u30af\u30ea\u30c3\u30af\u306e\u5834\u5408\u306f\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u304b\u3089\u624b\u52d5\u524a\u9664\u3057\u3066\u304f\u3060\u3055\u3044\uff09';
+    if(!window.confirm(confirmMsg))return;
+
+    var createdCaseId=null;
+    try{
+      // 1. cases へINSERT
+      var caseInsert=await db.from('cases').insert({
+        case_no:caseNo,
+        kubun:'\u4f4e\u5727\u592a\u967d\u5149',
+        status:'NOT VISITED',
+        area_name:areaName,
+        price:null,
+        parent_case_no:null,
+        branch_no:null
+      }).select('id').single();
+      if(caseInsert.error)throw new Error('cases\u767b\u9332\u30a8\u30e9\u30fc: '+caseInsert.error.message);
+      createdCaseId=caseInsert.data.id;
+
+      // 2. land_info へINSERT
+      var locStr=((src.prefecture||'')+(src.municipality||'')+' '
+        +(l.oaza||'')+(l.aza||'')+(l.chiban?(' '+l.chiban):'')).trim();
+      var bikoStr='\u3010\u516c\u958b\u8fb2\u5730\u30de\u30c3\u30c1\u30f3\u30b0\u7531\u6765\u3011\n'
+        +'\u6d41\u52d5\u5316\u533a\u5206: '+(l.ryudoka_kubun||'\u2014')+'\n'
+        +'\u8fb2\u632f\u533a\u5206: '+(l.nourin_kubun||'\u2014')+'\n'
+        +'\u73fe\u6cc1: '+(l.genkyo||'\u2014')+'\n'
+        +'\u73fe\u6cc1\u8a73\u7d30: '+(l.genkyo_detail||'\u2014')+'\n'
+        +'\u51fa\u5178: '+(src.source_name||'\u2014');
+      var hasCoord=l.lat!=null&&l.lng!=null&&!isNaN(l.lat)&&!isNaN(l.lng);
+      var landRes=await db.from('land_info').insert({
+        case_id:createdCaseId,
+        area_sqm:l.area_sqm?Number(l.area_sqm):null,
+        location:locStr,
+        chiban:l.chimoku||'',
+        lat:hasCoord?Number(l.lat):null,
+        lng:hasCoord?Number(l.lng):null,
+        google_map:hasCoord?('https://www.google.com/maps?q='+Number(l.lat)+','+Number(l.lng)):'',
+        biko:bikoStr
+      });
+      if(landRes.error)throw new Error('land_info\u767b\u9332\u30a8\u30e9\u30fc: '+landRes.error.message);
+
+      // 3. listings.promoted_to_case = true
+      var updRes=await db.from('public_farmland_listings').update({promoted_to_case:true}).eq('id',l.id);
+      if(updRes.error)throw new Error('listing\u30d5\u30e9\u30b0\u66f4\u65b0\u30a8\u30e9\u30fc: '+updRes.error.message);
+
+      // 4. farmland_promoted（best effort、重複OK）
+      try{
+        await db.from('farmland_promoted').insert({feature_id:featureId,case_id:createdCaseId});
+      }catch(_){}
+
+      // 成功：ローカル状態反映
+      l.promoted_to_case=true;
+      renderSummary();
+      renderCurrentView();
+      if(currentDetailItem&&currentDetailItem.id===listingId){
+        showListingDetail(listingId);
+      }
+      showSuccessToast(caseNo);
+    }catch(e){
+      // ロールバック：作成済みcasesを削除（land_infoはCASCADE想定）
+      if(createdCaseId){
+        try{await db.from('cases').delete().eq('id',createdCaseId);}catch(_){}
+      }
+      showToast('\u6607\u683c\u5931\u6557: '+e.message,'error');
     }
-  }catch(e){
-    showToast('\u30a8\u30e9\u30fc: '+e.message,'error');
+  }finally{
+    _promotionInFlight[listingId]=false;
   }
+}
+
+function showSuccessToast(caseNo){
+  var c=document.getElementById('toastContainer');
+  var el=document.createElement('div');
+  el.className='toast success';
+  el.style.maxWidth='420px';
+  el.innerHTML='\u2705 <strong>'+escapeHtml(caseNo)+'</strong> \u3092\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u306b\u767b\u9332\u3057\u307e\u3057\u305f '
+    +'<a href="index.html" style="color:var(--blue);text-decoration:underline;margin-left:8px;font-weight:600;">\u2192 \u6848\u4ef6\u4e00\u89a7\u3078</a>';
+  c.appendChild(el);
+  setTimeout(function(){
+    el.style.opacity='0';
+    el.style.transform='translateX(100%)';
+    el.style.transition='all 0.25s';
+    setTimeout(function(){el.remove();},300);
+  },8000);
 }
 
 // ---- フィルター変更時の再描画 ----
