@@ -347,13 +347,14 @@ function _doRenderDosya(){if(!dosyaEnabled)return;if(map.getZoom()<12){if(dosyaL
 async function _fetchAndRenderDosya(){try{var b=map.getBounds().pad(0.05);var res=await db.rpc('get_dosya_in_bbox',{lat_min:b.getSouth(),lat_max:b.getNorth(),lng_min:b.getWest(),lng_max:b.getEast(),row_limit:300});if(res.error||!res.data||!res.data.length)return;if(dosyaLayer){map.removeLayer(dosyaLayer);dosyaLayer=null;}var features=res.data.map(function(row){return{type:'Feature',geometry:row.geojson,properties:{area_name:row.area_name,phenomenon:row.phenomenon,area_type:row.area_type,city_name:row.city_name,area_code:row.area_code}};});dosyaLayer=L.geoJSON({type:'FeatureCollection',features:features},{style:function(f){return getDosyaStyle(f.properties.phenomenon,f.properties.area_type);},onEachFeature:function(feature,layer){var p=feature.properties;var typeColor=p.area_type==='\u7279\u5225\u8b66\u6212\u533a\u57df'?'#dc2626':'#f59e0b';layer.on('click',function(e){L.popup({maxWidth:280,minWidth:220}).setLatLng(e.latlng).setContent('<div style="padding:12px;font-size:12px;"><div style="color:'+typeColor+';font-weight:700;margin-bottom:8px;">\u26a0\ufe0f \u571f\u7802\u707d\u5bb3'+p.area_type+'</div><div>\u73fe\u8c61\uff1a'+(p.phenomenon||'\u2014')+'</div><div>\u533a\u57df\u540d\uff1a'+(p.area_name||'\u2014')+'</div><div>\u5e02\u533a\u753a\u6751\uff1a'+(p.city_name||'\u2014')+'</div></div>').openOn(map);});layer.on('mouseover',function(){layer.setStyle({fillOpacity:0.55,weight:3});});layer.on('mouseout',function(){if(dosyaLayer)dosyaLayer.resetStyle(layer);});}}).addTo(map);dosyaLayer.bringToFront();if(markersLayer)markersLayer.bringToFront();}catch(e){showToast('\u571f\u7802\u8b66\u6212\u30dd\u30ea\u30b4\u30f3\u53d6\u5f97\u30a8\u30e9\u30fc','error');}}
 function loadDosya(){map.on('moveend',renderDosyaInView);map.on('zoomend',renderDosyaInView);renderDosyaInView();}
 // 農振農用地（10県対応：愛知=Cloudflare R2 / その他9県=GitHub Pages内 data/noshin/）
-// パフォーマンス対策：ズーム15以上で表示
+// パフォーマンス対策：ズーム15以上で表示 + Canvasレンダラ使用（SVGは数千件で重い）
 var NOSHIN_MIN_ZOOM=15;
 var noshinEnabled=false; // ボタンの状態（表示意図）
 var noshinLayer=null;    // 実際の地図レイヤー
 var noshinLoading=false;
 var noshinCache={};
 var noshinCurrentPref=null;
+var _noshinCanvasRenderer=null; // 共有Canvasレンダラ
 // 県別の境界（地図中心の緯度経度から県を判定する矩形範囲）+ ファイルパス
 // ※矩形は実際の県境にできるだけ合わせて精密化（重複時は距離で判定）
 var NOSHIN_PREF_BOUNDS={
@@ -474,12 +475,20 @@ function renderNoshinLayer(geojson,prefName,prefKey){
     noshinEnabled=false;
     return;
   }
+  // パフォーマンス対策：Canvasレンダラを使用（SVGは8000件超で重い）
+  // 専用Canvasレイヤーを作成してpadding確保
+  if(!_noshinCanvasRenderer){
+    _noshinCanvasRenderer=L.canvas({padding:0.3});
+  }
   noshinLayer=L.geoJSON(geojson,{
-    style:{color:'#ff8800',weight:1.8,fillColor:'#ffe066',fillOpacity:0.55},
+    renderer:_noshinCanvasRenderer,
+    style:{color:'#ff8800',weight:1,fillColor:'#ffe066',fillOpacity:0.5},
+    interactive:true,
     onEachFeature:function(feature,layer){
       var c=feature.properties&&feature.properties.city;
       var label=c?'農振農用地：'+c:'農振農用地：'+prefName;
-      layer.bindTooltip(label,{className:'farmland-tooltip',sticky:true});
+      // sticky:false で軽量化（マウスポイント追従なし）
+      layer.bindTooltip(label,{className:'farmland-tooltip',sticky:false});
     }
   });
   noshinLayer.addTo(map);
@@ -494,7 +503,6 @@ function renderNoshinLayer(geojson,prefName,prefKey){
     }
     var mapBounds=map.getBounds();
     if(!mapBounds.intersects(dataBounds)){
-      // データはあるが画面外
       showToast(prefName+'の農振農用地 '+fc+'件（現在の地図エリア外。データのある場所へ自動移動します）','success');
       map.fitBounds(dataBounds);
     }else{
