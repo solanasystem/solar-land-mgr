@@ -458,7 +458,8 @@ body{
       <div id="dropzone" class="dropzone">
         <div class="dropzone-icon">📂</div>
         <div class="dropzone-text">
-          <strong>ファイルをここにドロップ</strong><br>
+          <strong>eMAFF農地ナビでDLした GeoJSON ファイル をここにドロップ</strong><br>
+          <span style="color:var(--warning);font-size:12px;">⚠️ ZIPファイル不可（eMAFFで「GeoJSON」を選んでください）</span><br>
           または<button id="btnSelectFile" class="button button-secondary" style="margin-top:10px;">ファイルを選択</button>
         </div>
         <input id="fileInput" type="file" accept=".geojson,.json" multiple style="display:none;">
@@ -703,30 +704,63 @@ async function handleFiles(files){
 }
 function loadOneFile(file){
   return new Promise(function(resolve){
+    // 拡張子チェック：ZIP は eMAFF農地ナビからのDLではない
+    var name=file.name.toLowerCase();
+    if(name.endsWith('.zip')){
+      loadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'❌ ZIPファイルは未対応。eMAFF農地ナビから「GeoJSON」形式でDLしてください'});
+      showToast('❌ '+file.name+' は ZIPファイルです。eMAFF農地ナビで「GeoJSON」を選んでDLしてください','error');
+      resolve();
+      return;
+    }
+    if(!name.endsWith('.geojson')&&!name.endsWith('.json')){
+      loadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'❌ 拡張子が .geojson または .json でない'});
+      showToast('❌ '+file.name+' は対応外の形式','error');
+      resolve();
+      return;
+    }
     var reader=new FileReader();
     reader.onload=function(e){
+      var text=e.target.result;
+      // ZIPシグネチャチェック（先頭が PK = 0x504B）
+      if(text.length>2&&text.charCodeAt(0)===0x50&&text.charCodeAt(1)===0x4B){
+        loadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'❌ 中身がZIPファイル。eMAFF農地ナビからGeoJSONをDLしてください'});
+        showToast('❌ '+file.name+' は中身がZIPファイル。拡張子を変えてもZIPはZIPです。eMAFF農地ナビで「GeoJSON」を選んでDLしてください','error');
+        resolve();
+        return;
+      }
       try{
-        var json=JSON.parse(e.target.result);
+        var json=JSON.parse(text);
         var feats=json.features||[];
+        if(!Array.isArray(feats)){
+          loadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'❌ GeoJSON 形式ではありません（features配列なし）'});
+          showToast('❌ '+file.name+' は GeoJSON ではありません','error');
+          resolve();
+          return;
+        }
+        if(feats.length===0){
+          loadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'⚠️ features配列が空。範囲外でDLされた可能性'});
+          showToast('⚠️ '+file.name+' は空のGeoJSON','warning');
+          resolve();
+          return;
+        }
         // featuresを加える（重複排除はuid属性ベース）
         var added=0;
         feats.forEach(function(f){
-          // uidまたはfid+座標で重複判定
           var key=getFeatureKey(f);
           if(emaffFeatures.find(function(x){return getFeatureKey(x)===key;}))return;
           emaffFeatures.push(f);
           added++;
         });
         loadedFiles.push({name:file.name,size:file.size,total:feats.length,added:added,status:'success'});
-        showToast(file.name+': '+feats.length+'件中 '+added+'件追加','success');
+        showToast('✅ '+file.name+': '+feats.length+'件中 '+added+'件追加','success');
       }catch(err){
-        loadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:err.message});
-        showToast(file.name+': 読込失敗 '+err.message,'error');
+        loadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'❌ JSON解析エラー: '+err.message});
+        showToast('❌ '+file.name+' の読込失敗: '+err.message,'error');
       }
       resolve();
     };
     reader.onerror=function(){
-      loadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'読込エラー'});
+      loadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'❌ ファイル読込エラー'});
       resolve();
     };
     reader.readAsText(file);
