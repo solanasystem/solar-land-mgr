@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>eMAFF Importer | SOLAR LAND MGR</title>
+<link rel="stylesheet" href="mobile-responsive.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#0d1117;
+  --bg-card:#161b22;
+  --bg-card-2:#1c2128;
+  --border:#30363d;
+  --border-hover:#484f58;
+  --text:#e6edf3;
+  --text-muted:#7d8590;
+  --accent:#58a6ff;
+  --accent-hover:#79b8ff;
+  --success:#3fb950;
+  --warning:#fbbf24;
+  --error:#f85149;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Sans","Noto Sans JP",sans-serif;
+  font-size:14px;
+  line-height:1.6;
+  min-height:100vh;
+}
+.header{
+  background:var(--bg-card);
+  border-bottom:1px solid var(--border);
+  padding:14px 24px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:12px;
+}
+.header h1{
+  font-size:18px;
+  font-weight:700;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.header h1 .logo-icon{font-size:20px;}
+.nav-links{display:flex;gap:8px;flex-wrap:wrap;}
+.nav-link{
+  padding:6px 14px;
+  background:var(--bg-card-2);
+  border:1px solid var(--border);
+  color:var(--text);
+  text-decoration:none;
+  border-radius:6px;
+  font-size:13px;
+  transition:all 0.15s;
+}
+.nav-link:hover{background:var(--bg-card);border-color:var(--border-hover);}
+.container{
+  max-width:980px;
+  margin:0 auto;
+  padding:24px;
+}
+.intro{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:18px 22px;
+  margin-bottom:24px;
+}
+.intro h2{
+  font-size:16px;
+  font-weight:700;
+  margin-bottom:10px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.intro p{color:var(--text-muted);font-size:13px;line-height:1.7;}
+.step-card{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:22px;
+  margin-bottom:18px;
+  position:relative;
+}
+.step-number{
+  position:absolute;
+  top:-12px;
+  left:18px;
+  width:28px;
+  height:28px;
+  background:var(--accent);
+  color:#0d1117;
+  border-radius:50%;
+  font-weight:800;
+  font-size:14px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.step-title{
+  font-size:15px;
+  font-weight:700;
+  margin-bottom:14px;
+  margin-left:36px;
+}
+.step-body{margin-left:0;}
+.field-group{margin-bottom:14px;}
+.field-label{
+  font-size:12px;
+  color:var(--text-muted);
+  margin-bottom:6px;
+  font-weight:600;
+}
+.select,.button,.input{
+  background:var(--bg-card-2);
+  border:1px solid var(--border);
+  color:var(--text);
+  padding:10px 14px;
+  border-radius:6px;
+  font-size:14px;
+  font-family:inherit;
+  outline:none;
+  transition:all 0.15s;
+}
+.select:hover,.input:hover{border-color:var(--border-hover);}
+.select:focus,.input:focus{border-color:var(--accent);}
+.select{
+  cursor:pointer;
+  width:100%;
+  appearance:none;
+  background-image:url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237d8590' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
+  background-repeat:no-repeat;
+  background-position:right 10px center;
+  background-size:16px;
+  padding-right:36px;
+}
+.button{
+  cursor:pointer;
+  font-weight:600;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+}
+.button:disabled{opacity:0.5;cursor:not-allowed;}
+.button-primary{
+  background:var(--accent);
+  color:#0d1117;
+  border-color:var(--accent);
+}
+.button-primary:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover);}
+.button-success{
+  background:var(--success);
+  color:#0d1117;
+  border-color:var(--success);
+}
+.button-success:hover:not(:disabled){background:#56d364;border-color:#56d364;}
+.button-secondary{
+  background:var(--bg-card-2);
+  color:var(--text);
+  border:1px solid var(--border);
+}
+.button-secondary:hover:not(:disabled){background:var(--bg-card);border-color:var(--border-hover);}
+.guide-list{
+  background:var(--bg-card-2);
+  border-left:3px solid var(--accent);
+  border-radius:6px;
+  padding:12px 18px;
+  margin-top:12px;
+  list-style:none;
+  counter-reset:guide;
+}
+.guide-list li{
+  counter-increment:guide;
+  padding:4px 0 4px 28px;
+  position:relative;
+  font-size:13px;
+  color:var(--text-muted);
+}
+.guide-list li::before{
+  content:counter(guide);
+  position:absolute;
+  left:0;
+  top:5px;
+  width:20px;
+  height:20px;
+  background:var(--accent);
+  color:#0d1117;
+  border-radius:50%;
+  font-size:11px;
+  font-weight:800;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.dropzone{
+  border:2px dashed var(--border);
+  border-radius:10px;
+  padding:42px 22px;
+  text-align:center;
+  cursor:pointer;
+  transition:all 0.15s;
+  background:var(--bg-card-2);
+}
+.dropzone:hover{border-color:var(--accent);background:rgba(88,166,255,0.05);}
+.dropzone.dragover{border-color:var(--accent);background:rgba(88,166,255,0.1);}
+.dropzone-icon{font-size:36px;margin-bottom:8px;}
+.dropzone-text{font-size:14px;color:var(--text-muted);}
+.dropzone-text strong{color:var(--text);}
+.file-list{
+  margin-top:14px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.file-item{
+  background:var(--bg-card-2);
+  border:1px solid var(--border);
+  border-radius:6px;
+  padding:8px 12px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-size:13px;
+}
+.file-item .file-name{flex:1;font-weight:600;}
+.file-item .file-meta{color:var(--text-muted);font-size:11px;}
+.file-item .file-status{font-size:16px;}
+.result-summary{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:12px;
+  margin-top:14px;
+}
+.stat-card{
+  background:var(--bg-card-2);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:14px;
+  text-align:center;
+}
+.stat-card .stat-value{
+  font-size:24px;
+  font-weight:800;
+  margin-bottom:4px;
+}
+.stat-card .stat-label{
+  font-size:11px;
+  color:var(--text-muted);
+  text-transform:uppercase;
+  letter-spacing:0.5px;
+}
+.stat-card.success .stat-value{color:var(--success);}
+.stat-card.warning .stat-value{color:var(--warning);}
+.stat-card.error .stat-value{color:var(--error);}
+.stat-card.info .stat-value{color:var(--accent);}
+.detail-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:12px;
+  margin-top:14px;
+}
+.detail-table th,.detail-table td{
+  padding:8px 10px;
+  text-align:left;
+  border-bottom:1px solid var(--border);
+}
+.detail-table th{
+  background:var(--bg-card-2);
+  font-size:11px;
+  color:var(--text-muted);
+  text-transform:uppercase;
+  letter-spacing:0.3px;
+  font-weight:600;
+}
+.detail-table tr:hover{background:rgba(88,166,255,0.04);}
+.toast{
+  position:fixed;
+  bottom:30px;
+  right:30px;
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-left:4px solid var(--accent);
+  padding:14px 20px;
+  border-radius:8px;
+  box-shadow:0 4px 16px rgba(0,0,0,0.4);
+  z-index:1000;
+  max-width:400px;
+  font-size:13px;
+  animation:slideIn 0.3s ease-out;
+}
+.toast.success{border-left-color:var(--success);}
+.toast.error{border-left-color:var(--error);}
+.toast.warning{border-left-color:var(--warning);}
+@keyframes slideIn{from{transform:translateX(20px);opacity:0;}to{transform:translateX(0);opacity:1;}}
+.action-row{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-top:14px;
+}
+.expandable-section{
+  margin-top:12px;
+  border:1px solid var(--border);
+  border-radius:6px;
+  background:var(--bg-card-2);
+}
+.expandable-header{
+  padding:10px 14px;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  font-size:13px;
+  font-weight:600;
+}
+.expandable-header:hover{background:rgba(88,166,255,0.04);}
+.expandable-content{
+  padding:0 14px 14px;
+  display:none;
+  max-height:400px;
+  overflow-y:auto;
+}
+.expandable-section.open .expandable-content{display:block;}
+.expandable-section.open .expand-icon{transform:rotate(90deg);}
+.expand-icon{transition:transform 0.2s;}
+.loading-overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(13,17,23,0.85);
+  z-index:999;
+  display:none;
+  align-items:center;
+  justify-content:center;
+}
+.loading-overlay.show{display:flex;}
+.loading-content{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:28px 36px;
+  text-align:center;
+  min-width:280px;
+}
+.loading-spinner{
+  width:36px;
+  height:36px;
+  border:3px solid var(--border);
+  border-top-color:var(--accent);
+  border-radius:50%;
+  margin:0 auto 14px;
+  animation:spin 0.8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+.warning-box{
+  background:rgba(251,191,36,0.1);
+  border:1px solid rgba(251,191,36,0.3);
+  border-radius:6px;
+  padding:10px 14px;
+  margin-top:10px;
+  font-size:12px;
+  color:var(--warning);
+}
+.tip{
+  background:rgba(88,166,255,0.08);
+  border-left:3px solid var(--accent);
+  padding:10px 14px;
+  border-radius:6px;
+  margin-top:10px;
+  font-size:12px;
+  color:var(--text-muted);
+}
+.muted{color:var(--text-muted);font-size:12px;margin-top:6px;}
+.match-pct{
+  display:inline-block;
+  padding:2px 10px;
+  border-radius:10px;
+  font-size:11px;
+  font-weight:700;
+}
+.match-pct.high{background:rgba(63,185,80,0.15);color:var(--success);}
+.match-pct.mid{background:rgba(251,191,36,0.15);color:var(--warning);}
+.match-pct.low{background:rgba(248,81,73,0.15);color:var(--error);}
+@media (max-width: 768px){
+  .container{padding:14px;}
+  .step-card{padding:16px;}
+  .step-title{margin-left:32px;font-size:14px;}
+  .header{padding:12px 14px;}
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <h1><span class="logo-icon">📥</span>eMAFF農地ナビ Importer</h1>
+  <nav class="nav-links">
+    <a href="index.html" class="nav-link">← 案件一覧</a>
+    <a href="farmland-tracker.html" class="nav-link">🌾 農地変更トラッカー</a>
+    <a href="public-farmland.html" class="nav-link">📋 公開農地</a>
+  </nav>
+</header>
+
+<div class="container">
+
+  <div class="intro">
+    <h2>🎯 公開農地マッチング情報の座標精度を向上</h2>
+    <p>
+      eMAFF農地ナビからGeoJSONをダウンロードし、現在登録されている物件（字レベル精度・誤差100〜200m）と地番JOINで紐付けることで、座標を<strong style="color:var(--accent);">番地レベル精度（誤差数m〜数十m）</strong>に置換します。<br>
+      これにより、AI自動判定（農振農用地・ハザード）の対象に復帰させることができます。
+    </p>
+  </div>
+
+  <!-- Step 1 -->
+  <div class="step-card">
+    <div class="step-number">1</div>
+    <div class="step-title">対象自治体を選択</div>
+    <div class="step-body">
+      <div class="field-group">
+        <div class="field-label">公開農地マッチング情報が登録されている自治体</div>
+        <select id="sourceSelect" class="select">
+          <option value="">読み込み中...</option>
+        </select>
+      </div>
+      <div id="sourceInfo" class="muted"></div>
+    </div>
+  </div>
+
+  <!-- Step 2 -->
+  <div class="step-card">
+    <div class="step-number">2</div>
+    <div class="step-title">eMAFFでデータをダウンロード</div>
+    <div class="step-body">
+      <button id="btnOpenEmaff" class="button button-primary">🌐 eMAFF農地ナビを新しいタブで開く</button>
+      <ol class="guide-list">
+        <li>新しいタブでeMAFFが開きます（自治体の中心座標で表示）</li>
+        <li>地図のズームを<strong style="color:var(--text);">14以上</strong>にする（DLボタンが有効化）</li>
+        <li>上部メニューの<strong style="color:var(--text);">「ダウンロード」</strong>をクリック</li>
+        <li>形式は<strong style="color:var(--text);">「GeoJSON」</strong>を選択</li>
+        <li>範囲が広い場合は<strong style="color:var(--text);">複数回に分けて</strong>DL（北部・中部・南部など）</li>
+        <li>DLしたファイルをこのページに戻り、Step 3にドロップ</li>
+      </ol>
+      <div class="tip">💡 1ファイルずつDLしてその都度ドロップしてもOK。マルチアップロード対応です。</div>
+    </div>
+  </div>
+
+  <!-- Step 3 -->
+  <div class="step-card">
+    <div class="step-number">3</div>
+    <div class="step-title">GeoJSONファイルを取り込み</div>
+    <div class="step-body">
+      <div id="dropzone" class="dropzone">
+        <div class="dropzone-icon">📂</div>
+        <div class="dropzone-text">
+          <strong>ファイルをここにドロップ</strong><br>
+          または<button id="btnSelectFile" class="button button-secondary" style="margin-top:10px;">ファイルを選択</button>
+        </div>
+        <input id="fileInput" type="file" accept=".geojson,.json" multiple style="display:none;">
+      </div>
+      <div id="fileList" class="file-list"></div>
+      <div id="loadedSummary" class="muted" style="margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <!-- Step 4 -->
+  <div class="step-card" id="step4Card" style="opacity:0.5;pointer-events:none;">
+    <div class="step-number">4</div>
+    <div class="step-title">マッチング実行＆DB更新</div>
+    <div class="step-body">
+      <button id="btnMatch" class="button button-primary" disabled>🚀 物件と突合する（プレビュー）</button>
+      <div class="muted">※プレビュー段階ではDBは更新されません。結果を確認してから保存します。</div>
+
+      <div id="matchResult" style="display:none;margin-top:16px;">
+        <div class="result-summary">
+          <div class="stat-card info">
+            <div class="stat-value" id="statTotal">—</div>
+            <div class="stat-label">対象物件</div>
+          </div>
+          <div class="stat-card success">
+            <div class="stat-value" id="statMatched">—</div>
+            <div class="stat-label">マッチ</div>
+          </div>
+          <div class="stat-card warning">
+            <div class="stat-value" id="statUnmatched">—</div>
+            <div class="stat-label">不一致</div>
+          </div>
+          <div class="stat-card info">
+            <div class="stat-value" id="statRate">—</div>
+            <div class="stat-label">マッチ率</div>
+          </div>
+        </div>
+
+        <div id="matchedSection" class="expandable-section">
+          <div class="expandable-header" onclick="toggleSection('matchedSection')">
+            <span><span class="expand-icon">▶</span> マッチした物件 (<span id="matchedCount">0</span>)</span>
+            <span class="muted">座標が高精度に更新される物件</span>
+          </div>
+          <div class="expandable-content">
+            <table class="detail-table">
+              <thead>
+                <tr>
+                  <th>大字+字</th>
+                  <th>地番</th>
+                  <th>現在 lat,lng</th>
+                  <th>新 lat,lng</th>
+                  <th>距離(m)</th>
+                </tr>
+              </thead>
+              <tbody id="matchedTable"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="unmatchedSection" class="expandable-section">
+          <div class="expandable-header" onclick="toggleSection('unmatchedSection')">
+            <span><span class="expand-icon">▶</span> 不一致の物件 (<span id="unmatchedCount">0</span>)</span>
+            <span class="muted">字名表記揺れや地番違いなど</span>
+          </div>
+          <div class="expandable-content">
+            <table class="detail-table">
+              <thead>
+                <tr>
+                  <th>大字+字</th>
+                  <th>地番</th>
+                  <th>現在 lat,lng</th>
+                  <th>原因(推定)</th>
+                </tr>
+              </thead>
+              <tbody id="unmatchedTable"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="action-row">
+          <button id="btnSave" class="button button-success">💾 DBに保存（座標を高精度に更新）</button>
+          <button id="btnReset" class="button button-secondary">🔄 やり直し</button>
+        </div>
+        <div class="warning-box" id="saveWarning" style="display:none;">
+          ⚠️ 保存実行後、AI自動判定でこれらの物件は対象に復帰します（geocode_confidence='high'）。
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-content">
+    <div class="loading-spinner"></div>
+    <div id="loadingText">処理中...</div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Supabase 接続（farmland-tracker.html と同じ設定）
+// ============================================================
+var SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
+var SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+var db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+// ============================================================
+// State
+// ============================================================
+var sources=[]; // 自治体マスタ
+var listings=[]; // 選択した自治体の物件
+var emaffFeatures=[]; // 取り込んだeMAFF全feature
+var matchResult=null; // マッチ結果
+var loadedFiles=[]; // 取り込んだファイル名リスト
+
+// ============================================================
+// 初期化
+// ============================================================
+document.addEventListener('DOMContentLoaded',function(){
+  loadSources();
+  initDropzone();
+  document.getElementById('sourceSelect').addEventListener('change',onSourceChange);
+  document.getElementById('btnOpenEmaff').addEventListener('click',openEmaff);
+  document.getElementById('btnSelectFile').addEventListener('click',function(e){
+    e.stopPropagation();
+    document.getElementById('fileInput').click();
+  });
+  document.getElementById('fileInput').addEventListener('change',onFileInputChange);
+  document.getElementById('btnMatch').addEventListener('click',runMatching);
+  document.getElementById('btnSave').addEventListener('click',saveToDb);
+  document.getElementById('btnReset').addEventListener('click',resetAll);
+});
+
+// ============================================================
+// Step 1: 自治体マスタ読込
+// ============================================================
+async function loadSources(){
+  showLoading('自治体マスタを読込中...');
+  try{
+    var res=await db.from('public_farmland_sources').select('id,prefecture,municipality,source_name,source_type');
+    if(res.error)throw res.error;
+    sources=res.data||[];
+    var sel=document.getElementById('sourceSelect');
+    sel.innerHTML='<option value="">選択してください</option>';
+    if(sources.length===0){
+      sel.innerHTML='<option value="">自治体マスタが空です</option>';
+      hideLoading();
+      return;
+    }
+    // 件数取得
+    for(var i=0;i<sources.length;i++){
+      var s=sources[i];
+      var c=await db.from('public_farmland_listings').select('id',{count:'exact',head:true}).eq('source_id',s.id);
+      s.count=c.count||0;
+    }
+    sources.forEach(function(s){
+      var opt=document.createElement('option');
+      opt.value=s.id;
+      opt.textContent=s.prefecture+' '+s.municipality+' ('+s.count+'件 / '+s.source_type+')';
+      sel.appendChild(opt);
+    });
+  }catch(e){
+    showToast('自治体マスタ読込エラー: '+e.message,'error');
+  }
+  hideLoading();
+}
+
+async function onSourceChange(){
+  var id=parseInt(document.getElementById('sourceSelect').value,10);
+  if(!id){
+    listings=[];
+    document.getElementById('sourceInfo').textContent='';
+    return;
+  }
+  showLoading('物件データを読込中...');
+  try{
+    var res=await db.from('public_farmland_listings').select('id,oaza,aza,chiban,area_sqm,lat,lng,geocode_confidence,geocode_source').eq('source_id',id).limit(20000);
+    if(res.error)throw res.error;
+    listings=res.data||[];
+    var s=sources.find(function(x){return x.id===id;});
+    var lowConf=listings.filter(function(l){return l.geocode_confidence!=='high';}).length;
+    document.getElementById('sourceInfo').innerHTML='✅ '+s.prefecture+s.municipality+' の物件 '+listings.length+'件を読込済み<br>うち低精度（high以外）: '+lowConf+'件 → これらが今回の更新対象';
+  }catch(e){
+    showToast('物件読込エラー: '+e.message,'error');
+  }
+  hideLoading();
+}
+
+// ============================================================
+// Step 2: eMAFF を新しいタブで開く
+// ============================================================
+async function openEmaff(){
+  var id=parseInt(document.getElementById('sourceSelect').value,10);
+  if(!id){
+    showToast('先に自治体を選択してください','warning');
+    return;
+  }
+  // 物件の中心座標を計算
+  var withCoords=listings.filter(function(l){return l.lat&&l.lng;});
+  if(withCoords.length===0){
+    // 自治体名で検索開く
+    window.open('https://map.maff.go.jp/','_blank');
+    return;
+  }
+  var avgLat=withCoords.reduce(function(a,l){return a+parseFloat(l.lat);},0)/withCoords.length;
+  var avgLng=withCoords.reduce(function(a,l){return a+parseFloat(l.lng);},0)/withCoords.length;
+  // eMAFF はクエリパラメータで初期座標指定可能
+  var url='https://map.maff.go.jp/?z=15&clat='+avgLat.toFixed(6)+'&clon='+avgLng.toFixed(6);
+  window.open(url,'_blank');
+  showToast('eMAFFを新しいタブで開きました（自治体中心座標にプリセット）','success');
+}
+
+// ============================================================
+// Step 3: ファイル取込
+// ============================================================
+function initDropzone(){
+  var dz=document.getElementById('dropzone');
+  dz.addEventListener('click',function(){document.getElementById('fileInput').click();});
+  dz.addEventListener('dragover',function(e){
+    e.preventDefault();
+    dz.classList.add('dragover');
+  });
+  dz.addEventListener('dragleave',function(){
+    dz.classList.remove('dragover');
+  });
+  dz.addEventListener('drop',function(e){
+    e.preventDefault();
+    dz.classList.remove('dragover');
+    var files=Array.from(e.dataTransfer.files);
+    handleFiles(files);
+  });
+}
+function onFileInputChange(e){
+  handleFiles(Array.from(e.target.files));
+}
+async function handleFiles(files){
+  for(var i=0;i<files.length;i++){
+    await loadOneFile(files[i]);
+  }
+  updateFileList();
+  updateStep4State();
+}
+function loadOneFile(file){
+  return new Promise(function(resolve){
+    var reader=new FileReader();
+    reader.onload=function(e){
+      try{
+        var json=JSON.parse(e.target.result);
+        var feats=json.features||[];
+        // featuresを加える（重複排除はuid属性ベース）
+        var added=0;
+        feats.forEach(function(f){
+          // uidまたはfid+座標で重複判定
+          var key=getFeatureKey(f);
+          if(emaffFeatures.find(function(x){return getFeatureKey(x)===key;}))return;
+          emaffFeatures.push(f);
+          added++;
+        });
+        loadedFiles.push({name:file.name,size:file.size,total:feats.length,added:added,status:'success'});
+        showToast(file.name+': '+feats.length+'件中 '+added+'件追加','success');
+      }catch(err){
+        loadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:err.message});
+        showToast(file.name+': 読込失敗 '+err.message,'error');
+      }
+      resolve();
+    };
+    reader.onerror=function(){
+      loadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'読込エラー'});
+      resolve();
+    };
+    reader.readAsText(file);
+  });
+}
+function getFeatureKey(f){
+  var p=f.properties||{};
+  // uidがあれば使う、なければaddress+tibanで合成
+  if(p.uid)return 'uid:'+p.uid;
+  if(p.fid)return 'fid:'+p.fid;
+  var c=f.geometry&&f.geometry.coordinates;
+  if(c)return 'coord:'+c[0].toFixed(6)+','+c[1].toFixed(6)+'/'+(p.Tiban||'');
+  return JSON.stringify(p);
+}
+function updateFileList(){
+  var fl=document.getElementById('fileList');
+  fl.innerHTML='';
+  loadedFiles.forEach(function(f){
+    var div=document.createElement('div');
+    div.className='file-item';
+    div.innerHTML=
+      '<span class="file-status">'+(f.status==='success'?'✅':'❌')+'</span>'+
+      '<span class="file-name">'+escapeHtml(f.name)+'</span>'+
+      '<span class="file-meta">'+(f.status==='success'?(f.total+'件 (新規 '+f.added+'件)'):f.error)+'</span>';
+    fl.appendChild(div);
+  });
+  document.getElementById('loadedSummary').textContent='累計取込数: '+emaffFeatures.length+'件 / '+loadedFiles.filter(function(f){return f.status==='success';}).length+'ファイル';
+}
+function updateStep4State(){
+  var ok=emaffFeatures.length>0&&listings.length>0;
+  document.getElementById('btnMatch').disabled=!ok;
+  document.getElementById('step4Card').style.opacity=ok?'1':'0.5';
+  document.getElementById('step4Card').style.pointerEvents=ok?'auto':'none';
+}
+
+// ============================================================
+// Step 4: マッチング
+// ============================================================
+function runMatching(){
+  showLoading('マッチング処理中...');
+  setTimeout(function(){
+    try{
+      var matched=[],unmatched=[];
+      // eMAFF feature を「Address内に含まれる字 + Tiban」でインデックス化
+      var emaffByTiban={};
+      emaffFeatures.forEach(function(f){
+        var p=f.properties||{};
+        var tiban=String(p.Tiban||p.tiban||'').trim();
+        if(!tiban)return;
+        if(!emaffByTiban[tiban])emaffByTiban[tiban]=[];
+        emaffByTiban[tiban].push(f);
+      });
+      // listing 1件ずつマッチング
+      listings.forEach(function(l){
+        // 既に高精度なものはスキップ
+        if(l.geocode_confidence==='high'){return;}
+        var tiban=String(l.chiban||'').trim();
+        if(!tiban){
+          unmatched.push({listing:l,reason:'地番なし'});
+          return;
+        }
+        var candidates=emaffByTiban[tiban]||[];
+        if(candidates.length===0){
+          unmatched.push({listing:l,reason:'地番一致なし'});
+          return;
+        }
+        // address に oaza+aza が含まれるかチェック
+        var oaza=String(l.oaza||'').trim();
+        var aza=String(l.aza||'').trim();
+        var hit=null;
+        for(var i=0;i<candidates.length;i++){
+          var addr=String(candidates[i].properties.Address||candidates[i].properties.address||'');
+          if(oaza&&addr.indexOf(oaza)<0)continue;
+          if(aza&&addr.indexOf(aza)<0)continue;
+          hit=candidates[i];
+          break;
+        }
+        if(!hit){
+          unmatched.push({listing:l,reason:'字名不一致 ('+candidates.length+'地番候補あり)',candidates:candidates});
+          return;
+        }
+        // 座標取得
+        var c=hit.geometry&&hit.geometry.coordinates;
+        if(!c||c.length<2){
+          unmatched.push({listing:l,reason:'座標欠損'});
+          return;
+        }
+        var newLng=parseFloat(c[0]);
+        var newLat=parseFloat(c[1]);
+        if(isNaN(newLat)||isNaN(newLng)){
+          unmatched.push({listing:l,reason:'座標不正'});
+          return;
+        }
+        var distM=null;
+        if(l.lat&&l.lng){
+          distM=haversineMeters(parseFloat(l.lat),parseFloat(l.lng),newLat,newLng);
+        }
+        matched.push({
+          listing:l,
+          newLat:newLat,
+          newLng:newLng,
+          distance:distM,
+          emaffProps:hit.properties
+        });
+      });
+      matchResult={matched:matched,unmatched:unmatched};
+      renderResult();
+      hideLoading();
+    }catch(e){
+      hideLoading();
+      showToast('マッチングエラー: '+e.message,'error');
+    }
+  },50);
+}
+function haversineMeters(lat1,lng1,lat2,lng2){
+  var R=6371000;
+  var toRad=function(d){return d*Math.PI/180;};
+  var dLat=toRad(lat2-lat1);
+  var dLng=toRad(lng2-lng1);
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+
+    Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function renderResult(){
+  var totalTarget=listings.filter(function(l){return l.geocode_confidence!=='high';}).length;
+  document.getElementById('statTotal').textContent=totalTarget;
+  document.getElementById('statMatched').textContent=matchResult.matched.length;
+  document.getElementById('statUnmatched').textContent=matchResult.unmatched.length;
+  var rate=totalTarget>0?(matchResult.matched.length/totalTarget*100):0;
+  var rateText=rate.toFixed(1)+'%';
+  var rateEl=document.getElementById('statRate');
+  rateEl.innerHTML='<span class="match-pct '+(rate>=80?'high':rate>=50?'mid':'low')+'">'+rateText+'</span>';
+  document.getElementById('matchedCount').textContent=matchResult.matched.length;
+  document.getElementById('unmatchedCount').textContent=matchResult.unmatched.length;
+  // matched table
+  var mt=document.getElementById('matchedTable');
+  mt.innerHTML='';
+  matchResult.matched.slice(0,500).forEach(function(m){
+    var tr=document.createElement('tr');
+    tr.innerHTML=
+      '<td>'+escapeHtml((m.listing.oaza||'')+(m.listing.aza||''))+'</td>'+
+      '<td>'+escapeHtml(m.listing.chiban||'')+'</td>'+
+      '<td>'+(m.listing.lat?Number(m.listing.lat).toFixed(6)+', '+Number(m.listing.lng).toFixed(6):'—')+'</td>'+
+      '<td style="color:var(--success);">'+m.newLat.toFixed(6)+', '+m.newLng.toFixed(6)+'</td>'+
+      '<td>'+(m.distance?Math.round(m.distance)+'m':'新規')+'</td>';
+    mt.appendChild(tr);
+  });
+  if(matchResult.matched.length>500){
+    var note=document.createElement('tr');
+    note.innerHTML='<td colspan="5" style="text-align:center;color:var(--text-muted);">…他 '+(matchResult.matched.length-500)+'件</td>';
+    mt.appendChild(note);
+  }
+  // unmatched table
+  var ut=document.getElementById('unmatchedTable');
+  ut.innerHTML='';
+  matchResult.unmatched.slice(0,500).forEach(function(u){
+    var tr=document.createElement('tr');
+    tr.innerHTML=
+      '<td>'+escapeHtml((u.listing.oaza||'')+(u.listing.aza||''))+'</td>'+
+      '<td>'+escapeHtml(u.listing.chiban||'')+'</td>'+
+      '<td>'+(u.listing.lat?Number(u.listing.lat).toFixed(6)+', '+Number(u.listing.lng).toFixed(6):'—')+'</td>'+
+      '<td style="color:var(--warning);">'+escapeHtml(u.reason)+'</td>';
+    ut.appendChild(tr);
+  });
+  if(matchResult.unmatched.length>500){
+    var note=document.createElement('tr');
+    note.innerHTML='<td colspan="4" style="text-align:center;color:var(--text-muted);">…他 '+(matchResult.unmatched.length-500)+'件</td>';
+    ut.appendChild(note);
+  }
+  document.getElementById('matchResult').style.display='block';
+  document.getElementById('saveWarning').style.display=matchResult.matched.length>0?'block':'none';
+  document.getElementById('btnSave').disabled=matchResult.matched.length===0;
+}
+function toggleSection(id){
+  document.getElementById(id).classList.toggle('open');
+}
+
+// ============================================================
+// DB保存
+// ============================================================
+async function saveToDb(){
+  if(!matchResult||matchResult.matched.length===0){
+    showToast('保存対象がありません','warning');
+    return;
+  }
+  if(!confirm(matchResult.matched.length+'件の物件の座標を更新します。\n\ngeocode_source = "emaff_geojson"\ngeocode_confidence = "high"\n\nAI自動判定対象に復帰します。\n実行しますか？'))return;
+  showLoading('DBに保存中... (0/'+matchResult.matched.length+')');
+  var saved=0,failed=0;
+  try{
+    for(var i=0;i<matchResult.matched.length;i++){
+      var m=matchResult.matched[i];
+      var upd={
+        lat:m.newLat,
+        lng:m.newLng,
+        geocode_source:'emaff_geojson',
+        geocode_confidence:'high',
+        geocode_note:'eMAFF GeoJSON 突合 ('+new Date().toISOString().substring(0,10)+')',
+        updated_at:new Date().toISOString()
+      };
+      var r=await db.from('public_farmland_listings').update(upd).eq('id',m.listing.id);
+      if(r.error){
+        failed++;
+        console.warn('更新失敗:',m.listing.id,r.error);
+      }else{
+        saved++;
+      }
+      if(i%10===0){
+        document.getElementById('loadingText').textContent='DBに保存中... ('+(i+1)+'/'+matchResult.matched.length+')';
+        await new Promise(function(r){setTimeout(r,0);});
+      }
+    }
+    hideLoading();
+    showToast('完了：保存 '+saved+'件 / 失敗 '+failed+'件','success');
+    // listings を再読込
+    await onSourceChange();
+    // matchResult クリア
+    matchResult=null;
+    document.getElementById('matchResult').style.display='none';
+  }catch(e){
+    hideLoading();
+    showToast('保存エラー: '+e.message,'error');
+  }
+}
+
+// ============================================================
+// リセット
+// ============================================================
+function resetAll(){
+  if(!confirm('取込内容をすべてクリアします（DB変更には影響しません）'))return;
+  emaffFeatures=[];
+  loadedFiles=[];
+  matchResult=null;
+  document.getElementById('fileList').innerHTML='';
+  document.getElementById('loadedSummary').textContent='';
+  document.getElementById('matchResult').style.display='none';
+  document.getElementById('fileInput').value='';
+  updateStep4State();
+  showToast('リセットしました','success');
+}
+
+// ============================================================
+// ユーティリティ
+// ============================================================
+function showLoading(t){
+  document.getElementById('loadingText').textContent=t;
+  document.getElementById('loadingOverlay').classList.add('show');
+}
+function hideLoading(){
+  document.getElementById('loadingOverlay').classList.remove('show');
+}
+function showToast(msg,type){
+  var t=document.createElement('div');
+  t.className='toast '+(type||'');
+  t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(function(){t.style.opacity='0';t.style.transition='opacity 0.3s';},3500);
+  setTimeout(function(){t.remove();},3900);
+}
+function escapeHtml(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+
+</body>
+</html>
