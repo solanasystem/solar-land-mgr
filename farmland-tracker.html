@@ -346,9 +346,79 @@ function renderDosyaInView(){if(dosyaRenderTimer)clearTimeout(dosyaRenderTimer);
 function _doRenderDosya(){if(!dosyaEnabled)return;if(map.getZoom()<12){if(dosyaLayer){map.removeLayer(dosyaLayer);dosyaLayer=null;}showToast('\u30ba\u30fc\u30e012\u4ee5\u4e0a\u3067\u571f\u7802\u8b66\u6212\u30dd\u30ea\u30b4\u30f3\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error');return;}_fetchAndRenderDosya();}
 async function _fetchAndRenderDosya(){try{var b=map.getBounds().pad(0.05);var res=await db.rpc('get_dosya_in_bbox',{lat_min:b.getSouth(),lat_max:b.getNorth(),lng_min:b.getWest(),lng_max:b.getEast(),row_limit:300});if(res.error||!res.data||!res.data.length)return;if(dosyaLayer){map.removeLayer(dosyaLayer);dosyaLayer=null;}var features=res.data.map(function(row){return{type:'Feature',geometry:row.geojson,properties:{area_name:row.area_name,phenomenon:row.phenomenon,area_type:row.area_type,city_name:row.city_name,area_code:row.area_code}};});dosyaLayer=L.geoJSON({type:'FeatureCollection',features:features},{style:function(f){return getDosyaStyle(f.properties.phenomenon,f.properties.area_type);},onEachFeature:function(feature,layer){var p=feature.properties;var typeColor=p.area_type==='\u7279\u5225\u8b66\u6212\u533a\u57df'?'#dc2626':'#f59e0b';layer.on('click',function(e){L.popup({maxWidth:280,minWidth:220}).setLatLng(e.latlng).setContent('<div style="padding:12px;font-size:12px;"><div style="color:'+typeColor+';font-weight:700;margin-bottom:8px;">\u26a0\ufe0f \u571f\u7802\u707d\u5bb3'+p.area_type+'</div><div>\u73fe\u8c61\uff1a'+(p.phenomenon||'\u2014')+'</div><div>\u533a\u57df\u540d\uff1a'+(p.area_name||'\u2014')+'</div><div>\u5e02\u533a\u753a\u6751\uff1a'+(p.city_name||'\u2014')+'</div></div>').openOn(map);});layer.on('mouseover',function(){layer.setStyle({fillOpacity:0.55,weight:3});});layer.on('mouseout',function(){if(dosyaLayer)dosyaLayer.resetStyle(layer);});}}).addTo(map);dosyaLayer.bringToFront();if(markersLayer)markersLayer.bringToFront();}catch(e){showToast('\u571f\u7802\u8b66\u6212\u30dd\u30ea\u30b4\u30f3\u53d6\u5f97\u30a8\u30e9\u30fc','error');}}
 function loadDosya(){map.on('moveend',renderDosyaInView);map.on('zoomend',renderDosyaInView);renderDosyaInView();}
-// 農振農用地
-var noshinLayer=null;var noshinLoading=false;
-function toggleNoshin(){var btn=document.getElementById('hzNoshin');if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;btn.classList.remove('active');showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3057\u305f','success');return;}if(noshinLoading)return;noshinLoading=true;btn.classList.add('active');showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u30c7\u30fc\u30bf\u3092\u8aad\u307f\u8fbc\u307f\u4e2d...','success');fetch(WORKER_BASE+'/r2/noshin_aichi.geojson').then(function(r){return r.ok?r.json():Promise.reject('\u53d6\u5f97\u5931\u6557');}).then(function(geojson){noshinLayer=L.geoJSON(geojson,{style:{color:'#c8a000',weight:0.8,fillColor:'#ffe066',fillOpacity:0.45},onEachFeature:function(feature,layer){if(feature.properties&&feature.properties.city){layer.bindTooltip('\u8fb2\u632f\u8fb2\u7528\u5730\uff1a'+feature.properties.city,{className:'farmland-tooltip',sticky:true});}}});noshinLayer.addTo(map);if(markersLayer)markersLayer.bringToFront();noshinLoading=false;showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u3092\u8868\u793a\u4e2d','success');}).catch(function(e){noshinLoading=false;btn.classList.remove('active');showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u306e\u8aad\u307f\u8fbc\u307f\u306b\u5931\u6557\u3057\u307e\u3057\u305f','error');});}
+// 農振農用地（10県対応：愛知=Cloudflare R2 / その他9県=GitHub Pages内 data/noshin/）
+var noshinLayer=null;var noshinLoading=false;var noshinCache={};var noshinCurrentPref=null;
+// 県別の境界（地図中心の緯度経度から県を判定する矩形範囲）+ ファイルパス
+var NOSHIN_PREF_BOUNDS={
+  aichi:    {latMin:34.5,latMax:35.5,lngMin:136.5,lngMax:137.9, file:WORKER_BASE+'/r2/noshin_aichi.geojson',name:'愛知県'},
+  tochigi:  {latMin:36.2,latMax:37.2,lngMin:139.3,lngMax:140.3, file:'data/noshin/noshin_tochigi.geojson', name:'栃木県'},
+  gunma:    {latMin:36.0,latMax:37.1,lngMin:138.4,lngMax:139.7, file:'data/noshin/noshin_gunma.geojson',   name:'群馬県'},
+  saitama:  {latMin:35.7,latMax:36.3,lngMin:138.7,lngMax:139.9, file:'data/noshin/noshin_saitama.geojson', name:'埼玉県'},
+  chiba:    {latMin:34.9,latMax:36.1,lngMin:139.7,lngMax:140.9, file:'data/noshin/noshin_chiba.geojson',   name:'千葉県'},
+  nagano:   {latMin:35.2,latMax:37.0,lngMin:137.3,lngMax:138.7, file:'data/noshin/noshin_nagano.geojson',  name:'長野県'},
+  gifu:     {latMin:35.1,latMax:36.5,lngMin:136.3,lngMax:137.7, file:'data/noshin/noshin_gifu.geojson',    name:'岐阜県'},
+  shizuoka: {latMin:34.5,latMax:35.7,lngMin:137.5,lngMax:139.2, file:'data/noshin/noshin_shizuoka.geojson',name:'静岡県'},
+  mie:      {latMin:33.7,latMax:35.3,lngMin:135.9,lngMax:136.9, file:'data/noshin/noshin_mie.geojson',     name:'三重県'},
+  shiga:    {latMin:34.8,latMax:35.7,lngMin:135.8,lngMax:136.5, file:'data/noshin/noshin_shiga.geojson',   name:'滋賀県'}
+};
+function detectNoshinPref(){
+  var c=map.getCenter();
+  for(var key in NOSHIN_PREF_BOUNDS){
+    var b=NOSHIN_PREF_BOUNDS[key];
+    if(c.lat>=b.latMin&&c.lat<=b.latMax&&c.lng>=b.lngMin&&c.lng<=b.lngMax){return key;}
+  }
+  return null;
+}
+function toggleNoshin(){
+  var btn=document.getElementById('hzNoshin');
+  if(noshinLayer){
+    map.removeLayer(noshinLayer);noshinLayer=null;noshinCurrentPref=null;
+    btn.classList.remove('active');
+    showToast('農振農用地を非表示にしました','success');
+    return;
+  }
+  if(noshinLoading)return;
+  var prefKey=detectNoshinPref();
+  if(!prefKey){
+    showToast('対象エリア外です。地図を対応県（愛知/栃木/群馬/埼玉/千葉/長野/岐阜/静岡/三重/滋賀）に移動してから再度押してください','error');
+    return;
+  }
+  var pref=NOSHIN_PREF_BOUNDS[prefKey];
+  noshinLoading=true;
+  btn.classList.add('active');
+  // キャッシュ確認
+  if(noshinCache[prefKey]){
+    renderNoshinLayer(noshinCache[prefKey],pref.name,prefKey);
+    noshinLoading=false;
+    return;
+  }
+  showToast(pref.name+'の農振農用地データを読み込み中...','success');
+  fetch(pref.file).then(function(r){
+    return r.ok?r.json():Promise.reject('取得失敗 ('+r.status+')');
+  }).then(function(geojson){
+    noshinCache[prefKey]=geojson;
+    renderNoshinLayer(geojson,pref.name,prefKey);
+    noshinLoading=false;
+  }).catch(function(e){
+    noshinLoading=false;
+    btn.classList.remove('active');
+    showToast(pref.name+'の農振農用地読込失敗: '+e,'error');
+  });
+}
+function renderNoshinLayer(geojson,prefName,prefKey){
+  noshinLayer=L.geoJSON(geojson,{
+    style:{color:'#c8a000',weight:0.8,fillColor:'#ffe066',fillOpacity:0.45},
+    onEachFeature:function(feature,layer){
+      var c=feature.properties&&feature.properties.city;
+      var label=c?'農振農用地：'+c:'農振農用地：'+prefName;
+      layer.bindTooltip(label,{className:'farmland-tooltip',sticky:true});
+    }
+  });
+  noshinLayer.addTo(map);
+  if(markersLayer)markersLayer.bringToFront();
+  noshinCurrentPref=prefKey;
+  showToast(prefName+'の農振農用地を表示中（地図中心が他県に移動したら再度ボタンを押してください）','success');
+}
 // 公開農地マッチング情報レイヤー（中野市等の自治体公開データ）
 var publicFarmlandLayer=null;var publicFarmlandLoading=false;var publicFarmlandData=null;
 function togglePublicFarmland(){
