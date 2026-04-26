@@ -250,7 +250,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <div class="legend-item"><div class="legend-marker" style="background:#ff8c00;"></div>アプローチ済み</div>
     <div class="legend-item"><div class="legend-marker" style="background:#22d3ee;"></div>SUCCESS&amp;OK</div>
     <div class="legend-item"><div class="legend-marker" style="background:#a855f7;border-color:#3b82f6;border-width:3px;"></div>💬 コメント有り</div>
-    <div class="legend-item"><div class="legend-marker" style="background:#ffe066;border-color:#c8a000;border-radius:2px;"></div>農振農用地</div>
+    <div class="legend-item"><div class="legend-marker" style="background:#ffe066;border-color:#ff8800;border-width:2px;border-radius:2px;"></div>農振農用地</div>
     <div class="legend-item"><div class="legend-marker" style="background:#fb923c;border-color:#c2410c;"></div>📋 公開農地（売買）</div>
     <div class="legend-item"><div class="legend-marker" style="background:#fbbf24;border-color:#b45309;"></div>📋 公開農地（賃貸借＋売買）</div>
     </div>
@@ -452,8 +452,15 @@ function _loadAndShowNoshin(prefKey){
   });
 }
 function renderNoshinLayer(geojson,prefName,prefKey){
+  var fc=(geojson&&geojson.features)?geojson.features.length:0;
+  if(fc===0){
+    showToast(prefName+'：データがありません（features:0）','error');
+    document.getElementById('hzNoshin').classList.remove('active');
+    noshinEnabled=false;
+    return;
+  }
   noshinLayer=L.geoJSON(geojson,{
-    style:{color:'#c8a000',weight:0.8,fillColor:'#ffe066',fillOpacity:0.45},
+    style:{color:'#ff8800',weight:1.8,fillColor:'#ffe066',fillOpacity:0.55},
     onEachFeature:function(feature,layer){
       var c=feature.properties&&feature.properties.city;
       var label=c?'農振農用地：'+c:'農振農用地：'+prefName;
@@ -463,7 +470,24 @@ function renderNoshinLayer(geojson,prefName,prefKey){
   noshinLayer.addTo(map);
   if(markersLayer)markersLayer.bringToFront();
   noshinCurrentPref=prefKey;
-  showToast(prefName+'の農振農用地を表示中','success');
+  // データの境界と現在の地図エリアを比較
+  try{
+    var dataBounds=noshinLayer.getBounds();
+    if(!dataBounds.isValid()){
+      showToast(prefName+'：ジオメトリ無効（'+fc+'件）','error');
+      return;
+    }
+    var mapBounds=map.getBounds();
+    if(!mapBounds.intersects(dataBounds)){
+      // データはあるが画面外
+      showToast(prefName+'の農振農用地 '+fc+'件（現在の地図エリア外。データのある場所へ自動移動します）','success');
+      map.fitBounds(dataBounds);
+    }else{
+      showToast(prefName+'の農振農用地 '+fc+'件 を表示中（衛星：オレンジ縁の黄色領域）','success');
+    }
+  }catch(e){
+    showToast(prefName+' '+fc+'件 表示（境界計算エラー: '+e.message+'）','success');
+  }
 }
 // ズーム変更時のハンドラ：15未満なら描画削除、15以上なら描画
 function onZoomChangeForNoshin(){
