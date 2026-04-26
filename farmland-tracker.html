@@ -977,50 +977,104 @@ async function _isInHazardTile(lat,lng,urlTemplate,zoom,threshold){
   if(samples===0)return false;
   return (hazardPixels/samples)>=threshold;
 }
+// 緯度経度から県を判定する（detectNoshinPrefと同じロジック、引数違い）
+function _detectNoshinPrefForPoint(lat,lng){
+  var candidates=[];
+  for(var key in NOSHIN_PREF_BOUNDS){
+    var b=NOSHIN_PREF_BOUNDS[key];
+    if(lat>=b.latMin&&lat<=b.latMax&&lng>=b.lngMin&&lng<=b.lngMax){
+      var cx=(b.latMin+b.latMax)/2;
+      var cy=(b.lngMin+b.lngMax)/2;
+      var dist=(lat-cx)*(lat-cx)+(lng-cy)*(lng-cy);
+      candidates.push({key:key,dist:dist});
+    }
+  }
+  if(candidates.length===0)return null;
+  if(candidates.length===1)return candidates[0].key;
+  candidates.sort(function(a,b){return a.dist-b.dist;});
+  return candidates[0].key;
+}
 async function runAutoNgJudgment(){
   if(typeof turf==='undefined'){showToast('Turf.js\u672a\u8aad\u307f\u8fbc\u307f\u3002\u30da\u30fc\u30b8\u3092\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044','error');return;}
-  if(!confirm('\u8fb2\u632f\u8fb2\u7528\u5730 + \u30cf\u30b6\u30fc\u30c9\uff08\u6d78\u6c34/\u5185\u6c34/\u9ad8\u6f6e/\u6d25\u6ce2\uff09\u306b\u8a72\u5f53\u3059\u308b\u8fb2\u5730\u3092\u81ea\u52d5NG\u5224\u5b9a\u3057\u307e\u3059\u3002\n\u8fb2\u632f: \u5883\u754c\u304b\u3089'+AUTO_NG_BUFFER_METERS+'m\u4ee5\u4e0a\u5185\u5074\n\u30cf\u30b6\u30fc\u30c9: \u8fb2\u5730\u5468\u8fba7\u00d77px\u306e'+(AUTO_NG_HAZARD_THRESHOLD*100)+'%\u4ee5\u4e0a\u304c\u8986\u308f\u308c\u3066\u3044\u308b\u5834\u5408\u306e\u307f\n\u30ae\u30ea\u30ae\u30ea\u306f\u624b\u52d5\u5224\u5b9a\u7528\u306b\u6b8b\u308a\u307e\u3059\u3002\n\u5b9f\u884c\u3057\u307e\u3059\u304b\uff1f\uff08\u6570\u5206\u304b\u304b\u308a\u307e\u3059\uff09'))return;
-  showLoading('\u8fb2\u632f\u8fb2\u7528\u5730\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...');
+  if(!confirm('\u8fb2\u632f\u8fb2\u7528\u5730 + \u30cf\u30b6\u30fc\u30c9\uff08\u6d78\u6c34/\u5185\u6c34/\u9ad8\u6f6e/\u6d25\u6ce2\uff09\u306b\u8a72\u5f53\u3059\u308b\u8fb2\u5730\u3092\u81ea\u52d5NG\u5224\u5b9a\u3057\u307e\u3059\u3002\n\u8fb2\u632f: \u5168\u56fd10\u770c\u5bfe\u5fdc\u3001\u5883\u754c\u304b\u3089'+AUTO_NG_BUFFER_METERS+'m\u4ee5\u4e0a\u5185\u5074\n\u30cf\u30b6\u30fc\u30c9: \u8fb2\u5730\u5468\u8fba7\u00d77px\u306e'+(AUTO_NG_HAZARD_THRESHOLD*100)+'%\u4ee5\u4e0a\u304c\u8986\u308f\u308c\u3066\u3044\u308b\u5834\u5408\u306e\u307f\n\u30ae\u30ea\u30ae\u30ea\u306f\u624b\u52d5\u5224\u5b9a\u7528\u306b\u6b8b\u308a\u307e\u3059\u3002\n\u5b9f\u884c\u3057\u307e\u3059\u304b\uff1f\uff08\u6570\u5206\u304b\u304b\u308a\u307e\u3059\uff09'))return;
+  showLoading('\u8fb2\u5730\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...');
   try{
-    var noshinRes=await fetch(WORKER_BASE+'/r2/noshin_aichi.geojson');
-    if(!noshinRes.ok){throw new Error('\u8fb2\u632f\u30c7\u30fc\u30bf\u53d6\u5f97\u5931\u6557');}
-    var noshinGeo=await noshinRes.json();
-    document.getElementById('loadingText').textContent='\u8fb2\u5730\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...';
     var dateRes=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1);
     if(!dateRes.data||!dateRes.data.length){throw new Error('\u30b9\u30ca\u30c3\u30d7\u30b7\u30e7\u30c3\u30c8\u304c\u3042\u308a\u307e\u305b\u3093');}
     var latestDate=dateRes.data[0].snapshot_date;
     var fRes=await db.from('farmland_snapshots').select('feature_id,lat,lng').eq('snapshot_date',latestDate).limit(10000);
     if(fRes.error){throw new Error('\u8fb2\u5730\u53d6\u5f97\u5931\u6557: '+fRes.error.message);}
     var farmlands=(fRes.data||[]).filter(function(f){return f.lat&&f.lng;});
-    document.getElementById('loadingText').textContent='\u5224\u5b9a\u4e2d (0/'+farmlands.length+')...';
+    // 県別にグルーピング
+    var farmlandsByPref={};
+    var farmlandsOutOfPref=[];
+    farmlands.forEach(function(f){
+      var pk=_detectNoshinPrefForPoint(f.lat,f.lng);
+      if(pk){
+        if(!farmlandsByPref[pk])farmlandsByPref[pk]=[];
+        farmlandsByPref[pk].push(f);
+      }else{
+        farmlandsOutOfPref.push(f);
+      }
+    });
+    var prefKeys=Object.keys(farmlandsByPref);
+    var prefSummary=prefKeys.map(function(k){return NOSHIN_PREF_BOUNDS[k].name+':'+farmlandsByPref[k].length+'件';}).join(', ');
+    document.getElementById('loadingText').textContent='\u5bfe\u8c61'+prefKeys.length+'\u770c\u3001\u5408\u8a08'+farmlands.length+'\u4ef6 ('+prefSummary+')';
     _tileCanvasCache={};
-    var candidates=[],processed=0;
-    for(var i=0;i<farmlands.length;i++){
-      var farmland=farmlands[i];
-      processed++;
-      if(processed%20===0){
-        document.getElementById('loadingText').textContent='\u5224\u5b9a\u4e2d ('+processed+'/'+farmlands.length+')...';
-        await new Promise(function(r){setTimeout(r,0);});
-      }
-      if(ngFeatureIds[farmland.feature_id])continue;
-      var ngReason=null;
-      var point=turf.point([farmland.lng,farmland.lat]);
-      if(_isInsideWithBuffer(point,noshinGeo,AUTO_NG_BUFFER_METERS)){
-        ngReason='auto_noshin';
-      }
-      if(!ngReason){
-        if(await _isInHazardTile(farmland.lat,farmland.lng,HAZARD_URLS.flood,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
-          ngReason='auto_hazard_flood';
-        }else if(await _isInHazardTile(farmland.lat,farmland.lng,HAZARD_URLS.inner,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
-          ngReason='auto_hazard_inner';
-        }else if(await _isInHazardTile(farmland.lat,farmland.lng,HAZARD_URLS.tide,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
-          ngReason='auto_hazard_tide';
-        }else if(await _isInHazardTile(farmland.lat,farmland.lng,HAZARD_URLS.tsunami,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
-          ngReason='auto_hazard_tsunami';
+    var candidates=[],processed=0,prefSkipped=[];
+    // 県別にGeoJSON取得→農振判定→ハザード判定
+    for(var pi=0;pi<prefKeys.length;pi++){
+      var prefKey=prefKeys[pi];
+      var pref=NOSHIN_PREF_BOUNDS[prefKey];
+      var prefFarmlands=farmlandsByPref[prefKey];
+      // GeoJSON取得（キャッシュ活用）
+      var noshinGeo=noshinCache[prefKey];
+      if(!noshinGeo){
+        document.getElementById('loadingText').textContent=pref.name+'\u306e\u8fb2\u632f\u30c7\u30fc\u30bf\u53d6\u5f97\u4e2d...';
+        try{
+          var noshinRes=await fetch(pref.file);
+          if(!noshinRes.ok){
+            console.warn(pref.name+': \u8fb2\u632f\u30c7\u30fc\u30bf\u53d6\u5f97\u5931\u6557 ('+noshinRes.status+')');
+            prefSkipped.push(pref.name);
+            // 農振取得失敗でもハザード判定は続行
+            for(var fi2=0;fi2<prefFarmlands.length;fi2++){
+              await _judgeOneFarmland(prefFarmlands[fi2],null,candidates);
+              processed++;
+              if(processed%20===0){
+                document.getElementById('loadingText').textContent='\u5224\u5b9a\u4e2d ('+processed+'/'+farmlands.length+') ['+pref.name+'\u306f\u30cf\u30b6\u30fc\u30c9\u306e\u307f]';
+                await new Promise(function(r){setTimeout(r,0);});
+              }
+            }
+            continue;
+          }
+          noshinGeo=await noshinRes.json();
+          noshinCache[prefKey]=noshinGeo;
+        }catch(e){
+          console.warn(pref.name+': \u8fb2\u632f\u30c7\u30fc\u30bf\u53d6\u5f97\u30a8\u30e9\u30fc -',e.message);
+          prefSkipped.push(pref.name);
+          continue;
         }
       }
-      if(ngReason){
-        candidates.push({feature_id:farmland.feature_id,ng_reason:ngReason});
+      // 県内の物件を判定
+      for(var fi=0;fi<prefFarmlands.length;fi++){
+        await _judgeOneFarmland(prefFarmlands[fi],noshinGeo,candidates);
+        processed++;
+        if(processed%20===0){
+          document.getElementById('loadingText').textContent='\u5224\u5b9a\u4e2d ('+processed+'/'+farmlands.length+') ['+pref.name+']';
+          await new Promise(function(r){setTimeout(r,0);});
+        }
+      }
+    }
+    // 県境矩形外の物件はハザードのみ判定
+    if(farmlandsOutOfPref.length>0){
+      document.getElementById('loadingText').textContent='\u770c\u5916'+farmlandsOutOfPref.length+'\u4ef6\u3092\u30cf\u30b6\u30fc\u30c9\u306e\u307f\u5224\u5b9a\u4e2d...';
+      for(var fi3=0;fi3<farmlandsOutOfPref.length;fi3++){
+        await _judgeOneFarmland(farmlandsOutOfPref[fi3],null,candidates);
+        processed++;
+        if(processed%20===0){
+          document.getElementById('loadingText').textContent='\u5224\u5b9a\u4e2d ('+processed+'/'+farmlands.length+') [\u770c\u5916\u30fb\u30cf\u30b6\u30fc\u30c9\u306e\u307f]';
+          await new Promise(function(r){setTimeout(r,0);});
+        }
       }
     }
     if(candidates.length>0){
@@ -1037,10 +1091,38 @@ async function runAutoNgJudgment(){
     hideLoading();
     var breakdown={auto_noshin:0,auto_hazard_flood:0,auto_hazard_inner:0,auto_hazard_tide:0,auto_hazard_tsunami:0};
     candidates.forEach(function(c){if(breakdown[c.ng_reason]!==undefined)breakdown[c.ng_reason]++;});
-    showToast(candidates.length+'\u4ef6NG\u5224\u5b9a\uff08\u8fb2\u632f:'+breakdown.auto_noshin+' \u6d78\u6c34:'+breakdown.auto_hazard_flood+' \u5185\u6c34:'+breakdown.auto_hazard_inner+' \u9ad8\u6f6e:'+breakdown.auto_hazard_tide+' \u6d25\u6ce2:'+breakdown.auto_hazard_tsunami+'\uff09','success');
+    var msg=candidates.length+'\u4ef6NG\u5224\u5b9a\uff08\u8fb2\u632f:'+breakdown.auto_noshin+' \u6d78\u6c34:'+breakdown.auto_hazard_flood+' \u5185\u6c34:'+breakdown.auto_hazard_inner+' \u9ad8\u6f6e:'+breakdown.auto_hazard_tide+' \u6d25\u6ce2:'+breakdown.auto_hazard_tsunami+'\uff09';
+    if(prefSkipped.length>0)msg+=' / \u8fb2\u632f\u30c7\u30fc\u30bf\u53d6\u5f97\u5931\u6557:'+prefSkipped.join(',');
+    if(farmlandsOutOfPref.length>0)msg+=' / \u770c\u5916:'+farmlandsOutOfPref.length+'\u4ef6';
+    showToast(msg,'success');
   }catch(e){
     hideLoading();
     showToast('\u81ea\u52d5\u5224\u5b9a\u30a8\u30e9\u30fc: '+e.message,'error');
+  }
+}
+// 1物件の判定（noshinGeoがnullなら農振スキップ・ハザードのみ）
+async function _judgeOneFarmland(farmland,noshinGeo,candidates){
+  if(ngFeatureIds[farmland.feature_id])return;
+  var ngReason=null;
+  if(noshinGeo){
+    var point=turf.point([farmland.lng,farmland.lat]);
+    if(_isInsideWithBuffer(point,noshinGeo,AUTO_NG_BUFFER_METERS)){
+      ngReason='auto_noshin';
+    }
+  }
+  if(!ngReason){
+    if(await _isInHazardTile(farmland.lat,farmland.lng,HAZARD_URLS.flood,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
+      ngReason='auto_hazard_flood';
+    }else if(await _isInHazardTile(farmland.lat,farmland.lng,HAZARD_URLS.inner,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
+      ngReason='auto_hazard_inner';
+    }else if(await _isInHazardTile(farmland.lat,farmland.lng,HAZARD_URLS.tide,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
+      ngReason='auto_hazard_tide';
+    }else if(await _isInHazardTile(farmland.lat,farmland.lng,HAZARD_URLS.tsunami,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
+      ngReason='auto_hazard_tsunami';
+    }
+  }
+  if(ngReason){
+    candidates.push({feature_id:farmland.feature_id,ng_reason:ngReason});
   }
 }
 function _isInsideWithBuffer(point,featureCollection,bufferMeters){
