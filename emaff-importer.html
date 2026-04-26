@@ -572,6 +572,7 @@ var db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 var sources=[]; // 自治体マスタ
 var listings=[]; // 選択した自治体の物件
 var emaffFeatures=[]; // 取り込んだeMAFF全feature
+var emaffKeyIndex={}; // 重複チェック用インデックス（O(1)アクセス）
 var matchResult=null; // マッチ結果
 var loadedFiles=[]; // 取り込んだファイル名リスト
 
@@ -743,11 +744,12 @@ function loadOneFile(file){
           resolve();
           return;
         }
-        // featuresを加える（重複排除はuid属性ベース）
+        // featuresを加える（インデックスで O(1) 重複チェック）
         var added=0;
         feats.forEach(function(f){
           var key=getFeatureKey(f);
-          if(emaffFeatures.find(function(x){return getFeatureKey(x)===key;}))return;
+          if(emaffKeyIndex[key])return;
+          emaffKeyIndex[key]=true;
           emaffFeatures.push(f);
           added++;
         });
@@ -991,6 +993,7 @@ async function saveToDb(){
 function resetAll(){
   if(!confirm('取込内容をすべてクリアします（DB変更には影響しません）'))return;
   emaffFeatures=[];
+  emaffKeyIndex={};
   loadedFiles=[];
   matchResult=null;
   document.getElementById('fileList').innerHTML='';
