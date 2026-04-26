@@ -212,6 +212,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   </div>
   <div style="display:flex;align-items:center;gap:8px;">
     <a href="farmland-candidates.html" class="btn btn-ghost">&#128203; 開拓候補</a>
+    <a href="public-farmland.html" class="btn btn-ghost">&#128203; 公開農地</a>
     <a href="https://aichi.farm.cloudgis.jp/matching/aic/" target="_blank" class="btn btn-ghost">&#8599; 未来の農地マップ</a>
     <button class="btn btn-ghost" onclick="location.href='index.html'">&#8592; 案件一覧</button>
   </div>
@@ -250,7 +251,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <div class="legend-item"><div class="legend-marker" style="background:#ff8c00;"></div>アプローチ済み</div>
     <div class="legend-item"><div class="legend-marker" style="background:#22d3ee;"></div>SUCCESS&amp;OK</div>
     <div class="legend-item"><div class="legend-marker" style="background:#a855f7;border-color:#3b82f6;border-width:3px;"></div>💬 コメント有り</div>
-    <div class="legend-item"><div class="legend-marker" style="background:#ffe066;border-color:#ff8800;border-width:2px;border-radius:2px;"></div>農振農用地</div>
+    <div class="legend-item"><div class="legend-marker" style="background:#bbf7d0;border-color:#16a34a;border-style:dashed;border-width:2px;border-radius:2px;"></div>農振農用地（緑破線）</div>
     <div class="legend-item"><div class="legend-marker" style="background:#fb923c;border-color:#c2410c;"></div>📋 公開農地（売買）</div>
     <div class="legend-item"><div class="legend-marker" style="background:#fbbf24;border-color:#b45309;"></div>📋 公開農地（賃貸借＋売買）</div>
     </div>
@@ -523,7 +524,7 @@ function _renderNoshinInView(){
   if(visibleFeatures.length===0)return;
   var pref=NOSHIN_PREF_BOUNDS[noshinCurrentPref];
   noshinLayer=L.geoJSON({type:'FeatureCollection',features:visibleFeatures},{
-    style:{color:'#ff8800',weight:1,fillColor:'#ffe066',fillOpacity:0.5},
+    style:{color:'#16a34a',weight:2,fillColor:'#bbf7d0',fillOpacity:0.35,dashArray:'6,4'},
     onEachFeature:function(feature,layer){
       var c=feature.properties&&feature.properties.city;
       var label=c?'農振農用地：'+c:'農振農用地：'+(pref?pref.name:'');
@@ -531,6 +532,7 @@ function _renderNoshinInView(){
     }
   });
   noshinLayer.addTo(map);
+  noshinLayer.bringToFront();
   if(markersLayer)markersLayer.bringToFront();
 }
 function renderNoshinLayer(geojson,prefName,prefKey){
@@ -574,7 +576,7 @@ function renderNoshinLayer(geojson,prefName,prefKey){
       // fitBounds後にmoveendが発火して_renderNoshinInViewが呼ばれる
     }else{
       var visibleCount=noshinLayer?noshinLayer.getLayers().length:0;
-      showToast(prefName+'の農振農用地 '+fc+'件 を表示中（画面内: '+visibleCount+'件）','success');
+      showToast(prefName+'の農振農用地 '+fc+'件 を表示中（緑の破線縁・薄緑塗り | 画面内: '+visibleCount+'件）','success');
     }
   }catch(e){
     showToast(prefName+' '+fc+'件 表示（境界計算エラー: '+e.message+'）','success');
@@ -1506,7 +1508,7 @@ function jumpToChiban(lat,lng,label){
   document.getElementById('chibanInput').value=label;
 }
 initMap();
-// === URLパラメータからの初期位置設定（farmland-candidates.htmlからのジャンプ用） ===
+// === URLパラメータからの初期位置設定（farmland-candidates.html / public-farmland.html からのジャンプ用） ===
 (function(){
   try{
     var params=new URLSearchParams(window.location.search);
@@ -1514,6 +1516,8 @@ initMap();
     var lng=parseFloat(params.get('lng'));
     var zoom=parseInt(params.get('zoom'),10);
     var highlight=params.get('highlight')==='1';
+    var openPublicFarmland=params.get('openPublicFarmland')==='1';
+    var searchQuery=params.get('search');
     if(!isNaN(lat)&&!isNaN(lng)){
       map.setView([lat,lng],isNaN(zoom)?15:zoom);
       if(highlight){
@@ -1527,6 +1531,21 @@ initMap();
         // 8秒後に自動で消す
         setTimeout(function(){if(hlMarker){map.removeLayer(hlMarker);}},8000);
       }
+    }
+    // public-farmland.html からのジャンプ
+    if(searchQuery){
+      var searchInput=document.getElementById('chibanInput');
+      if(searchInput)searchInput.value=searchQuery;
+    }
+    if(openPublicFarmland){
+      // データ読込みが完了した後にONにする（少し遅延）
+      setTimeout(function(){
+        var btn=document.getElementById('hzPublicFarmland');
+        // 公開農地マッチング ボタンが既にONなら何もしない
+        if(btn&&!btn.classList.contains('active')){
+          togglePublicFarmland();
+        }
+      },800);
     }
   }catch(e){console.warn('URL param init error:',e);}
 })();
