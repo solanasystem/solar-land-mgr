@@ -1143,6 +1143,16 @@ async function fetchForestGisUrl(location){
   return null;
 }
 
+async function copyForestSearch(text){
+  if(!text)return;
+  try{
+    await navigator.clipboard.writeText(text);
+    showToast(`📋 「${text}」をコピーしました。森林情報マップの検索バーに貼り付けてください。`);
+  }catch(e){
+    showToast('コピーに失敗しました','error');
+  }
+}
+
 function autoSetArticle5Date(){
   const sel=document.getElementById('eld_article5_forest').value;
   const dateField=document.getElementById('eld_article5_checked_at');
@@ -1162,7 +1172,13 @@ async function loadLandDetail(caseId){
     document.querySelectorAll('.snow-load-value').forEach(el=>{el.textContent=display;});
     const gis=await fetchForestGisUrl(data.location);
     document.querySelectorAll('.forest-gis-link').forEach(el=>{
-      if(gis){el.innerHTML=`<a href="${safeUrl(gis.gis_url)}" target="_blank">🌳 ${gis.gis_name||'森林計画図を開く'}</a>`;}
+      if(gis){
+        const locEsc=String(data.location||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        let html=`<a href="${safeUrl(gis.gis_url)}" target="_blank">🌳 ${gis.gis_name||'森林計画図を開く'}</a>`;
+        if(data.location){html+=` <button onclick="copyForestSearch(this.dataset.text)" data-text="${locEsc}" style="margin-left:8px;font-size:11px;padding:2px 6px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer">📋 住所コピー</button>`;}
+        if(data.lat&&data.lng){html+=` <button onclick="copyForestSearch(this.dataset.text)" data-text="${data.lat},${data.lng}" style="margin-left:4px;font-size:11px;padding:2px 6px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer">📋 座標コピー</button>`;}
+        el.innerHTML=html;
+      }
       else{el.textContent='—';}
     });
   }
