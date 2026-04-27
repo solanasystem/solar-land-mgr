@@ -1095,8 +1095,12 @@ async function fetchSnowLoad(location){
   if(error){console.error('snow_load fetch error:',error);return'— cm';}
   if(!data||data.length===0){
     const{data:data2}=await db.from('snow_load_master').select('former_area,parent_district,snow_depth_cm').eq('prefecture',pref).eq('former_area',city);
-    if(!data2||data2.length===0)return'— cm';
-    data=data2;
+    if(data2&&data2.length>0)data=data2;
+  }
+  if(!data||data.length===0){
+    const{data:defaultRow}=await db.from('snow_load_master').select('snow_depth_cm').eq('prefecture',pref).eq('former_area','上記以外の区域').limit(1);
+    if(defaultRow&&defaultRow.length>0)return`${defaultRow[0].snow_depth_cm} cm`;
+    return'— cm';
   }
   if(data.length===1)return`${data[0].snow_depth_cm} cm`;
   if(restAfterCity){
