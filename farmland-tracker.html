@@ -308,6 +308,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     </div>
     <div class="hazard-divider"></div>
     <button class="hazard-btn" id="hzNoshin" onclick="toggleNoshin()">&#127806; 農振農用地</button>
+    <button class="hazard-btn" id="hzForest5jou" onclick="toggleForest5jou()">&#127795; 5条森林</button>
     </div><!-- /.hazard-body -->
   </div>
   <div class="side-panel" id="sidePanel">
@@ -334,9 +335,48 @@ var currentDetailItem=null;
 var currentDetailChangeType=null;
 var farmlandStatuses={};
 var farmlandComments={};
-function switchGIS(mode){if(currentGIS===mode)return;currentGIS=mode;if(baseLayer){map.removeLayer(baseLayer);}baseLayer=L.tileLayer(BASE_TILES[mode],{attribution:'GSI',maxZoom:18,opacity:0.9});baseLayer.addTo(map);baseLayer.bringToBack();document.getElementById('gisMap').classList.toggle('active',mode==='map');document.getElementById('gisSat').classList.toggle('active',mode==='satellite');for(var k in hazardLayers){hazardLayers[k].bringToFront();}if(markersLayer){markersLayer.bringToFront();}}
+function switchGIS(mode){if(currentGIS===mode)return;currentGIS=mode;if(baseLayer){map.removeLayer(baseLayer);}baseLayer=L.tileLayer(BASE_TILES[mode],{attribution:'GSI',maxZoom:18,opacity:0.9});baseLayer.addTo(map);baseLayer.bringToBack();document.getElementById('gisMap').classList.toggle('active',mode==='map');document.getElementById('gisSat').classList.toggle('active',mode==='satellite');for(var k in hazardLayers){hazardLayers[k].bringToFront();}if(forest5jouLayer)forest5jouLayer.bringToFront();if(markersLayer){markersLayer.bringToFront();}}
 var hazardLayers={};
 var HAZARD_URLS={flood:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',inner:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_kuni_data/{z}/{x}/{y}.png',sediment:'https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki_data/{z}/{x}/{y}.png',tide:'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',tsunami:'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png'};
+// 5条森林（地域森林計画対象民有林）GeoJSONレイヤー
+var FOREST_5JOU_URL='https://fygnrjjifoasozbhkxlk.supabase.co/storage/v1/object/public/forest-gis/forest_5jou_aichi.geojson';
+var forest5jouLayer=null;
+function toggleForest5jou(){
+  var btn=document.getElementById('hzForest5jou');
+  if(forest5jouLayer){
+    map.removeLayer(forest5jouLayer);forest5jouLayer=null;
+    btn.classList.remove('active');return;
+  }
+  showToast('\u68ee\u6797\u30c7\u30fc\u30bf\u53d6\u5f97\u4e2d...','info');
+  fetch(FOREST_5JOU_URL).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(geojson){
+    forest5jouLayer=L.geoJSON(geojson,{
+      style:{color:'#16a34a',weight:1,opacity:0.7,fillColor:'#22c55e',fillOpacity:0.3},
+      onEachFeature:function(feature,layer){
+        var p=feature.properties||{};
+        layer.on('click',function(e){
+          L.popup({maxWidth:260,minWidth:200}).setLatLng(e.latlng).setContent(
+            '<div style="padding:10px;font-size:12px;">'+
+            '<div style="color:#16a34a;font-weight:700;margin-bottom:6px;">\u{1f333} 5\u6761\u68ee\u6797</div>'+
+            '<div>\u5730\u57df\u68ee\u6797\u8a08\u753b\u5bfe\u8c61\u6c11\u6709\u6797</div>'+
+            '<div>\u9762\u7a4d\uff1a'+(p.area_ha!=null?p.area_ha:'\u2014')+' ha</div>'+
+            '<div style="color:#dc2626;font-size:11px;margin-top:6px;line-height:1.4;">\u592a\u967d\u5149\u767a\u96fb 0.5ha\u8d85\u3067\u6797\u5730\u958b\u767a\u8a31\u53ef\u5fc5\u9808</div>'+
+            '</div>'
+          ).openOn(map);
+        });
+        layer.on('mouseover',function(){layer.setStyle({fillOpacity:0.5,weight:2});});
+        layer.on('mouseout',function(){if(forest5jouLayer)forest5jouLayer.resetStyle(layer);});
+      }
+    });
+    forest5jouLayer.addTo(map);
+    forest5jouLayer.bringToFront();
+    if(markersLayer)markersLayer.bringToFront();
+    btn.classList.add('active');
+    showToast('5\u6761\u68ee\u6797\u8868\u793a\u4e2d ('+geojson.features.length+'\u4ef6)','success');
+  }).catch(function(e){
+    showToast('5\u6761\u68ee\u6797\u30c7\u30fc\u30bf\u53d6\u5f97\u30a8\u30e9\u30fc','error');
+    console.error('forest5jou error:',e);
+  });
+}
 function toggleHazard(type){var btnId='hz'+type.charAt(0).toUpperCase()+type.slice(1);var btn=document.getElementById(btnId);if(hazardLayers[type]){map.removeLayer(hazardLayers[type]);delete hazardLayers[type];btn.classList.remove('active');}else{var layer=L.tileLayer(HAZARD_URLS[type],{opacity:0.7,maxZoom:18,attribution:'\u56fd\u571f\u4ea4\u901a\u7701'});layer.addTo(map);layer.bringToFront();hazardLayers[type]=layer;btn.classList.add('active');if(markersLayer)markersLayer.bringToFront();}}
 // 土砂災害警戒ポリゴン
 var dosyaLayer=null;var dosyaEnabled=false;var dosyaRenderTimer=null;
