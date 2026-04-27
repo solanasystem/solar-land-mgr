@@ -610,6 +610,9 @@
           <div style="font-size:11px;color:var(--text-muted);margin-top:4px">※ Google マップで場所を開き、URLをそのままコピーして貼り付けてください</div>
         </div>
         <div class="form-group full"><label class="form-label">ハザード情報</label><input class="form-input" type="text" id="eld_hazard" placeholder="例：浸水想定区域外・土砂災害警戒なし"></div>
+        <div class="form-group"><label class="form-label">5条森林該当（地域森林計画対象民有林）</label><select class="form-input" id="eld_article5_forest" onchange="autoSetArticle5Date()"><option value="">未確認</option><option value="該当">該当</option><option value="非該当">非該当</option></select></div>
+        <div class="form-group"><label class="form-label">5条森林 確認日</label><input class="form-input" type="date" id="eld_article5_checked_at"></div>
+        <div class="form-group full"><label class="form-label">5条森林 メモ</label><input class="form-input" type="text" id="eld_article5_notes" placeholder="例：保安林混在、林班番号、現地確認結果など"></div>
         <div class="form-group"><label class="form-label">緯度（lat）※自動取得</label><input class="form-input" type="number" step="0.000001" id="eld_lat" style="background:var(--surface2);color:var(--accent)"></div>
         <div class="form-group"><label class="form-label">経度（lng）※自動取得</label><input class="form-input" type="number" step="0.000001" id="eld_lng" style="background:var(--surface2);color:var(--accent)"></div>
         <div class="form-group full"><label class="form-label">備考</label><textarea class="form-textarea" id="eld_biko" placeholder="自由記入欄..."></textarea></div>
@@ -1121,14 +1124,47 @@ async function fetchSnowLoad(location){
   return`${min}〜${max} cm`;
 }
 
+async function fetchForestGisUrl(location){
+  if(!location)return null;
+  const loc=location.replace(/[{}（）()「」『』\[\]【】]/g,'').trim();
+  let pref=null;
+  const prefMatch=loc.match(/^(.{2,3}[都道府県])/);
+  if(prefMatch){pref=prefMatch[1];}
+  if(!pref){
+    const cityMatch=loc.match(/^(.+?[市区町村])/);
+    if(cityMatch){
+      const{data:sl}=await db.from('snow_load_master').select('prefecture').eq('current_city',cityMatch[1]).limit(1);
+      if(sl&&sl.length>0)pref=sl[0].prefecture;
+    }
+  }
+  if(!pref)return null;
+  const{data}=await db.from('forest_gis_master').select('gis_url,gis_name').eq('prefecture',pref).limit(1);
+  if(data&&data.length>0)return data[0];
+  return null;
+}
+
+function autoSetArticle5Date(){
+  const sel=document.getElementById('eld_article5_forest').value;
+  const dateField=document.getElementById('eld_article5_checked_at');
+  if(sel&&!dateField.value){
+    const today=new Date().toISOString().split('T')[0];
+    dateField.value=today;
+  }
+}
+
 async function loadLandDetail(caseId){
   const{data}=await db.from('land_info').select('*').eq('case_id',caseId).single();
-  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">用途地域・地目</div><div class="info-value">${data.chiban||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">法令上の制限</div><div class="info-value">${data.horeijo_seigen||'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
+  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">用途地域・地目</div><div class="info-value">${data.chiban||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">法令上の制限</div><div class="info-value">${data.horeijo_seigen||'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}${data.article5_checked_at?` <span style="color:var(--text-muted);font-size:11px">（${data.article5_checked_at} 確認）</span>`:''}${data.article5_notes?`<div style="font-size:11px;color:var(--text-muted);margin-top:4px">${data.article5_notes}</div>`:''}</div></div><div class="info-item"><div class="info-label">森林計画図</div><div class="info-value forest-gis-link">読込中...</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
   if(data&&data.location){
     const display=await fetchSnowLoad(data.location);
     document.querySelectorAll('.snow-load-value').forEach(el=>{el.textContent=display;});
+    const gis=await fetchForestGisUrl(data.location);
+    document.querySelectorAll('.forest-gis-link').forEach(el=>{
+      if(gis){el.innerHTML=`<a href="${safeUrl(gis.gis_url)}" target="_blank">🌳 ${gis.gis_name||'森林計画図を開く'}</a>`;}
+      else{el.textContent='—';}
+    });
   }
 }
 
@@ -1694,13 +1730,13 @@ async function bulkFetchPostalCodes(){
 
 async function openLandEditModal(){
   const{data}=await db.from('land_info').select('*').eq('case_id',currentCaseId).single();
-  ['area_sqm','location','chiban','horeijo_seigen','google_map','hazard','biko'].forEach(f=>document.getElementById('eld_'+f).value=data?.[f]||'');
+  ['area_sqm','location','chiban','horeijo_seigen','google_map','hazard','biko','article5_forest','article5_checked_at','article5_notes'].forEach(f=>document.getElementById('eld_'+f).value=data?.[f]||'');
   document.getElementById('eld_lat').value=data?.lat||'';document.getElementById('eld_lng').value=data?.lng||'';
   document.getElementById('editLandModal').classList.add('open');
 }
 async function saveLand(){
   const g=id=>document.getElementById(id).value;
-  const payload={case_id:currentCaseId,area_sqm:g('eld_area_sqm')?Number(g('eld_area_sqm')):null,location:g('eld_location'),chiban:g('eld_chiban'),horeijo_seigen:g('eld_horeijo_seigen'),google_map:g('eld_google_map'),hazard:g('eld_hazard'),biko:g('eld_biko'),lat:g('eld_lat')?Number(g('eld_lat')):null,lng:g('eld_lng')?Number(g('eld_lng')):null};
+  const payload={case_id:currentCaseId,area_sqm:g('eld_area_sqm')?Number(g('eld_area_sqm')):null,location:g('eld_location'),chiban:g('eld_chiban'),horeijo_seigen:g('eld_horeijo_seigen'),google_map:g('eld_google_map'),hazard:g('eld_hazard'),biko:g('eld_biko'),lat:g('eld_lat')?Number(g('eld_lat')):null,lng:g('eld_lng')?Number(g('eld_lng')):null,article5_forest:g('eld_article5_forest')||null,article5_checked_at:g('eld_article5_checked_at')||null,article5_notes:g('eld_article5_notes')||null};
   const{data:ex}=await db.from('land_info').select('id').eq('case_id',currentCaseId).single();
   const{error}=ex?await db.from('land_info').update(payload).eq('case_id',currentCaseId):await db.from('land_info').insert(payload);
   if(error){showToast('保存エラー','error');return;}
