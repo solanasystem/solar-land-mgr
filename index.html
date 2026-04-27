@@ -1081,11 +1081,44 @@ async function loadNegotiationLogs(id){
   el.innerHTML=data.map(l=>`<div class="log-item"><div class="log-date">${l.log_date}</div><div class="log-content">${l.content||''}</div></div>`).join('');
 }
 
+async function fetchSnowLoad(location){
+  if(!location)return'— cm';
+  const prefMatch=location.match(/^(.{2,3}[都道府県])/);
+  if(!prefMatch)return'— cm';
+  const pref=prefMatch[1];
+  const rest=location.slice(pref.length);
+  const cityMatch=rest.match(/^(.+?[市区町村])/);
+  if(!cityMatch)return'— cm';
+  const city=cityMatch[1];
+  const restAfterCity=rest.slice(city.length);
+  let{data,error}=await db.from('snow_load_master').select('former_area,parent_district,snow_depth_cm').eq('prefecture',pref).eq('current_city',city);
+  if(error){console.error('snow_load fetch error:',error);return'— cm';}
+  if(!data||data.length===0){
+    const{data:data2}=await db.from('snow_load_master').select('former_area,parent_district,snow_depth_cm').eq('prefecture',pref).eq('former_area',city);
+    if(!data2||data2.length===0)return'— cm';
+    data=data2;
+  }
+  if(data.length===1)return`${data[0].snow_depth_cm} cm`;
+  if(restAfterCity){
+    for(const row of data){
+      if(row.former_area&&restAfterCity.includes(row.former_area))return`${row.snow_depth_cm} cm`;
+    }
+  }
+  const values=data.map(r=>r.snow_depth_cm);
+  const min=Math.min(...values),max=Math.max(...values);
+  if(min===max)return`${min} cm`;
+  return`${min}〜${max} cm`;
+}
+
 async function loadLandDetail(caseId){
   const{data}=await db.from('land_info').select('*').eq('case_id',caseId).single();
-  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">用途地域・地目</div><div class="info-value">${data.chiban||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">法令上の制限</div><div class="info-value">${data.horeijo_seigen||'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
+  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">用途地域・地目</div><div class="info-value">${data.chiban||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">法令上の制限</div><div class="info-value">${data.horeijo_seigen||'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
+  if(data&&data.location){
+    const display=await fetchSnowLoad(data.location);
+    document.querySelectorAll('.snow-load-value').forEach(el=>{el.textContent=display;});
+  }
 }
 
 async function loadRealestateDetail(caseId){
