@@ -1083,23 +1083,29 @@ async function loadNegotiationLogs(id){
 
 async function fetchSnowLoad(location){
   if(!location)return'— cm';
-  const prefMatch=location.match(/^(.{2,3}[都道府県])/);
-  if(!prefMatch)return'— cm';
-  const pref=prefMatch[1];
-  const rest=location.slice(pref.length);
-  const cityMatch=rest.match(/^(.+?[市区町村])/);
+  const loc=location.replace(/[{}（）()「」『』\[\]【】]/g,'').trim();
+  let pref=null,work=loc;
+  const prefMatch=loc.match(/^(.{2,3}[都道府県])/);
+  if(prefMatch){pref=prefMatch[1];work=loc.slice(pref.length);}
+  const cityMatch=work.match(/^(.+?[市区町村])/);
   if(!cityMatch)return'— cm';
   const city=cityMatch[1];
-  const restAfterCity=rest.slice(city.length);
-  let{data,error}=await db.from('snow_load_master').select('former_area,parent_district,snow_depth_cm').eq('prefecture',pref).eq('current_city',city);
+  const restAfterCity=work.slice(city.length);
+  let q1=db.from('snow_load_master').select('prefecture,former_area,parent_district,snow_depth_cm').eq('current_city',city);
+  if(pref)q1=q1.eq('prefecture',pref);
+  let{data,error}=await q1;
   if(error){console.error('snow_load fetch error:',error);return'— cm';}
   if(!data||data.length===0){
-    const{data:data2}=await db.from('snow_load_master').select('former_area,parent_district,snow_depth_cm').eq('prefecture',pref).eq('former_area',city);
+    let q2=db.from('snow_load_master').select('prefecture,former_area,parent_district,snow_depth_cm').eq('former_area',city);
+    if(pref)q2=q2.eq('prefecture',pref);
+    const{data:data2}=await q2;
     if(data2&&data2.length>0)data=data2;
   }
   if(!data||data.length===0){
-    const{data:defaultRow}=await db.from('snow_load_master').select('snow_depth_cm').eq('prefecture',pref).eq('former_area','上記以外の区域').limit(1);
-    if(defaultRow&&defaultRow.length>0)return`${defaultRow[0].snow_depth_cm} cm`;
+    if(pref){
+      const{data:defaultRow}=await db.from('snow_load_master').select('snow_depth_cm').eq('prefecture',pref).eq('former_area','上記以外の区域').limit(1);
+      if(defaultRow&&defaultRow.length>0)return`${defaultRow[0].snow_depth_cm} cm`;
+    }
     return'— cm';
   }
   if(data.length===1)return`${data[0].snow_depth_cm} cm`;
