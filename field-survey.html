@@ -843,6 +843,76 @@ function initMap() {
   map.on('zoomend', () => {
     document.getElementById('zoomLevel').textContent = map.getZoom();
   });
+
+  // ========== GPS現在地ボタン（bottomright に配置）==========
+  setupLocateControl();
+}
+
+let _locateMarker = null;
+let _locateCircle = null;
+let _locateInProgress = false;
+
+function setupLocateControl(){
+  const ctrl = L.control({ position: 'bottomright' });
+  ctrl.onAdd = function(){
+    const c = L.DomUtil.create('div', 'leaflet-bar');
+    c.style.cssText = 'background:#fff;border:2px solid rgba(0,0,0,0.2);border-radius:6px;cursor:pointer;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1;user-select:none;-webkit-user-select:none;box-shadow:0 1px 4px rgba(0,0,0,0.2);';
+    c.title = '現在地に移動';
+    c.id = 'locateBtn';
+    c.innerHTML = '\u{1F4CD}';
+    L.DomEvent.disableClickPropagation(c);
+    L.DomEvent.disableScrollPropagation(c);
+    c.onclick = locateMe;
+    return c;
+  };
+  ctrl.addTo(map);
+}
+
+function locateMe(){
+  if(_locateInProgress) return;
+  if(!navigator.geolocation){
+    showToast('\u3053\u306e\u7aef\u672b\u306f\u4f4d\u7f6e\u60c5\u5831\u53d6\u5f97\u306b\u5bfe\u5fdc\u3057\u3066\u3044\u307e\u305b\u3093', 'error');
+    return;
+  }
+  _locateInProgress = true;
+  const btn = document.getElementById('locateBtn');
+  if(btn){btn.innerHTML = '\u23f3'; btn.style.opacity = '0.6';}
+  showToast('\u73fe\u5728\u5730\u3092\u53d6\u5f97\u4e2d...', 'success');
+
+  navigator.geolocation.getCurrentPosition(
+    function(pos){
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const acc = pos.coords.accuracy;
+      // \u65e2\u5b58\u30de\u30fc\u30ab\u30fc\u30fb\u5186\u3092\u524a\u9664
+      if(_locateMarker){map.removeLayer(_locateMarker); _locateMarker = null;}
+      if(_locateCircle){map.removeLayer(_locateCircle); _locateCircle = null;}
+      // \u73fe\u5728\u5730\u30de\u30fc\u30ab\u30fc\uff08\u9752\u3044\u4e38\uff09
+      _locateMarker = L.circleMarker([lat, lng], {
+        radius: 8, fillColor: '#3b82f6', color: '#fff', weight: 3, opacity: 1, fillOpacity: 0.9
+      }).addTo(map);
+      _locateMarker.bindTooltip('\u73fe\u5728\u5730 (\u00b1' + Math.round(acc) + 'm)', {permanent: false, direction: 'top'});
+      // \u7cbe\u5ea6\u5186\uff08\u8584\u3044\u9752\uff09
+      _locateCircle = L.circle([lat, lng], {
+        radius: acc, color: '#3b82f6', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.1
+      }).addTo(map);
+      // \u30ba\u30fc\u30e018\u3067\u79fb\u52d5
+      map.setView([lat, lng], 18);
+      showToast('\u73fe\u5728\u5730\uff1a\u7cbe\u5ea6 \u00b1' + Math.round(acc) + 'm', 'success');
+      _locateInProgress = false;
+      if(btn){btn.innerHTML = '\u{1F4CD}'; btn.style.opacity = '1';}
+    },
+    function(err){
+      let msg = '\u4f4d\u7f6e\u60c5\u5831\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f';
+      if(err.code === 1) msg = '\u4f4d\u7f6e\u60c5\u5831\u306e\u5229\u7528\u304c\u62d2\u5426\u3055\u308c\u307e\u3057\u305f\u3002\u8a2d\u5b9a\u304b\u3089\u8a31\u53ef\u3057\u3066\u304f\u3060\u3055\u3044';
+      else if(err.code === 2) msg = '\u4f4d\u7f6e\u60c5\u5831\u304c\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093\uff08GPS\u96fb\u6ce2\u4e0d\u8db3\uff09';
+      else if(err.code === 3) msg = '\u4f4d\u7f6e\u60c5\u5831\u53d6\u5f97\u306e\u30bf\u30a4\u30e0\u30a2\u30a6\u30c8';
+      showToast(msg, 'error');
+      _locateInProgress = false;
+      if(btn){btn.innerHTML = '\u{1F4CD}'; btn.style.opacity = '1';}
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+  );
 }
 
 function toggleHazard(type) {
