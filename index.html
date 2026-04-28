@@ -127,6 +127,17 @@
   .action-btn:hover{background:var(--surface2);color:var(--text);}
   .action-btn.landowner{border-color:rgba(63,185,80,.4);color:var(--green);}.action-btn.landowner:hover{background:rgba(63,185,80,.1);}
   .action-btn.land{border-color:rgba(88,166,255,.4);color:var(--blue);}.action-btn.land:hover{background:rgba(88,166,255,.1);}
+  .action-toggle{padding:4px 12px;border:1px solid var(--border);background:none;color:var(--text);font-family:var(--font-main);font-size:11px;cursor:pointer;border-radius:5px;transition:all .15s;white-space:nowrap;}
+  .action-toggle:hover{background:var(--surface2);}
+  .action-toggle.open{background:var(--surface2);border-color:var(--accent);color:var(--accent);}
+  .action-menu{position:fixed;display:none;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);padding:6px;min-width:180px;z-index:9999;gap:2px;}
+  .action-menu.open{display:flex;}
+  .action-menu-item{text-align:left;padding:9px 12px;background:none;border:none;color:var(--text);font-family:var(--font-main);font-size:13px;cursor:pointer;border-radius:5px;white-space:nowrap;transition:background .15s;}
+  .action-menu-item:hover{background:var(--surface2);}
+  .action-menu-item.branch{color:var(--accent);}
+  .action-menu-item.landowner{color:var(--green);}
+  .action-menu-item.land{color:var(--blue);}
+  .action-menu-divider{height:1px;background:var(--border);margin:4px 0;}
   .inline-select{background:transparent;border:none;color:inherit;font-family:var(--font-main);font-size:11px;font-weight:600;cursor:pointer;padding:0;outline:none;appearance:none;-webkit-appearance:none;width:100%;}
   .inline-select option{background:var(--surface2);color:var(--text);font-size:12px;}
   .badge-select-wrap{display:inline-flex;align-items:center;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:500;cursor:pointer;transition:opacity .15s;}
@@ -1009,7 +1020,7 @@ function renderCases(cases){
     const displayNo=isChild?c.parent_case_no:(c.case_no||'—');
     const caseNoHtml=isChild?`<span style="color:var(--text-muted);margin-right:4px">└</span>${displayNo}`:displayNo;
     const branchHtml=isChild?`<span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700">${c.branch_no||''}</span>`:'<span style="color:var(--text-muted);font-size:11px">—</span>';
-    const addBranchBtn=isChild?'':`<button class="action-btn" style="border-color:rgba(240,180,41,.4);color:var(--accent)" onclick="openBranchModal('${(c.case_no||'').replace(/'/g,"\\'")}')" title="枝番を追加">＋枝</button>`;
+    const escapedCaseNo=(c.case_no||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
     return `<div class="case-row" style="grid-template-columns:50px 120px 40px 140px 140px 140px 150px 80px 1fr 160px;animation-delay:${i*.03}s">
       <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">${i+1}</div>
       <div class="case-no"${isChild?' style="padding-left:8px"':''}>${caseNoHtml}</div>
@@ -1021,10 +1032,7 @@ function renderCases(cases){
       <div style="font-size:13px;color:var(--text-muted);text-align:center">${c.area_name||'—'}</div>
       <div style="font-size:12px;color:var(--text-muted);text-align:center">${formatDate(c.created_at)}</div>
       <div class="actions-cell">
-        <button class="action-btn" onclick="openCaseEditModal('${c.id}')">✏️</button>
-        ${addBranchBtn}
-        <button class="action-btn landowner" onclick="openDetail('${c.id}','landowner')">地権者</button>
-        <button class="action-btn land" onclick="openDetail('${c.id}','land')">土地</button>
+        <button class="action-toggle" data-case-id="${c.id}" data-case-no="${escapedCaseNo}" data-is-child="${isChild?'1':'0'}" onclick="toggleActionMenu(event)">操作 ▼</button>
       </div>
     </div>`;
   }).join('');
@@ -1107,6 +1115,72 @@ function openNewCaseModal(){
   syncNewPcToArea();
   document.getElementById('newCaseModal').classList.add('open');
 }
+/* ===== 案件マスター 操作ドロップダウンメニュー ===== */
+let _currentActionToggleBtn = null;
+function toggleActionMenu(event){
+  event.stopPropagation();
+  const btn = event.currentTarget;
+  const menu = document.getElementById('globalActionMenu');
+  if(!menu) return;
+  // 同じボタンを再タップしたら閉じる
+  if(_currentActionToggleBtn === btn && menu.classList.contains('open')){
+    closeActionMenu();
+    return;
+  }
+  const caseId = btn.dataset.caseId;
+  const caseNo = btn.dataset.caseNo;
+  const isChild = btn.dataset.isChild === '1';
+  // メニュー内容を構築
+  let html = `<button class="action-menu-item" onclick="closeActionMenu();openCaseEditModal('${caseId}')">✏️ 編集</button>`;
+  if(!isChild){
+    html += `<button class="action-menu-item branch" onclick="closeActionMenu();openBranchModal('${caseNo}')">＋ 枝番を追加</button>`;
+  }
+  html += `<div class="action-menu-divider"></div>`;
+  html += `<button class="action-menu-item landowner" onclick="closeActionMenu();openDetail('${caseId}','landowner')">🧑 地権者情報</button>`;
+  html += `<button class="action-menu-item land" onclick="closeActionMenu();openDetail('${caseId}','land')">🏔 土地情報</button>`;
+  menu.innerHTML = html;
+  // 表示してから位置計算（getBoundingClientRectのため一時的に表示）
+  menu.classList.add('open');
+  const rect = btn.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const screenW = window.innerWidth;
+  const screenH = window.innerHeight;
+  // 縦方向：ボタンの下に表示。下に入らなければ上に
+  let top = rect.bottom + 4;
+  if(top + menuRect.height > screenH - 8){
+    top = rect.top - menuRect.height - 4;
+    if(top < 8) top = 8;
+  }
+  // 横方向：ボタンの右端揃え。画面端にぶつかったら調整
+  let left = rect.right - menuRect.width;
+  if(left < 8) left = 8;
+  if(left + menuRect.width > screenW - 8) left = screenW - menuRect.width - 8;
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+  // 開いているボタンをハイライト
+  document.querySelectorAll('.action-toggle.open').forEach(b => b.classList.remove('open'));
+  btn.classList.add('open');
+  _currentActionToggleBtn = btn;
+}
+function closeActionMenu(){
+  const menu = document.getElementById('globalActionMenu');
+  if(menu) menu.classList.remove('open');
+  if(_currentActionToggleBtn) _currentActionToggleBtn.classList.remove('open');
+  _currentActionToggleBtn = null;
+}
+// 外側クリックで閉じる
+document.addEventListener('click', (e)=>{
+  const menu = document.getElementById('globalActionMenu');
+  if(!menu || !menu.classList.contains('open')) return;
+  if(menu.contains(e.target)) return;
+  if(e.target.closest('.action-toggle')) return;
+  closeActionMenu();
+});
+// ESCキーで閉じる
+document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') closeActionMenu(); });
+// スクロールで閉じる（位置がずれるため）
+window.addEventListener('scroll', ()=>{ if(_currentActionToggleBtn) closeActionMenu(); }, true);
+
 function openBranchModal(parentCaseNo){
   const parent=allCases.find(c=>c.case_no===parentCaseNo);
   if(!parent){showToast('親案件が見つかりません','error');return;}
@@ -2705,6 +2779,7 @@ function setupMobileTableScrollSync() {
 window.addEventListener('load', setupMobileTableScrollSync);
 window.addEventListener('resize', setupMobileTableScrollSync);
 </script>
+<div class="action-menu" id="globalActionMenu"></div>
 <button class="mobile-home-btn" onclick="mobileGoHome()" aria-label="案件マスターに戻る">🏠</button>
 </body>
 </html>
