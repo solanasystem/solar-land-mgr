@@ -718,6 +718,8 @@
     </div>
     <div class="modal-body">
       <div class="form-grid">
+        <div class="form-group full"><label class="form-label">エリア絞り込み</label>
+          <select class="form-select" id="si_area_filter" onchange="filterCasesByArea()"><option value="">すべてのエリア</option></select></div>
         <div class="form-group"><label class="form-label">案件 *</label>
           <select class="form-select" id="si_case_id"><option value="">選択してください</option></select></div>
         <div class="form-group"><label class="form-label">紹介先企業 *</label>
@@ -2103,19 +2105,33 @@ async function openEditSalesModal(introId){
   document.getElementById('salesModal').classList.add('open');
 }
 
+let salesModalCasesCache=[];
 async function populateSalesModalSelects(){
-  /* 案件セレクト（NGは除外、status フィールドも取得） */
-  const caseSel=document.getElementById('si_case_id');
+  /* 案件キャッシュ（NGは除外、status フィールドも取得） */
   const cases=(allCases&&allCases.length?allCases:(await db.from('cases').select('id,case_no,area_name,parent_case_no,branch_no,status').order('case_no')).data||[]);
-  const validCases=cases.filter(c=>c.status!=='NG');
-  caseSel.innerHTML='<option value="">選択してください</option>'+validCases.map(c=>{
-    const no=c.parent_case_no?`${c.parent_case_no}_${String(c.branch_no||0).padStart(3,'0')}`:c.case_no;
-    return `<option value="${c.id}">${no} (${c.area_name||'—'})</option>`;
-  }).join('');
+  salesModalCasesCache=cases.filter(c=>c.status!=='NG');
+  /* エリアフィルタ：ユニークな area_name を抽出 */
+  const areaSel=document.getElementById('si_area_filter');
+  const areas=[...new Set(salesModalCasesCache.map(c=>c.area_name).filter(Boolean))].sort();
+  areaSel.innerHTML='<option value="">すべてのエリア</option>'+areas.map(a=>`<option value="${a}">${a}</option>`).join('');
+  /* 案件セレクト：初期は全件表示 */
+  renderSalesCaseOptions('');
   /* 企業セレクト */
   const coSel=document.getElementById('si_company_id');
   const companies=allIntroductionCompanies.length?allIntroductionCompanies:((await db.from('introduction_companies').select('id,company_name').order('company_name')).data||[]);
   coSel.innerHTML='<option value="">選択してください</option>'+companies.map(c=>`<option value="${c.id}">${c.company_name}</option>`).join('');
+}
+function renderSalesCaseOptions(areaFilter){
+  const caseSel=document.getElementById('si_case_id');
+  const filtered=areaFilter?salesModalCasesCache.filter(c=>c.area_name===areaFilter):salesModalCasesCache;
+  caseSel.innerHTML='<option value="">選択してください</option>'+filtered.map(c=>{
+    const no=c.parent_case_no?`${c.parent_case_no}_${String(c.branch_no||0).padStart(3,'0')}`:c.case_no;
+    return `<option value="${c.id}">${no} (${c.area_name||'—'})</option>`;
+  }).join('');
+}
+function filterCasesByArea(){
+  const area=document.getElementById('si_area_filter').value;
+  renderSalesCaseOptions(area);
 }
 
 /* 入金行のUI */
