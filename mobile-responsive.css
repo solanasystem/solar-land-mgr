@@ -599,107 +599,355 @@
 
 
 /* ================================================================
-   【7】 電力会社バー & ダッシュボードバー のコンパクト化
+   【7】 Mobile専用UI（max-width: 1024px）
+   2026/04/28 確定版 - PC版とは別UIに切り替え
    ================================================================
-   2026/04/28 追加 → 同日修正
-   方針：構造（flex-wrap / overflow）は一切触らず、
-         サイズ縮小だけで行数を自然に削減。
-         前版で flex-wrap:nowrap を入れたら横スクロール暴発で
-         ページ全体が幅900px超に拡張する破壊的副作用が出たため、
-         サイズ縮小オンリー方針に変更。
+   方針：PC要素を非表示、モバイル専用UIを表示
+   - 手紙・ラベル / 未来の農地マップ / 農地変化トラッカー /
+     公開農地マッチング / 紹介先企業マスタ / 販売管理 を非表示
+   - ナビバー全体を非表示、代わりに「各種マスター」1ボタン化
+   - 電力会社・区分・ステータス・NGブラインドを横一列
+   - 現地調査・地権者訪問を目立つ大ボタン化
+   - リスト：左端ギリギリ + 案件番号列sticky + 横スクロール
+   - リスト本文を13pxに統一
+   - 統計バッジ非表示
+   - 左下フローティングのホームボタン（案件マスター以外で表示）
+   要：index.html に
+     class="mobile-prominent" / class="pc-only" / class="pc-only-nav"
+     #mobileFilterBar > #mobilePcSelect / #mobileKubunSelect / #mobileStatusSelect / #mobileNgBlindBtn
+     .mobile-master-switcher > details.mobile-master-dropdown
+     button.mobile-home-btn
    ================================================================ */
+
+/* ---- PC側デフォルト：以下のmobile専用要素はPC側で非表示 ---- */
+.mobile-filter-bar,
+.mobile-master-switcher,
+.mobile-home-btn,
+.mobile-ng-blind-btn {
+  display: none;
+}
+
 @media (max-width: 1024px) {
 
-  /* ----- index.html: 電力会社フィルターバー（パディング縮小のみ） ----- */
-  .power-company-bar {
-    padding: 4px 12px !important;
-    gap: 4px !important;
+  /* ----- PC版要素を非表示 ----- */
+  .pc-only,
+  .pc-only-nav,
+  #powerCompanyBar,
+  .nav,
+  .header-stats,
+  #casesStickyBlock > .sticky-toolbar,
+  #landownersStickyBlock > .sticky-toolbar,
+  #landStickyBlock > .sticky-toolbar,
+  #realestateStickyBlock > .sticky-toolbar {
+    display: none !important;
   }
 
-  /* ----- 3マップ共通: ダッシュボードバー（パディング縮小のみ） ----- */
-  .dashboard-bar {
-    padding: 4px 8px !important;
-    gap: 6px !important;
+  /* ----- 「各種マスター」ドロップダウン（4マスターを1ボタンに集約） ----- */
+  .mobile-master-switcher {
+    display: block !important;
+    padding: 6px 8px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
   }
-  .dashboard-bar .status-chart-wrap {
-    gap: 6px !important;
+  .mobile-master-dropdown {
+    width: 100%;
+  }
+  .mobile-master-dropdown summary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 14px;
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    list-style: none;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  .mobile-master-dropdown summary::-webkit-details-marker {
+    display: none;
+  }
+  .mobile-master-dropdown[open] summary {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
+  }
+  .master-options {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 0 0;
+  }
+  .master-option {
+    padding: 12px 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .master-option:active {
+    background: var(--bg);
   }
 
-  /* ----- 共通: 電力会社タブ（コンパクト化） -----
-     これだけで1ボタンが約7割サイズになり、行数が自然に減る */
-  .pc-tab {
-    padding: 3px 8px !important;
-    font-size: 10px !important;
+  /* ----- モバイル専用フィルターバー（電力会社+区分+ステータス+NGブラインド） ----- */
+  .mobile-filter-bar {
+    display: flex !important;
+    gap: 6px;
+    padding: 6px 8px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    align-items: center;
   }
-  .pc-tab .pc-count {
-    font-size: 9px !important;
-    margin-left: 2px !important;
+  .mobile-filter-select {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 8px 4px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: var(--font-main);
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+                      linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+    background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 22px;
   }
 
-  /* ----- 3マップ共通: ドーナツチャート＋凡例（コンパクト化） ----- */
-  .donut-wrap { gap: 4px !important; }
-  .donut-svg {
-    width: 44px !important;
-    height: 44px !important;
+  /* ----- ヘッダー：現地調査・地権者訪問を目立つ大ボタンに ----- */
+  .header {
+    flex-wrap: wrap !important;
   }
-  .donut-total-num { font-size: 13px !important; }
-  .donut-total-lbl { font-size: 8px !important; }
-  .donut-legend {
-    font-size: 9px !important;
-    max-height: 44px !important;
-    gap: 0 !important;
-  }
-  .donut-legend-swatch {
-    width: 6px !important;
-    height: 6px !important;
-  }
-
-  /* ----- index.html: 地権者マスター ステータスダッシュボード ----- */
-  .status-dashboard {
-    padding: 6px 12px !important;
+  .header-actions {
+    width: 100%;
+    flex-basis: 100%;
+    order: 99;
     gap: 8px !important;
+    margin-top: 6px;
+    padding: 0 4px;
   }
-  .sd-title { font-size: 11px !important; }
-  .sd-donut-wrap { gap: 6px !important; }
-  .sd-donut-wrap svg {
-    width: 44px !important;
-    height: 44px !important;
+  .header-actions .mobile-prominent {
+    flex: 1 1 0;
+    padding: 12px 8px !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    background: var(--surface2) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
   }
-  .sd-total-num { font-size: 14px !important; }
-  .sd-total-lbl { font-size: 8px !important; }
-  .sd-legend {
-    font-size: 9px !important;
-    gap: 6px !important;
+  .header-actions .mobile-prominent:active {
+    background: var(--accent) !important;
+    color: #000 !important;
+  }
+
+  /* ----- ナビバー：フォントを案件マスターと統一・横スクロール維持 ----- */
+  .nav {
+    padding: 0 8px !important;
+  }
+  .nav-btn {
+    font-size: 13px !important;
+    padding: 8px 10px !important;
+  }
+
+  /* ----- メイン領域：左右paddingゼロで左端ギリギリ ----- */
+  .main {
+    padding: 0 !important;
+  }
+
+  /* ----- テーブル：横スクロール + フォント統一 ----- */
+  .cases-table {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .cases-table-header,
+  .case-row {
+    grid-template-columns: 36px 110px 30px 90px 90px 110px 100px 60px 1fr 100px !important;
+    padding: 8px 6px !important;
+    min-width: 800px !important;
+    font-size: 13px !important;
+  }
+  .cases-table-header {
+    font-size: 12px !important;
+  }
+  .case-row > div,
+  .case-row * {
+    font-size: 13px !important;
+  }
+  .cases-table-header > div,
+  .cases-table-header * {
+    font-size: 12px !important;
+  }
+
+  /* ----- 案件番号列を sticky left で固定（NO列＋案件番号列） ----- */
+  .case-row > div:nth-child(1),
+  .case-row > div:nth-child(2),
+  .cases-table-header > div:nth-child(1),
+  .cases-table-header > div:nth-child(2) {
+    position: sticky;
+    z-index: 5;
+  }
+  .case-row > div:nth-child(1),
+  .cases-table-header > div:nth-child(1) {
+    left: 0;
+    background: var(--bg);
+  }
+  .case-row > div:nth-child(2),
+  .cases-table-header > div:nth-child(2) {
+    left: 36px;
+    background: var(--bg);
+  }
+  /* hover時も固定列の背景を維持 */
+  .case-row:hover > div:nth-child(1),
+  .case-row:hover > div:nth-child(2) {
+    background: var(--surface2);
+  }
+
+  /* ----- NGブラインドボタン（モバイルフィルターバー内） ----- */
+  .mobile-ng-blind-btn {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    padding: 8px 12px;
+    background: rgba(107,114,128,.4);
+    color: #fff;
+    border: 1px solid rgba(107,114,128,.8);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+    min-width: 44px;
+  }
+  .mobile-ng-blind-btn.active {
+    background: rgba(248,81,73,0.4);
+    border-color: rgba(248,81,73,0.8);
+    color: #fff;
+  }
+
+  /* ----- フローティングホームボタン（左下・56px円形） ----- */
+  .mobile-home-btn {
+    display: flex !important;
+    position: fixed;
+    bottom: 20px;
+    left: 16px;
+    z-index: 9999;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #000;
+    border: none;
+    font-size: 26px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.5), 0 0 0 3px rgba(240,180,41,0.2);
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    line-height: 1;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.15s, background 0.15s;
+  }
+  .mobile-home-btn:active {
+    transform: scale(0.92);
+    background: #e0a820;
+  }
+  /* 案件マスタータブがアクティブな時はホームボタン非表示（:has() 利用） */
+  body:has(.nav .nav-btn.active[onclick*="'cases'"]) .mobile-home-btn {
+    display: none !important;
   }
 }
 
 
 /* ================================================================
-   【8】 iPhone（〜480px）：さらにコンパクト
+   【8】 iPhone（max-width: 480px）：さらにコンパクト
    ================================================================ */
 @media (max-width: 480px) {
-  .power-company-bar { padding: 3px 8px !important; }
-  .dashboard-bar { padding: 3px 6px !important; gap: 4px !important; }
-  .pc-tab {
-    padding: 2px 6px !important;
-    font-size: 9px !important;
-  }
-  .pc-tab .pc-count { font-size: 8px !important; }
 
-  .donut-svg {
-    width: 36px !important;
-    height: 36px !important;
+  /* ----- フィルター3select：間隔とフォント縮小 ----- */
+  .mobile-filter-bar {
+    gap: 4px;
+    padding: 4px 6px;
   }
-  .donut-total-num { font-size: 11px !important; }
-  .donut-legend {
-    font-size: 8px !important;
-    max-height: 36px !important;
+  .mobile-filter-select {
+    font-size: 12px !important;
+    padding: 7px 2px !important;
+    padding-right: 18px !important;
   }
 
-  .sd-donut-wrap svg {
-    width: 36px !important;
-    height: 36px !important;
+  /* ----- 現地調査・地権者訪問ボタン縮小 ----- */
+  .header-actions .mobile-prominent {
+    padding: 10px 6px !important;
+    font-size: 13px !important;
   }
-  .sd-total-num { font-size: 12px !important; }
-  .sd-legend { font-size: 8px !important; }
+
+  /* ----- ナビバー縮小 ----- */
+  .nav-btn {
+    font-size: 12px !important;
+    padding: 7px 8px !important;
+  }
+
+  /* ----- リスト：iPhone向け列幅調整 ----- */
+  .cases-table-header,
+  .case-row {
+    grid-template-columns: 30px 100px 30px 90px 90px 110px 100px 60px 1fr 100px !important;
+    padding: 7px 4px !important;
+    min-width: 760px !important;
+    font-size: 12px !important;
+  }
+  .case-row > div,
+  .case-row * {
+    font-size: 12px !important;
+  }
+  .cases-table-header > div,
+  .cases-table-header * {
+    font-size: 11px !important;
+  }
+
+  /* ----- 案件番号列の固定位置を更新（NO列幅30pxに合わせる） ----- */
+  .case-row > div:nth-child(2),
+  .cases-table-header > div:nth-child(2) {
+    left: 30px;
+  }
+
+  /* ----- NGブラインドボタン縮小 ----- */
+  .mobile-ng-blind-btn {
+    padding: 7px 8px !important;
+    font-size: 11px !important;
+    min-width: 38px !important;
+  }
+
+  /* ----- 「各種マスター」ボタン縮小 ----- */
+  .mobile-master-switcher {
+    padding: 4px 6px;
+  }
+  .mobile-master-dropdown summary {
+    padding: 10px 12px !important;
+    font-size: 13px !important;
+  }
+  .master-option {
+    padding: 11px 12px !important;
+    font-size: 13px !important;
+  }
+
+  /* ----- ホームボタン位置調整（小画面でも親指で押しやすく） ----- */
+  .mobile-home-btn {
+    bottom: 16px !important;
+    left: 12px !important;
+  }
 }
