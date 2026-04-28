@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>現地調査マップ | SOLAR LAND MGR</title>
+<title>現地調査マップ | SOLAR LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="mobile-responsive.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -35,6 +35,7 @@
   .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--text); }
   .logo-icon { width: 28px; height: 28px; background: linear-gradient(135deg, #f0b429, #e85d04); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
   .logo-text { font-size: 14px; font-weight: 700; }
+  .logo-version { font-family: var(--font-mono); font-size: 10px; color: var(--accent); background: rgba(240,180,41,.1); border: 1px solid rgba(240,180,41,.3); border-radius: 4px; padding: 2px 6px; }
   .page-title { font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
   .page-title::before { content: '/'; color: var(--border); }
   .legend { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--text-muted); flex-wrap:wrap; }
@@ -356,6 +357,7 @@
     <a class="logo" href="index.html">
       <div class="logo-icon">&#9728;&#65039;</div>
       <span class="logo-text">SOLAR LAND MGR</span>
+      <span class="logo-version">v3.0</span>
     </a>
     <span class="page-title">&#128506; 現地調査マップ</span>
   </div>
@@ -370,8 +372,9 @@
 <!-- ダッシュボードバー：電力会社タブ + ドーナツ + 凡例 -->
 <div class="dashboard-bar" id="dashboardBar">
   <div class="pc-tabs" id="pcTabs"></div>
+  <button class="dashboard-toggle-mobile" id="dashboardToggleBtn" type="button" onclick="toggleDashboardStats()" style="display:none">📊 統計 ▼</button>
   <div style="flex:1;min-width:12px;"></div>
-  <div class="status-chart-wrap">
+  <div class="status-chart-wrap" id="statusChartWrap">
     <div class="donut-wrap">
       <svg class="donut-svg" id="donutChart" width="64" height="64" viewBox="0 0 42 42"></svg>
       <div class="donut-total"><div class="donut-total-num" id="donutTotal">0</div><div class="donut-total-lbl">TOTAL</div></div>
@@ -1407,7 +1410,10 @@ function renderPowerCompanyTabs() {
     const n = counts[pc] || 0;
     const active = pc === currentPowerCompany ? ' active' : '';
     const empty = n === 0 ? ' style="opacity:.4"' : '';
-    return `<button class="pc-tab${active}"${empty} onclick="setPowerCompany('${pc}')">${pc}<span class="pc-count">(${n})</span></button>`;
+    const onclickAttr = pc === currentPowerCompany
+      ? 'onclick="togglePcExpanded(event)"'
+      : `onclick="setPowerCompany('${pc}')"`;
+    return `<button class="pc-tab${active}"${empty} ${onclickAttr}>${pc}<span class="pc-count">(${n})</span></button>`;
   }).join('');
 }
 
@@ -1416,10 +1422,29 @@ function setPowerCompany(pc) {
   currentPowerCompany = pc;
   planSet.clear();
   surveyMode = false;
+  // モバイル用：電力会社ドロップダウンを閉じる
+  document.getElementById('pcTabs')?.classList.remove('expanded');
   renderMarkersForCurrentPower();
   recalcFieldStats();
   updateSurveyUI();
   showToast('電力会社を切り替えました：' + pc, 'success');
+}
+
+/* ===== モバイル用：電力会社ドロップダウン展開トグル ===== */
+function togglePcExpanded(event) {
+  if (window.innerWidth > 1024) return; // PC版では何もしない
+  if (event) event.stopPropagation();
+  const tabs = document.getElementById('pcTabs');
+  if (tabs) tabs.classList.toggle('expanded');
+}
+
+/* ===== モバイル用：統計ダッシュボード展開トグル ===== */
+function toggleDashboardStats() {
+  const wrap = document.getElementById('statusChartWrap');
+  const btn = document.getElementById('dashboardToggleBtn');
+  if (!wrap || !btn) return;
+  const opened = wrap.classList.toggle('expanded');
+  btn.textContent = opened ? '📊 統計 ▲' : '📊 統計 ▼';
 }
 
 function renderSurveyTable() {
