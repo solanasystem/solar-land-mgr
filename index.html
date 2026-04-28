@@ -70,6 +70,17 @@
   .sp-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(14,165,233,.15);border:1px solid rgba(14,165,233,.4);color:#0ea5e9;padding:6px 12px;border-radius:6px;font-size:12px;margin-bottom:10px;}
   .sp-badge-clear{background:none;border:none;color:#f85149;cursor:pointer;font-size:12px;padding:0 0 0 8px;font-weight:700;}
   .sp-badge-clear:hover{color:#fff;}
+  /* ======= 販売管理 2カラムレイアウト ======= */
+  #salesSection{background:transparent;border:none;overflow:visible;border-radius:0;}
+  .sales-layout-2col{display:flex;gap:16px;align-items:flex-start;}
+  .sp-left-wrap{flex:0 0 260px;position:sticky;top:220px;align-self:flex-start;max-height:calc(100vh - 240px);overflow-y:auto;z-index:5;}
+  .sp-left-wrap .sp-dashboard{margin-bottom:0;}
+  .sp-right-wrap{flex:1;min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+  #salesStickyBlock{padding-left:276px;}
+  .sp-partner-select{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-family:var(--font-main);font-size:13px;cursor:pointer;margin-bottom:10px;}
+  .sp-partner-select:focus{outline:none;border-color:#0ea5e9;}
+  .sp-partner-select option{background:var(--surface2);color:var(--text);}
+  .sp-empty-hint{padding:20px 8px;text-align:center;color:var(--text-muted);font-size:11px;line-height:1.6;}
   .main{padding:8px 24px 20px;max-width:1400px;margin:0 auto;}
   .search-box{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 12px;color:var(--text);font-family:var(--font-main);font-size:13px;width:240px;transition:border-color .2s;}
   .search-box:focus{outline:none;border-color:var(--accent);}
@@ -375,9 +386,15 @@
     <div id="introcompanyList"><div class="loading"><div class="spinner"></div>読み込み中...</div></div>
   </div>
   <div class="cases-table" id="salesSection" style="display:none">
-    <div id="salesPartnerDashboard"></div>
-    <div id="salesFilterBadge"></div>
-    <div id="salesList"><div class="loading"><div class="spinner"></div>読み込み中...</div></div>
+    <div class="sales-layout-2col">
+      <div class="sp-left-wrap">
+        <div id="salesPartnerDashboard"></div>
+      </div>
+      <div class="sp-right-wrap">
+        <div id="salesFilterBadge"></div>
+        <div id="salesList"><div class="loading"><div class="spinner"></div>読み込み中...</div></div>
+      </div>
+    </div>
   </div>
   <div id="farmlandSection" style="display:none;">
 
@@ -2110,14 +2127,26 @@ function aggregateSalesByCompany(){
   return [...map.values()].sort((a,b)=>b.total-a.total);
 }
 
-/* 販売取引先別ダッシュボード：描画 */
+/* 販売取引先別ダッシュボード：描画（ドロップダウン式） */
 function renderSalesPartnerDashboard(){
   const el=document.getElementById('salesPartnerDashboard');
   if(!el)return;
   const data=aggregateSalesByCompany();
   if(!data.length){el.innerHTML='';return;}
   const fmtY=n=>'¥'+Number(n||0).toLocaleString();
-  const cards=data.map(d=>{
+  /* ドロップダウン用 option（契約金額の多い順、件数順は既にaggregateでソート済） */
+  const options=data.map(d=>{
+    const safeName=String(d.company_name).replace(/"/g,'&quot;');
+    const sel=salesDashboardCompanyFilter===d.company_id?' selected':'';
+    return `<option value="${d.company_id}"${sel}>${safeName}（${d.total}件）</option>`;
+  }).join('');
+  /* 現在選択中の取引先（dropdownで選んでいなければ未選択状態） */
+  const selected=salesDashboardCompanyFilter!=null
+    ? data.find(d=>d.company_id===salesDashboardCompanyFilter)
+    : null;
+  let cardHtml='';
+  if(selected){
+    const d=selected;
     const lostCancel=(d.counts['失注']||0)+(d.counts['キャンセル']||0);
     const paidPct=d.contractAmt>0?Math.round(d.paidAmt/d.contractAmt*100):0;
     const pctColor=paidPct===100?'#22c55e':paidPct>0?'#f0b429':'#6b7280';
@@ -2128,7 +2157,7 @@ function renderSalesPartnerDashboard(){
       ? `<div class="sp-row" onclick="selectSalesDashboardFilter(${d.company_id},'失注キャンセル')"><span class="sp-lbl">失注/取消:</span><span class="sp-num" style="color:#f85149">${lostCancel}</span><span class="sp-arrow">▶</span></div>`
       : `<div class="sp-row sp-row-zero"><span class="sp-lbl">失注/取消:</span><span class="sp-num">0</span></div>`;
     const safeName=String(d.company_name).replace(/"/g,'&quot;');
-    return `<div class="sp-card">
+    cardHtml=`<div class="sp-card">
       <div class="sp-name" onclick="selectSalesDashboardFilter(${d.company_id},'')" title="${safeName}（クリックで全紹介表示）">${d.company_name}</div>
       <div class="sp-divider"></div>
       ${row('紹介中',d.counts['紹介中'],'紹介中','#9ca3af')}
@@ -2140,11 +2169,26 @@ function renderSalesPartnerDashboard(){
       <div class="sp-money"><span>入金済:</span><span class="sp-money-val" style="color:#22c55e">${fmtY(d.paidAmt)}</span></div>
       <div class="sp-money"><span>入金率:</span><span class="sp-money-val" style="color:${pctColor}">${paidPct}%</span></div>
     </div>`;
-  }).join('');
+  }else{
+    cardHtml=`<div class="sp-empty-hint">▼ 上のリストから取引先を選択すると<br>契約状況が表示されます</div>`;
+  }
   el.innerHTML=`<div class="sp-dashboard">
     <div class="sp-title">📊 販売取引先別 契約状況 <span style="color:var(--text-muted);font-weight:normal;font-size:11px;margin-left:8px;">(${data.length}社)</span></div>
-    <div class="sp-grid">${cards}</div>
+    <select class="sp-partner-select" onchange="onSalesPartnerSelectChange(this.value)">
+      <option value="">— 取引先を選択 —</option>
+      ${options}
+    </select>
+    ${cardHtml}
   </div>`;
+}
+
+/* ドロップダウン変更ハンドラ */
+function onSalesPartnerSelectChange(val){
+  if(!val){
+    clearSalesDashboardFilter();
+  }else{
+    selectSalesDashboardFilter(Number(val),'');
+  }
 }
 
 /* ダッシュボード絞り込み選択 */
