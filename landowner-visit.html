@@ -297,8 +297,9 @@
 <!-- ダッシュボードバー：電力会社タブ + ドーナツ + 凡例 -->
 <div class="dashboard-bar" id="dashboardBar">
   <div class="pc-tabs" id="pcTabs"></div>
+  <button class="dashboard-toggle-mobile" id="dashboardToggleBtn" type="button" onclick="toggleDashboardStats()" style="display:none">📊 統計 ▼</button>
   <div style="flex:1;min-width:12px;"></div>
-  <div class="status-chart-wrap">
+  <div class="status-chart-wrap" id="statusChartWrap">
     <div class="donut-wrap">
       <svg class="donut-svg" id="donutChart" width="64" height="64" viewBox="0 0 42 42"></svg>
       <div class="donut-total"><div class="donut-total-num" id="donutTotal">0</div><div class="donut-total-lbl">TOTAL</div></div>
@@ -972,7 +973,10 @@ function renderPowerCompanyTabs() {
     const n = counts[pc] || 0;
     const active = pc === currentPowerCompany ? ' active' : '';
     const empty = n === 0 ? ' style="opacity:.4"' : '';
-    return `<button class="pc-tab${active}"${empty} onclick="setPowerCompany('${pc}')">${pc}<span class="pc-count">(${n})</span></button>`;
+    const onclickAttr = pc === currentPowerCompany
+      ? 'onclick="togglePcExpanded(event)"'
+      : `onclick="setPowerCompany('${pc}')"`;
+    return `<button class="pc-tab${active}"${empty} ${onclickAttr}>${pc}<span class="pc-count">(${n})</span></button>`;
   }).join('');
 }
 
@@ -982,11 +986,30 @@ function setPowerCompany(pc) {
   /* 電力会社を切り替えたら訪問予定はリセット（別エリアとの混在を防ぐ） */
   planSet.clear();
   visitMode = false;
+  // モバイル：電力会社ドロップダウンを閉じる
+  document.getElementById('pcTabs')?.classList.remove('expanded');
   renderMarkersForCurrentPower();
   renderPowerCompanyTabs();
   renderStatusDonut();
   updatePlanUI();
   showToast('電力会社を切り替えました：' + pc, 'success');
+}
+
+/* ===== モバイル：電力会社ドロップダウン展開トグル ===== */
+function togglePcExpanded(event) {
+  if (window.innerWidth > 1024) return;
+  if (event) event.stopPropagation();
+  const tabs = document.getElementById('pcTabs');
+  if (tabs) tabs.classList.toggle('expanded');
+}
+
+/* ===== モバイル：統計ダッシュボード展開トグル ===== */
+function toggleDashboardStats() {
+  const wrap = document.getElementById('statusChartWrap');
+  const btn = document.getElementById('dashboardToggleBtn');
+  if (!wrap || !btn) return;
+  const opened = wrap.classList.toggle('expanded');
+  btn.textContent = opened ? '📊 統計 ▲' : '📊 統計 ▼';
 }
 function makeIconHtml(color) {
   return `<div style="width:24px;height:24px;background:${color};border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid rgba(0,0,0,0.3);box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`;
