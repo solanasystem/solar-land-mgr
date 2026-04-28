@@ -225,9 +225,9 @@
     <div class="hstat"><div class="hstat-label">SUCCESS</div><div class="hstat-value red" id="statKeiyaku">—</div></div>
   </div>
   <div class="header-actions">
-    <button class="btn btn-ghost" onclick="location.href='field-survey.html'">🔍 現地調査</button>
-    <button class="btn btn-ghost" onclick="location.href='landowner-visit.html'">🚗 地権者訪問</button>
-    <button class="btn btn-ghost" onclick="location.href='letter-generator.html'">📝 手紙・ラベル</button>
+    <button class="btn btn-ghost mobile-prominent" onclick="location.href='field-survey.html'">🔍 現地調査</button>
+    <button class="btn btn-ghost mobile-prominent" onclick="location.href='landowner-visit.html'">🚗 地権者訪問</button>
+    <button class="btn btn-ghost pc-only" onclick="location.href='letter-generator.html'">📝 手紙・ラベル</button>
   </div>
 </header>
 <nav class="nav">
@@ -237,12 +237,58 @@
   <button class="nav-btn" onclick="switchNav(this,'realestate')" style="color:#f0b429">不動産会社マスター</button>
   <button class="nav-btn" onclick="switchNav(this,'introcompany')" style="color:#ec4899">📣 紹介先企業マスタ</button>
   <button class="nav-btn" onclick="switchNav(this,'sales')" style="color:#0ea5e9">📈 販売管理</button>
-  <button class="nav-btn" onclick="switchNav(this,'farmland')" style="color:#22c55e">🌱 未来の農地マップ</button>
-  <button class="nav-btn" onclick="location.href='farmland-tracker.html'" style="color:#22c55e">🌾 農地変化トラッカー</button>
-  <button class="nav-btn" onclick="location.href='public-farmland.html'" style="color:#a371f7">📋 公開農地マッチング</button>
+  <button class="nav-btn pc-only-nav" onclick="switchNav(this,'farmland')" style="color:#22c55e">🌱 未来の農地マップ</button>
+  <button class="nav-btn pc-only-nav" onclick="location.href='farmland-tracker.html'" style="color:#22c55e">🌾 農地変化トラッカー</button>
+  <button class="nav-btn pc-only-nav" onclick="location.href='public-farmland.html'" style="color:#a371f7">📋 公開農地マッチング</button>
 </nav>
+<div class="mobile-master-switcher">
+  <details class="mobile-master-dropdown">
+    <summary>📋 各種マスター ▼</summary>
+    <div class="master-options">
+      <button class="master-option" onclick="mobileSelectMaster('cases')" style="color:#a371f7">案件マスター</button>
+      <button class="master-option" onclick="mobileSelectMaster('landowners')" style="color:#3fb950">地権者マスター</button>
+      <button class="master-option" onclick="mobileSelectMaster('land')" style="color:#58a6ff">土地情報マスター</button>
+      <button class="master-option" onclick="mobileSelectMaster('realestate')" style="color:#f0b429">不動産会社マスター</button>
+    </div>
+  </details>
+</div>
 <div id="stickyZone">
   <div id="powerCompanyBar" class="power-company-bar"></div>
+  <div id="mobileFilterBar" class="mobile-filter-bar">
+    <select id="mobilePcSelect" class="mobile-filter-select" onchange="setPowerCompany(this.value)">
+      <option value="北海道電力">北海道電力</option>
+      <option value="東北電力">東北電力</option>
+      <option value="東京電力">東京電力</option>
+      <option value="中部電力" selected>中部電力</option>
+      <option value="北陸電力">北陸電力</option>
+      <option value="関西電力">関西電力</option>
+      <option value="中国電力">中国電力</option>
+      <option value="四国電力">四国電力</option>
+      <option value="九州電力">九州電力</option>
+      <option value="沖縄電力">沖縄電力</option>
+    </select>
+    <select id="mobileKubunSelect" class="mobile-filter-select" onchange="document.getElementById('filterKubun').value=this.value;filterCases();">
+      <option value="">区分(全て)</option>
+      <option value="低圧太陽光">低圧太陽光</option>
+      <option value="高圧太陽光">高圧太陽光</option>
+      <option value="低圧蓄電池">低圧蓄電池</option>
+      <option value="高圧蓄電池">高圧蓄電池</option>
+      <option value="営農型太陽光">営農型太陽光</option>
+    </select>
+    <select id="mobileStatusSelect" class="mobile-filter-select" onchange="document.getElementById('filterStatus').value=this.value;filterCases();">
+      <option value="">ステータス(全て)</option>
+      <option value="NOT VISITED">NOT VISITED</option>
+      <option value="THINKING↑">THINKING↑</option>
+      <option value="THINKING→">THINKING→</option>
+      <option value="THINKING↓">THINKING↓</option>
+      <option value="OK">OK</option>
+      <option value="SUCCESS">SUCCESS</option>
+      <option value="NON MEET">NON MEET</option>
+      <option value="NG">NG</option>
+      <option value="UNKNOWN">UNKNOWN</option>
+    </select>
+    <button id="mobileNgBlindBtn" class="mobile-ng-blind-btn" onclick="mobileToggleNgBlind()">NG</button>
+  </div>
   <div id="casesStickyBlock">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -2594,6 +2640,33 @@ function showToast(msg,type='success'){
   t.className=`toast ${type}`;t.innerHTML=`<span>${type==='success'?'✓':'✕'}</span><span>${msg}</span>`;
   c.appendChild(t);setTimeout(()=>t.remove(),3000);
 }
+/* ============ モバイル専用関数 2026/04/28追加 ============ */
+function mobileSelectMaster(target) {
+  const navBtn = document.querySelector('.nav-btn[onclick*="\'' + target + '\'"]');
+  if (navBtn) navBtn.click();
+  const drop = document.querySelector('.mobile-master-dropdown');
+  if (drop) drop.removeAttribute('open');
+}
+function mobileGoHome() {
+  const navBtn = document.querySelector('.nav-btn[onclick*="\'cases\'"]');
+  if (navBtn) navBtn.click();
+  window.scrollTo({top: 0, behavior: 'smooth'});
+}
+function mobileToggleNgBlind() {
+  if (typeof toggleNgBlind === 'function') toggleNgBlind();
+  setTimeout(() => {
+    const mobileBtn = document.getElementById('mobileNgBlindBtn');
+    const realBtn = document.getElementById('ngBlindBtn');
+    if (mobileBtn && realBtn) {
+      if (realBtn.textContent.includes('OFF')) {
+        mobileBtn.classList.add('active');
+      } else {
+        mobileBtn.classList.remove('active');
+      }
+    }
+  }, 50);
+}
 </script>
+<button class="mobile-home-btn" onclick="mobileGoHome()" aria-label="案件マスターに戻る">🏠</button>
 </body>
 </html>
