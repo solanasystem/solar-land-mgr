@@ -619,6 +619,7 @@
         <button class="detail-tab active" onclick="switchDetailTab(this,'tab-landowner')" id="tabLandowner">🧑 地権者情報</button>
         <button class="detail-tab" onclick="switchDetailTab(this,'tab-land')" id="tabLand">🏔 土地情報</button>
         <button class="detail-tab" onclick="switchDetailTab(this,'tab-realestate')" id="tabRealestate">🏢 不動産会社</button>
+        <button class="detail-tab" onclick="switchDetailTab(this,'tab-documents')" id="tabDocuments">📄 書類</button>
       </div>
     </div>
     <div class="detail-body">
@@ -662,6 +663,16 @@
         </div>
       </div>
       <div class="tab-pane" id="tab-realestate"><div class="info-grid" id="realestateInfoMain"></div></div>
+      <div class="tab-pane" id="tab-documents">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span class="section-title">📄 登記簿・公図</span>
+            <span id="docCount" style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);"></span>
+          </div>
+          <button class="btn btn-primary" style="font-size:12px;" onclick="openUploadDocModal()">＋ 書類アップロード</button>
+        </div>
+        <div id="documentsList"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('detailModal')">閉じる</button>
@@ -1431,7 +1442,7 @@ async function openDetail(caseId,mode){
   document.getElementById(tab).classList.add('active');
   document.getElementById(mode==='land'?'tabLand':'tabLandowner').classList.add('active');
   document.getElementById('detailModal').classList.add('open');
-  await Promise.all([loadLandownerDetail(caseId),loadLandDetail(caseId),loadRealestateDetail(caseId)]);
+  await Promise.all([loadLandownerDetail(caseId),loadLandDetail(caseId),loadRealestateDetail(caseId),loadDocuments(caseId)]);
 }
 
 async function loadLandownerDetail(caseId){
@@ -1781,6 +1792,60 @@ function switchDetailTab(btn,tabId){
   document.querySelectorAll('.detail-tab').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');document.getElementById(tabId).classList.add('active');
+}
+
+// ============================================================================
+// 書類管理（登記簿・公図）— Step 1-2a: 一覧表示のみ
+// アップロード/プレビュー/削除は Step 1-2b/1-2c で実装
+// ============================================================================
+async function loadDocuments(caseId){
+  const list=document.getElementById('documentsList');
+  const countEl=document.getElementById('docCount');
+  if(!list||!countEl)return;
+  const{data,error}=await db.from('case_documents').select('*').eq('case_id',caseId).eq('is_deleted',false).eq('is_active',true).order('uploaded_at',{ascending:false});
+  if(error){
+    list.innerHTML=`<div style="color:#ef4444;font-size:13px;padding:12px 0">読み込みエラー: ${error.message}</div>`;
+    countEl.textContent='';
+    return;
+  }
+  if(!data||!data.length){
+    list.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:24px 0;text-align:center">📭 書類が登録されていません</div>';
+    countEl.textContent='(0件)';
+    return;
+  }
+  countEl.textContent=`(${data.length}件)`;
+  list.innerHTML=data.map(d=>{
+    const isTouki=d.document_type==='touki';
+    const typeLabel=isTouki?'📜 登記簿':'🗺 公図';
+    const typeColor=isTouki?'#3b82f6':'#10b981';
+    const sizeKB=d.file_size_compressed?Math.round(d.file_size_compressed/1024):0;
+    const origKB=d.file_size_original?Math.round(d.file_size_original/1024):0;
+    const compressInfo=d.compression_applied&&origKB?`${origKB}→${sizeKB}KB`:`${sizeKB}KB`;
+    const dateStr=d.uploaded_at?new Date(d.uploaded_at).toLocaleDateString('ja-JP'):'';
+    return `<div class="doc-item" style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface2);flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1;min-width:200px;">
+        <span style="display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${typeColor};color:#fff;white-space:nowrap;">${typeLabel}</span>
+        ${d.chiban?`<span style="font-size:13px;color:var(--text);font-family:var(--font-mono);font-weight:600;">${d.chiban}</span>`:''}
+        <span style="font-size:11px;color:var(--text-muted);word-break:break-all;">${d.file_name||''}</span>
+        <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap;">${compressInfo}</span>
+        <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${dateStr}</span>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="previewDocument('${d.id}')">プレビュー</button>
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#ef4444;" onclick="deleteDocument('${d.id}')">削除</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openUploadDocModal(){
+  showToast('Step 1-2b で実装予定です（PDF圧縮 + アップロード）','error');
+}
+function previewDocument(id){
+  showToast('Step 1-2c で実装予定です（プレビュー）','error');
+}
+function deleteDocument(id){
+  showToast('Step 1-2c で実装予定です（削除）','error');
 }
 function toggleAddLog(){const f=document.getElementById('addLogForm');f.style.display=f.style.display==='none'?'block':'none';}
 function toggleCollapse(header){const body=header.nextElementSibling,arrow=header.querySelector('.collapse-arrow');body.classList.toggle('open');arrow.classList.toggle('open');}
