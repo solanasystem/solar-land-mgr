@@ -180,12 +180,12 @@
         .cc-btn-ok:hover { background: #e0a820; }
         .cc-btn-ok:disabled { opacity: 0.5; cursor: wait; }
 
-        /* GPS FAB（モバイルのみ） */
+        /* GPS FAB（モバイルのみ） - 初期位置：左下、ドラッグで自由移動可能 */
         .cc-gps-fab {
           display: none;
           position: fixed;
           bottom: 20px;
-          right: 20px;
+          left: 20px;
           width: 56px;
           height: 56px;
           border-radius: 50%;
@@ -198,6 +198,7 @@
           cursor: pointer;
           z-index: 1000;
           -webkit-tap-highlight-color: transparent;
+          touch-action: none; /* ドラッグ時のスクロールを抑制 */
         }
         .cc-gps-fab:active {
           transform: scale(0.95);
@@ -270,6 +271,90 @@
     btn.textContent = '📍';
     btn.addEventListener('click', handleGpsClick);
     document.body.appendChild(btn);
+    // ドラッグ機能を有効化（モバイルのみ実効）
+    makeFabDraggable(btn);
+  }
+
+  /* ----------------------------------------------------------
+     FABのドラッグ機能（mobile-responsive.js の方式に準拠）
+     - 5px以上動いたらドラッグと判定
+     - ドラッグ中はpositionをfixedで実座標に上書き
+     - ドラッグ後の click イベントは1回キャンセル
+     - PC（1025px以上）では何もしない
+     ---------------------------------------------------------- */
+  function makeFabDraggable(el) {
+    if (window.innerWidth > 1024) return;
+
+    let startX = null, startY = null;
+    let initialLeft = 0, initialTop = 0;
+    let isDragging = false;
+    let clickBlocked = false;
+
+    el.addEventListener('touchstart', function(e) {
+      if (e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const rect = el.getBoundingClientRect();
+      startX = touch.clientX;
+      startY = touch.clientY;
+      initialLeft = rect.left;
+      initialTop = rect.top;
+      isDragging = false;
+      clickBlocked = false;
+    }, { passive: true });
+
+    el.addEventListener('touchmove', function(e) {
+      if (startX === null || e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+
+      // 5px以上動いたらドラッグ開始
+      if (!isDragging && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+        isDragging = true;
+        clickBlocked = true;
+        // bottom/right指定を解除し、left/topの実座標に切り替え
+        el.style.setProperty('left', initialLeft + 'px', 'important');
+        el.style.setProperty('top', initialTop + 'px', 'important');
+        el.style.setProperty('right', 'auto', 'important');
+        el.style.setProperty('bottom', 'auto', 'important');
+        el.style.setProperty('transition', 'none', 'important');
+      }
+
+      if (isDragging) {
+        e.preventDefault(); // スクロール防止
+        let newLeft = initialLeft + dx;
+        let newTop = initialTop + dy;
+        // 画面外に完全に出ないよう40px以上は見える状態を維持
+        const maxLeft = window.innerWidth - 40;
+        const maxTop = window.innerHeight - 40;
+        const minLeft = -(el.offsetWidth - 40);
+        const minTop = 0;
+        newLeft = Math.max(minLeft, Math.min(newLeft, maxLeft));
+        newTop = Math.max(minTop, Math.min(newTop, maxTop));
+        el.style.setProperty('left', newLeft + 'px', 'important');
+        el.style.setProperty('top', newTop + 'px', 'important');
+      }
+    }, { passive: false });
+
+    el.addEventListener('touchend', function() {
+      startX = null;
+      startY = null;
+      isDragging = false;
+      // ドラッグしていたら直後のclickイベントをキャンセル
+      // （GPS取得が誤発火しないよう）
+      if (clickBlocked) {
+        const oneShot = function(evt) {
+          evt.stopImmediatePropagation();
+          evt.preventDefault();
+          el.removeEventListener('click', oneShot, true);
+        };
+        el.addEventListener('click', oneShot, true);
+        setTimeout(function() {
+          el.removeEventListener('click', oneShot, true);
+          clickBlocked = false;
+        }, 300);
+      }
+    });
   }
 
   function handleGpsClick() {

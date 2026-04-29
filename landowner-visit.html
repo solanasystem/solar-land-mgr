@@ -299,7 +299,7 @@
 <div class="dashboard-bar" id="dashboardBar">
   <div class="pc-tabs" id="pcTabs"></div>
   <button class="dashboard-toggle-mobile" id="dashboardToggleBtn" type="button" onclick="toggleDashboardStats()" style="display:none">📊 統計 ▼</button>
-  <button class="dashboard-start-mobile" id="dashboardStartBtn" type="button" onclick="startVisitMode()" style="display:none">🚗 訪問開始</button>
+  <button class="dashboard-start-mobile" id="dashboardStartBtn" type="button" onclick="handleDashStartClick()" style="display:none">🚗 訪問開始</button>
   <div style="flex:1;min-width:12px;"></div>
   <div class="status-chart-wrap" id="statusChartWrap">
     <div class="donut-wrap">
@@ -346,22 +346,11 @@
       <div class="mc-panel-body">
       <div class="action-panel-title">訪問計画モード</div>
       <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>訪問予定を選択してください</div>
-      <button class="btn btn-primary" onclick="startVisitMode()" id="startBtn" disabled>🚗 訪問開始</button>
+      <button class="btn btn-primary" onclick="handleDashStartClick()" id="startBtn" disabled>🚗 訪問開始</button>
       <button class="btn btn-ghost" style="font-size:11px" onclick="togglePlanList()">📋 予定リスト（右）</button>
       </div>
     </div>
-    <div class="action-panel mc-collapsible" id="visitPanel" style="display:none">
-      <div class="mc-panel-header" onclick="toggleActionPanel('visitPanel')">
-        <span class="mc-panel-title">🚗 訪問実行モード</span>
-        <button class="mc-panel-toggle" type="button" aria-label="開閉">▼</button>
-      </div>
-      <div class="mc-panel-body">
-      <div class="action-panel-title">訪問実行モード</div>
-      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>ナビを起動してください</div>
-      <button class="btn btn-ghost" style="font-size:11px" onclick="togglePlanList()">📋 予定リスト（右）</button>
-      <button class="btn btn-ghost" style="font-size:11px;color:var(--red);border-color:var(--red)" onclick="resetPlan()">🔄 計画をリセット</button>
-      </div>
-    </div>
+    <!-- 訪問実行モードはヘッダーの訪問開始ボタンに統合（実行中の再押下で計画リセット） -->
   </div>
   <div class="layer-control" id="layerControl">
     <div class="layer-title">地図レイヤー</div>
@@ -1203,8 +1192,9 @@ function updatePlanUI() {
     dashStartBtn.disabled = isDisabled;
     if (isDisabled) dashStartBtn.setAttribute('disabled', 'disabled');
     else dashStartBtn.removeAttribute('disabled');
-    // visitMode（実行中）はdashStartBtnを非表示、それ以外は表示
-    dashStartBtn.style.display = visitMode ? 'none' : '';
+    // visitMode の表示切替は setVisitButtonResetMode() で処理するためここでは触らない
+    // dashStartBtn は計画モード/実行モードどちらでも常時表示
+    dashStartBtn.style.display = '';
   }
   renderPlanList(); renderOwnerTable();
 }
@@ -1242,8 +1232,6 @@ function startVisitMode() {
     if (!planSet.has(caseId) && !d.isVisited) map.removeLayer(d.marker);
     else if (planSet.has(caseId) && !d.isVisited) d.marker.setPopupContent(buildPopup(d.lo, caseId, false, false));
   });
-  document.getElementById('planPanel').style.display = 'none';
-  document.getElementById('visitPanel').style.display = 'flex';
   document.getElementById('phaseBadge').textContent = '\ud83d\ude97 \u8a2a\u554f\u5b9f\u884c\u30e2\u30fc\u30c9';
   document.getElementById('phaseBadge').className = 'phase-badge phase-visit';
   showToast('\u8a2a\u554f\u5b9f\u884c\u30e2\u30fc\u30c9\u306b\u5207\u308a\u66ff\u3048\u307e\u3057\u305f', 'success');
@@ -1251,9 +1239,8 @@ function startVisitMode() {
   // 訪問予定リスト（左パネル）も確実に閉じる：マーカークリックを妨げないため
   const ownerPanel = document.getElementById('ownerListPanel');
   if (ownerPanel) ownerPanel.classList.remove('open');
-  // 既存のupdateUI連動：dashboardStartBtnを非表示にする
-  const dashStartBtn = document.getElementById('dashboardStartBtn');
-  if (dashStartBtn) dashStartBtn.style.display = 'none';
+  // ヘッダー/サイドの訪問開始ボタンを「計画リセット」状態に切替（赤色 + ラベル変更）
+  setVisitButtonResetMode(true);
 }
 function startNav(caseId) {
   const d = markers[caseId];
@@ -1300,11 +1287,44 @@ function resetPlan() {
     if (!map.hasLayer(d.marker)) d.marker.addTo(map);
     d.marker.setPopupContent(buildPopup(d.lo, caseId, d.isVisited, false));
   });
-  document.getElementById('planPanel').style.display = 'flex';
-  document.getElementById('visitPanel').style.display = 'none';
   document.getElementById('phaseBadge').textContent = '\ud83d\udccb \u8a2a\u554f\u8a08\u753b\u30e2\u30fc\u30c9';
   document.getElementById('phaseBadge').className = 'phase-badge phase-plan';
+  // ヘッダー/サイドの訪問開始ボタンを通常状態に戻す
+  setVisitButtonResetMode(false);
   updatePlanUI();
+}
+
+/* ===== ヘッダー/サイドボタン共通ハンドラ：計画モード=開始、実行モード=リセット ===== */
+function handleDashStartClick() {
+  if (visitMode) {
+    resetPlan(); // 既存のconfirm()がそのまま動く
+  } else {
+    startVisitMode();
+  }
+}
+
+/* ===== ボタン表示モード切替（ヘッダー & サイドの両方） ===== */
+function setVisitButtonResetMode(isReset) {
+  const RESET_BG = '#dc3545'; // 赤
+  ['dashboardStartBtn', 'startBtn'].forEach(function(id){
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    if (isReset) {
+      // 元のラベルを保存（一度のみ）
+      if (!btn.dataset.originalLabel) btn.dataset.originalLabel = btn.innerHTML;
+      btn.innerHTML = '\ud83d\udd04 \u8a08\u753b\u30ea\u30bb\u30c3\u30c8'; // 🔄 計画リセット
+      btn.style.setProperty('background', RESET_BG, 'important');
+      btn.style.setProperty('border-color', RESET_BG, 'important');
+      btn.style.setProperty('color', '#fff', 'important');
+      btn.disabled = false;
+      btn.removeAttribute('disabled');
+    } else {
+      btn.innerHTML = btn.dataset.originalLabel || btn.innerHTML;
+      btn.style.removeProperty('background');
+      btn.style.removeProperty('border-color');
+      btn.style.removeProperty('color');
+    }
+  });
 }
 function togglePlanList() { document.getElementById('sidePanel').classList.toggle('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
@@ -1421,7 +1441,7 @@ function toggleActionPanel(id) {
 }
 // \u521d\u671f\u72b6\u614b\uff1a\u753b\u9762\u5e451024px\u4ee5\u4e0b\uff08iPad\u30fbiPhone\uff09\u3067\u306f\u6298\u308a\u305f\u305f\u307f
 if (window.innerWidth <= 1024) {
-  ['planPanel', 'visitPanel'].forEach(function(id){
+  ['planPanel'].forEach(function(id){
     const el = document.getElementById(id);
     if (el) el.classList.add('collapsed');
   });

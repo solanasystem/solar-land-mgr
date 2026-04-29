@@ -29,6 +29,7 @@
     initDraggablePanels();
     initHeaderToggle();
     initChibanSearchCompact();
+    initBgMapNeutralOnMobile();
   }
 
   // =========================================================
@@ -215,6 +216,38 @@
         }
       });
     });
+  }
+
+  // =========================================================
+  // 【4】 背景マップ調整：モバイル時は明るさ・彩度を100%に固定
+  //    （CSS で .bg-adjust-panel は非表示にしているため、
+  //     ユーザーが操作できない状態でフィルタを中立値に固定する）
+  // =========================================================
+  function initBgMapNeutralOnMobile() {
+    // updateBaseMap()が定義され、スライダーがDOMに存在するまで待つ
+    var attempts = 0;
+    var maxAttempts = 50; // 最大5秒待つ（100ms × 50）
+    function tryApply() {
+      attempts++;
+      var brightness = document.getElementById('baseMapBrightness');
+      var saturation = document.getElementById('baseMapSaturation');
+      if (!brightness || !saturation) {
+        if (attempts < maxAttempts) {
+          setTimeout(tryApply, 100);
+        }
+        return;
+      }
+      // スライダー目盛りの真ん中に固定
+      // 明るさ: min=50, max=150, 中央=100
+      // 彩度  : min=0, max=200, 中央=100
+      brightness.value = 100;
+      saturation.value = 100;
+      // updateBaseMap()があれば呼んでフィルタを反映
+      if (typeof window.updateBaseMap === 'function') {
+        try { window.updateBaseMap(); } catch (e) {}
+      }
+    }
+    tryApply();
   }
 
 })();

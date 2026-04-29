@@ -373,7 +373,7 @@
 <div class="dashboard-bar" id="dashboardBar">
   <div class="pc-tabs" id="pcTabs"></div>
   <button class="dashboard-toggle-mobile" id="dashboardToggleBtn" type="button" onclick="toggleDashboardStats()" style="display:none">📊 統計 ▼</button>
-  <button class="dashboard-start-mobile" id="dashboardStartBtn" type="button" onclick="startSurveyMode()" style="display:none">🚀 調査開始</button>
+  <button class="dashboard-start-mobile" id="dashboardStartBtn" type="button" onclick="handleDashStartClick()" style="display:none">🚀 調査開始</button>
   <div style="flex:1;min-width:12px;"></div>
   <div class="status-chart-wrap" id="statusChartWrap">
     <div class="donut-wrap">
@@ -429,20 +429,10 @@
       <div class="mc-panel-body">
       <div class="action-panel-title">現地調査計画モード</div>
       <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>調査予定を選択してください</div>
-      <button class="btn-start" onclick="startSurveyMode()" id="startBtn" disabled>&#128506; 調査開始</button>
+      <button class="btn-start" onclick="handleDashStartClick()" id="startBtn" disabled>&#128506; 調査開始</button>
       </div>
     </div>
-    <div class="action-panel mc-collapsible" id="surveyPanel" style="display:none">
-      <div class="mc-panel-header" onclick="toggleActionPanel('surveyPanel')">
-        <span class="mc-panel-title">&#128506; 調査実行モード</span>
-        <button class="mc-panel-toggle" type="button" aria-label="開閉">&#9660;</button>
-      </div>
-      <div class="mc-panel-body">
-      <div class="action-panel-title">調査実行モード</div>
-      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>現地確認を記録してください</div>
-      <button class="btn-reset" onclick="resetSurvey()">&#128260; 計画をリセット</button>
-      </div>
-    </div>
+    <!-- 調査実行モードはヘッダーの調査開始ボタンに統合（実行中の再押下で計画リセット） -->
   </div>
 
   <!-- ======== レイヤーコントロール（ハザード複数対応） ======== -->
@@ -1417,15 +1407,12 @@ function startSurveyMode() {
     if (!planSet.has(caseId) && !d.confirmed) map.removeLayer(d.marker);
     if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
   });
-  document.getElementById('planPanel').style.display = 'none';
-  document.getElementById('surveyPanel').style.display = 'flex';
   showToast('\u8abf\u67fb\u5b9f\u884c\u30e2\u30fc\u30c9\u306b\u5207\u308a\u66ff\u3048\u307e\u3057\u305f', 'success');
   // 調査予定リスト（左パネル）も確実に閉じる：マーカークリックを妨げないため
   const surveyPanel = document.getElementById('surveyListPanel');
   if (surveyPanel) surveyPanel.classList.remove('open');
-  // ヘッダーの dashboardStartBtn を非表示にする
-  const dashStartBtn = document.getElementById('dashboardStartBtn');
-  if (dashStartBtn) dashStartBtn.style.display = 'none';
+  // ヘッダー/サイドの調査開始ボタンを「計画リセット」状態に切替（赤色 + ラベル変更）
+  setSurveyButtonResetMode(true);
 }
 
 function resetSurvey() {
@@ -1439,9 +1426,42 @@ function resetSurvey() {
     if (!map.hasLayer(d.marker)) d.marker.addTo(map);
     if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
   });
-  document.getElementById('planPanel').style.display = 'flex';
-  document.getElementById('surveyPanel').style.display = 'none';
+  // ヘッダー/サイドの調査開始ボタンを通常状態に戻す
+  setSurveyButtonResetMode(false);
   updateSurveyUI();
+}
+
+/* ===== ヘッダー/サイドボタン共通ハンドラ：計画モード=開始、実行モード=リセット ===== */
+function handleDashStartClick() {
+  if (surveyMode) {
+    resetSurvey(); // 既存のconfirm()がそのまま動く
+  } else {
+    startSurveyMode();
+  }
+}
+
+/* ===== ボタン表示モード切替（ヘッダー & サイドの両方） ===== */
+function setSurveyButtonResetMode(isReset) {
+  const RESET_BG = '#dc3545'; // 赤
+  ['dashboardStartBtn', 'startBtn'].forEach(function(id){
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    if (isReset) {
+      // 元のラベルを保存（一度のみ）
+      if (!btn.dataset.originalLabel) btn.dataset.originalLabel = btn.innerHTML;
+      btn.innerHTML = '\ud83d\udd04 \u8a08\u753b\u30ea\u30bb\u30c3\u30c8'; // 🔄 計画リセット
+      btn.style.setProperty('background', RESET_BG, 'important');
+      btn.style.setProperty('border-color', RESET_BG, 'important');
+      btn.style.setProperty('color', '#fff', 'important');
+      btn.disabled = false;
+      btn.removeAttribute('disabled');
+    } else {
+      btn.innerHTML = btn.dataset.originalLabel || btn.innerHTML;
+      btn.style.removeProperty('background');
+      btn.style.removeProperty('border-color');
+      btn.style.removeProperty('color');
+    }
+  });
 }
 
 function removePlan(caseId) {
@@ -1469,8 +1489,9 @@ function updateSurveyUI() {
     dashStartBtn.disabled = isDisabled;
     if (isDisabled) dashStartBtn.setAttribute('disabled', 'disabled');
     else dashStartBtn.removeAttribute('disabled');
-    // surveyMode（実行中）はdashStartBtnを非表示
-    dashStartBtn.style.display = surveyMode ? 'none' : '';
+    // surveyMode の表示切替は setSurveyButtonResetMode() で処理するためここでは触らない
+    // dashStartBtn は計画モード/実行モードどちらでも常時表示
+    dashStartBtn.style.display = '';
   }
   renderSurveyTable();
 }
@@ -2201,7 +2222,7 @@ function toggleBgAdjust() {
   if (el) el.classList.toggle('collapsed');
 }
 if (window.innerWidth <= 1024) {
-  ['planPanel', 'surveyPanel', 'bgAdjustPanel'].forEach(function(id){
+  ['planPanel', 'bgAdjustPanel'].forEach(function(id){
     const el = document.getElementById(id);
     if (el) el.classList.add('collapsed');
   });
