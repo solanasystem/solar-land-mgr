@@ -320,7 +320,9 @@ body{font-family:var(--font-main);background:var(--bg);color:var(--text);font-si
   .layout{display:block;}
   .main{padding:0;margin:0;background:#fff;}
   .letter-sheet,.label-sheet{box-shadow:none;margin:0;page-break-after:always;}
-  .label-item{border:none !important;}
+  /* ラベル: 印刷時もハサミで切るための濃い点線を表示（empty以外） */
+  .label-item{border:1px dashed #888 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  .label-item.empty{border:1px dashed #ccc !important;}
   .empty-preview{display:none;}
   .no-print{display:none !important;}
   /* A4 1枚化保険：テーブル行と差出人/ロゴ行を分割禁止
@@ -981,16 +983,56 @@ function renderLabelItem(lo){
 
 function splitAddress(addr,maxLen){
   if(!addr||addr.length<=maxLen)return[addr||''];
+  // 改行候補位置を収集（位置 = その位置で切ると、その位置までが1行目になる）
   const candidates=[];
   let m;
-  const chomeRe=/丁目/g;
-  while((m=chomeRe.exec(addr))!==null)candidates.push(m.index+2);
+  // 優先度1: 「番地」の直後（番地に続く数字も含める）
+  // 例: "番地17" → "17"まで一括で1行目に含める
+  const banchiRe=/番地(?:[0-9-]+)?/g;
+  while((m=banchiRe.exec(addr))!==null){
+    candidates.push({pos:m.index+m[0].length,priority:1});
+  }
+  // 優先度2: 「番」の直後（番地省略形・番地以外）
+  const banRe=/番(?!地)(?:[0-9-]+)?/g;
+  while((m=banRe.exec(addr))!==null){
+    candidates.push({pos:m.index+m[0].length,priority:2});
+  }
+  // 優先度3: 漢字+数字+ハイフン形式（例: 西新宿1-2-3 の3 の後）
+  const hyphenNumRe=/[\u4e00-\u9fff][0-9]+(?:-[0-9]+)+/g;
+  while((m=hyphenNumRe.exec(addr))!==null){
+    candidates.push({pos:m.index+m[0].length,priority:3});
+  }
+  // 優先度4: 半角・全角空白（既に区切られている箇所）
+  const spaceRe=/[\s\u3000]/g;
+  while((m=spaceRe.exec(addr))!==null){
+    candidates.push({pos:m.index+1,priority:4});
+  }
+  // 優先度5: 「丁目」の直後（丁目に続く数字も含める）
+  const chomeRe=/丁目(?:[0-9-]+)?/g;
+  while((m=chomeRe.exec(addr))!==null){
+    candidates.push({pos:m.index+m[0].length,priority:5});
+  }
+  // 優先度6: 市区町村の直後
   const kuchoRe=/[市区町村]/g;
-  while((m=kuchoRe.exec(addr))!==null)candidates.push(m.index+1);
-  const valid=candidates.filter(i=>i>=maxLen/2&&i<=maxLen).sort((a,b)=>b-a);
-  if(valid.length)return[addr.slice(0,valid[0]),addr.slice(valid[0])];
-  const loose=candidates.filter(i=>i>=maxLen/2&&i<=maxLen*1.2).sort((a,b)=>a-b);
-  if(loose.length)return[addr.slice(0,loose[0]),addr.slice(loose[0])];
+  while((m=kuchoRe.exec(addr))!==null){
+    candidates.push({pos:m.index+1,priority:6});
+  }
+  // 1行目の長さが maxLen/2 〜 maxLen の範囲に収まる候補を抽出
+  const valid=candidates.filter(c=>c.pos>=Math.floor(maxLen/2)&&c.pos<=maxLen);
+  if(valid.length){
+    // 優先度の高い順、同じ優先度なら maxLen に近い（=長い）方を優先
+    valid.sort((a,b)=>a.priority!==b.priority?a.priority-b.priority:b.pos-a.pos);
+    const pos=valid[0].pos;
+    return[addr.slice(0,pos),addr.slice(pos)];
+  }
+  // 緩やかな範囲（maxLen を多少超えてもOK）
+  const loose=candidates.filter(c=>c.pos>=Math.floor(maxLen/2)&&c.pos<=maxLen*1.2);
+  if(loose.length){
+    loose.sort((a,b)=>a.priority!==b.priority?a.priority-b.priority:a.pos-b.pos);
+    const pos=loose[0].pos;
+    return[addr.slice(0,pos),addr.slice(pos)];
+  }
+  // フォールバック: 機械的に maxLen で切る
   return[addr.slice(0,maxLen),addr.slice(maxLen)];
 }
 
