@@ -357,6 +357,7 @@
   <div class="layer-control" id="layerControl">
     <div class="layer-title">地図レイヤー</div>
     <label class="layer-item"><input type="checkbox" id="layerGsi" onchange="toggleLayer('gsi',this.checked)"> GSI 航空写真</label>
+    <label class="layer-item"><input type="checkbox" id="layerEsri" onchange="toggleLayer('esri',this.checked)"> 🛰 最新衛星 (Esri)</label>
     <label class="layer-item"><input type="checkbox" id="layerParcel" checked onchange="toggleLayer('parcel',this.checked)"> 地番境界</label>
   </div>
   <!-- ======== ハザード + 都市計画 + 農振 コントロール ======== -->
@@ -440,7 +441,7 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const WORKER_BASE = 'https://reinfolib-proxy.takumi-29b.workers.dev';
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
-let map, gsiLayer, parcelLayer;
+let map, gsiLayer, esriLayer, parcelLayer;
 let markers = {};
 let planSet = new Set();
 
@@ -745,7 +746,8 @@ async function _fetchAndRenderUrban(){
 function initMap() {
   map = L.map('map', { zoomControl: false }).setView([36.2048, 138.2529], 6);
   L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18 }).addTo(map);
-  gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18, opacity: 0.85 });
+  gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18, opacity: 0.85, zIndex: 1 });
+  esriLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles \u00a9 Esri \u2014 Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community', maxZoom: 19, opacity: 0.9, zIndex: 2 });
   parcelLayer = protomapsL.leafletLayer({
     url: 'https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/aichi.pmtiles',
     paintRules: [{
@@ -943,6 +945,7 @@ function pointInPolygon(x, y, rings) {
 }
 function toggleLayer(type, enabled) {
   if (type === 'gsi') { enabled ? gsiLayer.addTo(map) : map.removeLayer(gsiLayer); }
+  else if (type === 'esri') { enabled ? esriLayer.addTo(map) : map.removeLayer(esriLayer); }
   else if (type === 'parcel') { enabled ? parcelLayer.addTo(map) : map.removeLayer(parcelLayer); }
 }
 async function loadData() {

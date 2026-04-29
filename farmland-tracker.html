@@ -352,7 +352,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   </div>
   <div class="gis-switch">
     <button class="gis-switch-btn active" id="gisMap" onclick="switchGIS('map')">&#128506; 地図</button>
-    <button class="gis-switch-btn" id="gisSat" onclick="switchGIS('satellite')">&#128752; 衛星</button>
+    <button class="gis-switch-btn" id="gisSat" onclick="switchGIS('satellite')">&#128752; GSI衛星</button>
+    <button class="gis-switch-btn" id="gisEsri" onclick="switchGIS('esri')">&#127381; 最新衛星</button>
   </div>
   <!-- 地番・住所検索 -->
   <div class="chiban-search" id="chibanSearch">
@@ -422,7 +423,12 @@ var map,markersLayer=null;
 var ZOOM=14;
 var baseLayer=null;
 var currentGIS='map';
-var BASE_TILES={map:'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',satellite:'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg'};
+var BASE_TILES={map:'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',satellite:'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',esri:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'};
+var BASE_TILE_OPTS={
+  map:{attribution:'\u00a9 \u56fd\u571f\u5730\u7406\u9662',maxZoom:18,opacity:0.9},
+  satellite:{attribution:'\u00a9 \u56fd\u571f\u5730\u7406\u9662',maxZoom:18,opacity:0.9},
+  esri:{attribution:'Tiles \u00a9 Esri \u2014 Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',maxZoom:19,opacity:0.95}
+};
 // === NG\u5224\u5b9a\u7ba1\u7406\u7528\u30b0\u30ed\u30fc\u30d0\u30eb\u5909\u6570 ===
 var ngFeatureIds={};
 var ngFilterEnabled=true;
@@ -431,7 +437,22 @@ var currentDetailItem=null;
 var currentDetailChangeType=null;
 var farmlandStatuses={};
 var farmlandComments={};
-function switchGIS(mode){if(currentGIS===mode)return;currentGIS=mode;if(baseLayer){map.removeLayer(baseLayer);}baseLayer=L.tileLayer(BASE_TILES[mode],{attribution:'GSI',maxZoom:18,opacity:0.9});baseLayer.addTo(map);baseLayer.bringToBack();document.getElementById('gisMap').classList.toggle('active',mode==='map');document.getElementById('gisSat').classList.toggle('active',mode==='satellite');for(var k in hazardLayers){hazardLayers[k].bringToFront();}if(forest5jouLayer)forest5jouLayer.bringToFront();if(markersLayer){markersLayer.bringToFront();}}
+function switchGIS(mode){
+  if(currentGIS===mode)return;
+  currentGIS=mode;
+  if(baseLayer){map.removeLayer(baseLayer);}
+  var opts=BASE_TILE_OPTS[mode]||{attribution:'',maxZoom:18,opacity:0.9};
+  baseLayer=L.tileLayer(BASE_TILES[mode],opts);
+  baseLayer.addTo(map);
+  baseLayer.bringToBack();
+  document.getElementById('gisMap').classList.toggle('active',mode==='map');
+  document.getElementById('gisSat').classList.toggle('active',mode==='satellite');
+  var esriBtn=document.getElementById('gisEsri');
+  if(esriBtn)esriBtn.classList.toggle('active',mode==='esri');
+  for(var k in hazardLayers){hazardLayers[k].bringToFront();}
+  if(forest5jouLayer)forest5jouLayer.bringToFront();
+  if(markersLayer){markersLayer.bringToFront();}
+}
 var hazardLayers={};
 var HAZARD_URLS={flood:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',inner:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_kuni_data/{z}/{x}/{y}.png',sediment:'https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki_data/{z}/{x}/{y}.png',tide:'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',tsunami:'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png'};
 // 森林計画対象森林レイヤ（林野庁2024年度版・全国・民有林＋国有林）
@@ -780,7 +801,7 @@ function readVTFeature(tag,f,pbf){if(tag===1)f.id=pbf.readVarint();else if(tag==
 function readVTValue(tag,v,pbf){if(tag===1)v.v=pbf.readString();else if(tag===2)v.v=pbf.readFloat();else if(tag===3)v.v=pbf.readDouble();else if(tag===4)v.v=pbf.readVarint(true);else if(tag===5)v.v=pbf.readVarint();else if(tag===6)v.v=pbf.readSVarint();else if(tag===7)v.v=pbf.readBoolean();}
 function getVTProperties(feature,layer){var props={};for(var i=0;i+1<feature.tags.length;i+=2){var ki=feature.tags[i],vi=feature.tags[i+1];if(ki<layer.keys.length&&vi<layer.values.length)props[layer.keys[ki]]=layer.values[vi].v;}return props;}
 function getPolygonCentroid(geometry,tileX,tileY,tileZ,extent){var x=0,y=0,sumX=0,sumY=0,count=0,i=0;while(i<geometry.length){var cmdInt=geometry[i++],cmd=cmdInt&7,len=cmdInt>>3;if(cmd===1||cmd===2){for(var j=0;j<len;j++){x+=(geometry[i]>>1)^-(geometry[i]&1);i++;y+=(geometry[i]>>1)^-(geometry[i]&1);i++;sumX+=x;sumY+=y;count++;}}else if(cmd===7){break;}else{i++;}}if(!count)return null;var tx=sumX/count,ty=sumY/count;var z2=Math.pow(2,tileZ);var lng=((tileX+tx/extent)/z2)*360-180;var n=Math.PI*(1-2*(tileY+ty/extent)/z2);var lat=180/Math.PI*Math.atan(Math.sinh(n));if(lat<30||lat>38||lng<130||lng>142)return null;return{lat:lat,lng:lng};}
-function initMap(){map=L.map('map',{zoomControl:false}).setView([36.0,138.0],6);baseLayer=L.tileLayer(BASE_TILES['map'],{attribution:'GSI',maxZoom:18,opacity:0.8});baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();});}
+function initMap(){map=L.map('map',{zoomControl:false}).setView([36.0,138.0],6);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();});}
 // === NG\u4e00\u89a7\u3092\u8d77\u52d5\u6642\u306b\u53d6\u5f97 ===
 async function loadNgList(){
   try{

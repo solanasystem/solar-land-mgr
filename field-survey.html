@@ -445,6 +445,7 @@
     </div>
     <div class="layer-body">
     <label class="layer-item"><input type="checkbox" id="layerGsi" onchange="toggleLayer('gsi',this.checked)"> GSI 航空写真</label>
+    <label class="layer-item"><input type="checkbox" id="layerEsri" onchange="toggleLayer('esri',this.checked)"> 🛰 最新衛星 (Esri)</label>
     <label class="layer-item"><input type="checkbox" id="layerFarmland" onchange="toggleLayer('farmland',this.checked)"> 農地フラグ</label>
     <!-- 農地区分凡例（農地フラグON時のみ表示） -->
     <div id="farmlandLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);">
@@ -715,7 +716,7 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-let map, gsiLayer, baseTileRef;
+let map, gsiLayer, esriLayer, baseTileRef;
 
 // ======== ハザードレイヤー（5種類） ========
 const HAZARD_URLS = {
@@ -895,6 +896,7 @@ function initMap() {
   map = L.map('map', { zoomControl: false }).setView([36.2048, 138.2529], 6);
   baseTileRef = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18 }).addTo(map);
   gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18, opacity: 0.85, zIndex: 1 });
+  esriLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles \u00a9 Esri \u2014 Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community', maxZoom: 19, opacity: 0.9, zIndex: 2 });
 
   const hazardOpts = { attribution: '\u00a9 \u30cf\u30b6\u30fc\u30c9\u30de\u30c3\u30d7\u30dd\u30fc\u30bf\u30eb\u30b5\u30a4\u30c8', maxZoom: 17, minZoom: 2, opacity: 0.7, errorTileUrl: '', zIndex: 2 };
   Object.entries(HAZARD_URLS).forEach(([key, url]) => {
@@ -1073,6 +1075,14 @@ function toggleHazard(type) {
 function toggleLayer(type, enabled) {
   if (type === 'gsi') {
     enabled ? gsiLayer.addTo(map) : map.removeLayer(gsiLayer);
+    if (enabled) {
+      Object.entries(hazardState).forEach(([key, on]) => {
+        if (on && hazardLayers[key]) hazardLayers[key].bringToFront();
+      });
+    }
+  }
+  else if (type === 'esri') {
+    enabled ? esriLayer.addTo(map) : map.removeLayer(esriLayer);
     if (enabled) {
       Object.entries(hazardState).forEach(([key, on]) => {
         if (on && hazardLayers[key]) hazardLayers[key].bringToFront();
