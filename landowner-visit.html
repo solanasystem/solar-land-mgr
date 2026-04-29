@@ -299,7 +299,7 @@
 <div class="dashboard-bar" id="dashboardBar">
   <div class="pc-tabs" id="pcTabs"></div>
   <button class="dashboard-toggle-mobile" id="dashboardToggleBtn" type="button" onclick="toggleDashboardStats()" style="display:none">📊 統計 ▼</button>
-  <button class="dashboard-start-mobile" id="dashboardStartBtn" type="button" onclick="startVisitMode()" disabled style="display:none">🚗 訪問開始</button>
+  <button class="dashboard-start-mobile" id="dashboardStartBtn" type="button" onclick="startVisitMode()" style="display:none">🚗 訪問開始</button>
   <div style="flex:1;min-width:12px;"></div>
   <div class="status-chart-wrap" id="statusChartWrap">
     <div class="donut-wrap">
@@ -452,6 +452,41 @@ const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 let map, gsiLayer, parcelLayer;
 let markers = {};
 let planSet = new Set();
+
+/* ===== 訪問予定リストの永続化（localStorage） =====
+   電力会社ごとにキーを分けて保存。デバイス固有・PC/iPhone別保存。
+   保存タイミング：addPlan/removePlan/visitMode終了/案件訪問完了/リセット
+   復元タイミング：loadData完了後 */
+const PLAN_STORAGE_KEY = 'slm_planSet_landowner_v1';
+
+function _planStorageKey() {
+  return PLAN_STORAGE_KEY + '__' + (currentPowerCompany || '中部電力');
+}
+
+function savePlanSet() {
+  try {
+    const arr = Array.from(planSet);
+    localStorage.setItem(_planStorageKey(), JSON.stringify(arr));
+  } catch (e) {
+    console.warn('[savePlanSet] localStorage error:', e);
+  }
+}
+
+function loadPlanSet() {
+  try {
+    const raw = localStorage.getItem(_planStorageKey());
+    if (!raw) return;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return;
+    arr.forEach(caseId => planSet.add(caseId));
+  } catch (e) {
+    console.warn('[loadPlanSet] localStorage error:', e);
+  }
+}
+
+function clearPlanStorage() {
+  try { localStorage.removeItem(_planStorageKey()); } catch (e) {}
+}
 let visitMode = false;
 let currentVisitCaseId = null;
 let currentLandownerId = null;
@@ -829,6 +864,80 @@ function locateMe(){
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
   );
 }
+
+/* ===== GPS常時追跡（モバイル用、Google Maps相当） =====
+   地図初期化後に自動で起動。位置情報の許可を取得すると、
+   現在位置を青い丸＋精度円で継続的に表示する。位置変化に追随。 */
+let _gpsWatchId = null;
+let _gpsWatchMarker = null;
+let _gpsWatchCircle = null;
+let _gpsFirstFix = false;
+
+function startGpsWatch() {
+  if (_gpsWatchId !== null) return;
+  if (!navigator.geolocation) return;
+  _gpsWatchId = navigator.geolocation.watchPosition(
+    function(pos) {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const acc = pos.coords.accuracy;
+      if (!_gpsWatchMarker) {
+        _gpsWatchMarker = L.circleMarker([lat, lng], {
+          radius: 8,
+          fillColor: '#3b82f6',
+          color: '#fff',
+          weight: 3,
+          opacity: 1,
+          fillOpacity: 0.9,
+          interactive: false
+        }).addTo(map);
+        _gpsWatchMarker.bindTooltip('現在地', { permanent: false, direction: 'top' });
+      } else {
+        _gpsWatchMarker.setLatLng([lat, lng]);
+      }
+      if (!_gpsWatchCircle) {
+        _gpsWatchCircle = L.circle([lat, lng], {
+          radius: acc,
+          color: '#3b82f6',
+          weight: 1,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.1,
+          interactive: false
+        }).addTo(map);
+        // 精度円を最背面に配置（マーカークリックを妨げないため）
+        try { _gpsWatchCircle.bringToBack(); } catch(e) {}
+      } else {
+        _gpsWatchCircle.setLatLng([lat, lng]);
+        _gpsWatchCircle.setRadius(acc);
+      }
+      if (!_gpsFirstFix) {
+        _gpsFirstFix = true;
+        try { map.setView([lat, lng], 14); } catch(e) {}
+      }
+    },
+    function(err) {
+      console.warn('[startGpsWatch] error:', err && err.message);
+    },
+    { enableHighAccuracy: true, timeout: 30000, maximumAge: 5000 }
+  );
+}
+
+function stopGpsWatch() {
+  if (_gpsWatchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(_gpsWatchId);
+    _gpsWatchId = null;
+  }
+  if (_gpsWatchMarker) { try { map.removeLayer(_gpsWatchMarker); } catch(e) {} _gpsWatchMarker = null; }
+  if (_gpsWatchCircle) { try { map.removeLayer(_gpsWatchCircle); } catch(e) {} _gpsWatchCircle = null; }
+  _gpsFirstFix = false;
+}
+
+setTimeout(function() {
+  if (typeof map !== 'undefined' && map) {
+    startGpsWatch();
+  }
+}, 1500);
+
 function pointInPolygon(x, y, rings) {
   let inside = false;
   for (const ring of rings) {
@@ -853,9 +962,13 @@ async function loadData() {
     const v = visits?.find(x => x.case_id === lo.case_id);
     return { ...lo, _visit: v, _isVisited: v?.visited || false };
   });
+  /* localStorageから訪問予定を復元（電力会社別） */
+  loadPlanSet();
   renderMarkersForCurrentPower();
   renderPowerCompanyTabs();
   recalcVisitStats();
+  /* 復元した予定が画面に反映されるよう、UIを更新 */
+  updatePlanUI();
 }
 
 function clearMarkers(){
@@ -985,9 +1098,10 @@ function renderPowerCompanyTabs() {
 function setPowerCompany(pc) {
   if (currentPowerCompany === pc) return;
   currentPowerCompany = pc;
-  /* 電力会社を切り替えたら訪問予定はリセット（別エリアとの混在を防ぐ） */
+  /* 電力会社を切り替えたら訪問予定はクリア → 切替先のlocalStorageから復元 */
   planSet.clear();
   visitMode = false;
+  loadPlanSet();
   // モバイル：電力会社ドロップダウンを閉じる
   document.getElementById('pcTabs')?.classList.remove('expanded');
   renderMarkersForCurrentPower();
@@ -1014,32 +1128,6 @@ function toggleDashboardStats() {
   btn.textContent = opened ? '📊 統計 ▲' : '📊 統計 ▼';
 }
 
-/* ===== モバイル：dashboard-bar内の「訪問開始」ボタンを既存startBtnと同期 ===== */
-(function syncDashboardStartBtn() {
-  function init() {
-    const startBtn = document.getElementById('startBtn');
-    const dashStartBtn = document.getElementById('dashboardStartBtn');
-    if (!startBtn || !dashStartBtn) return;
-    // 初期状態
-    dashStartBtn.disabled = startBtn.disabled;
-    // 監視：startBtnのdisabled/style変化をdashStartBtnに反映
-    const observer = new MutationObserver(() => {
-      dashStartBtn.disabled = startBtn.disabled;
-      // 訪問実行中（startBtnが非表示）はdashStartBtnも非表示
-      if (startBtn.style.display === 'none') {
-        dashStartBtn.style.display = 'none';
-      } else {
-        dashStartBtn.style.display = '';
-      }
-    });
-    observer.observe(startBtn, { attributes: true, attributeFilter: ['disabled', 'style'] });
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-})();
 function makeIconHtml(color) {
   return `<div style="width:24px;height:24px;background:${color};border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid rgba(0,0,0,0.3);box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`;
 }
@@ -1074,6 +1162,7 @@ async function unVisit(caseId) {
 function addPlan(caseId) {
   if (planSet.size >= 30) { showToast('\u8a2a\u554f\u4e88\u5b9a\u306f\u6700\u592730\u4ef6\u307e\u3067\u3067\u3059', 'error'); return; }
   planSet.add(caseId);
+  savePlanSet();
   updateMarkerColor(caseId, '#f0b429');
   const d = markers[caseId];
   if (d) d.marker.setPopupContent(buildPopup(d.lo, caseId, false, true));
@@ -1082,6 +1171,7 @@ function addPlan(caseId) {
 }
 function removePlan(caseId) {
   planSet.delete(caseId);
+  savePlanSet();
   updateMarkerColor(caseId, '#58a6ff');
   const d = markers[caseId];
   if (d) d.marker.setPopupContent(buildPopup(d.lo, caseId, false, false));
@@ -1102,7 +1192,20 @@ function refreshMarkerIcon(caseId) {
 function updatePlanUI() {
   recalcVisitStats();
   const startBtn = document.getElementById('startBtn');
-  if (startBtn) startBtn.disabled = planSet.size === 0;
+  const dashStartBtn = document.getElementById('dashboardStartBtn');
+  const isDisabled = planSet.size === 0;
+  if (startBtn) {
+    startBtn.disabled = isDisabled;
+    if (isDisabled) startBtn.setAttribute('disabled', 'disabled');
+    else startBtn.removeAttribute('disabled');
+  }
+  if (dashStartBtn) {
+    dashStartBtn.disabled = isDisabled;
+    if (isDisabled) dashStartBtn.setAttribute('disabled', 'disabled');
+    else dashStartBtn.removeAttribute('disabled');
+    // visitMode（実行中）はdashStartBtnを非表示、それ以外は表示
+    dashStartBtn.style.display = visitMode ? 'none' : '';
+  }
   renderPlanList(); renderOwnerTable();
 }
 function renderOwnerTable() {
@@ -1145,6 +1248,12 @@ function startVisitMode() {
   document.getElementById('phaseBadge').className = 'phase-badge phase-visit';
   showToast('\u8a2a\u554f\u5b9f\u884c\u30e2\u30fc\u30c9\u306b\u5207\u308a\u66ff\u3048\u307e\u3057\u305f', 'success');
   document.getElementById('sidePanel').classList.remove('open');
+  // 訪問予定リスト（左パネル）も確実に閉じる：マーカークリックを妨げないため
+  const ownerPanel = document.getElementById('ownerListPanel');
+  if (ownerPanel) ownerPanel.classList.remove('open');
+  // 既存のupdateUI連動：dashboardStartBtnを非表示にする
+  const dashStartBtn = document.getElementById('dashboardStartBtn');
+  if (dashStartBtn) dashStartBtn.style.display = 'none';
 }
 function startNav(caseId) {
   const d = markers[caseId];
@@ -1175,7 +1284,7 @@ async function saveVisit() {
   const d = markers[caseId];
   if (d) { d.isVisited = true; d.visit = { visited: true, visited_at: new Date().toISOString() }; d.marker.setPopupContent(buildPopup(d.lo, caseId, true, false)); }
   /* 訪問完了したものはplanSetからも除外し、カウントを再計算 */
-  if (planSet.has(caseId)) planSet.delete(caseId);
+  if (planSet.has(caseId)) { planSet.delete(caseId); savePlanSet(); }
   recalcVisitStats();
   renderPlanList(); renderOwnerTable();
   showToast('\u8a2a\u554f\u5b8c\u4e86\u3092\u8a18\u9332\u3057\u307e\u3057\u305f', 'success');
@@ -1184,6 +1293,7 @@ async function saveVisit() {
 function resetPlan() {
   if (!confirm('\u8a2a\u554f\u8a08\u753b\u3092\u30ea\u30bb\u30c3\u30c8\u3057\u3066\u8a08\u753b\u30e2\u30fc\u30c9\u306b\u623b\u308a\u307e\u3059\u304b\uff1f')) return;
   visitMode = false; planSet.clear();
+  clearPlanStorage();
   Object.keys(markers).forEach(caseId => {
     const d = markers[caseId];
     updateMarkerColor(caseId, d.isVisited ? '#f85149' : '#58a6ff');

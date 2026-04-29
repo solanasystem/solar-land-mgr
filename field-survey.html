@@ -373,7 +373,7 @@
 <div class="dashboard-bar" id="dashboardBar">
   <div class="pc-tabs" id="pcTabs"></div>
   <button class="dashboard-toggle-mobile" id="dashboardToggleBtn" type="button" onclick="toggleDashboardStats()" style="display:none">📊 統計 ▼</button>
-  <button class="dashboard-start-mobile" id="dashboardStartBtn" type="button" onclick="startSurveyMode()" disabled style="display:none">🚀 調査開始</button>
+  <button class="dashboard-start-mobile" id="dashboardStartBtn" type="button" onclick="startSurveyMode()" style="display:none">🚀 調査開始</button>
   <div style="flex:1;min-width:12px;"></div>
   <div class="status-chart-wrap" id="statusChartWrap">
     <div class="donut-wrap">
@@ -783,6 +783,41 @@ let currentConfirmCaseId = null;
 let allCases = [];/* 生データを保持（電力会社切替時の再描画に使用） */
 let allLands = [], allSurveys = [], allLandowners = [];
 let currentPowerCompany = '中部電力';
+
+/* ===== 調査計画リストの永続化（localStorage） =====
+   電力会社ごとにキーを分けて保存。デバイス固有・PC/iPhone別保存。
+   保存タイミング：addPlan/removePlan/surveyMode終了/案件確認完了/リセット
+   復元タイミング：loadData完了後 */
+const PLAN_STORAGE_KEY = 'slm_planSet_survey_v1';
+
+function _planStorageKey() {
+  return PLAN_STORAGE_KEY + '__' + (currentPowerCompany || '中部電力');
+}
+
+function savePlanSet() {
+  try {
+    const arr = Array.from(planSet);
+    localStorage.setItem(_planStorageKey(), JSON.stringify(arr));
+  } catch (e) {
+    console.warn('[savePlanSet] localStorage error:', e);
+  }
+}
+
+function loadPlanSet() {
+  try {
+    const raw = localStorage.getItem(_planStorageKey());
+    if (!raw) return;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return;
+    arr.forEach(caseId => planSet.add(caseId));
+  } catch (e) {
+    console.warn('[loadPlanSet] localStorage error:', e);
+  }
+}
+
+function clearPlanStorage() {
+  try { localStorage.removeItem(_planStorageKey()); } catch (e) {}
+}
 
 /* ========== ステータス色定義（index.htmlと統一） ========== */
 const STATUS_COLORS = {
@@ -1256,9 +1291,13 @@ async function loadData() {
   const { data: landowners } = await db.from('landowner_info').select('id, case_id, name');
   if (!cases) return;
   allCases = cases; allLands = lands || []; allSurveys = surveys || []; allLandowners = landowners || [];
+  /* localStorageから調査計画を復元（電力会社別） */
+  loadPlanSet();
   renderMarkersForCurrentPower();
   renderPowerCompanyTabs();
   recalcFieldStats();
+  /* 復元した予定が画面に反映されるよう、UIを更新 */
+  updateSurveyUI();
 }
 
 function clearMarkers(){
@@ -1355,6 +1394,7 @@ function buildPopup(c, land, survey, landowner) {
 function addPlan(caseId) {
   if (planSet.size >= 30) { showToast('\u8abf\u67fb\u4e88\u5b9a\u306f\u6700\u592730\u4ef6\u307e\u3067\u3067\u3059', 'error'); return; }
   planSet.add(caseId);
+  savePlanSet();
   const d = markers[caseId];
   refreshMarkerIcon(caseId);
   if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
@@ -1385,6 +1425,7 @@ function resetSurvey() {
   if (!confirm('\u8abf\u67fb\u8a08\u753b\u3092\u30ea\u30bb\u30c3\u30c8\u3057\u3066\u8a08\u753b\u30e2\u30fc\u30c9\u306b\u623b\u308a\u307e\u3059\u304b\uff1f')) return;
   surveyMode = false;
   planSet.clear();
+  clearPlanStorage();
   Object.keys(markers).forEach(caseId => {
     const d = markers[caseId];
     refreshMarkerIcon(caseId);
@@ -1398,6 +1439,7 @@ function resetSurvey() {
 
 function removePlan(caseId) {
   planSet.delete(caseId);
+  savePlanSet();
   const d = markers[caseId];
   refreshMarkerIcon(caseId);
   if (d) d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
@@ -1411,9 +1453,15 @@ function updateSurveyUI() {
   const startBtn = document.getElementById('startBtn');
   const dashStartBtn = document.getElementById('dashboardStartBtn');
   const isDisabled = planSet.size === 0;
-  if (startBtn) startBtn.disabled = isDisabled;
+  if (startBtn) {
+    startBtn.disabled = isDisabled;
+    if (isDisabled) startBtn.setAttribute('disabled', 'disabled');
+    else startBtn.removeAttribute('disabled');
+  }
   if (dashStartBtn) {
     dashStartBtn.disabled = isDisabled;
+    if (isDisabled) dashStartBtn.setAttribute('disabled', 'disabled');
+    else dashStartBtn.removeAttribute('disabled');
     // surveyMode（実行中）はdashStartBtnを非表示
     dashStartBtn.style.display = surveyMode ? 'none' : '';
   }
@@ -1511,8 +1559,11 @@ function renderPowerCompanyTabs() {
 function setPowerCompany(pc) {
   if (currentPowerCompany === pc) return;
   currentPowerCompany = pc;
+  /* 電力会社切替：現電力会社のplanSet状態をクリアして、新電力会社のデータを復元 */
   planSet.clear();
   surveyMode = false;
+  /* 切替先の電力会社で保存されたplanSetを復元（あれば） */
+  loadPlanSet();
   // モバイル：電力会社ドロップダウンを閉じる
   document.getElementById('pcTabs')?.classList.remove('expanded');
   renderMarkersForCurrentPower();
@@ -1699,7 +1750,7 @@ async function saveConfirm() {
     d.marker.setPopupContent(buildPopup(d.case, d.land, d.survey, d.landowner));
   }
 
-  if (planSet.has(caseId)) { planSet.delete(caseId); updateSurveyUI(); }
+  if (planSet.has(caseId)) { planSet.delete(caseId); savePlanSet(); updateSurveyUI(); }
   else recalcFieldStats();
 
   showToast('\u73fe\u5730\u78ba\u8a8d\u30fb\u5199\u771f\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f', 'success');
