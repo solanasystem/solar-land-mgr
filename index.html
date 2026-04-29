@@ -366,6 +366,7 @@
         <button id="ngBlindBtn" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
       <button class="btn btn-primary" onclick="openNewCaseModal()">＋ 新規案件登録</button>
+      <button class="btn btn-primary" onclick="openBulkImportModal()" style="background:#10b981;border-color:#059669;margin-left:8px;">📁 書類一括取込</button>
     </div>
     <div class="cases-table-header" style="grid-template-columns:50px 120px 40px 140px 140px 140px 150px 80px 1fr 160px">
       <div style="text-align:center">No</div><div>案件番号</div><div style="text-align:center">枝</div><div style="text-align:center">発電区分</div><div style="text-align:center">ステータス</div><div>地権者名</div>
@@ -852,6 +853,70 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('uploadDocModal')" id="uploadCancelBtn">キャンセル</button>
       <button class="btn btn-primary" onclick="uploadDocument()" id="uploadExecBtn" disabled>圧縮してアップロード</button>
+    </div>
+  </div>
+</div>
+<!-- 書類一括取込モーダル（Step 1-3a） -->
+<div class="modal-overlay" id="bulkImportModal">
+  <div class="modal" style="max-width:1100px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">📁 書類一括取込</div>
+        <div class="modal-subtitle" id="bulkImportSubtitle">登記簿・公図PDFを案件に自動振分（NG案件は除外）</div>
+      </div>
+      <button class="modal-close" onclick="closeModal('bulkImportModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="bulkPhase1" style="display:block;">
+        <div style="text-align:center;padding:40px 20px;border:2px dashed var(--border);border-radius:12px;background:var(--surface2);">
+          <div style="font-size:48px;margin-bottom:16px;">📁</div>
+          <div style="font-size:14px;color:var(--text);margin-bottom:8px;font-weight:500;">登記簿・公図PDFのフォルダを選択</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:20px;">ファイル名+PDF内容から自動マッチング → 人間が目視確認 → 一括アップロード</div>
+          <input type="file" id="bulkFolderInput" multiple accept="application/pdf" webkitdirectory style="display:none;" onchange="handleBulkFolderSelect(event)">
+          <input type="file" id="bulkFilesInput" multiple accept="application/pdf" style="display:none;" onchange="handleBulkFolderSelect(event)">
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="document.getElementById('bulkFolderInput').click()">📁 フォルダを選択</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('bulkFilesInput').click()">📄 ファイルを複数選択</button>
+          </div>
+        </div>
+      </div>
+      <div id="bulkPhase2" style="display:none;">
+        <div style="padding:30px 20px;text-align:center;">
+          <div id="bulkAnalyzeLabel" style="font-size:14px;margin-bottom:12px;color:var(--text);"></div>
+          <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;max-width:500px;margin:0 auto;">
+            <div id="bulkAnalyzeBar" style="height:100%;background:var(--accent);width:0%;transition:width .2s;"></div>
+          </div>
+          <div id="bulkAnalyzeDetail" style="font-size:11px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);"></div>
+        </div>
+      </div>
+      <div id="bulkPhase3" style="display:none;">
+        <div id="bulkSummaryArea" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;"></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">
+          <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="bulkSelectAll(true)">✓全選択</button>
+          <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="bulkSelectAll(false)">✕全解除</button>
+          <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="bulkSelectAuto()">✅自動分のみ選択</button>
+          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);margin-left:auto;cursor:pointer;">
+            <input type="checkbox" id="bulkHideNoMatch" onchange="renderBulkPreview()">マッチなし非表示
+          </label>
+        </div>
+        <div id="bulkPreviewList" style="max-height:60vh;overflow-y:auto;"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('bulkImportModal')" id="bulkCancelBtn">キャンセル</button>
+      <button class="btn btn-primary" onclick="executeBulkUpload()" id="bulkExecBtn" disabled style="display:none;">選択した0件をアップロード</button>
+    </div>
+  </div>
+</div>
+<!-- サムネイル拡大表示モーダル -->
+<div class="modal-overlay" id="bulkThumbLargeModal">
+  <div class="modal" style="max-width:90vw;max-height:90vh;">
+    <div class="modal-header">
+      <div><div class="modal-title" id="bulkThumbLargeTitle">📄 PDFプレビュー</div></div>
+      <button class="modal-close" onclick="closeModal('bulkThumbLargeModal')">✕</button>
+    </div>
+    <div class="modal-body" style="text-align:center;max-height:75vh;overflow:auto;">
+      <img id="bulkThumbLargeImg" style="max-width:100%;height:auto;">
     </div>
   </div>
 </div>
@@ -2037,6 +2102,367 @@ async function uploadDocument(){
     document.getElementById('uploadProgress').style.display='none';
   }
 }
+
+// ============================================================================
+// 書類一括取込 — Step 1-3a: 解析+プレビュー（実行は Step 1-3b）
+// ============================================================================
+let _bulkAnalysisResults=[];
+let _bulkAllCandidates=[];
+
+function openBulkImportModal(){
+  if(typeof pdfjsLib==='undefined'||typeof PDFLib==='undefined'){
+    showToast('PDFライブラリの読込に失敗しました（ネット接続を確認してください）','error');return;
+  }
+  if(!pdfjsLib.GlobalWorkerOptions.workerSrc){
+    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+  _bulkAnalysisResults=[];
+  _bulkAllCandidates=[];
+  document.getElementById('bulkPhase1').style.display='block';
+  document.getElementById('bulkPhase2').style.display='none';
+  document.getElementById('bulkPhase3').style.display='none';
+  document.getElementById('bulkExecBtn').style.display='none';
+  document.getElementById('bulkExecBtn').disabled=true;
+  document.getElementById('bulkFolderInput').value='';
+  document.getElementById('bulkFilesInput').value='';
+  document.getElementById('bulkImportModal').classList.add('open');
+}
+
+// ファイル名から市町村+町名+地番+種別を抽出
+function _bulkParseFileName(name){
+  let s=name.replace(/\.pdf$/i,'');
+  // タイムスタンプ除去（末尾の14桁以上の数字列）
+  s=s.replace(/_?\d{14,}$/,'');
+  // 種別判定
+  let docType=null;
+  if(/土地全部事項|全部事項/.test(s))docType='touki';
+  else if(/地図|公図/.test(s))docType='kouzu';
+  // 種別キーワード除去
+  s=s.replace(/[\(_（]?(土地全部事項|全部事項|地図|公図)[\)_）]?/g,'');
+  s=s.replace(/不動産登記/g,'');
+  s=s.replace(/_+$/,'').replace(/^_+/,'');
+  // 全角数字→半角
+  s=s.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+  // _ → -
+  s=s.replace(/_/g,'-');
+  s=s.replace(/-+/g,'-').replace(/^-|-$/g,'');
+  // 地番抽出（末尾の数字-数字 or 数字）
+  let chiban=null,locationStr=s;
+  const cm=s.match(/(\d+(?:-\d+)?)$/);
+  if(cm){chiban=cm[1];locationStr=s.slice(0,-cm[0].length).replace(/-+$/,'');}
+  // 市町村抽出
+  const cityMatch=locationStr.match(/(.+?[市区町村])(.*)/);
+  const city=cityMatch?cityMatch[1]:null;
+  const town=cityMatch?cityMatch[2]:locationStr;
+  return{docType,location:s,city,town,chiban,raw:name};
+}
+
+// PDF内容（所在・地番・不動産番号）を抽出
+function _bulkParsePdfText(text){
+  if(!text)return{};
+  // 所在抽出
+  let shozai=null;
+  const sm=text.match(/所[\s　]*在[\s　]*([^\s　①②③\n]+(?:[町字番][^\s　①②③\n]*)?)/);
+  if(sm)shozai=sm[1].replace(/[\s　]/g,'');
+  // 地番抽出
+  let chiban=null;
+  const cm=text.match(/①[\s　]*地[\s　]*番[\s　]*(\d+番\d*|\d+の\d+|\d+)/)
+       ||text.match(/地[\s　]*番[\s　]*(\d+番\d*|\d+の\d+|\d+)/);
+  if(cm)chiban=cm[1].replace(/番/g,'-').replace(/の/g,'-').replace(/-$/,'');
+  // 不動産番号抽出（12桁以上の数字）
+  let fudosanNumber=null;
+  const fm=text.match(/不動産番号[\s　]*(\d{12,})/);
+  if(fm)fudosanNumber=fm[1];
+  return{shozai,chiban,fudosanNumber};
+}
+
+// 比較用の正規化（中括弧除去・全角半角統一・スペース除去）
+function _bulkNormalize(s){
+  if(!s)return'';
+  s=String(s);
+  s=s.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+  s=s.replace(/[ー－―‐]/g,'-');
+  s=s.replace(/[{}（）()「」『』\[\]【】]/g,'');
+  s=s.replace(/[\s　]/g,'');
+  s=s.replace(/番/g,'-').replace(/丁目/g,'-');
+  s=s.replace(/^(愛知県|岐阜県|三重県|静岡県|長野県)/,'');
+  s=s.replace(/-+/g,'-').replace(/^-|-$/g,'');
+  return s;
+}
+
+// 1つのPDFを解析（テキスト抽出+サムネイル生成）
+async function _bulkAnalyzeOnePdf(file){
+  const arrayBuffer=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:arrayBuffer}).promise;
+  const page=await pdf.getPage(1);
+  // テキスト抽出
+  const textContent=await page.getTextContent();
+  const text=textContent.items.map(it=>it.str).join(' ');
+  // サムネイル生成
+  const viewport=page.getViewport({scale:0.5});
+  const canvas=document.createElement('canvas');
+  canvas.width=viewport.width;canvas.height=viewport.height;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+  await page.render({canvasContext:ctx,viewport}).promise;
+  const thumbDataUrl=canvas.toDataURL('image/jpeg',0.7);
+  canvas.width=0;canvas.height=0;
+  return{text,thumbDataUrl};
+}
+
+// マッチング判定（Tier1=完全一致, Tier2=町名一致, none=なし）
+function _bulkMatchFile(parsed,pdfTextParsed,candidates){
+  // ファイル名の location（市町村+町名+地番）を正規化
+  const fileTarget=_bulkNormalize(parsed.location||'');
+  // ファイル名の地番なし版（町名のみ）
+  const townOnly=_bulkNormalize((parsed.location||'').replace(/\d+(-\d+)?$/,'').replace(/-$/,''));
+  // PDFテキストの所在
+  const pdfShozai=_bulkNormalize(pdfTextParsed?.shozai||'');
+  if(!fileTarget&&!pdfShozai)return{type:'none',matches:[]};
+  // Tier1: 完全一致（ファイル名 location が land_info.location に含まれる）
+  const t1=candidates.filter(c=>{
+    const loc=_bulkNormalize(c.land_info_location);
+    if(!loc)return false;
+    return fileTarget&&loc.includes(fileTarget);
+  });
+  if(t1.length===1)return{type:'auto',matches:t1};
+  if(t1.length>1)return{type:'select',matches:t1};
+  // Tier2: 町名一致（地番除く）
+  if(townOnly){
+    const t2=candidates.filter(c=>{
+      const loc=_bulkNormalize(c.land_info_location);
+      if(!loc)return false;
+      return loc.includes(townOnly);
+    });
+    if(t2.length>=1)return{type:'select',matches:t2};
+  }
+  // Tier3: PDFテキストの所在で再試行
+  if(pdfShozai){
+    const t3=candidates.filter(c=>{
+      const loc=_bulkNormalize(c.land_info_location);
+      if(!loc)return false;
+      return loc.includes(pdfShozai);
+    });
+    if(t3.length>=1)return{type:'select',matches:t3};
+  }
+  return{type:'none',matches:[]};
+}
+
+// マッチング候補を全件取得（非NG案件 × land_infoあり）
+async function _bulkLoadCandidates(){
+  // 1. 非NG案件を取得
+  const{data:cs,error:e1}=await db.from('cases').select('id,case_no,status,area_name,parent_case_no,branch_no').neq('status','NG');
+  if(e1)throw e1;
+  // 2. land_info を全件取得
+  const{data:lis,error:e2}=await db.from('land_info').select('case_id,location').not('location','is',null);
+  if(e2)throw e2;
+  const liMap={};
+  (lis||[]).forEach(l=>{liMap[l.case_id]=l.location;});
+  // 3. 統合（land_info があるものだけ）
+  return(cs||[]).filter(c=>liMap[c.id]).map(c=>({
+    id:c.id,
+    case_no:c.case_no,
+    status:c.status,
+    area_name:c.area_name,
+    parent_case_no:c.parent_case_no,
+    branch_no:c.branch_no,
+    land_info_location:liMap[c.id]
+  }));
+}
+
+// フォルダ選択時のハンドラ
+async function handleBulkFolderSelect(event){
+  const files=Array.from(event.target.files||[]).filter(f=>f.type==='application/pdf'||f.name.toLowerCase().endsWith('.pdf'));
+  if(!files.length){showToast('PDFファイルが見つかりません','error');return;}
+  // 20MB超のファイルは除外
+  const validFiles=files.filter(f=>f.size<=20*1024*1024);
+  const skippedCount=files.length-validFiles.length;
+  if(skippedCount>0)showToast(`${skippedCount}件のファイルがサイズ超過(20MB)で除外されました`,'error');
+  if(!validFiles.length)return;
+  // フェーズ2へ
+  document.getElementById('bulkPhase1').style.display='none';
+  document.getElementById('bulkPhase2').style.display='block';
+  document.getElementById('bulkPhase3').style.display='none';
+  try{
+    // 候補ロード
+    document.getElementById('bulkAnalyzeLabel').textContent='マッチング候補を読込中...';
+    document.getElementById('bulkAnalyzeBar').style.width='5%';
+    document.getElementById('bulkAnalyzeDetail').textContent='';
+    _bulkAllCandidates=await _bulkLoadCandidates();
+    // 各PDF解析
+    _bulkAnalysisResults=[];
+    const total=validFiles.length;
+    for(let i=0;i<total;i++){
+      const file=validFiles[i];
+      document.getElementById('bulkAnalyzeLabel').textContent=`PDFを解析中... ${i+1}/${total}`;
+      document.getElementById('bulkAnalyzeBar').style.width=`${5+Math.round((i+1)/total*90)}%`;
+      document.getElementById('bulkAnalyzeDetail').textContent=file.name;
+      const fnp=_bulkParseFileName(file.name);
+      let text='',thumbDataUrl=null,err=null;
+      try{
+        const r=await _bulkAnalyzeOnePdf(file);
+        text=r.text;thumbDataUrl=r.thumbDataUrl;
+      }catch(e){
+        err=e.message||String(e);
+        console.error('解析エラー:',file.name,e);
+      }
+      const ptp=_bulkParsePdfText(text);
+      const match=_bulkMatchFile(fnp,ptp,_bulkAllCandidates);
+      _bulkAnalysisResults.push({
+        file,fileName:file.name,fileNameParsed:fnp,pdfTextParsed:ptp,
+        thumbDataUrl,match,
+        selected:match.type==='auto',
+        selectedCaseId:match.type==='auto'?match.matches[0].id:null,
+        error:err
+      });
+    }
+    document.getElementById('bulkAnalyzeBar').style.width='100%';
+    document.getElementById('bulkAnalyzeLabel').textContent='解析完了';
+    // フェーズ3へ
+    setTimeout(()=>{
+      document.getElementById('bulkPhase2').style.display='none';
+      document.getElementById('bulkPhase3').style.display='block';
+      document.getElementById('bulkExecBtn').style.display='inline-block';
+      renderBulkPreview();
+    },300);
+  }catch(err){
+    console.error('一括解析エラー:',err);
+    showToast('解析エラー: '+(err.message||err),'error');
+    document.getElementById('bulkPhase1').style.display='block';
+    document.getElementById('bulkPhase2').style.display='none';
+  }
+}
+
+function _bulkDisplayCaseNo(c){
+  if(!c)return'—';
+  if(c.parent_case_no)return`${c.parent_case_no}(枝${c.branch_no||''})`;
+  return c.case_no||'—';
+}
+
+function renderBulkPreview(){
+  const hideNoMatch=document.getElementById('bulkHideNoMatch')?.checked;
+  const list=document.getElementById('bulkPreviewList');
+  // サマリ更新
+  const counts={auto:0,select:0,none:0};
+  _bulkAnalysisResults.forEach(r=>{counts[r.match.type]=(counts[r.match.type]||0)+1;});
+  document.getElementById('bulkSummaryArea').innerHTML=`
+    <span style="padding:6px 12px;background:var(--surface2);border-radius:6px;font-family:var(--font-mono);">📊 検出: ${_bulkAnalysisResults.length}件</span>
+    <span style="padding:6px 12px;background:rgba(16,185,129,.15);border:1px solid #10b981;border-radius:6px;color:#10b981;font-weight:600;">✅ 自動: ${counts.auto||0}件</span>
+    <span style="padding:6px 12px;background:rgba(245,158,11,.15);border:1px solid #f59e0b;border-radius:6px;color:#f59e0b;font-weight:600;">⚠️ 選択: ${counts.select||0}件</span>
+    <span style="padding:6px 12px;background:rgba(239,68,68,.15);border:1px solid #ef4444;border-radius:6px;color:#ef4444;font-weight:600;">❌ なし: ${counts.none||0}件</span>
+  `;
+  const items=_bulkAnalysisResults.map((r,i)=>({...r,_idx:i})).filter(r=>!hideNoMatch||r.match.type!=='none');
+  if(!items.length){list.innerHTML='<div style="text-align:center;padding:40px;color:var(--text-muted);font-size:13px;">表示する項目がありません</div>';updateBulkExecButton();return;}
+  list.innerHTML=items.map(item=>{
+    const idx=item._idx;
+    const m=item.match;
+    const checked=item.selected?'checked':'';
+    const conf=m.type==='auto'?'✅自動':m.type==='select'?'⚠️選択':'❌なし';
+    const confColor=m.type==='auto'?'#10b981':m.type==='select'?'#f59e0b':'#ef4444';
+    const ptp=item.pdfTextParsed||{};
+    const fnp=item.fileNameParsed||{};
+    const docTypeLabel=fnp.docType==='touki'?'📜登記簿':fnp.docType==='kouzu'?'🗺公図':'❓不明';
+    const docTypeColor=fnp.docType==='touki'?'#3b82f6':fnp.docType==='kouzu'?'#10b981':'#6b7280';
+    let matchHtml='';
+    if(m.type==='auto'){
+      const c=m.matches[0];
+      matchHtml=`<div style="font-weight:600;color:var(--accent);font-size:12px;">${_bulkDisplayCaseNo(c)}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${c.land_info_location||''}</div>`;
+    }else if(m.type==='select'){
+      matchHtml=`<select onchange="updateBulkMatch(${idx},this.value)" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px;font-size:11px;width:100%;">
+        <option value="">-- 選択してください --</option>
+        ${m.matches.map(c=>`<option value="${c.id}" ${item.selectedCaseId===c.id?'selected':''}>${_bulkDisplayCaseNo(c)} - ${c.land_info_location||''}</option>`).join('')}
+      </select>`;
+    }else{
+      matchHtml=`<div style="color:#ef4444;font-size:11px;margin-bottom:4px;">マッチなし - 手動選択可</div>
+        <select onchange="updateBulkMatch(${idx},this.value)" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px;font-size:11px;width:100%;">
+          <option value="">-- 手動で案件を選択 --</option>
+          ${_bulkAllCandidates.map(c=>`<option value="${c.id}" ${item.selectedCaseId===c.id?'selected':''}>${_bulkDisplayCaseNo(c)} - ${c.land_info_location||''}</option>`).join('')}
+        </select>`;
+    }
+    const thumbHtml=item.thumbDataUrl
+      ?`<img src="${item.thumbDataUrl}" style="width:90px;height:auto;border:1px solid var(--border);border-radius:4px;display:block;cursor:pointer;" onclick="showBulkThumbLarge(${idx})" title="クリックで拡大">`
+      :'<div style="width:90px;height:120px;background:var(--bg);border:1px solid var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:10px;">画像なし</div>';
+    return`<div style="display:flex;gap:10px;padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface2);align-items:flex-start;flex-wrap:wrap;">
+      <div style="flex:0 0 auto;padding-top:4px;"><input type="checkbox" ${checked} onchange="toggleBulkCheck(${idx},this.checked)"></div>
+      <div style="flex:0 0 90px;">${thumbHtml}</div>
+      <div style="flex:1 1 220px;min-width:200px;">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+          <span style="background:${docTypeColor};color:#fff;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600;white-space:nowrap;">${docTypeLabel}</span>
+          ${fnp.chiban?`<span style="font-size:11px;color:var(--text);font-family:var(--font-mono);font-weight:600;">${fnp.chiban}</span>`:''}
+        </div>
+        <div style="font-size:10px;color:var(--text-muted);word-break:break-all;margin-bottom:6px;">${item.fileName}</div>
+        <div style="font-size:11px;color:var(--text-muted);background:var(--bg);padding:6px;border-radius:4px;border:1px solid var(--border);">
+          <div>📍 所在: <span style="color:var(--text);font-family:var(--font-mono);">${ptp.shozai||'-'}</span></div>
+          <div>🔢 地番: <span style="color:var(--text);font-family:var(--font-mono);">${ptp.chiban||'-'}</span></div>
+          ${ptp.fudosanNumber?`<div>🆔 不動産番号: <span style="color:var(--text);font-family:var(--font-mono);font-size:10px;">${ptp.fudosanNumber}</span></div>`:''}
+          ${item.error?`<div style="color:#ef4444;">⚠️ ${item.error}</div>`:''}
+        </div>
+      </div>
+      <div style="flex:1 1 220px;min-width:200px;">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">マッチ案件:</div>
+        ${matchHtml}
+      </div>
+      <div style="flex:0 0 60px;text-align:right;padding-top:4px;">
+        <span style="font-size:11px;font-weight:600;color:${confColor};">${conf}</span>
+      </div>
+    </div>`;
+  }).join('');
+  updateBulkExecButton();
+}
+
+function toggleBulkCheck(idx,checked){
+  if(_bulkAnalysisResults[idx]){
+    _bulkAnalysisResults[idx].selected=checked;
+    updateBulkExecButton();
+  }
+}
+
+function updateBulkMatch(idx,caseId){
+  if(_bulkAnalysisResults[idx]){
+    _bulkAnalysisResults[idx].selectedCaseId=caseId||null;
+    // 選択されたら自動的にチェック、解除されたらチェック外す
+    _bulkAnalysisResults[idx].selected=!!caseId;
+    renderBulkPreview();
+  }
+}
+
+function bulkSelectAll(checked){
+  _bulkAnalysisResults.forEach(r=>{
+    if(checked){
+      // 自動マッチ or selectedCaseIdが設定済みなら選択可
+      if(r.match.type==='auto'||r.selectedCaseId)r.selected=true;
+    }else{
+      r.selected=false;
+    }
+  });
+  renderBulkPreview();
+}
+
+function bulkSelectAuto(){
+  _bulkAnalysisResults.forEach(r=>{r.selected=(r.match.type==='auto');});
+  renderBulkPreview();
+}
+
+function updateBulkExecButton(){
+  const selectedCount=_bulkAnalysisResults.filter(r=>r.selected&&r.selectedCaseId).length;
+  const btn=document.getElementById('bulkExecBtn');
+  btn.textContent=`選択した${selectedCount}件をアップロード`;
+  btn.disabled=selectedCount===0;
+}
+
+function showBulkThumbLarge(idx){
+  const r=_bulkAnalysisResults[idx];
+  if(!r||!r.thumbDataUrl)return;
+  document.getElementById('bulkThumbLargeTitle').textContent=`📄 ${r.fileName}`;
+  document.getElementById('bulkThumbLargeImg').src=r.thumbDataUrl;
+  document.getElementById('bulkThumbLargeModal').classList.add('open');
+}
+
+function executeBulkUpload(){
+  // Step 1-3b で実装予定
+  showToast('一括アップロード実行は Step 1-3b で実装予定です','error');
+}
+
 function previewDocument(id){
   showToast('Step 1-2c で実装予定です（プレビュー）','error');
 }
