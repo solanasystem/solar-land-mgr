@@ -315,6 +315,9 @@ body{font-family:var(--font-main);background:var(--bg);color:var(--text);font-si
 .label-addr{font-size:9pt;line-height:1.35;margin-bottom:0.5mm;}
 .label-addr-2nd{font-size:9pt;color:#000;line-height:1.35;margin-bottom:2mm;}
 .label-name{font-size:12pt;font-weight:700;text-align:center;letter-spacing:2pt;}
+/* 長い住所はフォントとletter-spacingを縮小して1行に収まりやすくする */
+.label-item-long .label-addr,.label-item-long .label-addr-2nd{font-size:8pt;letter-spacing:-0.1mm;}
+.label-grid-12 .label-item-long .label-addr,.label-grid-12 .label-item-long .label-addr-2nd{font-size:9pt;letter-spacing:-0.05mm;}
 .label-grid-12 .label-postal{font-size:11pt;}
 .label-grid-12 .label-addr{font-size:10pt;}
 .label-grid-12 .label-addr-2nd{font-size:10pt;}
@@ -983,14 +986,26 @@ function renderLabelPreview(){
 
 function renderLabelItem(lo){
   if(!lo)return '<div class="label-item empty"></div>';
-  const addr=lo.address||'（住所未登録）';
-  const addrLines=splitAddress(addr,28);
-  return `<div class="label-item">
+  // 全角数字・全角ハイフンを半角に正規化（宛名ラベル表示用）
+  const addr=normalizeAddressForLabel(lo.address||'（住所未登録）');
+  const addrLines=splitAddress(addr,24);
+  // 長い住所判定: 1行目または2行目が15文字超ならフォント縮小クラス付与
+  const isLong=(addrLines[0]&&addrLines[0].length>15)||(addrLines[1]&&addrLines[1].length>15);
+  const longCls=isLong?' label-item-long':'';
+  return `<div class="label-item${longCls}">
     <div class="label-postal">${lo.postal_code?'〒'+lo.postal_code:'　'}</div>
     <div class="label-addr">${escapeHtml(addrLines[0])}</div>
     ${addrLines[1]?`<div class="label-addr-2nd">${escapeHtml(addrLines[1])}</div>`:''}
     <div class="label-name">${escapeHtml(lo.name||'')} 様</div>
   </div>`;
+}
+
+/* 宛名ラベル表示用: 全角数字・全角ハイフンを半角化（住所文字列が短くなり1行に収まりやすくなる） */
+function normalizeAddressForLabel(s){
+  if(!s)return s;
+  return s
+    .replace(/[\uff10-\uff19]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xfee0))
+    .replace(/[\uff0d\u2014\u30fc]/g,'-');
 }
 
 function splitAddress(addr,maxLen){
