@@ -94,13 +94,14 @@
         clickBlocked = true;
 
         // 初回のみ position を fixed に切り替え
-        el.style.position = 'fixed';
-        el.style.left = initialLeft + 'px';
-        el.style.top = initialTop + 'px';
-        el.style.right = 'auto';
-        el.style.bottom = 'auto';
-        el.style.transition = 'none';
-        el.style.zIndex = '600';
+        // setProperty('important') で CSS の !important も上書き
+        el.style.setProperty('position', 'fixed', 'important');
+        el.style.setProperty('left', initialLeft + 'px', 'important');
+        el.style.setProperty('top', initialTop + 'px', 'important');
+        el.style.setProperty('right', 'auto', 'important');
+        el.style.setProperty('bottom', 'auto', 'important');
+        el.style.setProperty('transition', 'none', 'important');
+        el.style.setProperty('z-index', '600', 'important');
       }
 
       if (isDragging) {
@@ -109,6 +110,7 @@
         let newTop = initialTop + dy;
 
         // 画面外に完全に出ないよう制限（一部は見える状態を維持）
+        // 縦：ヘッダーから40px以下、画面下端から40px以上見える状態を保つ
         const maxLeft = window.innerWidth - 40;
         const maxTop = window.innerHeight - 40;
         const minLeft = -(el.offsetWidth - 40);
@@ -116,8 +118,8 @@
         newLeft = Math.max(minLeft, Math.min(newLeft, maxLeft));
         newTop = Math.max(minTop, Math.min(newTop, maxTop));
 
-        el.style.left = newLeft + 'px';
-        el.style.top = newTop + 'px';
+        el.style.setProperty('left', newLeft + 'px', 'important');
+        el.style.setProperty('top', newTop + 'px', 'important');
       }
     }, { passive: false });
 
