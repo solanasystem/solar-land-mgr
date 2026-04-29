@@ -298,6 +298,7 @@
 <div class="dashboard-bar" id="dashboardBar">
   <div class="pc-tabs" id="pcTabs"></div>
   <button class="dashboard-toggle-mobile" id="dashboardToggleBtn" type="button" onclick="toggleDashboardStats()" style="display:none">📊 統計 ▼</button>
+  <button class="dashboard-start-mobile" id="dashboardStartBtn" type="button" onclick="startVisitMode()" disabled style="display:none">🚗 訪問開始</button>
   <div style="flex:1;min-width:12px;"></div>
   <div class="status-chart-wrap" id="statusChartWrap">
     <div class="donut-wrap">
@@ -1011,6 +1012,33 @@ function toggleDashboardStats() {
   const opened = wrap.classList.toggle('expanded');
   btn.textContent = opened ? '📊 統計 ▲' : '📊 統計 ▼';
 }
+
+/* ===== モバイル：dashboard-bar内の「訪問開始」ボタンを既存startBtnと同期 ===== */
+(function syncDashboardStartBtn() {
+  function init() {
+    const startBtn = document.getElementById('startBtn');
+    const dashStartBtn = document.getElementById('dashboardStartBtn');
+    if (!startBtn || !dashStartBtn) return;
+    // 初期状態
+    dashStartBtn.disabled = startBtn.disabled;
+    // 監視：startBtnのdisabled/style変化をdashStartBtnに反映
+    const observer = new MutationObserver(() => {
+      dashStartBtn.disabled = startBtn.disabled;
+      // 訪問実行中（startBtnが非表示）はdashStartBtnも非表示
+      if (startBtn.style.display === 'none') {
+        dashStartBtn.style.display = 'none';
+      } else {
+        dashStartBtn.style.display = '';
+      }
+    });
+    observer.observe(startBtn, { attributes: true, attributeFilter: ['disabled', 'style'] });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
 function makeIconHtml(color) {
   return `<div style="width:24px;height:24px;background:${color};border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid rgba(0,0,0,0.3);box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`;
 }
