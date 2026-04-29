@@ -2450,12 +2450,37 @@ function updateBulkExecButton(){
   btn.disabled=selectedCount===0;
 }
 
-function showBulkThumbLarge(idx){
+async function showBulkThumbLarge(idx){
   const r=_bulkAnalysisResults[idx];
-  if(!r||!r.thumbDataUrl)return;
-  document.getElementById('bulkThumbLargeTitle').textContent=`📄 ${r.fileName}`;
-  document.getElementById('bulkThumbLargeImg').src=r.thumbDataUrl;
+  if(!r)return;
+  document.getElementById('bulkThumbLargeTitle').textContent=`📄 ${r.fileName}（高解像度を読込中...）`;
+  // まず低解像度版を即座に表示（体感速度向上）
+  document.getElementById('bulkThumbLargeImg').src=r.thumbDataUrl||'';
   document.getElementById('bulkThumbLargeModal').classList.add('open');
+  // 高解像度版を非同期生成して差し替え
+  if(r.file){
+    try{
+      const arrayBuffer=await r.file.arrayBuffer();
+      const pdf=await pdfjsLib.getDocument({data:arrayBuffer}).promise;
+      const page=await pdf.getPage(1);
+      const viewport=page.getViewport({scale:2.0});
+      const canvas=document.createElement('canvas');
+      canvas.width=viewport.width;canvas.height=viewport.height;
+      const ctx=canvas.getContext('2d');
+      ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+      await page.render({canvasContext:ctx,viewport}).promise;
+      const hiResDataUrl=canvas.toDataURL('image/jpeg',0.92);
+      canvas.width=0;canvas.height=0;
+      // モーダルがまだ開いている場合のみ差し替え
+      if(document.getElementById('bulkThumbLargeModal').classList.contains('open')){
+        document.getElementById('bulkThumbLargeImg').src=hiResDataUrl;
+        document.getElementById('bulkThumbLargeTitle').textContent=`📄 ${r.fileName}`;
+      }
+    }catch(err){
+      console.error('高解像度レンダリングエラー:',err);
+      document.getElementById('bulkThumbLargeTitle').textContent=`📄 ${r.fileName}（高解像度読込失敗）`;
+    }
+  }
 }
 
 function executeBulkUpload(){
