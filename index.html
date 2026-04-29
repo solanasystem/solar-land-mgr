@@ -139,7 +139,41 @@
   .action-menu-item.branch{color:var(--accent);}
   .action-menu-item.landowner{color:var(--green);}
   .action-menu-item.land{color:var(--blue);}
+  .action-menu-item.photo{color:#f0883e;}
   .action-menu-divider{height:1px;background:var(--border);margin:4px 0;}
+  /* ===== 画像確認モーダル ===== */
+  .photo-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:10000;padding:20px;}
+  .photo-modal-overlay.open{display:flex;}
+  .photo-modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:920px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;}
+  .photo-modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);background:var(--surface2);flex-wrap:wrap;gap:8px;}
+  .photo-modal-title{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600;color:var(--text);flex-wrap:wrap;}
+  .photo-modal-meta{font-size:11px;color:var(--text-muted);font-family:var(--font-mono);}
+  .photo-modal-close{background:none;border:none;color:var(--text-muted);font-size:24px;cursor:pointer;line-height:1;padding:0 4px;}
+  .photo-modal-close:hover{color:var(--text);}
+  .photo-modal-body{padding:20px;overflow-y:auto;flex:1;}
+  .photo-category{margin-bottom:24px;}
+  .photo-category:last-child{margin-bottom:0;}
+  .photo-category-title{font-size:12px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+  .photo-grid{display:grid;gap:10px;}
+  .photo-grid-2{grid-template-columns:1fr 1fr;}
+  .photo-grid-3{grid-template-columns:1fr 1fr 1fr;}
+  .photo-grid-4{grid-template-columns:1fr 1fr 1fr 1fr;}
+  .photo-cell{position:relative;aspect-ratio:4/3;background:var(--bg);border:1px solid var(--border);border-radius:6px;overflow:hidden;}
+  .photo-cell img{width:100%;height:100%;object-fit:cover;cursor:zoom-in;transition:transform .2s;}
+  .photo-cell img:hover{transform:scale(1.03);}
+  .photo-cell .photo-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px;}
+  .photo-cell-label{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(to top,rgba(0,0,0,.75),transparent);color:#fff;font-size:10px;padding:14px 6px 4px;text-align:center;font-weight:600;}
+  .photo-empty-state{text-align:center;padding:40px 20px;color:var(--text-muted);}
+  .photo-empty-state-icon{font-size:48px;margin-bottom:12px;opacity:.5;}
+  .photo-empty-state-text{font-size:14px;margin-bottom:8px;}
+  .photo-empty-state-link{display:inline-block;margin-top:12px;padding:8px 18px;background:var(--accent);color:#fff;text-decoration:none;border-radius:6px;font-size:13px;font-weight:500;}
+  .photo-empty-state-link:hover{opacity:.9;}
+  @media(max-width:768px){
+    .photo-modal-overlay{padding:0;}
+    .photo-modal{max-width:100%;max-height:100vh;border-radius:0;height:100vh;}
+    .photo-grid-4{grid-template-columns:1fr 1fr;}
+    .photo-grid-3{grid-template-columns:1fr 1fr 1fr;}
+  }
   .inline-select{background:transparent;border:none;color:inherit;font-family:var(--font-main);font-size:11px;font-weight:600;cursor:pointer;padding:0;outline:none;appearance:none;-webkit-appearance:none;width:100%;}
   .inline-select option{background:var(--surface2);color:var(--text);font-size:12px;}
   .badge-select-wrap{display:inline-flex;align-items:center;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:500;cursor:pointer;transition:opacity .15s;}
@@ -1141,6 +1175,7 @@ function toggleActionMenu(event){
   html += `<div class="action-menu-divider"></div>`;
   html += `<button class="action-menu-item landowner" onclick="closeActionMenu();openDetail('${caseId}','landowner')">🧑 地権者情報</button>`;
   html += `<button class="action-menu-item land" onclick="closeActionMenu();openDetail('${caseId}','land')">🏔 土地情報</button>`;
+  html += `<button class="action-menu-item photo" onclick="closeActionMenu();openSurveyPhotos('${caseId}')">📷 画像確認</button>`;
   menu.innerHTML = html;
   // 表示してから位置計算（getBoundingClientRectのため一時的に表示）
   menu.classList.add('open');
@@ -1170,6 +1205,156 @@ function closeActionMenu(){
   if(menu) menu.classList.remove('open');
   if(_currentActionToggleBtn) _currentActionToggleBtn.classList.remove('open');
   _currentActionToggleBtn = null;
+}
+
+/* ===== 地権者マスター 操作ドロップダウンメニュー ===== */
+function toggleLandownerActionMenu(event){
+  event.stopPropagation();
+  const btn = event.currentTarget;
+  const menu = document.getElementById('globalActionMenu');
+  if(!menu) return;
+  if(_currentActionToggleBtn === btn && menu.classList.contains('open')){ closeActionMenu(); return; }
+  const caseId = btn.dataset.caseId;
+  let html = `<button class="action-menu-item landowner" onclick="closeActionMenu();openDetail('${caseId}','landowner')">📋 詳細を表示</button>`;
+  html += `<button class="action-menu-item photo" onclick="closeActionMenu();openSurveyPhotos('${caseId}')">📷 画像確認</button>`;
+  menu.innerHTML = html;
+  _positionActionMenu(btn, menu);
+}
+
+/* ===== 土地マスター 操作ドロップダウンメニュー ===== */
+function toggleLandActionMenu(event){
+  event.stopPropagation();
+  const btn = event.currentTarget;
+  const menu = document.getElementById('globalActionMenu');
+  if(!menu) return;
+  if(_currentActionToggleBtn === btn && menu.classList.contains('open')){ closeActionMenu(); return; }
+  const caseId = btn.dataset.caseId;
+  let html = `<button class="action-menu-item land" onclick="closeActionMenu();openDetail('${caseId}','land')">📋 詳細を表示</button>`;
+  html += `<button class="action-menu-item photo" onclick="closeActionMenu();openSurveyPhotos('${caseId}')">📷 画像確認</button>`;
+  menu.innerHTML = html;
+  _positionActionMenu(btn, menu);
+}
+
+/* ===== ドロップダウンメニュー位置決め共通処理 ===== */
+function _positionActionMenu(btn, menu){
+  menu.classList.add('open');
+  const rect = btn.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const screenW = window.innerWidth;
+  const screenH = window.innerHeight;
+  let top = rect.bottom + 4;
+  if(top + menuRect.height > screenH - 8){
+    top = rect.top - menuRect.height - 4;
+    if(top < 8) top = 8;
+  }
+  let left = rect.right - menuRect.width;
+  if(left < 8) left = 8;
+  if(left + menuRect.width > screenW - 8) left = screenW - menuRect.width - 8;
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+  document.querySelectorAll('.action-toggle.open').forEach(b => b.classList.remove('open'));
+  btn.classList.add('open');
+  _currentActionToggleBtn = btn;
+}
+
+/* ===== 画像確認モーダル ===== */
+async function openSurveyPhotos(caseId){
+  const modal = document.getElementById('surveyPhotosModal');
+  const body  = document.getElementById('surveyPhotosBody');
+  const title = document.getElementById('surveyPhotosTitle');
+  if(!modal || !body || !title) return;
+  // ローディング表示
+  body.innerHTML = '<div class="loading"><div class="spinner"></div>読み込み中...</div>';
+  title.innerHTML = '';
+  modal.classList.add('open');
+  try {
+    // case情報とfield_survey_statusを並列取得
+    const [caseRes, surveyRes] = await Promise.all([
+      db.from('cases').select('case_no,parent_case_no,branch_no,kubun').eq('id',caseId).single(),
+      db.from('field_survey_status').select('*').eq('case_id',caseId).maybeSingle()
+    ]);
+    const c = caseRes.data;
+    const s = surveyRes.data;
+    if(!c){
+      body.innerHTML = '<div class="photo-empty-state"><div class="photo-empty-state-icon">⚠️</div><div class="photo-empty-state-text">案件情報が取得できませんでした</div></div>';
+      return;
+    }
+    // タイトル構築
+    const caseNoText = c.parent_case_no ? `${c.parent_case_no}（枝${c.branch_no||''}）` : (c.case_no||'—');
+    const kubunHtml = c.kubun ? `<span class="badge badge-${kubunClass(c.kubun)}">${c.kubun}</span>` : '';
+    const dateText  = s?.confirmed_at ? `撮影日時: ${new Date(s.confirmed_at).toLocaleString('ja-JP')}` : '';
+    title.innerHTML = `<span style="font-family:var(--font-mono)">${caseNoText}</span>${kubunHtml}<span class="photo-modal-meta">${dateText}</span>`;
+    // 写真未保存
+    if(!s){
+      body.innerHTML = `<div class="photo-empty-state">
+        <div class="photo-empty-state-icon">📷</div>
+        <div class="photo-empty-state-text">現地調査がまだ実施されていません</div>
+        <div style="font-size:12px;margin-top:4px">現地調査マップで写真を撮影してください</div>
+        <a class="photo-empty-state-link" href="field-survey.html">🏔 現地調査マップを開く</a>
+      </div>`;
+      return;
+    }
+    // 太陽光案件のみ太陽軌道写真を表示
+    const isSolar = (c.kubun||'').includes('\u592a\u967d\u5149');
+    // カテゴリ別レンダリング
+    const cell = (url,label) => url
+      ? `<div class="photo-cell"><a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${label}"></a><div class="photo-cell-label">${label}</div></div>`
+      : `<div class="photo-cell"><div class="photo-empty"><span style="font-size:24px;opacity:.4">📷</span><span>未撮影</span></div><div class="photo-cell-label">${label}</div></div>`;
+    let html = '';
+    // 接道（2枚）
+    html += `<div class="photo-category">
+      <div class="photo-category-title">🚗 接道（2カット）</div>
+      <div class="photo-grid photo-grid-2">
+        ${cell(s.photo_road1,'接道 ①')}
+        ${cell(s.photo_road2,'接道 ②')}
+      </div>
+    </div>`;
+    // 土地状況（4枚 東西南北）
+    html += `<div class="photo-category">
+      <div class="photo-category-title">🏔 土地状況・東西南北（4カット）</div>
+      <div class="photo-grid photo-grid-4">
+        ${cell(s.photo_land1,'土地 ① 東')}
+        ${cell(s.photo_land2,'土地 ② 西')}
+        ${cell(s.photo_land3,'土地 ③ 南')}
+        ${cell(s.photo_land4,'土地 ④ 北')}
+      </div>
+    </div>`;
+    // 電柱（3枚）
+    html += `<div class="photo-category">
+      <div class="photo-category-title">⚡ 電柱（3カット）</div>
+      <div class="photo-grid photo-grid-3">
+        ${cell(s.photo_pole1,'電柱 ①')}
+        ${cell(s.photo_pole2,'電柱 ②')}
+        ${cell(s.photo_pole3,'電柱 ③')}
+      </div>
+    </div>`;
+    // 太陽軌道（3枚）太陽光案件のみ
+    if(isSolar){
+      html += `<div class="photo-category">
+        <div class="photo-category-title">☀️ 太陽軌道（3カット・太陽光案件のみ）</div>
+        <div class="photo-grid photo-grid-3">
+          ${cell(s.photo_shadow_am,'朝の軌道（7-11h）')}
+          ${cell(s.photo_shadow_noon,'南中時（9-13h）')}
+          ${cell(s.photo_shadow_pm,'夕の軌道（11-15h）')}
+        </div>
+      </div>`;
+    }
+    // コメント
+    if(s.comment){
+      html += `<div class="photo-category">
+        <div class="photo-category-title">💬 現地確認コメント</div>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:13px;color:var(--text);white-space:pre-wrap;line-height:1.6">${s.comment.replace(/</g,'&lt;')}</div>
+      </div>`;
+    }
+    body.innerHTML = html;
+  } catch(err) {
+    console.error('[openSurveyPhotos]', err);
+    body.innerHTML = `<div class="photo-empty-state"><div class="photo-empty-state-icon">⚠️</div><div class="photo-empty-state-text">読み込みに失敗しました</div><div style="font-size:12px;color:var(--text-muted);margin-top:4px">${err.message||''}</div></div>`;
+  }
+}
+function closeSurveyPhotos(){
+  const modal = document.getElementById('surveyPhotosModal');
+  if(modal) modal.classList.remove('open');
 }
 // 外側クリックで閉じる
 document.addEventListener('click', (e)=>{
@@ -1489,7 +1674,7 @@ function renderLandowners(los){
     <div style="font-family:var(--font-mono);font-size:12px;color:var(--text);text-align:right">${lo.price?Number(lo.price).toLocaleString()+' 円':'—'}</div>
     <div style="font-size:13px;white-space:nowrap;text-align:center">${lo.tel||'—'}</div>
     <div style="text-align:center">${statusBadgeInline(lo.case_id,lo.cases?.status)}</div>
-    <div class="actions-cell"><button class="action-btn landowner" onclick="openDetail('${lo.case_id}','landowner')">詳細</button></div>
+    <div class="actions-cell"><button class="action-toggle" data-case-id="${lo.case_id}" onclick="toggleLandownerActionMenu(event)">操作 ▼</button></div>
   </div>`).join('');
 }
 
@@ -1540,7 +1725,7 @@ function renderLands(lands){
       <div style="font-size:12px;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-align:center">${yoto}</div>
       <div style="font-size:12px;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-align:center">${hazText||'—'}</div>
       <div style="font-size:12px;text-align:center">${mapUrl?`<a href="${mapUrl}" target="_blank" style="color:var(--blue)">🔍</a>`:'—'}</div>
-      <div class="actions-cell"><button class="action-btn land" onclick="openDetail('${land.case_id}','land')">詳細</button></div>
+      <div class="actions-cell"><button class="action-toggle" data-case-id="${land.case_id}" onclick="toggleLandActionMenu(event)">操作 ▼</button></div>
     </div>`;
   }).join('');
 }
@@ -2782,6 +2967,16 @@ function setupMobileTableScrollSync() {
 window.addEventListener('load', setupMobileTableScrollSync);
 window.addEventListener('resize', setupMobileTableScrollSync);
 </script>
+<!-- 画像確認モーダル -->
+<div class="photo-modal-overlay" id="surveyPhotosModal" onclick="if(event.target===this)closeSurveyPhotos()">
+  <div class="photo-modal">
+    <div class="photo-modal-header">
+      <div class="photo-modal-title" id="surveyPhotosTitle"></div>
+      <button class="photo-modal-close" onclick="closeSurveyPhotos()" aria-label="閉じる">×</button>
+    </div>
+    <div class="photo-modal-body" id="surveyPhotosBody"></div>
+  </div>
+</div>
 <div class="action-menu" id="globalActionMenu"></div>
 <button class="mobile-home-btn" onclick="mobileGoHome()" aria-label="案件マスターに戻る">🏠</button>
 </body>
