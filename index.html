@@ -9,6 +9,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="mobile-responsive.css?v=20260429a">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
   :root {
     --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
@@ -802,6 +804,54 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('editRealestateModal')">キャンセル</button>
       <button class="btn btn-primary" onclick="saveRealestate()">保存する</button>
+    </div>
+  </div>
+</div>
+<!-- 書類アップロードモーダル（Step 1-2b） -->
+<div class="modal-overlay" id="uploadDocModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">📄 書類アップロード</div>
+        <div class="modal-subtitle">登記簿・公図PDF（20MB以下）</div>
+      </div>
+      <button class="modal-close" onclick="closeModal('uploadDocModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">書類種別 <span style="color:#ef4444">*</span></label>
+        <div style="display:flex;gap:8px;">
+          <label style="flex:1;cursor:pointer;display:flex;align-items:center;gap:8px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);">
+            <input type="radio" name="docType" value="touki" onchange="togglePdfTypeFields()" checked>
+            <span>📜 登記簿</span>
+          </label>
+          <label style="flex:1;cursor:pointer;display:flex;align-items:center;gap:8px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);">
+            <input type="radio" name="docType" value="kouzu" onchange="togglePdfTypeFields()">
+            <span>🗺 公図</span>
+          </label>
+        </div>
+      </div>
+      <div class="form-group" id="chibanGroup">
+        <label class="form-label">地番</label>
+        <input class="form-input" type="text" id="docChiban" placeholder="例: 123-4 または 123-4, 123-5">
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">複数地番がある場合はカンマで区切ってください</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">PDFファイル <span style="color:#ef4444">*</span></label>
+        <input class="form-input" type="file" id="docFile" accept="application/pdf" onchange="handleFileSelect()">
+        <div id="fileInfo" style="font-size:12px;color:var(--text-muted);margin-top:6px;"></div>
+      </div>
+      <div id="uploadProgress" style="display:none;margin-top:16px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
+        <div id="progressLabel" style="font-size:13px;color:var(--text);margin-bottom:8px;font-weight:500;"></div>
+        <div style="height:8px;background:var(--bg);border-radius:4px;overflow:hidden;">
+          <div id="progressBar" style="height:100%;background:var(--accent);width:0%;transition:width .3s;"></div>
+        </div>
+        <div id="progressDetail" style="font-size:11px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono);"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('uploadDocModal')" id="uploadCancelBtn">キャンセル</button>
+      <button class="btn btn-primary" onclick="uploadDocument()" id="uploadExecBtn" disabled>圧縮してアップロード</button>
     </div>
   </div>
 </div>
@@ -1839,7 +1889,153 @@ async function loadDocuments(caseId){
 }
 
 function openUploadDocModal(){
-  showToast('Step 1-2b で実装予定です（PDF圧縮 + アップロード）','error');
+  if(!currentCaseId){showToast('案件を選択してください','error');return;}
+  if(typeof pdfjsLib==='undefined'||typeof PDFLib==='undefined'){
+    showToast('PDFライブラリの読込に失敗しました（ネット接続を確認してください）','error');
+    return;
+  }
+  // PDF.js worker設定（初回のみ）
+  if(!pdfjsLib.GlobalWorkerOptions.workerSrc){
+    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+  // フォームリセット
+  _selectedPdfFile=null;
+  document.querySelector('input[name="docType"][value="touki"]').checked=true;
+  document.getElementById('docChiban').value='';
+  document.getElementById('docFile').value='';
+  document.getElementById('fileInfo').textContent='';
+  document.getElementById('uploadProgress').style.display='none';
+  document.getElementById('progressBar').style.width='0%';
+  document.getElementById('uploadExecBtn').disabled=true;
+  document.getElementById('uploadCancelBtn').disabled=false;
+  togglePdfTypeFields();
+  document.getElementById('uploadDocModal').classList.add('open');
+}
+
+let _selectedPdfFile=null;
+
+function togglePdfTypeFields(){
+  const type=document.querySelector('input[name="docType"]:checked')?.value;
+  document.getElementById('chibanGroup').style.display=type==='touki'?'block':'none';
+}
+
+function handleFileSelect(){
+  const fileInput=document.getElementById('docFile');
+  const infoEl=document.getElementById('fileInfo');
+  const execBtn=document.getElementById('uploadExecBtn');
+  const file=fileInput.files?.[0];
+  _selectedPdfFile=null;
+  if(!file){infoEl.textContent='';execBtn.disabled=true;return;}
+  if(file.type!=='application/pdf'&&!file.name.toLowerCase().endsWith('.pdf')){
+    infoEl.innerHTML='<span style="color:#ef4444">⚠ PDFファイルを選択してください</span>';
+    fileInput.value='';execBtn.disabled=true;return;
+  }
+  const MAX_SIZE=20*1024*1024;
+  if(file.size>MAX_SIZE){
+    const sizeMB=(file.size/1024/1024).toFixed(1);
+    infoEl.innerHTML=`<span style="color:#ef4444">⚠ ファイルサイズが大きすぎます（${sizeMB}MB / 上限: 20MB）</span>`;
+    fileInput.value='';execBtn.disabled=true;return;
+  }
+  _selectedPdfFile=file;
+  const sizeKB=(file.size/1024).toFixed(0);
+  infoEl.innerHTML=`✓ ${file.name} <span style="color:var(--text-muted)">(${sizeKB} KB)</span>`;
+  execBtn.disabled=false;
+}
+
+function _setUploadProgress(label,pct,detail){
+  document.getElementById('uploadProgress').style.display='block';
+  document.getElementById('progressLabel').textContent=label;
+  document.getElementById('progressBar').style.width=pct+'%';
+  document.getElementById('progressDetail').textContent=detail||'';
+}
+
+async function _compressPdfToImagePdf(file){
+  const arrayBuffer=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:arrayBuffer}).promise;
+  const numPages=pdf.numPages;
+  const DPI=180,SCALE=DPI/72,QUALITY=0.80;
+  const{PDFDocument}=PDFLib;
+  const newPdf=await PDFDocument.create();
+  for(let i=1;i<=numPages;i++){
+    _setUploadProgress(`ページ ${i}/${numPages} を圧縮中...`,Math.round((i-1)/numPages*70)+10,`DPI ${DPI} / JPEG品質 ${Math.round(QUALITY*100)}`);
+    const page=await pdf.getPage(i);
+    const viewport=page.getViewport({scale:SCALE});
+    const canvas=document.createElement('canvas');
+    canvas.width=viewport.width;canvas.height=viewport.height;
+    const ctx=canvas.getContext('2d');
+    ctx.fillStyle='#ffffff';ctx.fillRect(0,0,canvas.width,canvas.height);
+    await page.render({canvasContext:ctx,viewport}).promise;
+    const jpegDataUrl=canvas.toDataURL('image/jpeg',QUALITY);
+    const jpegBytes=Uint8Array.from(atob(jpegDataUrl.split(',')[1]),c=>c.charCodeAt(0));
+    const jpgImage=await newPdf.embedJpg(jpegBytes);
+    const newPage=newPdf.addPage([viewport.width,viewport.height]);
+    newPage.drawImage(jpgImage,{x:0,y:0,width:viewport.width,height:viewport.height});
+    canvas.width=0;canvas.height=0;
+  }
+  _setUploadProgress('PDFを再構築中...',85,'');
+  const compressedBytes=await newPdf.save();
+  return new Blob([compressedBytes],{type:'application/pdf'});
+}
+
+async function uploadDocument(){
+  if(!_selectedPdfFile){showToast('ファイルを選択してください','error');return;}
+  if(!currentCaseId){showToast('案件IDが取得できません','error');return;}
+  const docType=document.querySelector('input[name="docType"]:checked')?.value;
+  const chiban=docType==='touki'?(document.getElementById('docChiban').value.trim()||null):null;
+  const originalFile=_selectedPdfFile;
+  const originalName=originalFile.name;
+  const originalSize=originalFile.size;
+  document.getElementById('uploadExecBtn').disabled=true;
+  document.getElementById('uploadCancelBtn').disabled=true;
+  try{
+    _setUploadProgress('PDFを読み込み中...',5,'');
+    let uploadBlob=originalFile;
+    let compressionApplied=false;
+    let compressedSize=originalSize;
+    try{
+      const compressed=await _compressPdfToImagePdf(originalFile);
+      if(compressed.size<originalSize){
+        uploadBlob=compressed;compressedSize=compressed.size;compressionApplied=true;
+      }
+    }catch(compressErr){
+      console.error('圧縮エラー:',compressErr);
+      compressionApplied=false;
+    }
+    _setUploadProgress('アップロード中...',90,'');
+    const timestamp=Date.now();
+    const safeName=originalName.replace(/[^\w.\-]/g,'_');
+    const storagePath=`${currentCaseId}/${docType}/${timestamp}_${safeName}`;
+    const{error:upErr}=await db.storage.from('registry-docs').upload(storagePath,uploadBlob,{contentType:'application/pdf',upsert:false});
+    if(upErr)throw upErr;
+    _setUploadProgress('レコード登録中...',95,'');
+    const{error:dbErr}=await db.from('case_documents').insert({
+      case_id:currentCaseId,document_type:docType,chiban:chiban,
+      file_path:storagePath,file_name:originalName,
+      file_size_original:originalSize,file_size_compressed:compressedSize,
+      compression_applied:compressionApplied,is_active:true,is_deleted:false
+    });
+    if(dbErr){
+      await db.storage.from('registry-docs').remove([storagePath]);
+      throw dbErr;
+    }
+    _setUploadProgress('完了',100,'');
+    const ratio=compressionApplied?Math.round((1-compressedSize/originalSize)*100):0;
+    const msg=compressionApplied
+      ?`📄 アップロード完了！圧縮率 ${ratio}% (${Math.round(originalSize/1024)}→${Math.round(compressedSize/1024)}KB)`
+      :`📄 アップロード完了（圧縮スキップ）`;
+    showToast(msg,'success');
+    setTimeout(()=>{
+      closeModal('uploadDocModal');
+      document.getElementById('uploadCancelBtn').disabled=false;
+      loadDocuments(currentCaseId);
+    },500);
+  }catch(err){
+    console.error('アップロードエラー:',err);
+    showToast('アップロード失敗: '+(err.message||err),'error');
+    document.getElementById('uploadExecBtn').disabled=false;
+    document.getElementById('uploadCancelBtn').disabled=false;
+    document.getElementById('uploadProgress').style.display='none';
+  }
 }
 function previewDocument(id){
   showToast('Step 1-2c で実装予定です（プレビュー）','error');
