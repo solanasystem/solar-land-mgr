@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>案件候補一覧 | SOLAR LAND MGR v3.0</title>
+<link rel="stylesheet" href="mobile-responsive.css">
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2333;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #f0b429;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #a371f7;
+    --font-main: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'SF Mono', Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-main);
+    font-size: 14px;
+    min-height: 100vh;
+  }
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--text); }
+  .logo-icon { width: 28px; height: 28px; background: linear-gradient(135deg, #f0b429, #e85d04); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .logo-text { font-size: 14px; font-weight: 700; }
+  .logo-version { font-family: var(--font-mono); font-size: 10px; color: var(--accent); background: rgba(240,180,41,.1); border: 1px solid rgba(240,180,41,.3); border-radius: 4px; padding: 2px 6px; }
+  .page-title { font-size: 13px; color: var(--text-muted); }
+  .btn {
+    padding: 6px 12px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    font-family: var(--font-main);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .btn:hover { background: var(--surface2); }
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+  .btn-primary:hover { background: #e0a820; }
+  .btn-danger { color: var(--red); border-color: rgba(248,81,73,.4); }
+  .btn-danger:hover { background: rgba(248,81,73,.1); }
+  .btn-success { color: var(--green); border-color: rgba(63,185,80,.4); }
+  .btn-success:hover { background: rgba(63,185,80,.1); }
+
+  /* フィルターバー */
+  .filter-bar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .filter-group { display: flex; align-items: center; gap: 6px; }
+  .filter-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .filter-select {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-family: var(--font-main);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .total-count {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .total-count strong {
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  /* メインコンテンツ */
+  .container { padding: 20px; max-width: 1400px; margin: 0 auto; }
+  .empty-state {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 60px 24px;
+    text-align: center;
+    color: var(--text-muted);
+  }
+  .empty-state-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+  .empty-state-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+  .empty-state-msg { font-size: 13px; line-height: 1.6; }
+
+  /* テーブル */
+  .candidates-table {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .candidates-table-header {
+    display: grid;
+    grid-template-columns: 50px 110px 110px 130px 1fr 90px 130px 280px;
+    padding: 10px 16px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .candidate-row {
+    display: grid;
+    grid-template-columns: 50px 110px 110px 130px 1fr 90px 130px 280px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    transition: background 0.1s;
+  }
+  .candidate-row:hover { background: rgba(255,255,255,0.02); }
+  .candidate-row:last-child { border-bottom: none; }
+  .row-no { text-align: center; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
+  .coord { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
+  .source-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .source-pc_click { background: rgba(88,166,255,.15); color: var(--blue); border: 1px solid rgba(88,166,255,.4); }
+  .source-mobile_gps { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.4); }
+  .source-page-text { font-size: 11px; color: var(--text-muted); margin-top: 2px; display: block; }
+  .memo-text { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .memo-empty { color: var(--text-muted); font-style: italic; font-size: 12px; }
+  .status-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .status-new { background: rgba(240,180,41,.15); color: var(--accent); border: 1px solid rgba(240,180,41,.4); }
+  .status-reviewing { background: rgba(88,166,255,.15); color: var(--blue); border: 1px solid rgba(88,166,255,.4); }
+  .status-converted { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.4); }
+  .status-rejected { background: rgba(139,148,158,.15); color: var(--text-muted); border: 1px solid rgba(139,148,158,.4); }
+  .created-at { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+  .actions-cell { display: flex; gap: 4px; flex-wrap: wrap; }
+  .action-btn {
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-main);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .action-btn:hover { background: var(--surface2); color: var(--text); }
+  .action-btn.map { color: var(--blue); border-color: rgba(88,166,255,.4); }
+  .action-btn.map:hover { background: rgba(88,166,255,.1); }
+  .action-btn.promote { color: var(--accent); border-color: rgba(240,180,41,.4); }
+  .action-btn.promote:hover { background: rgba(240,180,41,.1); }
+  .action-btn.edit { color: var(--purple); border-color: rgba(163,113,247,.4); }
+  .action-btn.edit:hover { background: rgba(163,113,247,.1); }
+  .action-btn.delete { color: var(--red); border-color: rgba(248,81,73,.4); }
+  .action-btn.delete:hover { background: rgba(248,81,73,.1); }
+
+  /* モーダル */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    max-width: 480px;
+    width: 100%;
+    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+  }
+  .modal-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0 0 16px;
+    color: var(--text);
+  }
+  .modal-body { margin-bottom: 20px; }
+  .form-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .form-label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+  .form-input,
+  .form-select,
+  .form-textarea {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 5px;
+    font-family: var(--font-main);
+    font-size: 13px;
+  }
+  .form-textarea { resize: vertical; min-height: 60px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .modal-info {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+  }
+  .modal-info-row { display: flex; justify-content: space-between; padding: 3px 0; }
+  .danger-text { color: var(--red); font-size: 13px; line-height: 1.6; }
+
+  /* トースト */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 18px;
+    color: var(--text);
+    font-size: 13px;
+    z-index: 10000;
+    box-shadow: 0 4px 12px rgba(0,0,0,.3);
+    animation: toastIn 0.2s ease-out;
+  }
+  .toast.success { border-color: var(--green); color: var(--green); }
+  .toast.error { border-color: var(--red); color: var(--red); }
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+
+  /* ローディング */
+  .loading {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 60px 20px;
+    font-size: 13px;
+  }
+
+  /* モバイル対応 */
+  @media (max-width: 1024px) {
+    .candidates-table-header,
+    .candidate-row {
+      grid-template-columns: 1fr;
+      padding: 12px;
+    }
+    .candidates-table-header { display: none; }
+    .candidate-row {
+      border-radius: 8px;
+      margin-bottom: 8px;
+      background: var(--surface2);
+      gap: 6px;
+    }
+    .row-no { text-align: left; font-weight: 700; color: var(--accent); }
+    .actions-cell { justify-content: flex-start; }
+    .header-actions .btn { padding: 5px 8px; font-size: 12px; }
+    .filter-bar { padding: 10px; gap: 8px; }
+    .container { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <a class="logo" href="index.html">
+      <div class="logo-icon">&#9728;&#65039;</div>
+      <span class="logo-text">SOLAR LAND MGR</span>
+      <span class="logo-version">v3.0</span>
+    </a>
+    <span class="page-title">📍 案件候補一覧</span>
+  </div>
+  <div class="header-actions">
+    <button class="btn" onclick="location.href='index.html'">← 案件マスター</button>
+  </div>
+</header>
+
+<div class="filter-bar">
+  <div class="filter-group">
+    <span class="filter-label">ステータス</span>
+    <select class="filter-select" id="filterStatus" onchange="applyFilters()">
+      <option value="">すべて</option>
+      <option value="new">未確認 (NEW)</option>
+      <option value="reviewing">レビュー中</option>
+      <option value="converted">案件昇格済</option>
+      <option value="rejected">却下</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">記録元</span>
+    <select class="filter-select" id="filterSource" onchange="applyFilters()">
+      <option value="">すべて</option>
+      <option value="pc_click">PC地図クリック</option>
+      <option value="mobile_gps">モバイルGPS</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">記録ページ</span>
+    <select class="filter-select" id="filterSourcePage" onchange="applyFilters()">
+      <option value="">すべて</option>
+      <option value="field-survey">🔍 現地調査</option>
+      <option value="landowner-visit">🚗 地権者訪問</option>
+      <option value="farmland-tracker">🌾 農地トラッカー</option>
+    </select>
+  </div>
+  <div class="total-count">表示中：<strong id="visibleCount">0</strong> / 全<strong id="totalCount">0</strong>件</div>
+</div>
+
+<div class="container">
+  <div id="loadingArea" class="loading">読み込み中…</div>
+  <div id="contentArea" style="display:none">
+    <div id="emptyState" class="empty-state" style="display:none">
+      <div class="empty-state-icon">📍</div>
+      <div class="empty-state-title">案件候補がありません</div>
+      <div class="empty-state-msg">
+        現地調査・地権者訪問・農地トラッカーの地図画面で<br>
+        地図をクリック（PC）またはGPSボタン（iPhone）で記録できます。
+      </div>
+    </div>
+    <div id="candidatesTable" class="candidates-table" style="display:none">
+      <div class="candidates-table-header">
+        <div>NO</div>
+        <div>緯度</div>
+        <div>経度</div>
+        <div>記録元</div>
+        <div>メモ</div>
+        <div>ステータス</div>
+        <div>記録日時</div>
+        <div>操作</div>
+      </div>
+      <div id="rowsContainer"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 編集モーダル -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <div class="modal-title">✏️ 案件候補を編集</div>
+    <div class="modal-body">
+      <div class="modal-info">
+        <div class="modal-info-row"><span>緯度</span><span id="editLat">—</span></div>
+        <div class="modal-info-row"><span>経度</span><span id="editLng">—</span></div>
+        <div class="modal-info-row"><span>記録元</span><span id="editSource">—</span></div>
+      </div>
+      <div class="form-row">
+        <label class="form-label" for="editMemoInput">メモ</label>
+        <textarea class="form-textarea" id="editMemoInput" placeholder="例：ソーラー候補地"></textarea>
+      </div>
+      <div class="form-row">
+        <label class="form-label" for="editStatusInput">ステータス</label>
+        <select class="form-select" id="editStatusInput">
+          <option value="new">未確認 (NEW)</option>
+          <option value="reviewing">レビュー中</option>
+          <option value="converted">案件昇格済</option>
+          <option value="rejected">却下</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeEditModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 削除確認モーダル -->
+<div class="modal-overlay" id="deleteModal">
+  <div class="modal">
+    <div class="modal-title">🗑 本当に削除しますか？</div>
+    <div class="modal-body">
+      <div class="modal-info">
+        <div class="modal-info-row"><span>緯度</span><span id="deleteLat">—</span></div>
+        <div class="modal-info-row"><span>経度</span><span id="deleteLng">—</span></div>
+        <div class="modal-info-row"><span>メモ</span><span id="deleteMemo">—</span></div>
+      </div>
+      <div class="danger-text">⚠️ この操作は取り消せません。データはデータベースから完全に削除されます。</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeDeleteModal()">キャンセル</button>
+      <button class="btn btn-danger" onclick="confirmDelete()">削除する</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+const SUPABASE_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+window._supaClient = createClient(SUPABASE_URL, SUPABASE_KEY);
+</script>
+
+<script>
+/* ============================================================
+   案件候補一覧画面（case-candidates.html）
+   ============================================================ */
+
+let allCandidates = [];
+let editingId = null;
+let deletingId = null;
+
+// SUPABASE_KEY をfield-survey/landowner-visitと共通の値に差し替え
+// （anon key は同じプロジェクトなので、3マップで使われている同じ値を使う）
+async function fetchAllCandidates() {
+  // 3マップで動いている db オブジェクトを使うため、待機して取得
+  if (!window._supaClient) {
+    setTimeout(fetchAllCandidates, 100);
+    return;
+  }
+  try {
+    const { data, error } = await window._supaClient
+      .from('case_candidates')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('[case-candidates] fetch error:', error);
+      showToast('読み込みに失敗：' + error.message, 'error');
+      document.getElementById('loadingArea').textContent = '読み込みに失敗しました';
+      return;
+    }
+    allCandidates = data || [];
+    document.getElementById('loadingArea').style.display = 'none';
+    document.getElementById('contentArea').style.display = '';
+    applyFilters();
+  } catch (e) {
+    console.error('[case-candidates] fetch exception:', e);
+    showToast('予期しないエラー：' + e.message, 'error');
+  }
+}
+
+function applyFilters() {
+  const fStatus = document.getElementById('filterStatus').value;
+  const fSource = document.getElementById('filterSource').value;
+  const fPage = document.getElementById('filterSourcePage').value;
+  const filtered = allCandidates.filter(c => {
+    if (fStatus && c.status !== fStatus) return false;
+    if (fSource && c.source !== fSource) return false;
+    if (fPage && c.source_page !== fPage) return false;
+    return true;
+  });
+  renderRows(filtered);
+  document.getElementById('visibleCount').textContent = filtered.length;
+  document.getElementById('totalCount').textContent = allCandidates.length;
+}
+
+function renderRows(items) {
+  const container = document.getElementById('rowsContainer');
+  const empty = document.getElementById('emptyState');
+  const table = document.getElementById('candidatesTable');
+  if (items.length === 0) {
+    table.style.display = 'none';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  table.style.display = '';
+  container.innerHTML = items.map((c, i) => {
+    const lat = Number(c.latitude).toFixed(6);
+    const lng = Number(c.longitude).toFixed(6);
+    const sourceLabel = c.source === 'pc_click' ? 'PC地図' : 'GPS';
+    const memoHtml = c.memo
+      ? `<div class="memo-text" title="${escapeHtml(c.memo)}">${escapeHtml(c.memo)}</div>`
+      : '<div class="memo-empty">（メモなし）</div>';
+    const statusLabel = ({
+      new: '未確認',
+      reviewing: 'レビュー中',
+      converted: '昇格済',
+      rejected: '却下'
+    })[c.status] || c.status;
+    const created = formatDateTime(c.created_at);
+    const accuracyHtml = c.accuracy
+      ? `<span class="source-page-text">±${Math.round(c.accuracy)}m</span>`
+      : '';
+    return `
+      <div class="candidate-row">
+        <div class="row-no">${i + 1}</div>
+        <div class="coord">${lat}</div>
+        <div class="coord">${lng}</div>
+        <div>
+          <span class="source-badge source-${c.source}">${sourceLabel}</span>
+          <span class="source-page-text">${escapeHtml(c.source_page || '—')}</span>
+          ${accuracyHtml}
+        </div>
+        <div>${memoHtml}</div>
+        <div><span class="status-badge status-${c.status}">${statusLabel}</span></div>
+        <div class="created-at">${created}</div>
+        <div class="actions-cell">
+          <button class="action-btn map" onclick="openMap('${c.latitude}','${c.longitude}')">🗺 地図</button>
+          <button class="action-btn promote" onclick="alert('案件昇格機能はPhase 4で実装予定です')">🚀 昇格</button>
+          <button class="action-btn edit" onclick="openEditModal('${c.id}')">✏️ 編集</button>
+          <button class="action-btn delete" onclick="openDeleteModal('${c.id}')">🗑 削除</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatDateTime(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '—';
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${y}/${mo}/${da} ${h}:${mi}`;
+}
+
+function openMap(lat, lng) {
+  // Google Mapsで該当地点を新タブで開く
+  window.open(`https://www.google.com/maps?q=${lat},${lng}&z=17`, '_blank');
+}
+
+/* ===== 編集モーダル ===== */
+function openEditModal(id) {
+  const c = allCandidates.find(x => x.id === id);
+  if (!c) return;
+  editingId = id;
+  document.getElementById('editLat').textContent = Number(c.latitude).toFixed(6);
+  document.getElementById('editLng').textContent = Number(c.longitude).toFixed(6);
+  document.getElementById('editSource').textContent =
+    (c.source === 'pc_click' ? 'PC地図クリック' : 'モバイルGPS') + '（' + (c.source_page || '—') + '）';
+  document.getElementById('editMemoInput').value = c.memo || '';
+  document.getElementById('editStatusInput').value = c.status || 'new';
+  document.getElementById('editModal').classList.add('open');
+}
+function closeEditModal() {
+  document.getElementById('editModal').classList.remove('open');
+  editingId = null;
+}
+async function saveEdit() {
+  if (!editingId) return;
+  const memo = document.getElementById('editMemoInput').value.trim() || null;
+  const status = document.getElementById('editStatusInput').value;
+  try {
+    const { error } = await window._supaClient
+      .from('case_candidates')
+      .update({ memo, status })
+      .eq('id', editingId);
+    if (error) {
+      showToast('保存失敗：' + error.message, 'error');
+      return;
+    }
+    showToast('保存しました', 'success');
+    closeEditModal();
+    fetchAllCandidates();
+  } catch (e) {
+    showToast('予期しないエラー：' + e.message, 'error');
+  }
+}
+
+/* ===== 削除モーダル ===== */
+function openDeleteModal(id) {
+  const c = allCandidates.find(x => x.id === id);
+  if (!c) return;
+  deletingId = id;
+  document.getElementById('deleteLat').textContent = Number(c.latitude).toFixed(6);
+  document.getElementById('deleteLng').textContent = Number(c.longitude).toFixed(6);
+  document.getElementById('deleteMemo').textContent = c.memo || '（メモなし）';
+  document.getElementById('deleteModal').classList.add('open');
+}
+function closeDeleteModal() {
+  document.getElementById('deleteModal').classList.remove('open');
+  deletingId = null;
+}
+async function confirmDelete() {
+  if (!deletingId) return;
+  try {
+    const { error } = await window._supaClient
+      .from('case_candidates')
+      .delete()
+      .eq('id', deletingId);
+    if (error) {
+      showToast('削除失敗：' + error.message, 'error');
+      return;
+    }
+    showToast('削除しました', 'success');
+    closeDeleteModal();
+    fetchAllCandidates();
+  } catch (e) {
+    showToast('予期しないエラー：' + e.message, 'error');
+  }
+}
+
+/* ===== トースト ===== */
+function showToast(msg, type) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  const t = document.createElement('div');
+  t.className = 'toast' + (type ? ' ' + type : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => {
+    t.style.transition = 'opacity 0.3s';
+    t.style.opacity = '0';
+    setTimeout(() => t.remove(), 300);
+  }, type === 'error' ? 4000 : 2500);
+}
+
+/* ===== グローバル公開 ===== */
+window.applyFilters = applyFilters;
+window.openMap = openMap;
+window.openEditModal = openEditModal;
+window.closeEditModal = closeEditModal;
+window.saveEdit = saveEdit;
+window.openDeleteModal = openDeleteModal;
+window.closeDeleteModal = closeDeleteModal;
+window.confirmDelete = confirmDelete;
+
+/* ===== 起動 ===== */
+window.addEventListener('DOMContentLoaded', fetchAllCandidates);
+</script>
+
+</body>
+</html>
