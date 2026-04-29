@@ -442,6 +442,55 @@
   </div>
 </div>
 
+<!-- 案件昇格モーダル -->
+<div class="modal-overlay" id="promoteModal">
+  <div class="modal">
+    <div class="modal-title">🚀 案件マスターに昇格</div>
+    <div class="modal-body">
+      <div class="modal-info">
+        <div class="modal-info-row"><span>緯度</span><span id="promoteLat">—</span></div>
+        <div class="modal-info-row"><span>経度</span><span id="promoteLng">—</span></div>
+        <div class="modal-info-row"><span>記録元</span><span id="promoteSource">—</span></div>
+      </div>
+      <div class="form-row">
+        <label class="form-label" for="promoteArea">エリア（市区町村名）</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input class="form-input" id="promoteArea" placeholder="例：豊川市" style="flex:1" />
+          <button type="button" class="btn" onclick="autoDetectArea()" id="autoDetectBtn" title="国土地理院APIで緯度経度から市区町村名を自動取得">🌐 自動取得</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px" id="promoteAreaHint">「自動取得」ボタンで国土地理院APIから推測できます</div>
+      </div>
+      <div class="form-row">
+        <label class="form-label" for="promoteCaseNo">案件番号</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input class="form-input" id="promoteCaseNo" placeholder="エリア入力後に自動採番されます" style="flex:1" readonly />
+          <button type="button" class="btn" onclick="generateCaseNo()" id="genCaseNoBtn" title="エリアから次の案件番号を生成">🔢 採番</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label class="form-label" for="promoteKubun">区分</label>
+        <select class="form-select" id="promoteKubun">
+          <option value="低圧太陽光">低圧太陽光</option>
+          <option value="高圧太陽光">高圧太陽光</option>
+          <option value="蓄電池">蓄電池</option>
+          <option value="その他">その他</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label class="form-label" for="promotePrice">想定価格（円・任意）</label>
+        <input class="form-input" id="promotePrice" type="number" placeholder="例：5000000" />
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);background:var(--bg);border-radius:5px;padding:8px 10px;margin-top:8px">
+        ℹ️ 昇格すると、案件マスター（cases）と土地情報マスター（land_info）に新規レコードが登録され、この候補のステータスが「案件昇格済」に変わります。
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closePromoteModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="confirmPromote()" id="confirmPromoteBtn">昇格する</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 const SUPABASE_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
@@ -545,7 +594,7 @@ function renderRows(items) {
         <div class="created-at">${created}</div>
         <div class="actions-cell">
           <button class="action-btn map" onclick="openMap('${c.latitude}','${c.longitude}')">🗺 地図</button>
-          <button class="action-btn promote" onclick="alert('案件昇格機能はPhase 4で実装予定です')">🚀 昇格</button>
+          <button class="action-btn promote" onclick="openPromoteModal('${c.id}')">🚀 昇格</button>
           <button class="action-btn edit" onclick="openEditModal('${c.id}')">✏️ 編集</button>
           <button class="action-btn delete" onclick="openDeleteModal('${c.id}')">🗑 削除</button>
         </div>
@@ -652,6 +701,241 @@ async function confirmDelete() {
   }
 }
 
+/* ============================================================
+   案件昇格処理（Phase 4）
+   ============================================================ */
+let promotingId = null;
+
+function openPromoteModal(id) {
+  const c = allCandidates.find(x => x.id === id);
+  if (!c) return;
+  if (c.status === 'converted') {
+    showToast('この候補は既に案件昇格済です', 'error');
+    return;
+  }
+  promotingId = id;
+  document.getElementById('promoteLat').textContent = Number(c.latitude).toFixed(6);
+  document.getElementById('promoteLng').textContent = Number(c.longitude).toFixed(6);
+  document.getElementById('promoteSource').textContent =
+    (c.source === 'pc_click' ? 'PC地図クリック' : 'モバイルGPS') + '（' + (c.source_page || '—') + '）';
+  document.getElementById('promoteArea').value = '';
+  document.getElementById('promoteCaseNo').value = '';
+  document.getElementById('promoteKubun').value = '低圧太陽光';
+  document.getElementById('promotePrice').value = '';
+  document.getElementById('promoteAreaHint').textContent = '「自動取得」ボタンで国土地理院APIから推測できます';
+  document.getElementById('confirmPromoteBtn').disabled = false;
+  document.getElementById('promoteModal').classList.add('open');
+}
+
+function closePromoteModal() {
+  document.getElementById('promoteModal').classList.remove('open');
+  promotingId = null;
+}
+
+/* 国土地理院 逆ジオコーディングAPIで市区町村名を自動取得 */
+async function autoDetectArea() {
+  if (!promotingId) return;
+  const c = allCandidates.find(x => x.id === promotingId);
+  if (!c) return;
+  const btn = document.getElementById('autoDetectBtn');
+  const hint = document.getElementById('promoteAreaHint');
+  btn.disabled = true;
+  hint.textContent = '取得中…';
+  hint.style.color = 'var(--text-muted)';
+  try {
+    const url = `https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress?lat=${c.latitude}&lon=${c.longitude}`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const json = await resp.json();
+    const muniCd = json?.results?.muniCd;
+    const lv01Nm = json?.results?.lv01Nm || '';
+    if (!muniCd) {
+      hint.textContent = '⚠️ この座標からは市区町村を取得できませんでした。手動で入力してください';
+      hint.style.color = 'var(--red)';
+      btn.disabled = false;
+      return;
+    }
+    // muniCd（5桁）から市区町村名を取得：muniNameテーブルAPIにアクセス
+    // 参考：https://maps.gsi.go.jp/js/muni.js などにマップがあるが、CORSの問題があるため
+    // 一旦、lv01Nm（字名）と muniCd を表示しておく
+    const muniName = await lookupMuniName(muniCd);
+    if (muniName) {
+      document.getElementById('promoteArea').value = muniName;
+      hint.textContent = `✅ ${muniName}（${lv01Nm}・コード:${muniCd}）`;
+      hint.style.color = 'var(--green)';
+    } else {
+      // muniCdが取れたがマップがない場合：手動入力を促す
+      document.getElementById('promoteArea').value = '';
+      hint.textContent = `⚠️ 市区町村コード ${muniCd}（${lv01Nm}）。市区町村名を手動入力してください`;
+      hint.style.color = 'var(--accent)';
+    }
+  } catch (e) {
+    console.error('[autoDetectArea]', e);
+    hint.textContent = '⚠️ 自動取得に失敗：' + e.message + '。手動で入力してください';
+    hint.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* 国土地理院の市区町村コード→市区町村名マップ（主要な都道府県分のみ簡易対応） */
+let _muniMapCache = null;
+async function lookupMuniName(muniCd) {
+  // muniCd の上2桁が都道府県コード
+  if (!muniCd || muniCd.length < 5) return null;
+  // 国土地理院の muni.js を取得（CORSを避けるため、初回のみ）
+  if (_muniMapCache === null) {
+    try {
+      const resp = await fetch('https://maps.gsi.go.jp/js/muni.js');
+      if (!resp.ok) return null;
+      const text = await resp.text();
+      // muni.js の中身は GSI.MUNI_ARRAY = [...] 形式のJS
+      // 安全のため Function コンストラクタでパース
+      const map = {};
+      // 各行 'XXXXX,YY,都道府県名,市区町村名' という構造を抽出
+      const re = /['"](\d{5})['"],['"](.+?)['"],['"](.+?)['"]/g;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        // m[1]=muniCd, m[2]=都道府県名, m[3]=市区町村名
+        map[m[1]] = m[3];
+      }
+      _muniMapCache = map;
+    } catch (e) {
+      console.warn('[lookupMuniName] muni.js取得失敗', e);
+      _muniMapCache = {};
+      return null;
+    }
+  }
+  return _muniMapCache[muniCd] || null;
+}
+
+/* 案件番号を採番：エリア-XXX形式 */
+async function generateCaseNo() {
+  const area = document.getElementById('promoteArea').value.trim();
+  if (!area) {
+    showToast('先にエリアを入力してください', 'error');
+    return;
+  }
+  const btn = document.getElementById('genCaseNoBtn');
+  btn.disabled = true;
+  try {
+    // 既存のcasesから同じarea_nameを持つ親案件を取得して件数+1
+    const { data, error } = await window._supaClient
+      .from('cases')
+      .select('id')
+      .eq('area_name', area)
+      .is('parent_case_no', null);
+    if (error) {
+      showToast('採番エラー：' + error.message, 'error');
+      return;
+    }
+    const next = (data?.length || 0) + 1;
+    const caseNo = `${area}-${String(next).padStart(3, '0')}`;
+    document.getElementById('promoteCaseNo').value = caseNo;
+  } catch (e) {
+    showToast('予期しないエラー：' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* エリア入力フィールドの変更を監視して、案件番号フィールドをクリア */
+document.addEventListener('DOMContentLoaded', () => {
+  const areaInput = document.getElementById('promoteArea');
+  if (areaInput) {
+    areaInput.addEventListener('input', () => {
+      document.getElementById('promoteCaseNo').value = '';
+    });
+  }
+});
+
+/* 昇格を実行：cases INSERT → land_info INSERT → case_candidates UPDATE */
+async function confirmPromote() {
+  if (!promotingId) return;
+  const c = allCandidates.find(x => x.id === promotingId);
+  if (!c) return;
+
+  const area = document.getElementById('promoteArea').value.trim();
+  const caseNo = document.getElementById('promoteCaseNo').value.trim();
+  const kubun = document.getElementById('promoteKubun').value;
+  const priceStr = document.getElementById('promotePrice').value.trim();
+  const price = priceStr ? Number(priceStr) : null;
+
+  if (!area) { showToast('エリアを入力してください', 'error'); return; }
+  if (!caseNo) { showToast('「採番」ボタンで案件番号を生成してください', 'error'); return; }
+  if (!kubun) { showToast('区分を選択してください', 'error'); return; }
+  if (priceStr && (isNaN(price) || price < 0)) { showToast('価格は0以上の数値で入力してください', 'error'); return; }
+
+  const btn = document.getElementById('confirmPromoteBtn');
+  btn.disabled = true;
+  btn.textContent = '昇格中…';
+
+  let createdCaseId = null;
+  try {
+    // ① cases INSERT
+    const { data: caseRow, error: caseErr } = await window._supaClient
+      .from('cases')
+      .insert({
+        case_no: caseNo,
+        kubun: kubun,
+        status: 'UNKNOWN',
+        area_name: area,
+        price: price,
+        parent_case_no: null,
+        branch_no: null
+      })
+      .select()
+      .single();
+    if (caseErr) throw new Error('案件登録失敗：' + caseErr.message);
+    createdCaseId = caseRow.id;
+
+    // ② land_info INSERT（緯度経度をlat/lng + google_mapに記録）
+    const googleMapUrl = `https://www.google.com/maps?q=${c.latitude},${c.longitude}&z=17`;
+    const memoLine = c.memo ? `\n候補メモ：${c.memo}` : '';
+    const { error: landErr } = await window._supaClient
+      .from('land_info')
+      .insert({
+        case_id: createdCaseId,
+        lat: Number(c.latitude),
+        lng: Number(c.longitude),
+        google_map: googleMapUrl,
+        biko: `案件候補から昇格（${formatDateTime(c.created_at)}・${c.source === 'pc_click' ? 'PC地図クリック' : 'モバイルGPS'}）${memoLine}`
+      });
+    if (landErr) throw new Error('土地情報登録失敗：' + landErr.message);
+
+    // ③ case_candidates UPDATE
+    const { error: updateErr } = await window._supaClient
+      .from('case_candidates')
+      .update({
+        status: 'converted',
+        converted_case_id: createdCaseId
+      })
+      .eq('id', promotingId);
+    if (updateErr) throw new Error('候補ステータス更新失敗：' + updateErr.message);
+
+    // 成功
+    showToast(`案件 ${caseNo} を登録しました`, 'success');
+    closePromoteModal();
+    fetchAllCandidates();
+  } catch (e) {
+    console.error('[confirmPromote]', e);
+    // ロールバック処理：cases が作成されていれば削除
+    if (createdCaseId) {
+      try {
+        await window._supaClient.from('land_info').delete().eq('case_id', createdCaseId);
+        await window._supaClient.from('cases').delete().eq('id', createdCaseId);
+        console.log('[confirmPromote] ロールバック完了：cases/land_info削除');
+      } catch (rbErr) {
+        console.error('[confirmPromote] ロールバック失敗', rbErr);
+      }
+    }
+    showToast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '昇格する';
+  }
+}
+
 /* ===== トースト ===== */
 function showToast(msg, type) {
   const existing = document.querySelector('.toast');
@@ -676,6 +960,11 @@ window.saveEdit = saveEdit;
 window.openDeleteModal = openDeleteModal;
 window.closeDeleteModal = closeDeleteModal;
 window.confirmDelete = confirmDelete;
+window.openPromoteModal = openPromoteModal;
+window.closePromoteModal = closePromoteModal;
+window.autoDetectArea = autoDetectArea;
+window.generateCaseNo = generateCaseNo;
+window.confirmPromote = confirmPromote;
 
 /* ===== 起動 ===== */
 window.addEventListener('DOMContentLoaded', fetchAllCandidates);
