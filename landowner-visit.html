@@ -3,9 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <title>地権者訪問マップ | SOLAR LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="mobile-responsive.css">
+<link rel="stylesheet" href="mobile-responsive.css?v=20260429a">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- ベクトルタイル＋面積計算 用ライブラリ -->
@@ -1203,19 +1205,47 @@ function renderOwnerTable() {
   const countEl = document.getElementById('ownerListCount');
   const panel = document.getElementById('ownerListPanel');
   if (planSet.size === 0) {
-    panel.classList.remove('open');
+    // パネルの open/close はユーザーのトグル操作に委ねる（自動制御しない）
     tbody.innerHTML = '<tr><td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">\u30d5\u30e9\u30b0\u3092\u30af\u30ea\u30c3\u30af\u3057\u3066<br>\u8a2a\u554f\u4e88\u5b9a\u3092\u8ffd\u52a0</td></tr>';
     countEl.textContent = '0\u4ef6'; return;
   }
-  panel.classList.add('open');
+  // パネルの open はトグルボタンに委ねる（自動 open しない）
   document.querySelector('.control-panel').classList.add('shifted');
   countEl.textContent = `${planSet.size}\u4ef6`;
   const rows = [...planSet].map((caseId, idx) => {
     const d = markers[caseId];
-    return `<tr class="${d?.isVisited ? 'visited' : ''}"><td>${idx + 1}</td><td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">${d?.lo?.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}</td></tr>`;
+    const name = d?.lo?.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09';
+    const fs = _calcMobileFontSize(name, 12);
+    return `<tr class="${d?.isVisited ? 'visited' : ''}"><td>${idx + 1}</td><td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:${fs}px">${name}</td></tr>`;
   });
   const empty = Array(Math.max(0, 30 - planSet.size)).fill('<tr><td style="color:var(--border)">\u2014</td><td></td></tr>');
   tbody.innerHTML = rows.join('') + empty.join('');
+}
+
+/* ===== 動的フォントサイズ計算（モバイルのみ縮小、文字数に応じて段階的） =====
+   全角換算文字数（漢字=1, 英数字=0.5）に基づきパネル幅に収まるサイズを返す */
+function _fwLen(s) {
+  let n = 0;
+  for (const c of (s || '')) n += (c.charCodeAt(0) < 128) ? 0.5 : 1;
+  return n;
+}
+function _calcMobileFontSize(text, baseSize) {
+  if (window.innerWidth > 1024) return baseSize; // PCは元のサイズ
+  const len = _fwLen(text);
+  if (window.innerWidth <= 480) {
+    // iPhone（パネル幅 114px）：文字エリア約60px
+    if (len <= 3) return 11;
+    if (len <= 4) return 10;
+    if (len <= 5) return 9;
+    if (len <= 6) return 8;
+    return 7;
+  }
+  // iPad/小型（パネル幅 144px）：文字エリア約80px
+  if (len <= 4) return 11;
+  if (len <= 5) return 10;
+  if (len <= 6) return 9;
+  if (len <= 8) return 8;
+  return 7;
 }
 function renderPlanList() {
   const el = document.getElementById('planList');
@@ -1542,7 +1572,7 @@ initDraggablePanels('landownerVisit', [
   { id: '#hazardControls', handle: '.hazard-panel-header' }
 ]);
 </script>
-<script src="case-candidates-recorder.js"></script>
+<script src="case-candidates-recorder.js?v=20260429a"></script>
 <script>
   (function waitForMap(){
     if (typeof map !== 'undefined' && map && typeof db !== 'undefined' && db) {
@@ -1552,6 +1582,6 @@ initDraggablePanels('landownerVisit', [
     }
   })();
 </script>
-<script src="mobile-responsive.js"></script>
+<script src="mobile-responsive.js?v=20260429a"></script>
 </body>
 </html>

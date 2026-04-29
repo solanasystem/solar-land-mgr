@@ -30,6 +30,7 @@
     initHeaderToggle();
     initChibanSearchCompact();
     initBgMapNeutralOnMobile();
+    initListPanelToggle();
   }
 
   // =========================================================
@@ -248,6 +249,49 @@
       }
     }
     tryApply();
+  }
+
+  // =========================================================
+  // 【5】 予定リストパネル開閉トグル（モバイル限定）
+  //   - field-survey: #surveyListPanel
+  //   - landowner-visit: #ownerListPanel
+  //   左端中央に縦長タブボタンを生成、押下でパネル開閉
+  //   パネルが open の時はパネル右端に追従、閉じている時は左端
+  //   パネルの class 変化を監視してアイコン/位置を自動同期
+  // =========================================================
+  function initListPanelToggle() {
+    var panel = document.getElementById('surveyListPanel')
+             || document.getElementById('ownerListPanel');
+    if (!panel) return;
+
+    // 既にボタンがあれば何もしない（多重呼び出し対策）
+    if (document.getElementById('listPanelToggle')) return;
+
+    var btn = document.createElement('button');
+    btn.id = 'listPanelToggle';
+    btn.className = 'list-panel-toggle';
+    btn.type = 'button';
+    btn.setAttribute('aria-label', '予定リスト開閉');
+    btn.textContent = panel.classList.contains('open') ? '\u25C0' : '\uD83D\uDCCB'; // ◀ / 📋
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      panel.classList.toggle('open');
+      syncBtn();
+    });
+    document.body.appendChild(btn);
+
+    function syncBtn() {
+      var isOpen = panel.classList.contains('open');
+      btn.textContent = isOpen ? '\u25C0' : '\uD83D\uDCCB';
+      document.body.classList.toggle('has-list-panel-open', isOpen);
+    }
+
+    // パネルのclass変化を監視（render関数等で外部から open/close された場合の同期）
+    var observer = new MutationObserver(syncBtn);
+    observer.observe(panel, { attributes: true, attributeFilter: ['class'] });
+
+    // 初期同期
+    syncBtn();
   }
 
 })();
