@@ -662,6 +662,36 @@
             </label>
           </div>
         </div>
+        <!-- 太陽軌道写真 3カット（朝の軌道／南中時／夕の軌道）- 太陽光案件のみ表示 -->
+        <div id="shadowPhotoSection" style="display:none">
+          <div style="font-size:10px;color:var(--text-muted);margin:14px 0 4px;font-weight:600">太陽軌道写真（朝の軌道／南中時／夕の軌道）<span style="margin-left:6px;color:var(--accent);font-weight:700">☀️ 太陽光案件のみ</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+            <div>
+              <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px">朝の軌道（7-11h）</div>
+              <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
+                <input type="file" accept="image/*" capture="environment" id="photo_shadow_am" style="display:none" onchange="previewPhoto(this,'prev_shadow_am')">
+                <img id="prev_shadow_am" src="" style="width:100%;height:100%;object-fit:cover;display:none">
+                <div id="placeholder_shadow_am" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>撮影</span></div>
+              </label>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px">南中時（9-13h）</div>
+              <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
+                <input type="file" accept="image/*" capture="environment" id="photo_shadow_noon" style="display:none" onchange="previewPhoto(this,'prev_shadow_noon')">
+                <img id="prev_shadow_noon" src="" style="width:100%;height:100%;object-fit:cover;display:none">
+                <div id="placeholder_shadow_noon" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>撮影</span></div>
+              </label>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px">夕の軌道（11-15h）</div>
+              <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
+                <input type="file" accept="image/*" capture="environment" id="photo_shadow_pm" style="display:none" onchange="previewPhoto(this,'prev_shadow_pm')">
+                <img id="prev_shadow_pm" src="" style="width:100%;height:100%;object-fit:cover;display:none">
+                <div id="placeholder_shadow_pm" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>撮影</span></div>
+              </label>
+            </div>
+          </div>
+        </div>
       </div>
       <div id="uploadProgress" style="display:none;margin-top:12px">
         <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px" id="uploadStatus">アップロード中...</div>
@@ -1338,7 +1368,7 @@ function buildPopup(c, land, survey, landowner) {
   const confirmed = survey?.confirmed || false;
   const planned = planSet.has(c.id);
   const comment = survey?.comment || '';
-  const photos = [survey?.photo_road1, survey?.photo_road2, survey?.photo_land1, survey?.photo_land2, survey?.photo_land3, survey?.photo_land4, survey?.photo_pole1, survey?.photo_pole2, survey?.photo_pole3].filter(Boolean);
+  const photos = [survey?.photo_road1, survey?.photo_road2, survey?.photo_land1, survey?.photo_land2, survey?.photo_land3, survey?.photo_land4, survey?.photo_pole1, survey?.photo_pole2, survey?.photo_pole3, survey?.photo_shadow_am, survey?.photo_shadow_noon, survey?.photo_shadow_pm].filter(Boolean);
 
   let statusHtml = confirmed
     ? '<span class="popup-status checked">\u78ba\u8a8d\u6e08</span>'
@@ -1684,7 +1714,8 @@ function openConfirmModal(caseId, caseNo) {
   currentConfirmCaseId = caseId;
   document.getElementById('confirmCaseNo').textContent = caseNo;
   document.getElementById('confirmComment').value = '';
-  ['road1','road2','land1','land2'].forEach(key => {
+  // 全12カットの撮影UIをリセット（既存9 + 太陽軌道3）
+  ['road1','road2','land1','land2','land3','land4','pole1','pole2','pole3','shadow_am','shadow_noon','shadow_pm'].forEach(key => {
     const input = document.getElementById(`photo_${key}`);
     const img = document.getElementById(`prev_${key}`);
     const ph = document.getElementById(`placeholder_${key}`);
@@ -1692,6 +1723,12 @@ function openConfirmModal(caseId, caseNo) {
     if (img) { img.src = ''; img.style.display = 'none'; }
     if (ph) ph.style.display = 'flex';
   });
+  // kubun判定：太陽光案件のみ太陽軌道セクションを表示
+  const d = markers[caseId];
+  const kubun = d?.case?.kubun || '';
+  const isSolar = kubun.includes('\u592a\u967d\u5149');  // 「太陽光」を含むかで判定
+  const shadowSec = document.getElementById('shadowPhotoSection');
+  if (shadowSec) shadowSec.style.display = isSolar ? 'block' : 'none';
   document.getElementById('uploadProgress').style.display = 'none';
   document.getElementById('confirmModal').classList.add('open');
   map.closePopup();
@@ -1768,8 +1805,12 @@ async function saveConfirm() {
   const status = document.getElementById('uploadStatus');
   progress.style.display = 'block';
 
-  // 9\u679a\u306e\u5199\u771f\u30ad\u30fc\uff08\u63a5\u90532 + \u571f\u57304(\u6771\u897f\u5357\u5317) + \u96fb\u67f33\uff09
+  // \u5199\u771f\u30ad\u30fc\uff08\u592a\u967d\u5149\u6848\u4ef612\u30ab\u30c3\u30c8\u3001\u84c4\u96fb\u6c60\u6848\u4ef69\u30ab\u30c3\u30c8\uff09
+  const dCase = markers[caseId];
+  const kubun = dCase?.case?.kubun || '';
+  const isSolar = kubun.includes('\u592a\u967d\u5149');
   const photoKeys = ['road1','road2','land1','land2','land3','land4','pole1','pole2','pole3'];
+  if (isSolar) photoKeys.push('shadow_am','shadow_noon','shadow_pm');
   const photoUrls = {};
   let done = 0;
   const total = photoKeys.length;
@@ -1789,7 +1830,10 @@ async function saveConfirm() {
     photo_road1: photoUrls['road1']||null, photo_road2: photoUrls['road2']||null,
     photo_land1: photoUrls['land1']||null, photo_land2: photoUrls['land2']||null,
     photo_land3: photoUrls['land3']||null, photo_land4: photoUrls['land4']||null,
-    photo_pole1: photoUrls['pole1']||null, photo_pole2: photoUrls['pole2']||null, photo_pole3: photoUrls['pole3']||null
+    photo_pole1: photoUrls['pole1']||null, photo_pole2: photoUrls['pole2']||null, photo_pole3: photoUrls['pole3']||null,
+    photo_shadow_am:   photoUrls['shadow_am']  ||null,
+    photo_shadow_noon: photoUrls['shadow_noon']||null,
+    photo_shadow_pm:   photoUrls['shadow_pm']  ||null
   };
   let error;
   if (existing) { ({ error } = await db.from('field_survey_status').update(payload).eq('case_id', caseId)); }
