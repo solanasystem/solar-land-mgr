@@ -59,6 +59,13 @@ body{font-family:var(--font-main);background:var(--bg);color:var(--text);font-si
 .filter-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;}
 .preview-toolbar{background:var(--surface);padding:10px 16px;border-radius:8px;margin-bottom:16px;display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;}
 .preview-toolbar .info{font-size:12px;color:var(--text-muted);}
+/* 各手紙ごとの個別金額入力バー */
+.letter-price-control{background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.3);border-radius:6px 6px 0 0;padding:8px 14px;margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;}
+.letter-price-control .case-info{color:var(--text);font-weight:600;}
+.letter-price-control .case-info .case-no{color:#a78bfa;font-family:var(--font-mono);}
+.letter-price-control label{display:flex;align-items:center;gap:6px;color:var(--text-muted);}
+.letter-price-control input{width:130px;padding:4px 8px;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:4px;font-size:13px;font-family:var(--font-mono);text-align:right;}
+.letter-price-control input:focus{outline:none;border-color:#a78bfa;box-shadow:0 0 0 2px rgba(167,139,250,.2);}
 .empty-preview{padding:60px 20px;text-align:center;color:var(--text-muted);}
 .empty-preview-icon{font-size:48px;margin-bottom:16px;}
 
@@ -427,8 +434,8 @@ body{font-family:var(--font-main);background:var(--bg);color:var(--text);font-si
               </div>
             </div>
           </details>
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text);background:var(--surface2);padding:6px 10px;border-radius:6px;border:1px solid var(--border);">
-            購入金額
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text);background:var(--surface2);padding:6px 10px;border-radius:6px;border:1px solid var(--border);" title="個別金額が未入力の案件に適用されます">
+            一括金額
             <input type="text" id="purchasePrice" placeholder="例：500000" oninput="updatePreview()" style="width:120px;padding:3px 6px;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:4px;font-size:12px;font-family:var(--font-mono);">
             <span style="color:var(--text-muted);font-size:11px;">円</span>
           </label>
@@ -488,6 +495,8 @@ let allLandowners=[];
 let landsByCase={};
 let selectedIds=new Set();
 let activeTab='letter';
+/* 案件ごとの個別金額マップ {case_id: priceString(数字のみ)} */
+let casePriceMap={};
 
 // 差出人プリセット（複数登録可能）
 const SENDER_PRESETS={
@@ -527,7 +536,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
 async function loadData(){
   document.getElementById('loadStatus').textContent='読込中...';
   const[loRes,ldRes]=await Promise.all([
-    db.from('landowner_info').select('*,cases(case_no,status,kubun,area_name)').order('case_id'),
+    db.from('landowner_info').select('*,cases(case_no,status,kubun,area_name,price)').order('case_id'),
     db.from('land_info').select('case_id,location,area_sqm,chiban')
   ]);
   if(loRes.error){showToast('読込エラー: '+loRes.error.message,'error');return;}
@@ -676,28 +685,54 @@ function getSelectedLandowners(){
   return allLandowners.filter(lo=>selectedIds.has(lo.id));
 }
 
-/* ===== 印刷 + LETTER → LTR済 自動変更 ===== */
+/* ===== 印刷 + LETTER → LTR済 自動変更 + 個別金額のDB保存 ===== */
 async function printAndMarkLetters(mode){
   const sel=getSelectedLandowners();
   if(!sel.length){
     alert('\u5730\u6a29\u8005\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044');
     return;
   }
-  // LETTER\u30b9\u30c6\u30fc\u30bf\u30b9\u306e\u6848\u4ef6ID\u3092\u62bd\u51fa\uff08LTR\u6e08\u306b\u5909\u66f4\u3059\u308b\u5bfe\u8c61\uff09
+  // (1) LETTER\u30b9\u30c6\u30fc\u30bf\u30b9\u306e\u6848\u4ef6ID\uff08LTR\u6e08\u306b\u5909\u66f4\u5bfe\u8c61\uff09
   const letterCaseIds=sel
     .filter(lo=>lo.cases?.status==='LETTER')
     .map(lo=>lo.case_id)
     .filter(id=>id);
-  // \u78ba\u8a8d\u30c0\u30a4\u30a2\u30ed\u30b0
+  // (2) \u91d1\u984d\u66f4\u65b0\u5bfe\u8c61\u306e\u96c6\u8a08\uff08\u53d6\u5f97\u3055\u308c\u305fpriceVal\u304c\u6709\u52b9\u306a\u3082\u306e\u306e\u307f\uff0c\u73fe\u5728\u306eDB\u5024\u3068\u7570\u306a\u308b\u5834\u5408\u3060\u3051\u66f4\u65b0\uff09
+  const priceUpdates=[];
+  sel.forEach(lo=>{
+    if(!lo.case_id)return;
+    const eff=getEffectivePriceForCase(lo.case_id);
+    if(!eff||!/^\d+$/.test(eff))return;
+    const newPrice=Number(eff);
+    const curPrice=lo.cases?.price!=null?Number(lo.cases.price):null;
+    // \u73fe\u5728\u306eDB\u5024\u3068\u540c\u3058\u306a\u3089\u30b9\u30ad\u30c3\u30d7\uff08\u4e0d\u5fc5\u8981\u306aUPDATE\u3092\u907f\u3051\u308b\uff09
+    if(curPrice===newPrice)return;
+    priceUpdates.push({
+      case_id:lo.case_id,
+      case_no:lo.cases?.case_no||'(\u4e0d\u660e)',
+      newPrice
+    });
+  });
+  // (3) \u78ba\u8a8d\u30c0\u30a4\u30a2\u30ed\u30b0
   let msg=`${sel.length}\u4ef6\u3092\u5370\u5237\u3057\u307e\u3059\u3002`;
   if(letterCaseIds.length>0){
     msg+=`\n\n\u30b9\u30c6\u30fc\u30bf\u30b9\u304cLETTER\u306e${letterCaseIds.length}\u4ef6\u306f\u3001\u300cLTR\u6e08\u300d\u306b\u5909\u66f4\u3055\u308c\u307e\u3059\u3002`;
-  }else{
-    msg+=`\n\n\uff08\u9078\u629e\u4e2d\u306bLETTER\u30b9\u30c6\u30fc\u30bf\u30b9\u306e\u6848\u4ef6\u304c\u306a\u3044\u305f\u3081\u3001\u30b9\u30c6\u30fc\u30bf\u30b9\u5909\u66f4\u306f\u884c\u3044\u307e\u305b\u3093\uff09`;
+  }
+  if(priceUpdates.length>0){
+    msg+=`\n\n\u4ee5\u4e0b\u306e\u91d1\u984d\u3092\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u306b\u4fdd\u5b58\u3057\u307e\u3059:`;
+    priceUpdates.slice(0,5).forEach(u=>{
+      msg+=`\n  ${u.case_no}: ${u.newPrice.toLocaleString()}\u5186`;
+    });
+    if(priceUpdates.length>5){
+      msg+=`\n  ...\u307b\u304b${priceUpdates.length-5}\u4ef6`;
+    }
+  }
+  if(letterCaseIds.length===0&&priceUpdates.length===0){
+    msg+=`\n\n\uff08DB\u3078\u306e\u66f4\u65b0\u306f\u3042\u308a\u307e\u305b\u3093\uff09`;
   }
   msg+=`\n\n\u3088\u308d\u3057\u3044\u3067\u3059\u304b\uff1f`;
   if(!confirm(msg))return;
-  // \uff081\uff09\u5148\u306bDB\u66f4\u65b0\uff08\u78ba\u5b9f\u306b\u5b9f\u884c\u3055\u308c\u308b\u3088\u3046\u306b\uff09
+  // (4) \u30b9\u30c6\u30fc\u30bf\u30b9\u4e00\u62ecUPDATE
   if(letterCaseIds.length>0){
     try{
       const{error}=await db.from('cases').update({status:'LTR\u6e08'}).in('id',letterCaseIds);
@@ -711,10 +746,29 @@ async function printAndMarkLetters(mode){
       return;
     }
   }
-  // \uff082\uff09\u5370\u5237\u5b9f\u884c
+  // (5) \u91d1\u984d\u3092\u6848\u4ef6\u3054\u3068\u306b\u500b\u5225UPDATE
+  let priceErrCount=0;
+  for(const u of priceUpdates){
+    try{
+      const{error}=await db.from('cases').update({price:u.newPrice}).eq('id',u.case_id);
+      if(error){
+        console.error('\u274c \u91d1\u984d\u66f4\u65b0\u30a8\u30e9\u30fc:',u.case_no,error);
+        priceErrCount++;
+      }else{
+        console.log('\u2705 \u91d1\u984d\u66f4\u65b0\u5b8c\u4e86:',u.case_no,'=',u.newPrice);
+      }
+    }catch(e){
+      console.error('\u274c \u91d1\u984d\u66f4\u65b0\u4f8b\u5916:',u.case_no,e);
+      priceErrCount++;
+    }
+  }
+  if(priceErrCount>0){
+    alert(`\u91d1\u984d\u66f4\u65b0\u306b${priceErrCount}\u4ef6\u5931\u6557\u3057\u307e\u3057\u305f\u3002\n\u30b3\u30f3\u30bd\u30fc\u30eb\uff08F12\uff09\u3092\u30c1\u30a7\u30c3\u30af\u3057\u3066\u304f\u3060\u3055\u3044\u3002`);
+  }
+  // (6) \u5370\u5237\u5b9f\u884c
   window.print();
-  // \uff083\uff09\u5370\u5237\u30c0\u30a4\u30a2\u30ed\u30b0\u3092\u9589\u3058\u305f\u5f8c\u306b\u30c7\u30fc\u30bf\u518d\u8aad\u307f\u8fbc\u307f\uff08\u753b\u9762\u53cd\u6620\u7528\uff09
-  if(letterCaseIds.length>0){
+  // (7) \u30c7\u30fc\u30bf\u518d\u8aad\u307f\u8fbc\u307f
+  if(letterCaseIds.length>0||priceUpdates.length>0){
     setTimeout(async()=>{
       await loadData();
     },500);
@@ -735,10 +789,73 @@ function renderLetterPreview(){
   }
   const from=getSenderInfo();
   const showContract=document.getElementById('optShowContract').checked;
-  const priceRaw=document.getElementById('purchasePrice').value.trim();
-  const priceVal=priceRaw.replace(/[^\d]/g,'');
   const today=formatToday();
-  el.innerHTML=sel.map(lo=>renderXamaxLetter(lo,from,today,{priceVal,showContract})).join('');
+  // 既存の cases.price を初期値として casePriceMap に取り込む（未登録の場合のみ）
+  sel.forEach(lo=>{
+    if(!lo.case_id)return;
+    if(casePriceMap[lo.case_id]===undefined){
+      const existing=lo.cases?.price;
+      if(existing!=null&&existing!==''){
+        casePriceMap[lo.case_id]=String(existing).replace(/[^\d]/g,'');
+      }
+    }
+  });
+  el.innerHTML=sel.map(lo=>{
+    const priceVal=getEffectivePriceForCase(lo.case_id);
+    const ctrlBar=renderPriceControl(lo,priceVal);
+    const letterHtml=renderXamaxLetter(lo,from,today,{priceVal,showContract});
+    return ctrlBar+letterHtml;
+  }).join('');
+}
+
+/* 各案件の有効な金額を返す: 個別 → 一括 → 空 */
+function getEffectivePriceForCase(caseId){
+  if(caseId&&casePriceMap[caseId]!==undefined&&casePriceMap[caseId]!==''){
+    return casePriceMap[caseId];
+  }
+  const bulk=document.getElementById('purchasePrice').value.trim();
+  return bulk.replace(/[^\d]/g,'');
+}
+
+/* 各手紙の上に表示する個別金額入力バー */
+function renderPriceControl(lo,priceVal){
+  const caseNo=lo.cases?.case_no||'(案件番号なし)';
+  const name=lo.name||'';
+  const displayPrice=priceVal?Number(priceVal).toLocaleString():'';
+  const isIndividual=lo.case_id&&casePriceMap[lo.case_id]!==undefined&&casePriceMap[lo.case_id]!=='';
+  const indicator=isIndividual?'<span style="font-size:10px;color:#a78bfa;margin-left:6px;">●個別</span>':'<span style="font-size:10px;color:var(--text-muted);margin-left:6px;">一括値を使用</span>';
+  return `<div class="letter-price-control no-print">
+    <div class="case-info">📋 <span class="case-no">${escapeHtml(caseNo)}</span> &nbsp;${escapeHtml(name)} 様${indicator}</div>
+    <label>購入金額: 
+      <input type="text" data-case-id="${escapeHtml(lo.case_id||'')}" value="${displayPrice}" placeholder="未入力" onchange="onCasePriceChange(this)" oninput="onCasePriceInput(this)">
+      円
+    </label>
+  </div>`;
+}
+
+/* 個別金額入力中（リアルタイム反映なし。表示更新のみ） */
+function onCasePriceInput(input){
+  const caseId=input.dataset.caseId;
+  if(!caseId)return;
+  const cleaned=input.value.replace(/[^\d]/g,'');
+  if(cleaned===''){
+    delete casePriceMap[caseId];
+  }else{
+    casePriceMap[caseId]=cleaned;
+  }
+}
+
+/* 個別金額入力確定（フォーカスアウト時にプレビュー全体を再描画） */
+function onCasePriceChange(input){
+  const caseId=input.dataset.caseId;
+  if(!caseId)return;
+  const cleaned=input.value.replace(/[^\d]/g,'');
+  if(cleaned===''){
+    delete casePriceMap[caseId];
+  }else{
+    casePriceMap[caseId]=cleaned;
+  }
+  renderLetterPreview();
 }
 
 function renderXamaxLetter(lo,from,today,opt){
