@@ -2191,14 +2191,14 @@ function _bulkNormalize(s){
 }
 
 // 1つのPDFを解析（テキスト抽出+サムネイル生成）
-async function _bulkAnalyzeOnePdf(file){
+async function _bulkAnalyzeOnePdf(file,docType){
   const arrayBuffer=await file.arrayBuffer();
   const pdf=await pdfjsLib.getDocument({data:arrayBuffer}).promise;
   const page=await pdf.getPage(1);
   // テキスト抽出
   const textContent=await page.getTextContent();
   const text=textContent.items.map(it=>it.str).join(' ');
-  // サムネイル生成
+  // サムネイル生成（一覧用・全体）
   const viewport=page.getViewport({scale:0.5});
   const canvas=document.createElement('canvas');
   canvas.width=viewport.width;canvas.height=viewport.height;
@@ -2206,8 +2206,23 @@ async function _bulkAnalyzeOnePdf(file){
   ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
   await page.render({canvasContext:ctx,viewport}).promise;
   const thumbDataUrl=canvas.toDataURL('image/jpeg',0.7);
-  canvas.width=0;canvas.height=0;
-  return{text,thumbDataUrl};
+  // クロップ画像生成（種別に応じて所在・地番が記載される領域のみ）
+  // 登記簿: 表題部（縦方向 8%〜34%）、公図: 下部請求部分（縦方向 73%〜97%）
+  const cropTop=docType==='kouzu'?0.73:0.08;
+  const cropBottom=docType==='kouzu'?0.97:0.34;
+  const cropViewport=page.getViewport({scale:1.5});
+  const cropCanvas=document.createElement('canvas');
+  const fullW=cropViewport.width,fullH=cropViewport.height;
+  const cropY=Math.floor(fullH*cropTop);
+  const cropH=Math.floor(fullH*(cropBottom-cropTop));
+  cropCanvas.width=fullW;cropCanvas.height=cropH;
+  const cctx=cropCanvas.getContext('2d');
+  cctx.fillStyle='#fff';cctx.fillRect(0,0,fullW,cropH);
+  cctx.translate(0,-cropY);
+  await page.render({canvasContext:cctx,viewport:cropViewport}).promise;
+  const cropDataUrl=cropCanvas.toDataURL('image/jpeg',0.85);
+  canvas.width=0;canvas.height=0;cropCanvas.width=0;cropCanvas.height=0;
+  return{text,thumbDataUrl,cropDataUrl};
 }
 
 // マッチング判定（Tier1=完全一致, Tier2=町名一致, none=なし）
@@ -2298,10 +2313,10 @@ async function handleBulkFolderSelect(event){
       document.getElementById('bulkAnalyzeBar').style.width=`${5+Math.round((i+1)/total*90)}%`;
       document.getElementById('bulkAnalyzeDetail').textContent=file.name;
       const fnp=_bulkParseFileName(file.name);
-      let text='',thumbDataUrl=null,err=null;
+      let text='',thumbDataUrl=null,cropDataUrl=null,err=null;
       try{
-        const r=await _bulkAnalyzeOnePdf(file);
-        text=r.text;thumbDataUrl=r.thumbDataUrl;
+        const r=await _bulkAnalyzeOnePdf(file,fnp.docType);
+        text=r.text;thumbDataUrl=r.thumbDataUrl;cropDataUrl=r.cropDataUrl;
       }catch(e){
         err=e.message||String(e);
         console.error('解析エラー:',file.name,e);
@@ -2310,7 +2325,7 @@ async function handleBulkFolderSelect(event){
       const match=_bulkMatchFile(fnp,ptp,_bulkAllCandidates);
       _bulkAnalysisResults.push({
         file,fileName:file.name,fileNameParsed:fnp,pdfTextParsed:ptp,
-        thumbDataUrl,match,
+        thumbDataUrl,cropDataUrl,match,
         selected:match.type==='auto',
         selectedCaseId:match.type==='auto'?match.matches[0].id:null,
         error:err
@@ -2397,6 +2412,9 @@ function renderBulkPreview(){
           ${ptp.fudosanNumber?`<div>🆔 不動産番号: <span style="color:var(--text);font-family:var(--font-mono);font-size:10px;">${ptp.fudosanNumber}</span></div>`:''}
           ${item.error?`<div style="color:#ef4444;">⚠️ ${item.error}</div>`:''}
         </div>
+        ${item.cropDataUrl?`<div style="margin-top:6px;border:1px solid var(--border);border-radius:4px;overflow:hidden;background:#fff;">
+          <img src="${item.cropDataUrl}" style="width:100%;height:auto;display:block;cursor:pointer;" onclick="showBulkThumbLarge(${idx})" title="クリックで拡大">
+        </div>`:''}
       </div>
       <div style="flex:1 1 220px;min-width:200px;">
         <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">マッチ案件:</div>
