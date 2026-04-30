@@ -2403,17 +2403,36 @@ async function handleBulkFolderSelect(event){
       }
       const ptp=_bulkParsePdfText(text);
       const match=_bulkMatchFile(fnp,ptp,_bulkAllCandidates);
-      // NG案件含む全候補で再検索（自動マッチ以外の場合）
+      // NG案件含む全候補で「地番まで完全一致」を厳密検索
       // → 「町名一致だが地番違い」のケースで真のNG案件マッチを発見
       let ngMatch=null;
       if(match.type!=='auto'&&_bulkAllCandidatesIncludeNG.length>0){
-        // NG案件のみを対象にマッチング
         const ngOnlyCandidates=_bulkAllCandidatesIncludeNG.filter(c=>c.status==='NG');
-        const ngMatchResult=_bulkMatchFile(fnp,ptp,ngOnlyCandidates);
-        // type==='auto'（NG案件と完全一致）の場合のみ警告対象とする
-        // type==='select'（町名のみ一致）は誤判定の可能性が高いので警告しない
-        if(ngMatchResult.type==='auto'&&ngMatchResult.matches.length>0){
-          ngMatch=ngMatchResult.matches[0];
+        // 厳密な完全一致判定: 市町村+町名+地番すべて含まれるか
+        const fileChiban=(fnp.chiban||'').replace(/[ー－―‐]/g,'-');
+        const fileTownNorm=_bulkNormalize(fnp.location||'');  // 市町村+町名
+        // ファイル名に地番がある場合のみNG完全一致を探す
+        if(fileChiban&&fileTownNorm){
+          const fileFullLoc=fileTownNorm+fileChiban;  // 例:"田原市豊島町豊丘33"
+          const ngExactMatches=ngOnlyCandidates.filter(c=>{
+            const dbLoc=_bulkNormalize(c.land_info_location||'');
+            if(!dbLoc)return false;
+            // 完全一致パターン: DBのlocationが「市町村+町名+地番」と完全一致 or 含む
+            return dbLoc===fileFullLoc||dbLoc.includes(fileFullLoc);
+          });
+          // PDFテキストの地番でも検証（補強）
+          const pdfChiban=(ptp.chiban||'').replace(/[ー－―‐]/g,'-');
+          if(ngExactMatches.length===0&&pdfChiban&&fileTownNorm){
+            const fileFullLocPdf=fileTownNorm+pdfChiban;
+            const ngExactMatchesPdf=ngOnlyCandidates.filter(c=>{
+              const dbLoc=_bulkNormalize(c.land_info_location||'');
+              if(!dbLoc)return false;
+              return dbLoc===fileFullLocPdf||dbLoc.includes(fileFullLocPdf);
+            });
+            if(ngExactMatchesPdf.length>0)ngMatch=ngExactMatchesPdf[0];
+          }else if(ngExactMatches.length>0){
+            ngMatch=ngExactMatches[0];
+          }
         }
       }
       _bulkAnalysisResults.push({
