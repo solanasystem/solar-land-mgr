@@ -2169,18 +2169,34 @@ function _bulkParseFileName(name){
 function _bulkParsePdfText(text){
   if(!text)return{};
   // 所在抽出
+  // 表題部の所在欄には旧表示名と現表示名が並ぶことがある（例：「渥美郡渥美町大字中山字宮脇本畑 田原市中山町宮脇本畑」）
+  // PDFテキスト順は表の上→下なので、「所在」キーワード以降に並ぶ複数の地名のうち最後（最下段）が最新
   let shozai=null;
-  const sm=text.match(/所[\s　]*在[\s　]*([^\s　①②③\n]+(?:[町字番][^\s　①②③\n]*)?)/);
-  if(sm)shozai=sm[1].replace(/[\s　]/g,'');
+  const shozaiIdx=text.search(/所[\s　]*在/);
+  if(shozaiIdx>=0){
+    // 「所在」キーワードの直後から、終端キーワード（①/地番/余白で始まらない大きなブロック）までを抽出
+    const afterShozai=text.slice(shozaiIdx).replace(/^所[\s　]*在[\s　]*/,'');
+    // 終端：①地番が出る or 「余白」が複数連続 or 「権利部」など
+    const endMatch=afterShozai.match(/(.*?)(?=①|権利部|甲区|乙区|不動産番号|調製)/s);
+    const block=endMatch?endMatch[1]:afterShozai.slice(0,200);
+    // 全角スペース/半角スペース/改行で分割し、空白とラベル文字を除外
+    const segments=block.split(/[\s　\n]+/).filter(s=>{
+      if(!s||s.length<3)return false;
+      if(/^[余白調製地番①②③地目地積]/.test(s))return false;
+      // 地名らしいもの（県/郡/市/区/町/村/字/番のいずれかを含む）のみ採用
+      return /[県郡市区町村字]/.test(s);
+    });
+    if(segments.length>0){
+      // 最後のセグメントを採用（最新の表示名）
+      shozai=segments[segments.length-1].replace(/[\s　]/g,'');
+    }
+  }
   // 地番抽出
-  // 登記簿の表題部は分筆履歴が時系列で並ぶ → 最下段の有効行（取消線がない行）が最新の地番
-  // text からは取消線の有無は判定不可だが、PDFテキスト順は通常上から下なので「最後にマッチした地番」が最新
-  // ただし「①地番」というラベル行や見出し直後の地番は除外する必要がある
+  // 登記簿の表題部は分筆履歴が時系列で並ぶ → 最下段の有効行が最新の地番
   let chiban=null;
   // パターン1: 「N番M」形式（最下段優先・全マッチを取得）
   const matches1=[...text.matchAll(/(\d+)\s*番\s*(\d+)(?!\d)/g)];
   if(matches1.length>0){
-    // 最後のマッチを採用（PDFは上から下に記述されているため）
     const last=matches1[matches1.length-1];
     chiban=`${last[1]}-${last[2]}`;
   }else{
@@ -2193,6 +2209,10 @@ function _bulkParsePdfText(text){
   }
   // 不動産番号抽出（12桁以上の数字）
   let fudosanNumber=null;
+  const fm=text.match(/不動産番号[\s　]*(\d{12,})/);
+  if(fm)fudosanNumber=fm[1];
+  return{shozai,chiban,fudosanNumber};
+}
   const fm=text.match(/不動産番号[\s　]*(\d{12,})/);
   if(fm)fudosanNumber=fm[1];
   return{shozai,chiban,fudosanNumber};
@@ -2228,11 +2248,11 @@ async function _bulkAnalyzeOnePdf(file,docType){
   ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
   await page.render({canvasContext:ctx,viewport}).promise;
   const thumbDataUrl=canvas.toDataURL('image/jpeg',0.7);
-  // クロップ画像生成（種別に応じて所在・地番が記載される領域のみ・高解像度）
+  // クロップ画像生成（種別に応じて所在・地番が記載される領域のみ・超高解像度）
   // 登記簿: 表題部（縦方向 8%〜34%）、公図: 下部請求部分（縦方向 73%〜97%）
   const cropTop=docType==='kouzu'?0.73:0.08;
   const cropBottom=docType==='kouzu'?0.97:0.34;
-  const cropViewport=page.getViewport({scale:3.0});
+  const cropViewport=page.getViewport({scale:4.0});
   const cropCanvas=document.createElement('canvas');
   const fullW=cropViewport.width,fullH=cropViewport.height;
   const cropY=Math.floor(fullH*cropTop);
@@ -2417,35 +2437,40 @@ function renderBulkPreview(){
         </select>`;
     }
     const thumbHtml=item.thumbDataUrl
-      ?`<img src="${item.thumbDataUrl}" style="width:110px;height:auto;border:1px solid var(--border);border-radius:4px;display:block;cursor:pointer;" onclick="showBulkThumbLarge(${idx})" title="クリックで拡大">`
-      :'<div style="width:110px;height:140px;background:var(--bg);border:1px solid var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:10px;">画像なし</div>';
-    return`<div style="display:flex;gap:10px;padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface2);align-items:flex-start;flex-wrap:wrap;">
-      <div style="flex:0 0 auto;padding-top:4px;"><input type="checkbox" ${checked} onchange="toggleBulkCheck(${idx},this.checked)"></div>
-      <div style="flex:0 0 110px;">${thumbHtml}</div>
-      <div style="flex:2 1 400px;min-width:280px;">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
-          <span style="background:${docTypeColor};color:#fff;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600;white-space:nowrap;">${docTypeLabel}</span>
-          ${fnp.chiban?`<span style="font-size:12px;color:var(--text);font-family:var(--font-mono);font-weight:600;">${fnp.chiban}</span>`:''}
+      ?`<img src="${item.thumbDataUrl}" style="width:90px;height:auto;border:1px solid var(--border);border-radius:4px;display:block;cursor:pointer;" onclick="showBulkThumbLarge(${idx})" title="クリックで拡大">`
+      :'<div style="width:90px;height:120px;background:var(--bg);border:1px solid var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:10px;">画像なし</div>';
+    return`<div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;background:var(--surface2);">
+      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:8px;">
+        <div style="flex:0 0 auto;padding-top:4px;"><input type="checkbox" ${checked} onchange="toggleBulkCheck(${idx},this.checked)" style="transform:scale(1.3);"></div>
+        <div style="flex:0 0 90px;">${thumbHtml}</div>
+        <div style="flex:1 1 280px;min-width:240px;">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+            <span style="background:${docTypeColor};color:#fff;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600;white-space:nowrap;">${docTypeLabel}</span>
+            ${fnp.chiban?`<span style="font-size:12px;color:var(--text);font-family:var(--font-mono);font-weight:600;">${fnp.chiban}</span>`:''}
+          </div>
+          <div style="font-size:10px;color:var(--text-muted);word-break:break-all;margin-bottom:6px;">${item.fileName}</div>
+          <div style="font-size:13px;color:var(--text-muted);background:var(--bg);padding:8px;border-radius:4px;border:1px solid var(--border);line-height:1.7;">
+            <div>📍 所在: <span style="color:var(--text);font-family:var(--font-mono);font-weight:600;">${ptp.shozai||'-'}</span></div>
+            <div>🔢 地番: <span style="color:var(--text);font-family:var(--font-mono);font-weight:600;">${ptp.chiban||'-'}</span></div>
+            ${ptp.fudosanNumber?`<div>🆔 不動産番号: <span style="color:var(--text);font-family:var(--font-mono);font-size:11px;">${ptp.fudosanNumber}</span></div>`:''}
+            ${item.error?`<div style="color:#ef4444;">⚠️ ${item.error}</div>`:''}
+          </div>
         </div>
-        <div style="font-size:10px;color:var(--text-muted);word-break:break-all;margin-bottom:6px;">${item.fileName}</div>
-        <div style="font-size:12px;color:var(--text-muted);background:var(--bg);padding:8px;border-radius:4px;border:1px solid var(--border);line-height:1.6;">
-          <div>📍 所在: <span style="color:var(--text);font-family:var(--font-mono);">${ptp.shozai||'-'}</span></div>
-          <div>🔢 地番: <span style="color:var(--text);font-family:var(--font-mono);font-weight:600;">${ptp.chiban||'-'}</span></div>
-          ${ptp.fudosanNumber?`<div>🆔 不動産番号: <span style="color:var(--text);font-family:var(--font-mono);font-size:10px;">${ptp.fudosanNumber}</span></div>`:''}
-          ${item.error?`<div style="color:#ef4444;">⚠️ ${item.error}</div>`:''}
+        <div style="flex:1 1 240px;min-width:200px;">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">マッチ案件:</div>
+          ${matchHtml}
         </div>
-        ${item.cropDataUrl?`<div style="margin-top:8px;border:2px solid var(--accent);border-radius:6px;overflow:hidden;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.3);">
-          <img src="${item.cropDataUrl}" style="width:100%;height:auto;display:block;cursor:zoom-in;" onclick="showBulkThumbLarge(${idx})" title="クリックで拡大表示（ドラッグで移動可能）">
+        <div style="flex:0 0 auto;padding-top:4px;">
+          <span style="font-size:11px;font-weight:600;color:${confColor};white-space:nowrap;">${conf}</span>
         </div>
-        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;text-align:center;">↑ PDF表題部（クリックで拡大・ドラッグ可）</div>`:''}
+        <div style="flex:0 0 auto;padding-top:4px;">
+          <button class="btn btn-primary" style="font-size:11px;padding:6px 14px;" onclick="uploadOneBulkItem(${idx})" id="bulkRowUploadBtn_${idx}" ${item.uploaded?'disabled':''} ${!item.selected||!item.selectedCaseId?'disabled':''}>${item.uploaded?'✓ 完了':'⬆ アップロード'}</button>
+        </div>
       </div>
-      <div style="flex:1 1 220px;min-width:200px;">
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">マッチ案件:</div>
-        ${matchHtml}
+      ${item.cropDataUrl?`<div style="margin-top:6px;border:2px solid var(--accent);border-radius:6px;overflow:hidden;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.4);">
+        <img src="${item.cropDataUrl}" style="width:100%;height:auto;display:block;cursor:zoom-in;max-height:600px;object-fit:contain;" onclick="showBulkThumbLarge(${idx})" title="クリックで拡大表示（ドラッグ可能）">
       </div>
-      <div style="flex:0 0 60px;text-align:right;padding-top:4px;">
-        <span style="font-size:11px;font-weight:600;color:${confColor};">${conf}</span>
-      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;text-align:center;">↑ PDF表題部（クリックで拡大・ドラッグ可）</div>`:''}
     </div>`;
   }).join('');
   updateBulkExecButton();
@@ -2597,9 +2622,99 @@ async function showBulkThumbLarge(idx){
   }
 }
 
-function executeBulkUpload(){
-  // Step 1-3b で実装予定
-  showToast('一括アップロード実行は Step 1-3b で実装予定です','error');
+// 1件ずつアップロード（行ごとのボタンから呼ばれる）
+async function uploadOneBulkItem(idx){
+  const item=_bulkAnalysisResults[idx];
+  if(!item){showToast('項目が見つかりません','error');return;}
+  if(item.uploaded){showToast('既にアップロード済みです','error');return;}
+  if(!item.selectedCaseId){showToast('マッチ案件が選択されていません','error');return;}
+  const btn=document.getElementById(`bulkRowUploadBtn_${idx}`);
+  if(btn){btn.disabled=true;btn.textContent='⌛ 処理中...';}
+  try{
+    const docType=item.fileNameParsed?.docType;
+    if(!docType||(docType!=='touki'&&docType!=='kouzu')){
+      throw new Error('書類種別が判定できません');
+    }
+    // 地番: PDF読取結果優先 → ファイル名読取結果
+    const chiban=item.pdfTextParsed?.chiban||item.fileNameParsed?.chiban||null;
+    const originalFile=item.file;
+    const originalSize=originalFile.size;
+    const originalName=originalFile.name;
+    // PDF圧縮（既存の_compressPdfToImagePdf関数を再利用）
+    let uploadBlob=originalFile;
+    let compressionApplied=false;
+    let compressedSize=originalSize;
+    try{
+      const compressed=await _compressPdfToImagePdf(originalFile);
+      if(compressed.size<originalSize){
+        uploadBlob=compressed;compressedSize=compressed.size;compressionApplied=true;
+      }
+    }catch(compressErr){
+      console.error('圧縮エラー（原本でアップロード続行）:',compressErr);
+      compressionApplied=false;
+    }
+    // Storage パス生成
+    const timestamp=Date.now();
+    const safeName=originalName.replace(/[^\w.\-]/g,'_');
+    const storagePath=`${item.selectedCaseId}/${docType}/${timestamp}_${safeName}`;
+    // Supabase Storage アップロード
+    const{error:upErr}=await db.storage.from('registry-docs').upload(storagePath,uploadBlob,{contentType:'application/pdf',upsert:false});
+    if(upErr)throw upErr;
+    // DB登録
+    const{error:dbErr}=await db.from('case_documents').insert({
+      case_id:item.selectedCaseId,
+      document_type:docType,
+      chiban:chiban,
+      file_path:storagePath,
+      file_name:originalName,
+      file_size_original:originalSize,
+      file_size_compressed:compressedSize,
+      compression_applied:compressionApplied,
+      is_active:true,
+      is_deleted:false
+    });
+    if(dbErr){
+      // ロールバック
+      await db.storage.from('registry-docs').remove([storagePath]);
+      throw dbErr;
+    }
+    // 成功
+    item.uploaded=true;
+    item.uploadedAt=new Date().toISOString();
+    if(btn){btn.disabled=true;btn.textContent='✓ 完了';btn.style.background='#10b981';btn.style.borderColor='#059669';}
+    const ratio=compressionApplied?Math.round((1-compressedSize/originalSize)*100):0;
+    const msg=compressionApplied
+      ?`✓ ${originalName.slice(0,30)} (圧縮率 ${ratio}%)`
+      :`✓ ${originalName.slice(0,30)}`;
+    showToast(msg,'success');
+  }catch(err){
+    console.error('アップロードエラー:',err);
+    showToast('アップロード失敗: '+(err.message||err),'error');
+    if(btn){btn.disabled=false;btn.textContent='⬆ アップロード';}
+  }
+}
+
+// 一括アップロード（フッターのボタンから呼ばれる・選択された全件を順次処理）
+async function executeBulkUpload(){
+  const targets=_bulkAnalysisResults.map((r,i)=>({r,i})).filter(o=>o.r.selected&&o.r.selectedCaseId&&!o.r.uploaded);
+  if(!targets.length){showToast('アップロード対象がありません','error');return;}
+  if(!confirm(`${targets.length}件をアップロードしますか？`))return;
+  const execBtn=document.getElementById('bulkExecBtn');
+  const cancelBtn=document.getElementById('bulkCancelBtn');
+  execBtn.disabled=true;cancelBtn.disabled=true;
+  let success=0,failed=0;
+  for(let k=0;k<targets.length;k++){
+    const{i}=targets[k];
+    execBtn.textContent=`アップロード中... ${k+1}/${targets.length}`;
+    try{
+      await uploadOneBulkItem(i);
+      if(_bulkAnalysisResults[i].uploaded)success++;
+      else failed++;
+    }catch(e){failed++;}
+  }
+  execBtn.disabled=false;cancelBtn.disabled=false;
+  showToast(`完了: 成功${success}件 / 失敗${failed}件`,failed===0?'success':'error');
+  updateBulkExecButton();
 }
 
 function previewDocument(id){
