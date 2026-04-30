@@ -2169,43 +2169,57 @@ function _bulkParseFileName(name){
 function _bulkParsePdfText(text){
   if(!text)return{};
   // 所在抽出
-  // 表題部の所在欄には旧表示名と現表示名が並ぶことがある（例：「渥美郡渥美町大字中山字宮脇本畑 田原市中山町宮脇本畑」）
-  // PDFテキスト順は表の上→下なので、「所在」キーワード以降に並ぶ複数の地名のうち最後（最下段）が最新
+  // 表題部の所在欄には旧表示名と現表示名が並ぶことがある（例：「渥美郡渥美町大字中山字宮脇本畑 田原市中山町松渕郷」）
+  // PDFテキスト順は表の上→下、左→右。所在欄の右隣には「原因及びその日付」欄があり「平成17年10月1日行政区画変更」等が混入する
+  // → 日付・登記キーワードを除外し、純粋な地名のみフィルタリング → 最後（最下段）が最新
   let shozai=null;
   const shozaiIdx=text.search(/所[\s　]*在/);
   if(shozaiIdx>=0){
-    // 「所在」キーワードの直後から、終端キーワード（①/地番/余白で始まらない大きなブロック）までを抽出
     const afterShozai=text.slice(shozaiIdx).replace(/^所[\s　]*在[\s　]*/,'');
-    // 終端：①地番が出る or 「余白」が複数連続 or 「権利部」など
-    const endMatch=afterShozai.match(/(.*?)(?=①|権利部|甲区|乙区|不動産番号|調製)/s);
-    const block=endMatch?endMatch[1]:afterShozai.slice(0,200);
-    // 全角スペース/半角スペース/改行で分割し、空白とラベル文字を除外
+    const endMatch=afterShozai.match(/(.*?)(?=①|権利部|甲区|乙区|不動産番号|調製|表\s*題)/s);
+    const block=endMatch?endMatch[1]:afterShozai.slice(0,300);
     const segments=block.split(/[\s　\n]+/).filter(s=>{
       if(!s||s.length<3)return false;
-      if(/^[余白調製地番①②③地目地積]/.test(s))return false;
-      // 地名らしいもの（県/郡/市/区/町/村/字/番のいずれかを含む）のみ採用
+      // ラベル文字を除外
+      if(/^[余白調製①②③]/.test(s))return false;
+      if(/^地[番目積]/.test(s))return false;
+      // 日付・登記関連キーワードを含むものを除外（最重要）
+      if(/[年月日号]/.test(s))return false;
+      if(/[平昭明大令]成?和?和?[\d０-９一二三四五六七八九十]+年/.test(s))return false;
+      if(/(行政区画変更|登記|変更|分筆|合筆|換地|相続|移転|保存|設定)/.test(s))return false;
+      if(/^\d/.test(s))return false; // 数字始まりは除外
+      // 地名らしいもの（県/郡/市/区/町/村/字/大字 のいずれかを含む）のみ採用
       return /[県郡市区町村字]/.test(s);
     });
     if(segments.length>0){
-      // 最後のセグメントを採用（最新の表示名）
       shozai=segments[segments.length-1].replace(/[\s　]/g,'');
     }
   }
   // 地番抽出
   // 登記簿の表題部は分筆履歴が時系列で並ぶ → 最下段の有効行が最新の地番
+  // 「①地番」というラベル直後の数字は除外する必要があるため、「①地番」位置を特定して以降を対象にする
   let chiban=null;
-  // パターン1: 「N番M」形式（最下段優先・全マッチを取得）
-  const matches1=[...text.matchAll(/(\d+)\s*番\s*(\d+)(?!\d)/g)];
-  if(matches1.length>0){
-    const last=matches1[matches1.length-1];
-    chiban=`${last[1]}-${last[2]}`;
-  }else{
-    // パターン2: 「N番」のみ（枝番なし・最下段優先）
-    const matches2=[...text.matchAll(/(\d+)\s*番(?!\s*\d)(?!地)/g)];
-    if(matches2.length>0){
-      const last=matches2[matches2.length-1];
-      chiban=last[1];
-    }
+  // 「①地番」「①\s*地\s*番」以降の部分を対象にする
+  let chibanSearchText=text;
+  const chibanLabelMatch=text.match(/①[\s　]*地[\s　]*番/);
+  if(chibanLabelMatch){
+    chibanSearchText=text.slice(chibanLabelMatch.index+chibanLabelMatch[0].length);
+  }
+  // 終端：「権利部」「甲区」が出たらそこまで
+  const chibanEndMatch=chibanSearchText.match(/(.*?)(?=権利部|甲区|乙区)/s);
+  if(chibanEndMatch)chibanSearchText=chibanEndMatch[1];
+  // パターン1: 「N番M」形式（枝番あり・最下段優先）
+  const matches1=[...chibanSearchText.matchAll(/(\d+)\s*番\s*(\d+)(?!\d)/g)];
+  // パターン2: 「N番」のみ（枝番なし）
+  const matches2=[...chibanSearchText.matchAll(/(\d+)\s*番(?!\s*\d)(?!地)(?!の)/g)];
+  // 全マッチをマージして位置順にソート、最後のマッチを採用
+  const allMatches=[];
+  matches1.forEach(m=>allMatches.push({pos:m.index,val:`${m[1]}-${m[2]}`}));
+  matches2.forEach(m=>allMatches.push({pos:m.index,val:m[1]}));
+  if(allMatches.length>0){
+    allMatches.sort((a,b)=>a.pos-b.pos);
+    // 最後（最下段）を採用
+    chiban=allMatches[allMatches.length-1].val;
   }
   // 不動産番号抽出（12桁以上の数字）
   let fudosanNumber=null;
@@ -2416,57 +2430,101 @@ function renderBulkPreview(){
     const fnp=item.fileNameParsed||{};
     const docTypeLabel=fnp.docType==='touki'?'📜登記簿':fnp.docType==='kouzu'?'🗺公図':'❓不明';
     const docTypeColor=fnp.docType==='touki'?'#3b82f6':fnp.docType==='kouzu'?'#10b981':'#6b7280';
-    let matchHtml='';
-    if(m.type==='auto'){
-      const c=m.matches[0];
-      matchHtml=`<div style="font-weight:600;color:var(--accent);font-size:12px;">${_bulkDisplayCaseNo(c)}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${c.land_info_location||''}</div>`;
-    }else if(m.type==='select'){
-      matchHtml=`<select onchange="updateBulkMatch(${idx},this.value)" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px;font-size:11px;width:100%;">
-        <option value="">-- 選択してください --</option>
+    // マッチ案件情報を取得（左ブロック表示用）
+    let matchedCase=null;
+    if(m.type==='auto'){matchedCase=m.matches[0];}
+    else if(item.selectedCaseId){matchedCase=_bulkAllCandidates.find(c=>c.id===item.selectedCaseId);}
+    // マッチ選択UI（手動選択時）
+    let matchSelectHtml='';
+    if(m.type==='select'){
+      matchSelectHtml=`<select onchange="updateBulkMatch(${idx},this.value)" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px;font-size:12px;width:100%;margin-top:6px;">
+        <option value="">-- 候補から選択 --</option>
         ${m.matches.map(c=>`<option value="${c.id}" ${item.selectedCaseId===c.id?'selected':''}>${_bulkDisplayCaseNo(c)} - ${c.land_info_location||''}</option>`).join('')}
       </select>`;
-    }else{
-      matchHtml=`<div style="color:#ef4444;font-size:11px;margin-bottom:4px;">マッチなし - 手動選択可</div>
-        <select onchange="updateBulkMatch(${idx},this.value)" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px;font-size:11px;width:100%;">
-          <option value="">-- 手動で案件を選択 --</option>
-          ${_bulkAllCandidates.map(c=>`<option value="${c.id}" ${item.selectedCaseId===c.id?'selected':''}>${_bulkDisplayCaseNo(c)} - ${c.land_info_location||''}</option>`).join('')}
-        </select>`;
+    }else if(m.type==='none'){
+      matchSelectHtml=`<select onchange="updateBulkMatch(${idx},this.value)" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px;font-size:12px;width:100%;margin-top:6px;">
+        <option value="">-- 手動で案件を選択 --</option>
+        ${_bulkAllCandidates.map(c=>`<option value="${c.id}" ${item.selectedCaseId===c.id?'selected':''}>${_bulkDisplayCaseNo(c)} - ${c.land_info_location||''}</option>`).join('')}
+      </select>`;
     }
-    const thumbHtml=item.thumbDataUrl
-      ?`<img src="${item.thumbDataUrl}" style="width:90px;height:auto;border:1px solid var(--border);border-radius:4px;display:block;cursor:pointer;" onclick="showBulkThumbLarge(${idx})" title="クリックで拡大">`
-      :'<div style="width:90px;height:120px;background:var(--bg);border:1px solid var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:10px;">画像なし</div>';
-    return`<div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;background:var(--surface2);">
-      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:8px;">
-        <div style="flex:0 0 auto;padding-top:4px;"><input type="checkbox" ${checked} onchange="toggleBulkCheck(${idx},this.checked)" style="transform:scale(1.3);"></div>
-        <div style="flex:0 0 90px;">${thumbHtml}</div>
-        <div style="flex:1 1 280px;min-width:240px;">
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
-            <span style="background:${docTypeColor};color:#fff;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600;white-space:nowrap;">${docTypeLabel}</span>
-            ${fnp.chiban?`<span style="font-size:12px;color:var(--text);font-family:var(--font-mono);font-weight:600;">${fnp.chiban}</span>`:''}
+    // 自動一致判定（所在の一致度）
+    let matchStatus='unknown';
+    let matchStatusLabel='';
+    if(matchedCase&&matchedCase.land_info_location){
+      const dbLoc=_bulkNormalize(matchedCase.land_info_location);
+      const pdfLoc=_bulkNormalize(ptp.shozai||'');
+      const fileLoc=_bulkNormalize(fnp.location||'');
+      // PDF読取所在 or ファイル名所在 が DB所在に含まれていれば一致
+      if((pdfLoc&&dbLoc.includes(pdfLoc))||(fileLoc&&dbLoc.includes(fileLoc))){
+        matchStatus='match';matchStatusLabel='✅ 所在一致';
+      }else if(pdfLoc||fileLoc){
+        matchStatus='partial';matchStatusLabel='⚠️ 所在要確認';
+      }
+    }else{
+      matchStatusLabel='— 案件未マッチ';
+    }
+    // 突合ハイライトの色決定
+    const matchBgColor=matchStatus==='match'?'rgba(16,185,129,.08)':matchStatus==='partial'?'rgba(245,158,11,.08)':'transparent';
+    const matchBorderColor=matchStatus==='match'?'#10b981':matchStatus==='partial'?'#f59e0b':'var(--border)';
+    // ヘッダー部
+    return`<div style="border:2px solid ${matchBorderColor};border-radius:10px;margin-bottom:14px;background:var(--surface2);overflow:hidden;">
+      <div style="display:flex;gap:10px;align-items:center;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap;">
+        <input type="checkbox" ${checked} onchange="toggleBulkCheck(${idx},this.checked)" style="transform:scale(1.4);flex:0 0 auto;">
+        <span style="background:${docTypeColor};color:#fff;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700;white-space:nowrap;">${docTypeLabel}</span>
+        <span style="font-size:11px;color:var(--text-muted);word-break:break-all;flex:1 1 200px;min-width:0;">${item.fileName}</span>
+        <span style="font-size:12px;font-weight:700;color:${confColor};white-space:nowrap;">${conf}</span>
+        <button class="btn btn-primary" style="font-size:11px;padding:6px 14px;" onclick="uploadOneBulkItem(${idx})" id="bulkRowUploadBtn_${idx}" ${item.uploaded?'disabled':''} ${!item.selected||!item.selectedCaseId?'disabled':''}>${item.uploaded?'✓ 完了':'⬆ アップロード'}</button>
+      </div>
+      <div style="padding:12px;background:${matchBgColor};">
+        <div style="text-align:center;font-size:12px;color:var(--text-muted);margin-bottom:10px;font-weight:600;">${matchStatusLabel}</div>
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:0;align-items:stretch;">
+          <!-- 左ブロック：※1 システム側（青） -->
+          <div style="background:rgba(59,130,246,.08);border:1px solid #3b82f6;border-radius:6px;padding:12px;">
+            <div style="font-size:11px;color:#3b82f6;font-weight:700;margin-bottom:8px;letter-spacing:.5px;">🟦 ※1 システム側（DB）</div>
+            ${matchedCase?`
+              <div style="margin-bottom:10px;">
+                <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">📁 案件番号</div>
+                <div style="font-size:15px;color:var(--accent);font-family:var(--font-mono);font-weight:700;">${_bulkDisplayCaseNo(matchedCase)}</div>
+              </div>
+              <div>
+                <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">📍 所在（land_info）</div>
+                <div style="font-size:13px;color:var(--text);font-family:var(--font-mono);word-break:break-all;line-height:1.5;">${matchedCase.land_info_location||'-'}</div>
+              </div>
+            `:`
+              <div style="font-size:12px;color:var(--text-muted);padding:20px 0;text-align:center;">案件が選択されていません</div>
+            `}
+            ${matchSelectHtml}
           </div>
-          <div style="font-size:10px;color:var(--text-muted);word-break:break-all;margin-bottom:6px;">${item.fileName}</div>
-          <div style="font-size:13px;color:var(--text-muted);background:var(--bg);padding:8px;border-radius:4px;border:1px solid var(--border);line-height:1.7;">
-            <div>📍 所在: <span style="color:var(--text);font-family:var(--font-mono);font-weight:600;">${ptp.shozai||'-'}</span></div>
-            <div>🔢 地番: <span style="color:var(--text);font-family:var(--font-mono);font-weight:600;">${ptp.chiban||'-'}</span></div>
-            ${ptp.fudosanNumber?`<div>🆔 不動産番号: <span style="color:var(--text);font-family:var(--font-mono);font-size:11px;">${ptp.fudosanNumber}</span></div>`:''}
-            ${item.error?`<div style="color:#ef4444;">⚠️ ${item.error}</div>`:''}
+          <!-- 中央：突合記号 -->
+          <div style="display:flex;align-items:center;justify-content:center;padding:0 12px;font-size:24px;color:${matchStatus==='match'?'#10b981':matchStatus==='partial'?'#f59e0b':'var(--text-muted)'};font-weight:700;">🟰</div>
+          <!-- 右ブロック：※2 PDF読取（緑） -->
+          <div style="background:rgba(16,185,129,.08);border:1px solid #10b981;border-radius:6px;padding:12px;">
+            <div style="font-size:11px;color:#10b981;font-weight:700;margin-bottom:8px;letter-spacing:.5px;">🟢 ※2 PDF読取（AI抽出）</div>
+            <div style="margin-bottom:10px;">
+              <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">📄 ファイル名から</div>
+              <div style="font-size:12px;color:var(--text);font-family:var(--font-mono);line-height:1.5;">
+                <div>市町村: <span style="font-weight:600;">${fnp.city||'-'}</span></div>
+                <div>町名: <span style="font-weight:600;">${fnp.town||'-'}</span></div>
+                <div>地番: <span style="font-weight:600;">${fnp.chiban||'-'}</span></div>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">${fnp.docType==='kouzu'?'🗺 PDF下部請求部':'📜 PDF表題部'}</div>
+              <div style="font-size:13px;color:var(--text);font-family:var(--font-mono);line-height:1.6;">
+                <div>📍 所在: <span style="font-weight:600;">${ptp.shozai||'-'}</span></div>
+                <div>🔢 地番: <span style="font-weight:600;">${ptp.chiban||'-'}</span></div>
+              </div>
+            </div>
+            ${item.error?`<div style="color:#ef4444;font-size:11px;margin-top:6px;">⚠️ ${item.error}</div>`:''}
           </div>
-        </div>
-        <div style="flex:1 1 240px;min-width:200px;">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">マッチ案件:</div>
-          ${matchHtml}
-        </div>
-        <div style="flex:0 0 auto;padding-top:4px;">
-          <span style="font-size:11px;font-weight:600;color:${confColor};white-space:nowrap;">${conf}</span>
-        </div>
-        <div style="flex:0 0 auto;padding-top:4px;">
-          <button class="btn btn-primary" style="font-size:11px;padding:6px 14px;" onclick="uploadOneBulkItem(${idx})" id="bulkRowUploadBtn_${idx}" ${item.uploaded?'disabled':''} ${!item.selected||!item.selectedCaseId?'disabled':''}>${item.uploaded?'✓ 完了':'⬆ アップロード'}</button>
         </div>
       </div>
-      ${item.cropDataUrl?`<div style="margin-top:6px;border:2px solid var(--accent);border-radius:6px;overflow:hidden;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.4);">
-        <img src="${item.cropDataUrl}" style="width:100%;height:auto;display:block;cursor:zoom-in;max-height:600px;object-fit:contain;" onclick="showBulkThumbLarge(${idx})" title="クリックで拡大表示（ドラッグ可能）">
-      </div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;text-align:center;">↑ PDF表題部（クリックで拡大・ドラッグ可）</div>`:''}
+      ${item.cropDataUrl?`<div style="padding:0 12px 12px 12px;">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;text-align:center;">↓ PDF原本（クリックで拡大・ドラッグ可）</div>
+        <div style="border:2px solid var(--accent);border-radius:6px;overflow:hidden;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.4);">
+          <img src="${item.cropDataUrl}" style="width:100%;height:auto;display:block;cursor:zoom-in;max-height:600px;object-fit:contain;" onclick="showBulkThumbLarge(${idx})" title="クリックで拡大表示">
+        </div>
+      </div>`:''}
     </div>`;
   }).join('');
   updateBulkExecButton();
