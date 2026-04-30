@@ -891,12 +891,32 @@
       </div>
       <div id="bulkPhase3" style="display:none;">
         <div id="bulkSummaryArea" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;padding:8px 10px;background:var(--surface);border-radius:6px;border:1px solid var(--border);">
+          <span style="font-size:11px;color:var(--text-muted);font-weight:600;">🔌 電力エリア絞込:</span>
+          <select id="bulkAreaFilter" onchange="renderBulkPreview()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px;">
+            <option value="">全エリア</option>
+            <option value="中部電力" selected>中部電力</option>
+            <option value="東京電力">東京電力</option>
+            <option value="関西電力">関西電力</option>
+            <option value="中国電力">中国電力</option>
+            <option value="九州電力">九州電力</option>
+            <option value="北陸電力">北陸電力</option>
+            <option value="東北電力">東北電力</option>
+            <option value="北海道電力">北海道電力</option>
+            <option value="四国電力">四国電力</option>
+            <option value="沖縄電力">沖縄電力</option>
+          </select>
+          <span style="font-size:11px;color:var(--text-muted);margin-left:8px;">※候補ドロップダウンの絞り込みに適用</span>
+        </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">
           <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="bulkSelectAll(true)">✓全選択</button>
           <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="bulkSelectAll(false)">✕全解除</button>
           <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="bulkSelectAuto()">✅自動分のみ選択</button>
-          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);margin-left:auto;cursor:pointer;">
+          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);cursor:pointer;">
             <input type="checkbox" id="bulkHideNoMatch" onchange="renderBulkPreview()">マッチなし非表示
+          </label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);margin-left:auto;cursor:pointer;">
+            <input type="checkbox" id="bulkShowSkipped" onchange="renderBulkPreview()">スキップ済を表示
           </label>
         </div>
         <div id="bulkPreviewList" style="max-height:60vh;overflow-y:auto;"></div>
@@ -2326,7 +2346,7 @@ async function _bulkLoadCandidates(){
   if(e2)throw e2;
   const liMap={};
   (lis||[]).forEach(l=>{liMap[l.case_id]=l.location;});
-  // 3. 統合（land_info があるものだけ）
+  // 3. 統合（land_info があるものだけ）+ 電力会社判定
   return(cs||[]).filter(c=>liMap[c.id]).map(c=>({
     id:c.id,
     case_no:c.case_no,
@@ -2334,7 +2354,8 @@ async function _bulkLoadCandidates(){
     area_name:c.area_name,
     parent_case_no:c.parent_case_no,
     branch_no:c.branch_no,
-    land_info_location:liMap[c.id]
+    land_info_location:liMap[c.id],
+    power_company:getPowerCompanyFromArea(c.area_name)
   }));
 }
 
@@ -2409,24 +2430,35 @@ function _bulkDisplayCaseNo(c){
 
 function renderBulkPreview(){
   const hideNoMatch=document.getElementById('bulkHideNoMatch')?.checked;
+  const showSkipped=document.getElementById('bulkShowSkipped')?.checked;
+  const areaFilter=document.getElementById('bulkAreaFilter')?.value||'';
   const list=document.getElementById('bulkPreviewList');
-  // サマリ更新
-  const counts={auto:0,select:0,none:0};
-  _bulkAnalysisResults.forEach(r=>{counts[r.match.type]=(counts[r.match.type]||0)+1;});
+  // サマリ更新（スキップ済み件数も追加）
+  const counts={auto:0,select:0,none:0,skipped:0};
+  _bulkAnalysisResults.forEach(r=>{
+    if(r.skipped)counts.skipped++;
+    else counts[r.match.type]=(counts[r.match.type]||0)+1;
+  });
   document.getElementById('bulkSummaryArea').innerHTML=`
     <span style="padding:6px 12px;background:var(--surface2);border-radius:6px;font-family:var(--font-mono);">📊 検出: ${_bulkAnalysisResults.length}件</span>
     <span style="padding:6px 12px;background:rgba(16,185,129,.15);border:1px solid #10b981;border-radius:6px;color:#10b981;font-weight:600;">✅ 自動: ${counts.auto||0}件</span>
     <span style="padding:6px 12px;background:rgba(245,158,11,.15);border:1px solid #f59e0b;border-radius:6px;color:#f59e0b;font-weight:600;">⚠️ 選択: ${counts.select||0}件</span>
     <span style="padding:6px 12px;background:rgba(239,68,68,.15);border:1px solid #ef4444;border-radius:6px;color:#ef4444;font-weight:600;">❌ なし: ${counts.none||0}件</span>
+    ${counts.skipped?`<span style="padding:6px 12px;background:rgba(107,114,128,.15);border:1px solid #6b7280;border-radius:6px;color:#9ca3af;font-weight:600;">🚫 スキップ: ${counts.skipped}件</span>`:''}
   `;
-  const items=_bulkAnalysisResults.map((r,i)=>({...r,_idx:i})).filter(r=>!hideNoMatch||r.match.type!=='none');
+  // フィルタリング：①スキップ済み（showSkippedがOFFなら除外） ②マッチなし非表示
+  const items=_bulkAnalysisResults.map((r,i)=>({...r,_idx:i})).filter(r=>{
+    if(r.skipped&&!showSkipped)return false;
+    if(hideNoMatch&&r.match.type==='none'&&!r.skipped)return false;
+    return true;
+  });
   if(!items.length){list.innerHTML='<div style="text-align:center;padding:40px;color:var(--text-muted);font-size:13px;">表示する項目がありません</div>';updateBulkExecButton();return;}
   list.innerHTML=items.map(item=>{
     const idx=item._idx;
     const m=item.match;
     const checked=item.selected?'checked':'';
-    const conf=m.type==='auto'?'✅自動':m.type==='select'?'⚠️選択':'❌なし';
-    const confColor=m.type==='auto'?'#10b981':m.type==='select'?'#f59e0b':'#ef4444';
+    const conf=item.skipped?'🚫スキップ済':m.type==='auto'?'✅自動':m.type==='select'?'⚠️選択':'❌なし';
+    const confColor=item.skipped?'#9ca3af':m.type==='auto'?'#10b981':m.type==='select'?'#f59e0b':'#ef4444';
     const ptp=item.pdfTextParsed||{};
     const fnp=item.fileNameParsed||{};
     const docTypeLabel=fnp.docType==='touki'?'📜登記簿':fnp.docType==='kouzu'?'🗺公図':'❓不明';
@@ -2435,17 +2467,21 @@ function renderBulkPreview(){
     let matchedCase=null;
     if(m.type==='auto'){matchedCase=m.matches[0];}
     else if(item.selectedCaseId){matchedCase=_bulkAllCandidates.find(c=>c.id===item.selectedCaseId);}
+    // 電力エリアフィルタ適用（手動選択ドロップダウンの候補を絞り込む）
+    const filterByArea=(list)=>areaFilter?list.filter(c=>c.power_company===areaFilter):list;
     // マッチ選択UI（手動選択時）
     let matchSelectHtml='';
     if(m.type==='select'){
+      const opts=filterByArea(m.matches);
       matchSelectHtml=`<select onchange="updateBulkMatch(${idx},this.value)" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px;font-size:12px;width:100%;margin-top:6px;">
-        <option value="">-- 候補から選択 --</option>
-        ${m.matches.map(c=>`<option value="${c.id}" ${item.selectedCaseId===c.id?'selected':''}>${_bulkDisplayCaseNo(c)} - ${c.land_info_location||''}</option>`).join('')}
+        <option value="">-- 候補から選択 ${areaFilter?`(${areaFilter}内 ${opts.length}件)`:''} --</option>
+        ${opts.map(c=>`<option value="${c.id}" ${item.selectedCaseId===c.id?'selected':''}>${_bulkDisplayCaseNo(c)} - ${c.land_info_location||''}</option>`).join('')}
       </select>`;
     }else if(m.type==='none'){
+      const opts=filterByArea(_bulkAllCandidates);
       matchSelectHtml=`<select onchange="updateBulkMatch(${idx},this.value)" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px;font-size:12px;width:100%;margin-top:6px;">
-        <option value="">-- 手動で案件を選択 --</option>
-        ${_bulkAllCandidates.map(c=>`<option value="${c.id}" ${item.selectedCaseId===c.id?'selected':''}>${_bulkDisplayCaseNo(c)} - ${c.land_info_location||''}</option>`).join('')}
+        <option value="">-- 手動で案件を選択 ${areaFilter?`(${areaFilter}内 ${opts.length}件)`:`(全${opts.length}件)`} --</option>
+        ${opts.map(c=>`<option value="${c.id}" ${item.selectedCaseId===c.id?'selected':''}>${_bulkDisplayCaseNo(c)} - ${c.land_info_location||''}</option>`).join('')}
       </select>`;
     }
     // 自動一致判定（所在の一致度）
@@ -2466,15 +2502,22 @@ function renderBulkPreview(){
     }
     // 突合ハイライトの色決定
     const matchBgColor=matchStatus==='match'?'rgba(16,185,129,.08)':matchStatus==='partial'?'rgba(245,158,11,.08)':'transparent';
-    const matchBorderColor=matchStatus==='match'?'#10b981':matchStatus==='partial'?'#f59e0b':'var(--border)';
+    const matchBorderColor=item.skipped?'#6b7280':matchStatus==='match'?'#10b981':matchStatus==='partial'?'#f59e0b':'var(--border)';
+    // スキップ済みカードは半透明化
+    const cardOpacity=item.skipped?'0.5':'1';
+    // スキップボタン or 戻すボタン
+    const skipBtnHtml=item.skipped
+      ?`<button class="btn btn-ghost" style="font-size:11px;padding:6px 12px;" onclick="unskipBulkItem(${idx})">↺ 戻す</button>`
+      :`<button class="btn btn-ghost" style="font-size:11px;padding:6px 12px;color:#9ca3af;border-color:#6b7280;" onclick="skipBulkItem(${idx})" title="この書類をスキップ（NG案件等で取り込み不要な場合）">🚫 スキップ</button>`;
     // ヘッダー部
-    return`<div style="border:2px solid ${matchBorderColor};border-radius:10px;margin-bottom:14px;background:var(--surface2);overflow:hidden;">
+    return`<div style="border:2px solid ${matchBorderColor};border-radius:10px;margin-bottom:14px;background:var(--surface2);overflow:hidden;opacity:${cardOpacity};">
       <div style="display:flex;gap:10px;align-items:center;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap;">
-        <input type="checkbox" ${checked} onchange="toggleBulkCheck(${idx},this.checked)" style="transform:scale(1.4);flex:0 0 auto;">
+        <input type="checkbox" ${checked} ${item.skipped?'disabled':''} onchange="toggleBulkCheck(${idx},this.checked)" style="transform:scale(1.4);flex:0 0 auto;">
         <span style="background:${docTypeColor};color:#fff;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700;white-space:nowrap;">${docTypeLabel}</span>
         <span style="font-size:11px;color:var(--text-muted);word-break:break-all;flex:1 1 200px;min-width:0;">${item.fileName}</span>
         <span style="font-size:12px;font-weight:700;color:${confColor};white-space:nowrap;">${conf}</span>
-        <button class="btn btn-primary" style="font-size:11px;padding:6px 14px;" onclick="uploadOneBulkItem(${idx})" id="bulkRowUploadBtn_${idx}" ${item.uploaded?'disabled':''} ${!item.selected||!item.selectedCaseId?'disabled':''}>${item.uploaded?'✓ 完了':'⬆ アップロード'}</button>
+        ${skipBtnHtml}
+        <button class="btn btn-primary" style="font-size:11px;padding:6px 14px;" onclick="uploadOneBulkItem(${idx})" id="bulkRowUploadBtn_${idx}" ${item.uploaded||item.skipped?'disabled':''} ${!item.selected||!item.selectedCaseId?'disabled':''}>${item.uploaded?'✓ 完了':'⬆ アップロード'}</button>
       </div>
       <div style="padding:12px;background:${matchBgColor};">
         <div style="text-align:center;font-size:12px;color:var(--text-muted);margin-bottom:10px;font-weight:600;">${matchStatusLabel}</div>
@@ -2565,10 +2608,26 @@ function bulkSelectAuto(){
 }
 
 function updateBulkExecButton(){
-  const selectedCount=_bulkAnalysisResults.filter(r=>r.selected&&r.selectedCaseId).length;
+  const selectedCount=_bulkAnalysisResults.filter(r=>r.selected&&r.selectedCaseId&&!r.skipped).length;
   const btn=document.getElementById('bulkExecBtn');
   btn.textContent=`選択した${selectedCount}件をアップロード`;
   btn.disabled=selectedCount===0;
+}
+
+// スキップ機能（NG案件等で取り込み不要なファイルを処理対象外にする）
+function skipBulkItem(idx){
+  if(_bulkAnalysisResults[idx]){
+    _bulkAnalysisResults[idx].skipped=true;
+    _bulkAnalysisResults[idx].selected=false;  // チェックを外す
+    renderBulkPreview();
+  }
+}
+
+function unskipBulkItem(idx){
+  if(_bulkAnalysisResults[idx]){
+    _bulkAnalysisResults[idx].skipped=false;
+    renderBulkPreview();
+  }
 }
 
 // 拡大モーダル: ドラッグ＋ズーム機能用の状態
