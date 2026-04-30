@@ -1495,10 +1495,17 @@ function initDraggablePanels(storageKeyPrefix, configs) {
     var savedPos = null;
     try { savedPos = JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch (e) {}
     if (savedPos && typeof savedPos.left === 'number' && typeof savedPos.top === 'number') {
-      panel.style.left = savedPos.left + 'px';
-      panel.style.top = savedPos.top + 'px';
-      panel.style.right = 'auto';
-      panel.style.bottom = 'auto';
+      // 画面サイズ範囲チェック：画面外の値は破棄して初期位置に戻す（大画面で保存→小画面で復元時の対策）
+      var isOutside = savedPos.left > window.innerWidth - 40 || savedPos.left < -200 ||
+                      savedPos.top > window.innerHeight - 40 || savedPos.top < -100;
+      if (isOutside) {
+        try { localStorage.removeItem(storageKey); } catch (_) {}
+      } else {
+        panel.style.left = savedPos.left + 'px';
+        panel.style.top = savedPos.top + 'px';
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+      }
     }
     // \u30cf\u30f3\u30c9\u30eb\u6c7a\u5b9a\uff1acfg.handle\u6307\u5b9a\u3042\u308a\u2192\u305d\u308c\u3092\u4f7f\u7528 / \u306a\u3057\u2192panel\u81ea\u8eab\u3092\u30cf\u30f3\u30c9\u30eb\u306b
     var handle = null;
