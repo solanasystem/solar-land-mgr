@@ -2300,24 +2300,37 @@ async function _bulkAnalyzeOnePdf(file,docType){
   return{text,thumbDataUrl,cropDataUrl};
 }
 
-// マッチング判定（Tier1=完全一致, Tier2=町名一致, none=なし）
+// マッチング判定（Tier1=地番込み完全一致, Tier2=町名一致, none=なし）
 function _bulkMatchFile(parsed,pdfTextParsed,candidates){
-  // ファイル名の location（市町村+町名+地番）を正規化
-  const fileTarget=_bulkNormalize(parsed.location||'');
-  // ファイル名の地番なし版（町名のみ）
-  const townOnly=_bulkNormalize((parsed.location||'').replace(/\d+(-\d+)?$/,'').replace(/-$/,''));
+  // ファイル名の location（地番除去済み・市町村+町名）を正規化
+  const townOnly=_bulkNormalize(parsed.location||'');
+  // ファイル名の地番
+  const fileChiban=(parsed.chiban||'').replace(/[ー－―‐]/g,'-');
+  // 「市町村+町名+地番」を連結した完全一致用ターゲット
+  const fileFullTarget=fileChiban?(townOnly+fileChiban):'';
   // PDFテキストの所在
   const pdfShozai=_bulkNormalize(pdfTextParsed?.shozai||'');
-  if(!fileTarget&&!pdfShozai)return{type:'none',matches:[]};
-  // Tier1: 完全一致（ファイル名 location が land_info.location に含まれる）
-  const t1=candidates.filter(c=>{
-    const loc=_bulkNormalize(c.land_info_location);
-    if(!loc)return false;
-    return fileTarget&&loc.includes(fileTarget);
-  });
-  if(t1.length===1)return{type:'auto',matches:t1};
-  if(t1.length>1)return{type:'select',matches:t1};
-  // Tier2: 町名一致（地番除く）
+  // PDFテキストの地番
+  const pdfChiban=(pdfTextParsed?.chiban||'').replace(/[ー－―‐]/g,'-');
+  // PDF所在 + PDF地番 を連結
+  const pdfFullTarget=pdfChiban&&townOnly?(townOnly+pdfChiban):'';
+  if(!townOnly&&!pdfShozai)return{type:'none',matches:[]};
+  // Tier1: 地番込み完全一致（最優先）
+  // ファイル名orPDF読取の「市町村+町名+地番」が DB の location と完全一致
+  if(fileFullTarget||pdfFullTarget){
+    const t1=candidates.filter(c=>{
+      const loc=_bulkNormalize(c.land_info_location);
+      if(!loc)return false;
+      // 地番込み完全一致のみ採用
+      return(fileFullTarget&&loc===fileFullTarget)||
+             (fileFullTarget&&loc.endsWith(fileFullTarget))||
+             (pdfFullTarget&&loc===pdfFullTarget)||
+             (pdfFullTarget&&loc.endsWith(pdfFullTarget));
+    });
+    if(t1.length===1)return{type:'auto',matches:t1};
+    if(t1.length>1)return{type:'select',matches:t1};
+  }
+  // Tier2: 町名一致（地番除く）→ 候補選択へ
   if(townOnly){
     const t2=candidates.filter(c=>{
       const loc=_bulkNormalize(c.land_info_location);
