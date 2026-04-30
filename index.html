@@ -857,8 +857,8 @@
   </div>
 </div>
 <!-- 書類一括取込モーダル（Step 1-3a） -->
-<div class="modal-overlay" id="bulkImportModal">
-  <div class="modal" style="max-width:1100px;">
+<div class="modal-overlay" id="bulkImportModal" style="align-items:flex-start;padding-top:20px;">
+  <div class="modal" style="max-width:1100px;max-height:calc(100vh - 40px);">
     <div class="modal-header">
       <div>
         <div class="modal-title">📁 書類一括取込</div>
@@ -2137,6 +2137,7 @@ async function uploadDocument(){
 // ============================================================================
 let _bulkAnalysisResults=[];
 let _bulkAllCandidates=[];
+let _bulkAllCandidatesIncludeNG=[];
 
 function openBulkImportModal(){
   if(typeof pdfjsLib==='undefined'||typeof PDFLib==='undefined'){
@@ -2338,8 +2339,8 @@ function _bulkMatchFile(parsed,pdfTextParsed,candidates){
 
 // マッチング候補を全件取得（非NG案件 × land_infoあり）
 async function _bulkLoadCandidates(){
-  // 1. 非NG案件を取得
-  const{data:cs,error:e1}=await db.from('cases').select('id,case_no,status,area_name,parent_case_no,branch_no').neq('status','NG');
+  // 1. 全案件を取得（NG含む）
+  const{data:cs,error:e1}=await db.from('cases').select('id,case_no,status,area_name,parent_case_no,branch_no');
   if(e1)throw e1;
   // 2. land_info を全件取得
   const{data:lis,error:e2}=await db.from('land_info').select('case_id,location').not('location','is',null);
@@ -2347,7 +2348,7 @@ async function _bulkLoadCandidates(){
   const liMap={};
   (lis||[]).forEach(l=>{liMap[l.case_id]=l.location;});
   // 3. 統合（land_info があるものだけ）+ 電力会社判定
-  return(cs||[]).filter(c=>liMap[c.id]).map(c=>({
+  const allCases=(cs||[]).filter(c=>liMap[c.id]).map(c=>({
     id:c.id,
     case_no:c.case_no,
     status:c.status,
@@ -2357,6 +2358,10 @@ async function _bulkLoadCandidates(){
     land_info_location:liMap[c.id],
     power_company:getPowerCompanyFromArea(c.area_name)
   }));
+  // 4. NG含む全候補を別配列に保存（マッチなしファイルの追加検索用）
+  _bulkAllCandidatesIncludeNG=allCases;
+  // 5. 通常のマッチング対象は非NGのみ
+  return allCases.filter(c=>c.status!=='NG');
 }
 
 // フォルダ選択時のハンドラ
@@ -2397,9 +2402,21 @@ async function handleBulkFolderSelect(event){
       }
       const ptp=_bulkParsePdfText(text);
       const match=_bulkMatchFile(fnp,ptp,_bulkAllCandidates);
+      // マッチなしの場合、NG案件含む全候補で再検索
+      let ngMatch=null;
+      if(match.type==='none'&&_bulkAllCandidatesIncludeNG.length>0){
+        // NG案件のみを対象にマッチング
+        const ngOnlyCandidates=_bulkAllCandidatesIncludeNG.filter(c=>c.status==='NG');
+        const ngMatchResult=_bulkMatchFile(fnp,ptp,ngOnlyCandidates);
+        if(ngMatchResult.type!=='none'&&ngMatchResult.matches.length>0){
+          ngMatch=ngMatchResult.matches[0]; // 最初のマッチを採用
+        }
+      }
       _bulkAnalysisResults.push({
         file,fileName:file.name,fileNameParsed:fnp,pdfTextParsed:ptp,
         thumbDataUrl,cropDataUrl,match,
+        ngMatch:ngMatch,  // NG案件マッチ情報
+        skipped:!!ngMatch,  // NG案件マッチなら自動スキップ
         selected:match.type==='auto',
         selectedCaseId:match.type==='auto'?match.matches[0].id:null,
         error:err
@@ -2434,8 +2451,9 @@ function renderBulkPreview(){
   const areaFilter=document.getElementById('bulkAreaFilter')?.value||'';
   const list=document.getElementById('bulkPreviewList');
   // サマリ更新（スキップ済み件数も追加）
-  const counts={auto:0,select:0,none:0,skipped:0};
+  const counts={auto:0,select:0,none:0,skipped:0,ngMatch:0};
   _bulkAnalysisResults.forEach(r=>{
+    if(r.ngMatch)counts.ngMatch++;
     if(r.skipped)counts.skipped++;
     else counts[r.match.type]=(counts[r.match.type]||0)+1;
   });
@@ -2444,6 +2462,7 @@ function renderBulkPreview(){
     <span style="padding:6px 12px;background:rgba(16,185,129,.15);border:1px solid #10b981;border-radius:6px;color:#10b981;font-weight:600;">✅ 自動: ${counts.auto||0}件</span>
     <span style="padding:6px 12px;background:rgba(245,158,11,.15);border:1px solid #f59e0b;border-radius:6px;color:#f59e0b;font-weight:600;">⚠️ 選択: ${counts.select||0}件</span>
     <span style="padding:6px 12px;background:rgba(239,68,68,.15);border:1px solid #ef4444;border-radius:6px;color:#ef4444;font-weight:600;">❌ なし: ${counts.none||0}件</span>
+    ${counts.ngMatch?`<span style="padding:6px 12px;background:rgba(239,68,68,.25);border:1px solid #ef4444;border-radius:6px;color:#fca5a5;font-weight:700;">🟧 NG案件: ${counts.ngMatch}件</span>`:''}
     ${counts.skipped?`<span style="padding:6px 12px;background:rgba(107,114,128,.15);border:1px solid #6b7280;border-radius:6px;color:#9ca3af;font-weight:600;">🚫 スキップ: ${counts.skipped}件</span>`:''}
   `;
   // フィルタリング：①スキップ済み（showSkippedがOFFなら除外） ②マッチなし非表示
@@ -2500,22 +2519,41 @@ function renderBulkPreview(){
     }else{
       matchStatusLabel='— 案件未マッチ';
     }
+    // NG案件マッチの判定
+    const isNgMatch=!!item.ngMatch;
     // 突合ハイライトの色決定
-    const matchBgColor=matchStatus==='match'?'rgba(16,185,129,.08)':matchStatus==='partial'?'rgba(245,158,11,.08)':'transparent';
-    const matchBorderColor=item.skipped?'#6b7280':matchStatus==='match'?'#10b981':matchStatus==='partial'?'#f59e0b':'var(--border)';
-    // スキップ済みカードは半透明化
-    const cardOpacity=item.skipped?'0.5':'1';
+    let matchBgColor=matchStatus==='match'?'rgba(16,185,129,.08)':matchStatus==='partial'?'rgba(245,158,11,.08)':'transparent';
+    let matchBorderColor=item.skipped?(isNgMatch?'#ef4444':'#6b7280'):matchStatus==='match'?'#10b981':matchStatus==='partial'?'#f59e0b':'var(--border)';
+    // NG案件マッチ時は赤系で警告
+    if(isNgMatch){
+      matchBgColor='rgba(239,68,68,.08)';
+      matchBorderColor='#ef4444';
+    }
+    // スキップ済みカードは半透明化（ただしNG案件マッチは目立たせるため透明度を抑える）
+    const cardOpacity=item.skipped?(isNgMatch?'0.85':'0.5'):'1';
+    // confラベル（NG案件マッチ時を優先表示）
+    const confLabel=isNgMatch?'🟧 NG案件':conf;
+    const confLabelColor=isNgMatch?'#ef4444':confColor;
     // スキップボタン or 戻すボタン
     const skipBtnHtml=item.skipped
       ?`<button class="btn btn-ghost" style="font-size:11px;padding:6px 12px;" onclick="unskipBulkItem(${idx})">↺ 戻す</button>`
       :`<button class="btn btn-ghost" style="font-size:11px;padding:6px 12px;color:#9ca3af;border-color:#6b7280;" onclick="skipBulkItem(${idx})" title="この書類をスキップ（NG案件等で取り込み不要な場合）">🚫 スキップ</button>`;
+    // NG案件マッチ警告バナー
+    const ngWarningHtml=isNgMatch?`
+      <div style="background:#ef4444;color:#fff;padding:10px 14px;font-weight:700;font-size:13px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:18px;">⚠️</span>
+        <span>NG案件と一致：${_bulkDisplayCaseNo(item.ngMatch)}（${item.ngMatch.land_info_location||''}）</span>
+        <span style="margin-left:auto;background:rgba(255,255,255,.25);padding:2px 8px;border-radius:4px;font-size:11px;">💡 取込不要 → スキップ済み</span>
+      </div>
+    `:'';
     // ヘッダー部
     return`<div style="border:2px solid ${matchBorderColor};border-radius:10px;margin-bottom:14px;background:var(--surface2);overflow:hidden;opacity:${cardOpacity};">
+      ${ngWarningHtml}
       <div style="display:flex;gap:10px;align-items:center;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap;">
         <input type="checkbox" ${checked} ${item.skipped?'disabled':''} onchange="toggleBulkCheck(${idx},this.checked)" style="transform:scale(1.4);flex:0 0 auto;">
         <span style="background:${docTypeColor};color:#fff;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700;white-space:nowrap;">${docTypeLabel}</span>
         <span style="font-size:11px;color:var(--text-muted);word-break:break-all;flex:1 1 200px;min-width:0;">${item.fileName}</span>
-        <span style="font-size:12px;font-weight:700;color:${confColor};white-space:nowrap;">${conf}</span>
+        <span style="font-size:12px;font-weight:700;color:${confLabelColor};white-space:nowrap;">${confLabel}</span>
         ${skipBtnHtml}
         <button class="btn btn-primary" style="font-size:11px;padding:6px 14px;" onclick="uploadOneBulkItem(${idx})" id="bulkRowUploadBtn_${idx}" ${item.uploaded||item.skipped?'disabled':''} ${!item.selected||!item.selectedCaseId?'disabled':''}>${item.uploaded?'✓ 完了':'⬆ アップロード'}</button>
       </div>
@@ -2523,9 +2561,25 @@ function renderBulkPreview(){
         <div style="text-align:center;font-size:12px;color:var(--text-muted);margin-bottom:10px;font-weight:600;">${matchStatusLabel}</div>
         <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:0;align-items:stretch;">
           <!-- 左ブロック：※1 システム側（青） -->
-          <div style="background:rgba(59,130,246,.08);border:1px solid #3b82f6;border-radius:6px;padding:12px;">
-            <div style="font-size:11px;color:#3b82f6;font-weight:700;margin-bottom:8px;letter-spacing:.5px;">🟦 ※1 システム側（DB）</div>
-            ${matchedCase?`
+          <div style="background:${isNgMatch?'rgba(239,68,68,.08)':'rgba(59,130,246,.08)'};border:1px solid ${isNgMatch?'#ef4444':'#3b82f6'};border-radius:6px;padding:12px;">
+            <div style="font-size:11px;color:${isNgMatch?'#ef4444':'#3b82f6'};font-weight:700;margin-bottom:8px;letter-spacing:.5px;">${isNgMatch?'🟥 ※1 NG案件と一致（DB）':'🟦 ※1 システム側（DB）'}</div>
+            ${isNgMatch?`
+              <div style="margin-bottom:10px;">
+                <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">📁 案件番号</div>
+                <div style="font-size:15px;color:#ef4444;font-family:var(--font-mono);font-weight:700;">${_bulkDisplayCaseNo(item.ngMatch)}</div>
+              </div>
+              <div style="margin-bottom:10px;">
+                <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">⚠️ ステータス</div>
+                <div style="display:inline-block;padding:3px 10px;border-radius:4px;background:#ef4444;color:#fff;font-size:11px;font-weight:700;">${item.ngMatch.status}</div>
+              </div>
+              <div style="margin-bottom:10px;">
+                <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">📍 所在（land_info）</div>
+                <div style="font-size:13px;color:var(--text);font-family:var(--font-mono);word-break:break-all;line-height:1.5;">${item.ngMatch.land_info_location||'-'}</div>
+              </div>
+              <div style="background:rgba(239,68,68,.15);border:1px solid #ef4444;border-radius:4px;padding:8px;font-size:11px;color:#fca5a5;line-height:1.5;">
+                💡 <strong>NG案件のため取込不要</strong><br>登記情報の紐付けは不要です（運用方針）
+              </div>
+            `:matchedCase?`
               <div style="margin-bottom:10px;">
                 <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">📁 案件番号</div>
                 <div style="font-size:15px;color:var(--accent);font-family:var(--font-mono);font-weight:700;">${_bulkDisplayCaseNo(matchedCase)}</div>
@@ -2537,10 +2591,10 @@ function renderBulkPreview(){
             `:`
               <div style="font-size:12px;color:var(--text-muted);padding:20px 0;text-align:center;">案件が選択されていません</div>
             `}
-            ${matchSelectHtml}
+            ${isNgMatch?'':matchSelectHtml}
           </div>
           <!-- 中央：突合記号 -->
-          <div style="display:flex;align-items:center;justify-content:center;padding:0 12px;font-size:24px;color:${matchStatus==='match'?'#10b981':matchStatus==='partial'?'#f59e0b':'var(--text-muted)'};font-weight:700;">🟰</div>
+          <div style="display:flex;align-items:center;justify-content:center;padding:0 12px;font-size:24px;color:${isNgMatch?'#ef4444':matchStatus==='match'?'#10b981':matchStatus==='partial'?'#f59e0b':'var(--text-muted)'};font-weight:700;">${isNgMatch?'❌':'🟰'}</div>
           <!-- 右ブロック：※2 PDF読取（緑） -->
           <div style="background:rgba(16,185,129,.08);border:1px solid #10b981;border-radius:6px;padding:12px;">
             <div style="font-size:11px;color:#10b981;font-weight:700;margin-bottom:8px;letter-spacing:.5px;">🟢 ※2 PDF読取（AI抽出）</div>
