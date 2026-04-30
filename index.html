@@ -1947,37 +1947,66 @@ async function loadDocuments(caseId){
   const list=document.getElementById('documentsList');
   const countEl=document.getElementById('docCount');
   if(!list||!countEl)return;
-  const{data,error}=await db.from('case_documents').select('*').eq('case_id',caseId).eq('is_deleted',false).eq('is_active',true).order('uploaded_at',{ascending:false});
+  // 削除済み表示モード判定
+  const showDeleted=document.getElementById('docShowDeleted')?.checked||false;
+  // 全レコード取得（論理削除済みも含む）
+  let query=db.from('case_documents').select('*').eq('case_id',caseId).eq('is_active',true);
+  if(!showDeleted)query=query.eq('is_deleted',false);
+  const{data,error}=await query.order('uploaded_at',{ascending:false});
   if(error){
     list.innerHTML=`<div style="color:#ef4444;font-size:13px;padding:12px 0">読み込みエラー: ${error.message}</div>`;
     countEl.textContent='';
     return;
   }
+  // 件数（アクティブのみ）
+  const activeCount=(data||[]).filter(d=>!d.is_deleted).length;
+  const deletedCount=(data||[]).filter(d=>d.is_deleted).length;
+  countEl.textContent=deletedCount>0?`(${activeCount}件 / 削除済み${deletedCount}件)`:`(${activeCount}件)`;
+  // ヘッダー：削除済み表示トグル
+  let headerHtml='';
+  if(deletedCount>0||showDeleted){
+    headerHtml=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px 10px;background:var(--surface);border-radius:6px;font-size:11px;">
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text-muted);">
+        <input type="checkbox" id="docShowDeleted" ${showDeleted?'checked':''} onchange="loadDocuments('${caseId}')">
+        🗑 削除済みも表示${deletedCount>0?`（${deletedCount}件）`:''}
+      </label>
+    </div>`;
+  }
   if(!data||!data.length){
-    list.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:24px 0;text-align:center">📭 書類が登録されていません</div>';
-    countEl.textContent='(0件)';
+    list.innerHTML=headerHtml+'<div style="color:var(--text-muted);font-size:13px;padding:24px 0;text-align:center">📭 書類が登録されていません</div>';
     return;
   }
-  countEl.textContent=`(${data.length}件)`;
-  list.innerHTML=data.map(d=>{
+  list.innerHTML=headerHtml+data.map(d=>{
     const isTouki=d.document_type==='touki';
     const typeLabel=isTouki?'📜 登記簿':'🗺 公図';
     const typeColor=isTouki?'#3b82f6':'#10b981';
     const sizeKB=d.file_size_compressed?Math.round(d.file_size_compressed/1024):0;
     const origKB=d.file_size_original?Math.round(d.file_size_original/1024):0;
     const compressInfo=d.compression_applied&&origKB?`${origKB}→${sizeKB}KB`:`${sizeKB}KB`;
-    const dateStr=d.uploaded_at?new Date(d.uploaded_at).toLocaleDateString('ja-JP'):'';
-    return `<div class="doc-item" style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface2);flex-wrap:wrap;gap:8px;">
+    const dateStr=d.uploaded_at?new Date(d.uploaded_at).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+    const isDeleted=d.is_deleted;
+    // 削除済みカードは半透明グレーアウト・削除日時表示
+    const cardStyle=isDeleted
+      ?'opacity:0.5;border:1px dashed #6b7280;background:rgba(107,114,128,.1);'
+      :'border:1px solid var(--border);background:var(--surface2);';
+    // ボタン群（削除済み/通常で異なる）
+    const btnsHtml=isDeleted
+      ?`<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#22c55e;" onclick="restoreDocument('${d.id}')">↺ 復元</button>
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#ef4444;border-color:#ef4444;" onclick="permanentDeleteDocument('${d.id}','${(d.file_name||'').replace(/'/g,"\\'")}')">⚠ 完全削除</button>`
+      :`<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="previewDocument('${d.id}')">🔍 プレビュー</button>
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="downloadDocument('${d.id}')">⬇ DL</button>
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#ef4444;" onclick="deleteDocument('${d.id}')">🗑 削除</button>`;
+    return `<div class="doc-item" style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-radius:8px;margin-bottom:8px;flex-wrap:wrap;gap:8px;${cardStyle}">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1;min-width:200px;">
         <span style="display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${typeColor};color:#fff;white-space:nowrap;">${typeLabel}</span>
+        ${isDeleted?'<span style="background:#6b7280;color:#fff;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;">🗑 削除済</span>':''}
         ${d.chiban?`<span style="font-size:13px;color:var(--text);font-family:var(--font-mono);font-weight:600;">${d.chiban}</span>`:''}
         <span style="font-size:11px;color:var(--text-muted);word-break:break-all;">${d.file_name||''}</span>
         <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap;">${compressInfo}</span>
-        <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${dateStr}</span>
+        <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;">📅 ${dateStr}</span>
       </div>
-      <div style="display:flex;gap:6px;">
-        <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="previewDocument('${d.id}')">プレビュー</button>
-        <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#ef4444;" onclick="deleteDocument('${d.id}')">削除</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${btnsHtml}
       </div>
     </div>`;
   }).join('');
@@ -2702,37 +2731,6 @@ function renderBulkPreview(){
               </div>
             </div>
             ${item.error?`<div style="color:#ef4444;font-size:11px;margin-top:6px;">⚠️ ${item.error}</div>`:''}
-            ${(()=>{
-              // 🔍 デバッグ情報セクション（NG案件マッチ判定の検証用）
-              const dbgFileChiban=(fnp.chiban||'').replace(/[ー－―‐]/g,'-');
-              const dbgFileTownNorm=_bulkNormalize(fnp.location||'');
-              const dbgFileFullLoc=dbgFileTownNorm+dbgFileChiban;
-              const dbgPdfChiban=(ptp.chiban||'').replace(/[ー－―‐]/g,'-');
-              const dbgPdfFullLoc=dbgFileTownNorm+dbgPdfChiban;
-              const ngOnlyAll=(_bulkAllCandidatesIncludeNG||[]).filter(c=>c.status==='NG');
-              // 町名（豊丘等の3文字以上）を含むNG案件を抽出
-              const townKey=dbgFileTownNorm.length>=4?dbgFileTownNorm.slice(-4):dbgFileTownNorm;
-              const dbgRelatedNg=ngOnlyAll.filter(c=>{
-                const dbLoc=_bulkNormalize(c.land_info_location||'');
-                return dbLoc.includes(townKey);
-              });
-              const dbgNgMatchInfo=dbgRelatedNg.map(c=>{
-                const dbLoc=_bulkNormalize(c.land_info_location||'');
-                const exactMatch=dbLoc===dbgFileFullLoc||dbLoc.includes(dbgFileFullLoc);
-                const exactMatchPdf=dbgPdfChiban&&(dbLoc===dbgPdfFullLoc||dbLoc.includes(dbgPdfFullLoc));
-                return`${c.case_no}: dbLoc="${dbLoc}" / 完全一致(file)=${exactMatch} / 完全一致(pdf)=${exactMatchPdf}`;
-              }).join('<br>');
-              return`<div style="margin-top:10px;padding:8px;background:rgba(168,85,247,.1);border:1px dashed #a855f7;border-radius:4px;font-size:10px;color:#c4b5fd;font-family:var(--font-mono);line-height:1.6;">
-                <div style="font-weight:700;color:#a855f7;margin-bottom:4px;">🔍 デバッグ（一時表示）</div>
-                <div>fileTownNorm: "${dbgFileTownNorm}"</div>
-                <div>fileChiban: "${dbgFileChiban}"</div>
-                <div>fileFullLoc: "${dbgFileFullLoc}"</div>
-                <div>pdfChiban: "${dbgPdfChiban}"</div>
-                <div>NG案件総数: ${ngOnlyAll.length}件 / 関連(${townKey}): ${dbgRelatedNg.length}件</div>
-                <div>ngMatch値: ${item.ngMatch?_bulkDisplayCaseNo(item.ngMatch):'null'}</div>
-                ${dbgNgMatchInfo?`<div style="margin-top:4px;border-top:1px solid #a855f7;padding-top:4px;">${dbgNgMatchInfo}</div>`:'<div style="color:#fca5a5;">関連NG案件なし</div>'}
-              </div>`;
-            })()}
           </div>
         </div>
       </div>
@@ -3005,11 +3003,97 @@ async function executeBulkUpload(){
   updateBulkExecButton();
 }
 
-function previewDocument(id){
-  showToast('Step 1-2c で実装予定です（プレビュー）','error');
+// プレビュー：署名付きURLを生成して新タブで開く
+async function previewDocument(id){
+  try{
+    const{data,error}=await db.from('case_documents').select('file_path,file_name').eq('id',id).single();
+    if(error||!data)throw error||new Error('書類が見つかりません');
+    // 署名付きURL生成（1時間有効）
+    const{data:urlData,error:urlErr}=await db.storage.from('registry-docs').createSignedUrl(data.file_path,3600);
+    if(urlErr)throw urlErr;
+    if(!urlData?.signedUrl)throw new Error('URL生成失敗');
+    // 新しいタブで開く
+    window.open(urlData.signedUrl,'_blank','noopener,noreferrer');
+  }catch(e){
+    console.error('プレビューエラー:',e);
+    showToast('プレビュー失敗: '+(e.message||e),'error');
+  }
 }
-function deleteDocument(id){
-  showToast('Step 1-2c で実装予定です（削除）','error');
+
+// ダウンロード：署名付きURLからダウンロード
+async function downloadDocument(id){
+  try{
+    const{data,error}=await db.from('case_documents').select('file_path,file_name').eq('id',id).single();
+    if(error||!data)throw error||new Error('書類が見つかりません');
+    const{data:urlData,error:urlErr}=await db.storage.from('registry-docs').createSignedUrl(data.file_path,3600,{download:data.file_name});
+    if(urlErr)throw urlErr;
+    if(!urlData?.signedUrl)throw new Error('URL生成失敗');
+    // ダウンロードリンクをクリック
+    const a=document.createElement('a');
+    a.href=urlData.signedUrl;
+    a.download=data.file_name||'document.pdf';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast('⬇ ダウンロード開始','success');
+  }catch(e){
+    console.error('ダウンロードエラー:',e);
+    showToast('ダウンロード失敗: '+(e.message||e),'error');
+  }
+}
+
+// 論理削除（is_deleted=true・Storage は残す）
+async function deleteDocument(id){
+  if(!confirm('この書類を削除します。\n\n※ 論理削除のため、後で復元可能です。\nよろしいですか？'))return;
+  try{
+    const{data:doc,error:e1}=await db.from('case_documents').select('case_id,file_name').eq('id',id).single();
+    if(e1||!doc)throw e1||new Error('書類が見つかりません');
+    const{error:e2}=await db.from('case_documents').update({is_deleted:true}).eq('id',id);
+    if(e2)throw e2;
+    showToast(`🗑 削除しました（復元可能）: ${doc.file_name||''}`,'success');
+    if(doc.case_id)loadDocuments(doc.case_id);
+  }catch(e){
+    console.error('削除エラー:',e);
+    showToast('削除失敗: '+(e.message||e),'error');
+  }
+}
+
+// 復元（is_deleted=false に戻す）
+async function restoreDocument(id){
+  try{
+    const{data:doc,error:e1}=await db.from('case_documents').select('case_id,file_name').eq('id',id).single();
+    if(e1||!doc)throw e1||new Error('書類が見つかりません');
+    const{error:e2}=await db.from('case_documents').update({is_deleted:false}).eq('id',id);
+    if(e2)throw e2;
+    showToast(`↺ 復元しました: ${doc.file_name||''}`,'success');
+    if(doc.case_id)loadDocuments(doc.case_id);
+  }catch(e){
+    console.error('復元エラー:',e);
+    showToast('復元失敗: '+(e.message||e),'error');
+  }
+}
+
+// 完全削除（DBレコード削除 + Storage からも削除）
+async function permanentDeleteDocument(id,fileName){
+  if(!confirm(`⚠️ 完全削除：${fileName}\n\nこの操作は取り消せません。\nDBレコード・PDFファイルが完全に削除されます。\n\n本当に削除しますか？`))return;
+  if(!confirm('最終確認：本当に完全削除しますか？\n\n削除後の復元はできません。'))return;
+  try{
+    const{data:doc,error:e1}=await db.from('case_documents').select('case_id,file_path,file_name').eq('id',id).single();
+    if(e1||!doc)throw e1||new Error('書類が見つかりません');
+    // 1. Storageから削除
+    if(doc.file_path){
+      const{error:e2}=await db.storage.from('registry-docs').remove([doc.file_path]);
+      if(e2)console.error('Storage削除エラー（DB削除は続行）:',e2);
+    }
+    // 2. DBレコードを完全削除
+    const{error:e3}=await db.from('case_documents').delete().eq('id',id);
+    if(e3)throw e3;
+    showToast(`⚠ 完全削除しました: ${fileName||doc.file_name||''}`,'success');
+    if(doc.case_id)loadDocuments(doc.case_id);
+  }catch(e){
+    console.error('完全削除エラー:',e);
+    showToast('完全削除失敗: '+(e.message||e),'error');
+  }
 }
 function toggleAddLog(){const f=document.getElementById('addLogForm');f.style.display=f.style.display==='none'?'block':'none';}
 function toggleCollapse(header){const body=header.nextElementSibling,arrow=header.querySelector('.collapse-arrow');body.classList.toggle('open');arrow.classList.toggle('open');}
