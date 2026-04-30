@@ -2403,14 +2403,17 @@ async function handleBulkFolderSelect(event){
       }
       const ptp=_bulkParsePdfText(text);
       const match=_bulkMatchFile(fnp,ptp,_bulkAllCandidates);
-      // マッチなしの場合、NG案件含む全候補で再検索
+      // NG案件含む全候補で再検索（自動マッチ以外の場合）
+      // → 「町名一致だが地番違い」のケースで真のNG案件マッチを発見
       let ngMatch=null;
-      if(match.type==='none'&&_bulkAllCandidatesIncludeNG.length>0){
+      if(match.type!=='auto'&&_bulkAllCandidatesIncludeNG.length>0){
         // NG案件のみを対象にマッチング
         const ngOnlyCandidates=_bulkAllCandidatesIncludeNG.filter(c=>c.status==='NG');
         const ngMatchResult=_bulkMatchFile(fnp,ptp,ngOnlyCandidates);
-        if(ngMatchResult.type!=='none'&&ngMatchResult.matches.length>0){
-          ngMatch=ngMatchResult.matches[0]; // 最初のマッチを採用
+        // type==='auto'（NG案件と完全一致）の場合のみ警告対象とする
+        // type==='select'（町名のみ一致）は誤判定の可能性が高いので警告しない
+        if(ngMatchResult.type==='auto'&&ngMatchResult.matches.length>0){
+          ngMatch=ngMatchResult.matches[0];
         }
       }
       _bulkAnalysisResults.push({
@@ -2418,8 +2421,8 @@ async function handleBulkFolderSelect(event){
         thumbDataUrl,cropDataUrl,match,
         ngMatch:ngMatch,  // NG案件マッチ情報
         skipped:!!ngMatch,  // NG案件マッチなら自動スキップ
-        selected:match.type==='auto',
-        selectedCaseId:match.type==='auto'?match.matches[0].id:null,
+        selected:match.type==='auto'&&!ngMatch,  // NG案件マッチがあれば選択しない
+        selectedCaseId:(match.type==='auto'&&!ngMatch)?match.matches[0].id:null,
         error:err
       });
     }
