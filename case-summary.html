@@ -6,6 +6,30 @@
 <title>案件概要書 - SOLAR LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// Supabase SDK が読めなかったときのフォールバック（unpkg）
+window.addEventListener('load', function() {
+  if (typeof window.supabase === 'undefined' || !window.supabase.createClient) {
+    console.warn('Primary CDN failed, trying unpkg fallback...');
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js';
+    s.onload = function() {
+      console.log('Fallback CDN loaded.');
+      // 既にDOMContentLoadedは終わっているので明示的に再初期化
+      if (typeof bootApp === 'function') bootApp();
+    };
+    s.onerror = function() {
+      const el = document.getElementById('errorPanel');
+      const body = document.getElementById('errorBody');
+      if (el && body) {
+        body.textContent = 'Supabase SDK の読み込みに完全に失敗しました（jsdelivr / unpkg 両方NG）。\n\nネットワーク接続またはブラウザ拡張機能を確認してください。';
+        el.style.display = 'block';
+      }
+    };
+    document.head.appendChild(s);
+  }
+});
+</script>
 <style>
   /* ======== 印刷設定 ======== */
   @page { size: A4 landscape; margin: 5mm; }
@@ -570,13 +594,20 @@ const HAZARD_ITEMS = [
 })();
 
 // ====== Supabase 接続情報 ======
-const LS_URL_KEYS = ['SUPABASE_URL', 'supabase_url', 'supabaseUrl'];
-const LS_KEY_KEYS = ['SUPABASE_ANON_KEY', 'SUPABASE_KEY', 'supabase_anon_key', 'supabase_key', 'supabaseKey'];
+// localStorage に既存システムが保存しているキー（複数候補をフォールバック）
+const LS_URL_KEYS = ['SUPABASE_URL', 'supabase_url', 'supabaseUrl', 'sb-url', 'SB_URL'];
+const LS_KEY_KEYS = ['SUPABASE_ANON_KEY', 'SUPABASE_KEY', 'supabase_anon_key', 'supabase_key', 'supabaseKey', 'sb-key', 'SB_KEY', 'anon_key'];
 
 function getSupabaseConfig() {
   let url = null, key = null;
-  for (const k of LS_URL_KEYS) { if (localStorage.getItem(k)) { url = localStorage.getItem(k); break; } }
-  for (const k of LS_KEY_KEYS) { if (localStorage.getItem(k)) { key = localStorage.getItem(k); break; } }
+  for (const k of LS_URL_KEYS) {
+    const v = localStorage.getItem(k);
+    if (v && v.includes('supabase')) { url = v; break; }
+  }
+  for (const k of LS_KEY_KEYS) {
+    const v = localStorage.getItem(k);
+    if (v && v.length > 50) { key = v; break; }  // anon keyは長い
+  }
   return { url, key };
 }
 
@@ -589,16 +620,42 @@ function saveConfig() {
   location.reload();
 }
 
-let supabase = null;
+// SDK は window.supabase 経由でアクセス（グローバル変数名の衝突回避）
+let sbClient = null;
+
 function initSupabase() {
+  // 1. SDKが読み込めているか確認
+  if (typeof window.supabase === 'undefined' || !window.supabase.createClient) {
+    showError(
+      'Supabase SDK（@supabase/supabase-js@2）の読み込みに失敗しました。\n\n' +
+      '原因候補:\n' +
+      '・ネットワーク接続不可\n' +
+      '・CDNブロック\n' +
+      '・ブラウザ拡張機能による干渉\n\n' +
+      '別のCDNを試すには、ページをリロードしてください。',
+      null
+    );
+    return false;
+  }
+
+  // 2. localStorage から接続情報を取得
   const { url, key } = getSupabaseConfig();
   if (!url || !key) {
     document.getElementById('configPanel').style.display = 'block';
     document.getElementById('cfgUrl').value = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+    setStatus('Supabase接続情報を入力してください', true);
     return false;
   }
-  supabase = window.supabase.createClient(url, key);
-  return true;
+
+  // 3. クライアント生成（例外時は画面表示）
+  try {
+    sbClient = window.supabase.createClient(url, key);
+    setStatus('Supabase接続OK / 案件番号を入力してください');
+    return true;
+  } catch (e) {
+    showError('Supabaseクライアント生成に失敗しました', { message: e.message, url: url.slice(0,40) });
+    return false;
+  }
 }
 
 // ====== ステータス表示 ======
@@ -667,43 +724,87 @@ function formatPrice(v, mask) {
 
 // ====== メイン読込 ======
 async function loadCase(caseNoOrId) {
-  if (!supabase) return;
+  if (!sbClient) {
+    setStatus('Supabase未接続。設定パネルから接続情報を入力してください', true);
+    return;
+  }
   if (!caseNoOrId) { setStatus('案件番号を指定してください', true); return; }
 
-  setStatus('読込中...');
+  setStatus('読込中: ' + caseNoOrId + ' ...');
   document.getElementById('errorPanel').style.display = 'none';
 
   try {
-    // case_no と id どちらでもヒットするように両対応
-    let caseQuery = supabase.from('cases').select('*');
-    if (/^[0-9a-f-]{30,}$/i.test(caseNoOrId)) {
-      caseQuery = caseQuery.eq('id', caseNoOrId);
+    // ----- ① cases テーブルから該当案件を検索 -----
+    // UUIDっぽい場合は id 検索、そうでなければ case_no 検索
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(caseNoOrId);
+
+    let cases = null, ce = null;
+    if (isUuid) {
+      const r = await sbClient.from('cases').select('*').eq('id', caseNoOrId).limit(1);
+      cases = r.data; ce = r.error;
     } else {
-      caseQuery = caseQuery.eq('case_no', caseNoOrId);
+      // case_no で完全一致を試みる
+      let r = await sbClient.from('cases').select('*').eq('case_no', caseNoOrId).limit(1);
+      cases = r.data; ce = r.error;
+
+      // ヒットしなければ部分一致（前後空白等の対策）も試みる
+      if (!ce && (!cases || cases.length === 0)) {
+        const r2 = await sbClient.from('cases').select('*').ilike('case_no', `%${caseNoOrId}%`).limit(5);
+        if (!r2.error && r2.data && r2.data.length > 0) {
+          cases = r2.data;
+          setStatus(`部分一致でヒット: ${cases.length}件 (1件目を表示)`);
+        }
+      }
     }
-    const { data: cases, error: ce } = await caseQuery.limit(1);
-    if (ce) throw ce;
+
+    if (ce) {
+      showError('cases テーブル取得エラー', { message: ce.message, code: ce.code, details: ce.details, hint: ce.hint });
+      setStatus('エラー: cases取得失敗', true);
+      return;
+    }
     if (!cases || cases.length === 0) {
-      setStatus('該当案件なし: ' + caseNoOrId, true);
+      setStatus(`該当案件なし: 「${caseNoOrId}」（cases.case_no と完全/部分一致いずれもヒットせず）`, true);
+      // 参考: 直近5件を出して案件番号書式を確認できるようにする
+      try {
+        const sample = await sbClient.from('cases').select('case_no').limit(5);
+        if (sample.data && sample.data.length > 0) {
+          showError(
+            `案件番号「${caseNoOrId}」が cases.case_no に見つかりません。\n\nDBにある案件番号サンプル（先頭5件）:\n` +
+            sample.data.map(r => '・' + r.case_no).join('\n') +
+            '\n\n書式を確認してください。',
+            null
+          );
+        }
+      } catch(_) {}
       return;
     }
     const c = cases[0];
+    setStatus('案件取得OK / 関連テーブル取得中...');
 
-    // land_info / landowner_info を case_id で取得
-    const [{ data: lands }, { data: owners }] = await Promise.all([
-      supabase.from('land_info').select('*').eq('case_id', c.id).limit(1),
-      supabase.from('landowner_info').select('*').eq('case_id', c.id).limit(1),
+    // ----- ② land_info / landowner_info を case_id で取得 -----
+    const [landR, ownerR] = await Promise.all([
+      sbClient.from('land_info').select('*').eq('case_id', c.id).limit(1),
+      sbClient.from('landowner_info').select('*').eq('case_id', c.id).limit(1),
     ]);
-    const land = (lands && lands[0]) || {};
-    const owner = (owners && owners[0]) || {};
+
+    if (landR.error) {
+      console.warn('land_info取得エラー:', landR.error);
+      setStatus('警告: land_info取得失敗 (' + landR.error.message + ')', true);
+    }
+    if (ownerR.error) {
+      console.warn('landowner_info取得エラー:', ownerR.error);
+    }
+
+    const land = (landR.data && landR.data[0]) || {};
+    const owner = (ownerR.data && ownerR.data[0]) || {};
 
     render(c, land, owner);
-    setStatus('読込完了: ' + (c.case_no || c.id));
+    setStatus(`読込完了: ${c.case_no || c.id} | land_info=${landR.data?.length||0}件, landowner_info=${ownerR.data?.length||0}件`);
     document.getElementById('sheet').style.display = '';
   } catch (e) {
     console.error(e);
-    showError('データ取得に失敗しました', e);
-    setStatus('エラー', true);
+    showError('予期しないエラーが発生しました', { message: e.message, stack: e.stack });
+    setStatus('エラー: ' + e.message, true);
   }
 }
 
@@ -840,7 +941,10 @@ function loadByInput() {
   loadCase(v);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+let _booted = false;
+function bootApp() {
+  if (_booted && sbClient) return;
+  _booted = true;
   if (!initSupabase()) return;
   // URL パラメータから case_id を取得
   const params = new URLSearchParams(location.search);
@@ -852,10 +956,17 @@ document.addEventListener('DOMContentLoaded', () => {
     setStatus('案件番号を入力して「読込」を押してください');
     document.getElementById('sheet').style.display = '';
   }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  bootApp();
   // Enter キーで読込
-  document.getElementById('caseIdInput').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') loadByInput();
-  });
+  const inp = document.getElementById('caseIdInput');
+  if (inp) {
+    inp.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') loadByInput();
+    });
+  }
 });
 </script>
 
