@@ -8,11 +8,12 @@
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="mobile-responsive.css?v=20260429a">
-<link rel="stylesheet" href="toki-ai.css?v=20260501e">
+<link rel="stylesheet" href="toki-ai.css?v=20260501f">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-<script src="toki-ai.js?v=20260501e" defer></script>
+<script src="power-company-utils.js?v=20260501f"></script>
+<script src="toki-ai.js?v=20260501f" defer></script>
 <style>
   :root {
     --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
@@ -1088,32 +1089,13 @@ const db=createClient(SUPABASE_URL,SUPABASE_KEY);
 let allCases=[],currentCaseId=null,currentLandownerId=null;
 let ngBlind=true;
 
-/* ========== 管轄電力会社 マッピング ========== */
-const POWER_COMPANIES=['北海道電力','東北電力','東京電力','中部電力','北陸電力','関西電力','中国電力','四国電力','九州電力','沖縄電力'];
-const PREF_TO_POWER={'北海道':'北海道電力','青森県':'東北電力','岩手県':'東北電力','宮城県':'東北電力','秋田県':'東北電力','山形県':'東北電力','福島県':'東北電力','新潟県':'東北電力','東京都':'東京電力','神奈川県':'東京電力','埼玉県':'東京電力','千葉県':'東京電力','栃木県':'東京電力','群馬県':'東京電力','茨城県':'東京電力','山梨県':'東京電力','静岡県':'中部電力','愛知県':'中部電力','岐阜県':'中部電力','三重県':'中部電力','長野県':'中部電力','富山県':'北陸電力','石川県':'北陸電力','福井県':'北陸電力','大阪府':'関西電力','京都府':'関西電力','兵庫県':'関西電力','奈良県':'関西電力','和歌山県':'関西電力','滋賀県':'関西電力','岡山県':'中国電力','広島県':'中国電力','山口県':'中国電力','島根県':'中国電力','鳥取県':'中国電力','香川県':'四国電力','徳島県':'四国電力','愛媛県':'四国電力','高知県':'四国電力','福岡県':'九州電力','佐賀県':'九州電力','長崎県':'九州電力','熊本県':'九州電力','大分県':'九州電力','宮崎県':'九州電力','鹿児島県':'九州電力','沖縄県':'沖縄電力'};
-/* 市町村名（末尾の「市/町/村/区」は有無どちらでもOK）→ 都道府県
-   初期は愛知県54市町村を網羅。未登録エリアは BROAD_REGION_TO_POWER でフォールバック */
-const AREA_TO_PREF={'名古屋':'愛知県','豊橋':'愛知県','岡崎':'愛知県','一宮':'愛知県','瀬戸':'愛知県','半田':'愛知県','春日井':'愛知県','豊川':'愛知県','津島':'愛知県','碧南':'愛知県','刈谷':'愛知県','豊田':'愛知県','安城':'愛知県','西尾':'愛知県','蒲郡':'愛知県','犬山':'愛知県','常滑':'愛知県','江南':'愛知県','小牧':'愛知県','稲沢':'愛知県','新城':'愛知県','東海':'愛知県','大府':'愛知県','知多':'愛知県','知立':'愛知県','尾張旭':'愛知県','高浜':'愛知県','岩倉':'愛知県','豊明':'愛知県','日進':'愛知県','田原':'愛知県','愛西':'愛知県','清須':'愛知県','北名古屋':'愛知県','弥富':'愛知県','みよし':'愛知県','あま':'愛知県','長久手':'愛知県','東郷':'愛知県','豊山':'愛知県','大口':'愛知県','扶桑':'愛知県','大治':'愛知県','蟹江':'愛知県','飛島':'愛知県','阿久比':'愛知県','東浦':'愛知県','南知多':'愛知県','美浜':'愛知県','武豊':'愛知県','幸田':'愛知県','設楽':'愛知県','東栄':'愛知県','豊根':'愛知県'};
-/* 広域地方名 → 電力会社（既存データの area_name が広域地名のケースに対応） */
-const BROAD_REGION_TO_POWER={'北海道':'北海道電力','東北':'東北電力','関東':'東京電力','中部':'中部電力','北陸':'北陸電力','関西':'関西電力','近畿':'関西電力','中国':'中国電力','四国':'四国電力','九州':'九州電力','沖縄':'沖縄電力'};
-const DEFAULT_POWER_COMPANY='中部電力';
+/* ========== 管轄電力会社 マッピング ==========
+   定数・関数は power-company-utils.js から提供される（全国1,736市区町村対応）：
+   POWER_COMPANIES / PREF_TO_POWER / AREA_TO_PREF / BROAD_REGION_TO_POWER /
+   DEFAULT_POWER_COMPANY / normalizeAreaKey / getPowerCompanyFromArea /
+   filterCasesByPowerCompany */
 let currentPowerCompany='中部電力'; /* 初期選択 */
 
-function normalizeAreaKey(areaName){
-  if(!areaName)return '';
-  return String(areaName).replace(/(市|町|村|区)$/,'').trim();
-}
-function getPowerCompanyFromArea(areaName){
-  if(!areaName)return null;
-  /* ①広域地方名を最優先（既存データ優先） */
-  if(BROAD_REGION_TO_POWER[areaName])return BROAD_REGION_TO_POWER[areaName];
-  /* ②市町村名から都道府県経由で判定 */
-  const key=normalizeAreaKey(areaName);
-  const pref=AREA_TO_PREF[key];
-  if(pref)return PREF_TO_POWER[pref]||null;
-  /* ③未マッピング：どのタブにも属さない（nullを返す） */
-  return null;
-}
 function renderPowerCompanyTabs(){
   const counts={};POWER_COMPANIES.forEach(pc=>counts[pc]=0);
   (allCases||[]).forEach(c=>{const pc=getPowerCompanyFromArea(c.area_name);if(counts[pc]!==undefined)counts[pc]++;});
