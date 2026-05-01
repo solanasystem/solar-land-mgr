@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>案件概要書 - SOLAR LAND MGR</title>
+<link rel="stylesheet" href="mobile-responsive.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  /* ======== 印刷設定 ======== */
+  @page { size: A4 landscape; margin: 5mm; }
+  @media print {
+    body { background: white !important; padding: 0 !important; }
+    .no-print { display: none !important; }
+    .summary-sheet {
+      box-shadow: none !important;
+      margin: 0 !important;
+      page-break-after: avoid;
+    }
+  }
+
+  /* ======== 共通 ======== */
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Yu Gothic", "Meiryo", "Hiragino Kaku Gothic ProN", sans-serif;
+    background: #e5e7eb;
+    color: #111;
+    padding: 16px;
+  }
+
+  /* ======== ツールバー ======== */
+  .toolbar {
+    max-width: 297mm;
+    margin: 0 auto 12px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 10px 14px;
+    background: white;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.08);
+  }
+  .toolbar h1 {
+    font-size: 15px;
+    margin: 0 12px 0 0;
+    font-weight: 600;
+  }
+  .toolbar button, .toolbar a.btn {
+    padding: 8px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    border-radius: 4px;
+    text-decoration: none;
+    color: #111;
+    font-family: inherit;
+  }
+  .toolbar button:hover, .toolbar a.btn:hover { background: #e2e8f0; }
+  .toolbar button.primary {
+    background: #2563eb;
+    color: white;
+    border-color: #1d4ed8;
+    font-weight: 600;
+  }
+  .toolbar button.primary:hover { background: #1d4ed8; }
+  .toolbar .case-id-input {
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    font-size: 13px;
+    width: 220px;
+    font-family: inherit;
+  }
+  .toolbar .status-msg { margin-left: auto; font-size: 12px; color: #64748b; }
+  .toolbar .status-msg.error { color: #dc2626; font-weight: 600; }
+
+  /* ======== A4 シート ======== */
+  .summary-sheet {
+    width: 297mm;
+    min-height: 210mm;
+    margin: 0 auto;
+    padding: 6mm 7mm;
+    background: white;
+    box-shadow: 0 4px 12px rgba(0,0,0,.15);
+    box-sizing: border-box;
+    position: relative;
+    font-size: 8.5pt;
+    line-height: 1.3;
+    overflow: hidden;
+  }
+
+  /* タイトル */
+  .sheet-title {
+    text-align: center;
+    font-size: 16pt;
+    font-weight: bold;
+    letter-spacing: 12px;
+    margin: 0 0 3mm 0;
+    padding-left: 12px; /* compensate letter-spacing on right */
+  }
+
+  /* 透かし */
+  .watermark {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) rotate(-25deg);
+    font-size: 90pt;
+    color: rgba(34, 139, 34, 0.06);
+    font-weight: 900;
+    letter-spacing: 14px;
+    pointer-events: none;
+    z-index: 0;
+    white-space: nowrap;
+  }
+
+  /* 本体グリッド */
+  .sheet-body {
+    display: grid;
+    grid-template-columns: 60% 40%;
+    gap: 1.5mm;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ======== データテーブル ======== */
+  table.dt {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    margin-bottom: 0.8mm;
+  }
+  table.dt th, table.dt td {
+    border: 1px solid #333;
+    padding: 1.2mm 1.5mm;
+    font-size: 8pt;
+    vertical-align: middle;
+    word-break: break-all;
+    overflow: hidden;
+  }
+  table.dt th {
+    background: #f3f4f6;
+    text-align: center;
+    font-weight: normal;
+    font-size: 7.5pt;
+  }
+  table.dt td.lbl {
+    background: #fafafa;
+    text-align: center;
+    font-weight: normal;
+    font-size: 7.5pt;
+  }
+  table.dt td.dat { text-align: center; }
+  table.dt td.dat-l { text-align: left; }
+  table.dt td a {
+    color: #1d4ed8;
+    text-decoration: none;
+    word-break: break-all;
+    font-size: 7pt;
+  }
+  table.dt td a:hover { text-decoration: underline; }
+
+  /* チェック項目セクションヘッダー */
+  .section-head {
+    background: #e5e7eb;
+    text-align: center;
+    font-weight: 600;
+    border: 1px solid #333;
+    padding: 1mm;
+    font-size: 8pt;
+    margin-top: 0.5mm;
+  }
+
+  /* チェックボックス表現 */
+  .chk-on::before, .chk-off::before {
+    display: inline-block;
+    width: 10px;
+    text-align: center;
+    font-weight: bold;
+  }
+  .chk-on::before { content: "✓"; color: #111; }
+  .chk-off::before { content: "□"; color: #111; }
+
+  /* ======== 画像エリア ======== */
+  .img-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr 1.1fr;
+    gap: 1mm;
+    height: calc(210mm - 24mm); /* 概算 */
+    min-height: 175mm;
+  }
+  .img-cell {
+    border: 1px solid #333;
+    background: #f9fafb;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-direction: column;
+  }
+  .img-cell-label {
+    position: absolute;
+    top: 0; left: 0;
+    background: rgba(255,255,255,.92);
+    border-right: 1px solid #ccc;
+    border-bottom: 1px solid #ccc;
+    padding: 0.6mm 1.5mm;
+    font-size: 7pt;
+    font-weight: 600;
+    z-index: 2;
+  }
+  .img-cell-placeholder {
+    color: #9ca3af;
+    font-size: 7.5pt;
+    text-align: center;
+    padding: 4mm;
+  }
+  .img-cell-bottom {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: rgba(255,255,255,.85);
+    border-top: 1px solid #ccc;
+    text-align: center;
+    padding: 0.5mm;
+    font-size: 6.5pt;
+    color: #444;
+  }
+  /* 接道セル: 大きく */
+  .img-cell.setsudo {
+    grid-column: 1 / 2;
+    grid-row: 3 / 4;
+  }
+  /* 電柱セル: 3分割 */
+  .img-cell.dench {
+    grid-column: 2 / 3;
+    grid-row: 3 / 4;
+    padding: 0;
+    flex-direction: row;
+    background: white;
+  }
+  .dench-mini {
+    flex: 1;
+    border-right: 1px solid #ddd;
+    position: relative;
+    background: #f9fafb;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .dench-mini:last-child { border-right: none; }
+  .dench-mini-label {
+    font-size: 6.5pt;
+    color: #6b7280;
+    margin-top: 1mm;
+  }
+
+  /* ======== フッター ======== */
+  .sheet-footer {
+    text-align: right;
+    margin-top: 1.5mm;
+    font-size: 9pt;
+    font-weight: bold;
+    position: relative;
+    z-index: 1;
+    color: #166534;
+  }
+
+  /* ======== ステータス表示 ======== */
+  .full-status {
+    max-width: 600px;
+    margin: 80px auto;
+    background: white;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.1);
+    text-align: center;
+  }
+  .full-status.error h2 { color: #dc2626; }
+  .full-status pre {
+    text-align: left;
+    background: #f3f4f6;
+    padding: 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    overflow: auto;
+    margin: 12px 0;
+  }
+  .full-status input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    margin: 6px 0;
+    font-size: 13px;
+    box-sizing: border-box;
+  }
+  .full-status button {
+    padding: 10px 24px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-top: 8px;
+  }
+
+  /* iPhone 表示時はツールバー縮小 */
+  @media screen and (max-width: 768px) {
+    body { padding: 4px; }
+    .summary-sheet {
+      width: 100%;
+      transform: scale(0.45);
+      transform-origin: top left;
+      margin-bottom: -55%;
+    }
+    .toolbar { padding: 6px; }
+    .toolbar h1 { font-size: 13px; margin-right: 4px; }
+    .toolbar button { padding: 6px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ======== ツールバー ======== -->
+<div class="toolbar no-print">
+  <h1>📄 案件概要書</h1>
+  <input type="text" class="case-id-input" id="caseIdInput" placeholder="案件番号 (例: AICHI-001)" />
+  <button onclick="loadByInput()">📥 読込</button>
+  <button class="primary" onclick="window.print()">🖨 印刷 / PDF出力</button>
+  <button onclick="history.back()">← 戻る</button>
+  <span class="status-msg" id="statusMsg"></span>
+</div>
+
+<!-- ======== 設定パネル（接続情報未設定時） ======== -->
+<div id="configPanel" class="full-status" style="display:none;">
+  <h2>🔧 Supabase接続設定</h2>
+  <p style="font-size:13px; color:#64748b;">localStorageに接続情報がないため初回設定が必要です。</p>
+  <input type="text" id="cfgUrl" placeholder="Supabase URL (例: https://fygnrjjifoasozbhkxlk.supabase.co)" />
+  <input type="text" id="cfgKey" placeholder="Anon Key (eyJh...)" />
+  <button onclick="saveConfig()">保存して読込</button>
+</div>
+
+<!-- ======== エラー表示 ======== -->
+<div id="errorPanel" class="full-status error" style="display:none;">
+  <h2>⚠️ エラー</h2>
+  <pre id="errorBody"></pre>
+  <button onclick="location.reload()">再読込</button>
+</div>
+
+<!-- ======== A4シート本体 ======== -->
+<div id="sheet" class="summary-sheet" style="display:none;">
+
+  <div class="watermark">XAMAX</div>
+
+  <h1 class="sheet-title">概&nbsp;要&nbsp;書</h1>
+
+  <div class="sheet-body">
+
+    <!-- ======== 左：データテーブル群 ======== -->
+    <div>
+      <!-- 発電所名称 -->
+      <table class="dt">
+        <colgroup><col style="width:24%"><col style="width:76%"></colgroup>
+        <tr>
+          <td class="lbl">(仮)発電所名称</td>
+          <td class="dat" id="d-name">ーーー</td>
+        </tr>
+      </table>
+
+      <!-- 緯度経度 / Google Map -->
+      <table class="dt">
+        <colgroup><col style="width:24%"><col style="width:36%"><col style="width:18%"><col style="width:22%"></colgroup>
+        <tr>
+          <td class="lbl">緯度経度</td>
+          <td class="dat" id="d-coords">ーーー</td>
+          <td class="lbl">Google Map</td>
+          <td class="dat" id="d-map">ーーー</td>
+        </tr>
+      </table>
+
+      <!-- 所在 / 地番 / 地目 / 地積 / 権利(乙区) -->
+      <table class="dt">
+        <colgroup>
+          <col style="width:32%"><col style="width:14%"><col style="width:14%"><col style="width:16%"><col style="width:24%">
+        </colgroup>
+        <tr>
+          <th>所在</th><th>地番</th><th>地目</th><th>地積</th><th>権利(乙区)</th>
+        </tr>
+        <tr>
+          <td class="dat-l" id="d-address">ーーー</td>
+          <td class="dat" id="d-landno">ーーー</td>
+          <td class="dat" id="d-landtype">ーーー</td>
+          <td class="dat" id="d-area">ーーー</td>
+          <td class="dat" id="d-otsu">ーーー</td>
+        </tr>
+      </table>
+
+      <!-- 接道 / 登記上 / 幅 / 舗装状況 / 発電所区分 / AC / DC -->
+      <table class="dt">
+        <colgroup>
+          <col style="width:14%"><col style="width:14%"><col style="width:14%"><col style="width:18%"><col style="width:18%"><col style="width:11%"><col style="width:11%">
+        </colgroup>
+        <tr>
+          <th>接道</th><th>登記上</th><th>幅</th><th>舗装状況</th><th>発電所区分</th><th>AC</th><th>DC</th>
+        </tr>
+        <tr>
+          <td class="dat" id="d-setsu">ーーー</td>
+          <td class="dat" id="d-tokijo">ーーー</td>
+          <td class="dat" id="d-haba">ーーー</td>
+          <td class="dat" id="d-pavement">ーーー</td>
+          <td class="dat" id="d-kubun">ーーー</td>
+          <td class="dat" id="d-ac">ーーー</td>
+          <td class="dat" id="d-dc">ーーー</td>
+        </tr>
+      </table>
+
+      <!-- 土地（所有権or地上権） -->
+      <table class="dt">
+        <colgroup>
+          <col style="width:14%"><col style="width:13%"><col style="width:18%"><col style="width:13%"><col style="width:14%"><col style="width:14%"><col style="width:14%">
+        </colgroup>
+        <tr>
+          <th rowspan="2" style="font-size:7pt;">土地<br>(所有権or<br>地上権)</th>
+          <th>権利</th><th>売価</th><th>賃料</th><th>農振法区分</th><th>伐採届</th><th>垂直積雪量</th>
+        </tr>
+        <tr>
+          <td class="dat" id="d-kenri">ーーー</td>
+          <td class="dat" id="d-baika">ーーー</td>
+          <td class="dat" id="d-chinryo">ーーー</td>
+          <td class="dat" id="d-noshin">ーーー</td>
+          <td class="dat" id="d-bassai">ーーー</td>
+          <td class="dat" id="d-sekisetsu">ーーー</td>
+        </tr>
+      </table>
+
+      <!-- 電柱番号 -->
+      <table class="dt">
+        <colgroup>
+          <col style="width:24%"><col style="width:25%"><col style="width:25%"><col style="width:26%">
+        </colgroup>
+        <tr>
+          <th rowspan="2" style="font-size:7pt;">電柱番号<br>(電柱を<br>正面に見て)</th>
+          <th>左側</th><th>中央</th><th>右側</th>
+        </tr>
+        <tr>
+          <td class="dat" id="d-pole-l">ーーー</td>
+          <td class="dat" id="d-pole-c">ーーー</td>
+          <td class="dat" id="d-pole-r">ーーー</td>
+        </tr>
+      </table>
+
+      <!-- 条例 -->
+      <table class="dt">
+        <colgroup><col style="width:24%"><col style="width:76%"></colgroup>
+        <tr>
+          <td class="lbl">条例</td>
+          <td class="dat" id="d-jorei">ーーー</td>
+        </tr>
+        <tr>
+          <td class="lbl">ガイドライン</td>
+          <td class="dat" id="d-guideline">ーーー</td>
+        </tr>
+      </table>
+
+      <!-- チェック項目 -->
+      <div class="section-head">チェック項目</div>
+      <table class="dt">
+        <colgroup>
+          <col style="width:24%"><col style="width:10%"><col style="width:10%"><col style="width:56%">
+        </colgroup>
+        <tr>
+          <th>ハザード</th><th>あり</th><th>なし</th><th>詳　細</th>
+        </tr>
+        <tbody id="hazard-tbody">
+          <!-- ハザード項目はJSで生成 -->
+        </tbody>
+        <tr>
+          <td colspan="4" class="dat-l" style="background:#f3f4f6; font-weight:600; text-align:center;">備　考</td>
+        </tr>
+        <tr>
+          <td colspan="4" class="dat-l" id="d-bikou" style="min-height:6mm;">ーーー</td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- ======== 右：画像エリア ======== -->
+    <div class="img-grid">
+      <div class="img-cell">
+        <span class="img-cell-label">位置図</span>
+        <span class="img-cell-placeholder">Phase 3で<br>地理院地図を自動取得</span>
+      </div>
+      <div class="img-cell">
+        <span class="img-cell-label">Google MAP 重ね</span>
+        <span class="img-cell-placeholder">Phase 3で<br>衛星写真を自動取得</span>
+      </div>
+      <div class="img-cell">
+        <span class="img-cell-label">公図</span>
+        <span class="img-cell-placeholder">Phase 3で<br>公図PDFを<br>手動アップロード</span>
+        <div class="img-cell-bottom" id="d-koz-cap">該当地</div>
+      </div>
+      <div class="img-cell">
+        <span class="img-cell-label">ハザードMAP</span>
+        <span class="img-cell-placeholder">Phase 3で<br>disaportalを自動取得</span>
+        <div class="img-cell-bottom" id="d-haz-cap">該当地</div>
+      </div>
+      <div class="img-cell setsudo">
+        <span class="img-cell-label">接道</span>
+        <span class="img-cell-placeholder">Phase 3で<br>field_survey写真を流用</span>
+        <div class="img-cell-bottom" id="d-setsu-cap">接道</div>
+      </div>
+      <div class="img-cell dench">
+        <div class="dench-mini">
+          <span class="img-cell-placeholder" style="font-size:6.5pt;">電柱<br>左側</span>
+          <span class="dench-mini-label" id="d-pole-l-cap">(左側)ーーー</span>
+        </div>
+        <div class="dench-mini">
+          <span class="img-cell-placeholder" style="font-size:6.5pt;">電柱<br>中央</span>
+          <span class="dench-mini-label" id="d-pole-c-cap">(中央)ーーー</span>
+        </div>
+        <div class="dench-mini">
+          <span class="img-cell-placeholder" style="font-size:6.5pt;">電柱<br>右側</span>
+          <span class="dench-mini-label" id="d-pole-r-cap">(右側)ーーー</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /sheet-body -->
+
+  <div class="sheet-footer">株式会社XAMAX &amp; In the cloud</div>
+
+</div><!-- /summary-sheet -->
+
+
+<!-- ======== JavaScript ======== -->
+<script>
+'use strict';
+
+// ハザード項目定義（PDFサンプル準拠）
+const HAZARD_ITEMS = [
+  { key: 'kozui',     name: '洪　水' },
+  { key: 'dosha',     name: '土砂災害' },
+  { key: 'takashio',  name: '高　潮' },
+  { key: 'tsunami',   name: '津　波' },
+  { key: 'sabo',      name: '砂防指定地' },
+  { key: 'kasen',     name: '河川区域\n河川保全区域' },
+  { key: 'chouju',    name: '鳥獣保護\n特別保護地区' },
+  { key: 'maizou',    name: '埋蔵文化財\n包蔵地' },
+  { key: 'koen',      name: '国立公園\n県立自然公園' },
+  { key: 'shizen',    name: '県自然環境\n保全地域' },
+  { key: 'shinsei',   name: '申　請' },
+  { key: 'todoke',    name: '届　出' },
+];
+
+// ハザード行を生成（Phase1: 全部「なし」固定）
+(function buildHazardRows(){
+  const tbody = document.getElementById('hazard-tbody');
+  tbody.innerHTML = HAZARD_ITEMS.map(it => `
+    <tr>
+      <td class="dat" style="white-space:pre-line; font-size:7.5pt;">${it.name}</td>
+      <td class="dat" id="hz-${it.key}-on"><span class="chk-off"></span></td>
+      <td class="dat" id="hz-${it.key}-off"><span class="chk-on"></span></td>
+      <td class="dat-l" id="hz-${it.key}-detail">　</td>
+    </tr>
+  `).join('');
+})();
+
+// ====== Supabase 接続情報 ======
+const LS_URL_KEYS = ['SUPABASE_URL', 'supabase_url', 'supabaseUrl'];
+const LS_KEY_KEYS = ['SUPABASE_ANON_KEY', 'SUPABASE_KEY', 'supabase_anon_key', 'supabase_key', 'supabaseKey'];
+
+function getSupabaseConfig() {
+  let url = null, key = null;
+  for (const k of LS_URL_KEYS) { if (localStorage.getItem(k)) { url = localStorage.getItem(k); break; } }
+  for (const k of LS_KEY_KEYS) { if (localStorage.getItem(k)) { key = localStorage.getItem(k); break; } }
+  return { url, key };
+}
+
+function saveConfig() {
+  const url = document.getElementById('cfgUrl').value.trim();
+  const key = document.getElementById('cfgKey').value.trim();
+  if (!url || !key) { alert('URLとAnon Keyの両方を入力してください'); return; }
+  localStorage.setItem('SUPABASE_URL', url);
+  localStorage.setItem('SUPABASE_ANON_KEY', key);
+  location.reload();
+}
+
+let supabase = null;
+function initSupabase() {
+  const { url, key } = getSupabaseConfig();
+  if (!url || !key) {
+    document.getElementById('configPanel').style.display = 'block';
+    document.getElementById('cfgUrl').value = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+    return false;
+  }
+  supabase = window.supabase.createClient(url, key);
+  return true;
+}
+
+// ====== ステータス表示 ======
+function setStatus(msg, isError) {
+  const el = document.getElementById('statusMsg');
+  el.textContent = msg || '';
+  el.className = 'status-msg' + (isError ? ' error' : '');
+}
+
+function showError(msg, detail) {
+  document.getElementById('errorPanel').style.display = 'block';
+  document.getElementById('errorBody').textContent = msg + (detail ? '\n\n' + JSON.stringify(detail, null, 2) : '');
+  document.getElementById('sheet').style.display = 'none';
+}
+
+// ====== ユーティリティ ======
+const safe = (v) => (v === null || v === undefined || v === '') ? 'ーーー' : v;
+const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = safe(v); };
+const setHTML = (id, v) => { const el = document.getElementById(id); if (el) el.innerHTML = v; };
+
+// 緯度経度を度分秒形式に変換（例: 36°10'41.8"N 139°09'01.4"E）
+function formatCoords(lat, lng) {
+  if (lat == null || lng == null) return null;
+  const f = (deg, posChar, negChar) => {
+    const sign = deg >= 0 ? posChar : negChar;
+    const a = Math.abs(deg);
+    const d = Math.floor(a);
+    const m = Math.floor((a - d) * 60);
+    const s = ((a - d) * 60 - m) * 60;
+    return `${d}°${String(m).padStart(2,'0')}'${s.toFixed(1).padStart(4,'0')}"${sign}`;
+  };
+  return `${f(parseFloat(lat),'N','S')} ${f(parseFloat(lng),'E','W')}`;
+}
+
+// 案件番号→発電所名称（とりあえず案件番号＋区分から推定）
+function deriveName(caseNo, kubun, addr, landNo) {
+  // 「本庄児玉713-2蓄電所」のような形式を再現したいが、
+  // Phase 1では既存データのみで作るため案件番号ベース。
+  if (!caseNo) return null;
+  const isBat = (kubun || '').includes('蓄電');
+  const suffix = isBat ? '蓄電所' : '発電所';
+  // 住所末尾＋地番から作るパターン（取れれば）
+  if (addr && landNo) {
+    // 住所の最後の字名を抽出する簡易ロジック
+    return `${addr.replace(/.*?[市区町村]/, '')}${landNo}${suffix}`.replace(/\s+/g,'');
+  }
+  return `${caseNo}${suffix}`;
+}
+
+// 地積を整形（例: 1619 → 1619㎡）
+function formatArea(v) {
+  if (v == null || v === '') return null;
+  const n = parseFloat(v);
+  if (isNaN(n)) return String(v);
+  return `${n}㎡`;
+}
+
+// 売価を整形（数値→¥カンマ区切り）。マスク表示にも対応。
+function formatPrice(v, mask) {
+  if (v == null || v === '') return null;
+  const n = parseFloat(v);
+  if (isNaN(n)) return String(v);
+  if (mask) return '※,※※※,※※※円';
+  return n.toLocaleString('ja-JP') + '円';
+}
+
+// ====== メイン読込 ======
+async function loadCase(caseNoOrId) {
+  if (!supabase) return;
+  if (!caseNoOrId) { setStatus('案件番号を指定してください', true); return; }
+
+  setStatus('読込中...');
+  document.getElementById('errorPanel').style.display = 'none';
+
+  try {
+    // case_no と id どちらでもヒットするように両対応
+    let caseQuery = supabase.from('cases').select('*');
+    if (/^[0-9a-f-]{30,}$/i.test(caseNoOrId)) {
+      caseQuery = caseQuery.eq('id', caseNoOrId);
+    } else {
+      caseQuery = caseQuery.eq('case_no', caseNoOrId);
+    }
+    const { data: cases, error: ce } = await caseQuery.limit(1);
+    if (ce) throw ce;
+    if (!cases || cases.length === 0) {
+      setStatus('該当案件なし: ' + caseNoOrId, true);
+      return;
+    }
+    const c = cases[0];
+
+    // land_info / landowner_info を case_id で取得
+    const [{ data: lands }, { data: owners }] = await Promise.all([
+      supabase.from('land_info').select('*').eq('case_id', c.id).limit(1),
+      supabase.from('landowner_info').select('*').eq('case_id', c.id).limit(1),
+    ]);
+    const land = (lands && lands[0]) || {};
+    const owner = (owners && owners[0]) || {};
+
+    render(c, land, owner);
+    setStatus('読込完了: ' + (c.case_no || c.id));
+    document.getElementById('sheet').style.display = '';
+  } catch (e) {
+    console.error(e);
+    showError('データ取得に失敗しました', e);
+    setStatus('エラー', true);
+  }
+}
+
+// ====== 描画 ======
+function render(c, land, owner) {
+  // 案件番号は cases / land_info / landowner_info それぞれに散在する可能性あり
+  const caseNo = c.case_no || c.no || '';
+  const kubun  = c.kubun || c.power_kubun || '';
+
+  // 緯度経度（cases優先 → land_info → landowner_info）
+  const lat = c.lat ?? land.lat ?? owner.lat;
+  const lng = c.lng ?? land.lng ?? owner.lng;
+  const coords = formatCoords(lat, lng);
+
+  // Google Map URL
+  const gmap = c.google_map || land.google_map || owner.google_map;
+
+  // 所在（land_info.chiban が所在地テキスト）
+  const address = land.chiban || land.location_text || c.address || owner.address;
+
+  // 地番（独立カラムが無い可能性大→ーーー）
+  const landNo = land.chiban_no || land.land_no || null;
+
+  // 地目（land_info.chimoku が新カラム）
+  const chimoku = land.chimoku || null;
+
+  // 地積（land_info.location が面積数値、area_sqm にも候補）
+  const area = land.area_sqm ?? land.location ?? land.menseki;
+
+  // 用途地域・地目（horeijo_seigen）はチェック項目側でも参照
+  const horeijo = land.horeijo_seigen;
+
+  // 売価（landowner_info.price）
+  const price = owner.price;
+
+  // 備考
+  const bikou = land.biko || c.bikou || c.memo;
+
+  // ===== 描画 =====
+  setText('d-name', deriveName(caseNo, kubun, address, landNo));
+
+  setText('d-coords', coords);
+  if (gmap) {
+    document.getElementById('d-map').innerHTML =
+      `<a href="${gmap}" target="_blank" rel="noopener">${gmap.length > 36 ? gmap.slice(0,36)+'…' : gmap}</a>`;
+  } else {
+    setText('d-map', null);
+  }
+
+  setText('d-address', address);
+  setText('d-landno', landNo);
+  setText('d-landtype', chimoku);
+  setText('d-area', formatArea(area));
+  setText('d-otsu', null); // Phase 1 ではDB未対応
+
+  // 接道行
+  setText('d-setsu', null);
+  setText('d-tokijo', null);
+  setText('d-haba', null);
+  setText('d-pavement', null);
+  setText('d-kubun', kubun);
+  setText('d-ac', null);
+  setText('d-dc', null);
+
+  // 土地行
+  setText('d-kenri', null);
+  setText('d-baika', formatPrice(price, true)); // 営業先提出はマスク表示
+  setText('d-chinryo', null);
+  setText('d-noshin', null);
+  setText('d-bassai', null);
+  setText('d-sekisetsu', null);
+
+  // 電柱
+  setText('d-pole-l', null);
+  setText('d-pole-c', null);
+  setText('d-pole-r', null);
+
+  // 条例・ガイドライン
+  setText('d-jorei', null);
+  setText('d-guideline', null);
+
+  // ハザード詳細（land_info.hazard テキストから簡易解析を試みる）
+  applyHazardText(land.hazard);
+
+  // 備考（東電変電所までの距離など、複数情報を結合する将来余地あり）
+  setText('d-bikou', bikou);
+
+  // 画像下キャプション
+  setText('d-pole-l-cap', '(左側)ーーー');
+  setText('d-pole-c-cap', '(中央)ーーー');
+  setText('d-pole-r-cap', '(右側)ーーー');
+}
+
+// ハザードテキストから「あり/なし」を簡易解析
+function applyHazardText(hazardText) {
+  // Phase 1 ではDB未構造化のため、テキストにキーワードがあれば「あり」に倒す簡易判定
+  if (!hazardText) return;
+  const txt = String(hazardText);
+  const keywordMap = {
+    kozui:    ['洪水'],
+    dosha:    ['土砂', '急傾斜'],
+    takashio: ['高潮'],
+    tsunami:  ['津波'],
+    sabo:     ['砂防'],
+    kasen:    ['河川'],
+    chouju:   ['鳥獣'],
+    maizou:   ['埋蔵', '遺跡'],
+    koen:     ['国立公園', '県立自然公園'],
+    shizen:   ['自然環境'],
+  };
+  for (const [k, kws] of Object.entries(keywordMap)) {
+    const hit = kws.some(kw => txt.includes(kw));
+    if (hit) {
+      setHTML(`hz-${k}-on`,  '<span class="chk-on"></span>');
+      setHTML(`hz-${k}-off`, '<span class="chk-off"></span>');
+      // 詳細にテキスト全体を入れる（Phase2 で項目別構造化）
+      const detailEl = document.getElementById(`hz-${k}-detail`);
+      if (detailEl && kws.some(kw => txt.includes(kw))) {
+        // テキストの該当部分を抜粋して入れる
+        detailEl.textContent = txt.length > 30 ? txt.slice(0,30) + '…' : txt;
+      }
+    }
+  }
+}
+
+// ====== 起動 ======
+function loadByInput() {
+  const v = document.getElementById('caseIdInput').value.trim();
+  if (!v) { setStatus('案件番号を入力してください', true); return; }
+  // URLにも反映（リロード/共有しやすく）
+  const u = new URL(location.href);
+  u.searchParams.set('case_id', v);
+  history.replaceState(null, '', u);
+  loadCase(v);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (!initSupabase()) return;
+  // URL パラメータから case_id を取得
+  const params = new URLSearchParams(location.search);
+  const caseId = params.get('case_id') || params.get('case_no');
+  if (caseId) {
+    document.getElementById('caseIdInput').value = caseId;
+    loadCase(caseId);
+  } else {
+    setStatus('案件番号を入力して「読込」を押してください');
+    document.getElementById('sheet').style.display = '';
+  }
+  // Enter キーで読込
+  document.getElementById('caseIdInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') loadByInput();
+  });
+});
+</script>
+
+</body>
+</html>
