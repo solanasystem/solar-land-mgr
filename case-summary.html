@@ -1,13 +1,47 @@
 <!DOCTYPE html>
+<!-- BUILD: case-summary v4 / 2026-05-01 / sbClient (no global supabase declaration) -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>案件概要書 - SOLAR LAND MGR</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>案件概要書 v4 - SOLAR LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-// Supabase SDK が読めなかったときのフォールバック（unpkg）
+// グローバルJSエラーを画面に表示する保険（DevToolsを開かなくても診断可能にする）
+window.addEventListener('error', function(ev) {
+  try {
+    const tb = document.getElementById('statusMsg');
+    if (tb) {
+      tb.textContent = '🔥JS Error: ' + (ev.message || '?') + ' @ ' + (ev.filename||'').split('/').pop() + ':' + (ev.lineno||'');
+      tb.className = 'status-msg error';
+      tb.style.cssText = 'color:#dc2626;font-weight:600;font-size:11px;max-width:600px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    }
+    const eb = document.getElementById('errorBody');
+    const ep = document.getElementById('errorPanel');
+    if (eb && ep) {
+      eb.textContent = 'JSエラー: ' + ev.message + '\n場所: ' + ev.filename + ':' + ev.lineno + ':' + ev.colno;
+      ep.style.display = 'block';
+    }
+  } catch(_){}
+});
+window.addEventListener('unhandledrejection', function(ev) {
+  try {
+    const tb = document.getElementById('statusMsg');
+    if (tb) {
+      tb.textContent = '🔥Promise Error: ' + (ev.reason && ev.reason.message ? ev.reason.message : String(ev.reason)).slice(0, 200);
+      tb.className = 'status-msg error';
+    }
+  } catch(_){}
+});
+</script>
+<!-- Supabase SDK: UMDバンドルを直接指定（"@2"だけだとCJSが返る場合があるため） -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"
+        onerror="(function(){var s=document.createElement('script');s.src='https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js';s.onerror=function(){var s2=document.createElement('script');s2.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';document.head.appendChild(s2);};document.head.appendChild(s);})()"></script>
+<script>
+// Supabase SDK が読めなかったときの最終フォールバック
 window.addEventListener('load', function() {
   if (typeof window.supabase === 'undefined' || !window.supabase.createClient) {
     console.warn('Primary CDN failed, trying unpkg fallback...');
@@ -15,7 +49,6 @@ window.addEventListener('load', function() {
     s.src = 'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js';
     s.onload = function() {
       console.log('Fallback CDN loaded.');
-      // 既にDOMContentLoadedは終わっているので明示的に再初期化
       if (typeof bootApp === 'function') bootApp();
     };
     s.onerror = function() {
@@ -27,6 +60,11 @@ window.addEventListener('load', function() {
       }
     };
     document.head.appendChild(s);
+  } else {
+    // SDK は OK。bootApp が DOMContentLoaded 前に走ってない場合はここで呼ぶ
+    if (typeof bootApp === 'function' && typeof sbClient !== 'undefined' && !sbClient) {
+      bootApp();
+    }
   }
 });
 </script>
@@ -352,7 +390,7 @@ window.addEventListener('load', function() {
 
 <!-- ======== ツールバー ======== -->
 <div class="toolbar no-print">
-  <h1>📄 案件概要書</h1>
+  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v4</span></h1>
   <input type="text" class="case-id-input" id="caseIdInput" placeholder="案件番号 (例: AICHI-001)" />
   <button onclick="loadByInput()">📥 読込</button>
   <button class="primary" onclick="window.print()">🖨 印刷 / PDF出力</button>
