@@ -932,7 +932,12 @@
       if (typeof loadLandownerDetail === 'function' && state.caseId) loadLandownerDetail(state.caseId);
       if (typeof loadLandDetail === 'function' && state.caseId) loadLandDetail(state.caseId);
       if (typeof loadDocuments === 'function' && state.caseId) loadDocuments(state.caseId);
-      if (typeof loadCases === 'function') loadCases();
+      if (typeof loadCases === 'function') {
+        // loadCases() で全件再取得・全件描画した後、filterCases() でフィルタ状態（NGブラインド・検索・電力会社タブ等）を再適用
+        Promise.resolve(loadCases()).then(() => {
+          if (typeof filterCases === 'function') filterCases();
+        });
+      }
     } catch (e) {
       console.error(e);
       showToast('反映処理失敗: ' + (e.message || e), 'error');
