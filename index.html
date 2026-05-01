@@ -8,11 +8,11 @@
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="mobile-responsive.css?v=20260429a">
-<link rel="stylesheet" href="toki-ai.css?v=20260501c">
+<link rel="stylesheet" href="toki-ai.css?v=20260501d">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-<script src="toki-ai.js?v=20260501c" defer></script>
+<script src="toki-ai.js?v=20260501d" defer></script>
 <style>
   :root {
     --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
@@ -723,6 +723,15 @@
       <button class="modal-close" onclick="closeModal('editLandownerModal')">✕</button>
     </div>
     <div class="modal-body">
+      <div id="elo_owner_switcher" style="display:none;background:rgba(255,193,7,.08);border:1px solid rgba(255,193,7,.3);border-radius:6px;padding:10px 12px;margin-bottom:12px">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:12px;color:#ffc107;font-weight:600;white-space:nowrap">編集対象の所有者：</label>
+          <select id="elo_owner_select" class="form-input" style="flex:1;min-width:200px;max-width:400px" onchange="switchLandownerEdit(this.value)"></select>
+          <button class="btn btn-ghost" type="button" style="font-size:12px;white-space:nowrap" onclick="addNewLandownerEdit()">+ 所有者を追加</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">※ 共有名義の場合、所有者ごとに切り替えて編集できます。保存は選択中の所有者のみ反映されます。</div>
+      </div>
+      <input type="hidden" id="elo_current_id" value="">
       <div class="form-grid">
         <div class="form-group"><label class="form-label">氏名</label><input class="form-input" type="text" id="elo_name" placeholder="例：山田 太郎"></div>
         <div class="form-group"><label class="form-label">電話番号</label><input class="form-input" type="text" id="elo_tel" placeholder="例：090-1234-5678"></div>
@@ -3216,25 +3225,82 @@ async function deleteCase(){
   showToast('案件を削除しました');closeModal('editCaseModal');await refreshAll();
 }
 
+// 編集モーダル用の状態（複数地権者対応）
+let _editLandownerList=[];
 async function openLandownerEditModal(){
-  const{data}=await db.from('landowner_info').select('*').eq('case_id',currentCaseId).single();
-  ['name','address','tel','google_map','memo','postal_code'].forEach(f=>document.getElementById('elo_'+f).value=data?.[f]||'');
-  document.getElementById('elo_price').value=data?.price||'';
-  document.getElementById('elo_lat').value=data?.lat||'';
-  document.getElementById('elo_lng').value=data?.lng||'';
+  const{data}=await db.from('landowner_info').select('*').eq('case_id',currentCaseId).order('id',{ascending:true});
+  _editLandownerList=data||[];
+  const sw=document.getElementById('elo_owner_switcher');
+  const sel=document.getElementById('elo_owner_select');
+  if(_editLandownerList.length>=2){
+    const ord=['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
+    sel.innerHTML=_editLandownerList.map((d,i)=>`<option value="${d.id}">所有者${ord[i]||(i+1)}${i===0?'（筆頭）':''}：${d.name||'(氏名未登録)'}</option>`).join('');
+    sw.style.display='block';
+  }else if(_editLandownerList.length===1){
+    sw.style.display='none';
+  }else{
+    sw.style.display='none';
+  }
+  // 初期値：1人目（または新規）を読み込み
+  if(_editLandownerList.length>0){
+    if(sel)sel.value=String(_editLandownerList[0].id);
+    fillLandownerEditForm(_editLandownerList[0]);
+  }else{
+    fillLandownerEditForm(null);
+  }
   document.getElementById('elo_postal_hint').textContent='';
   document.getElementById('editLandownerModal').classList.add('open');
+}
+function fillLandownerEditForm(d){
+  document.getElementById('elo_current_id').value=d?.id||'';
+  ['name','address','tel','google_map','memo','postal_code'].forEach(f=>document.getElementById('elo_'+f).value=d?.[f]||'');
+  document.getElementById('elo_price').value=d?.price||'';
+  document.getElementById('elo_lat').value=d?.lat||'';
+  document.getElementById('elo_lng').value=d?.lng||'';
+  document.getElementById('elo_postal_hint').textContent='';
+}
+function switchLandownerEdit(id){
+  const d=_editLandownerList.find(x=>String(x.id)===String(id));
+  if(d)fillLandownerEditForm(d);
+}
+function addNewLandownerEdit(){
+  // 新規所有者の入力モード（IDなし）
+  fillLandownerEditForm(null);
+  const sel=document.getElementById('elo_owner_select');
+  if(sel){
+    // 選択肢に「（新規）」を追加して選択状態にする
+    const exists=Array.from(sel.options).some(o=>o.value==='__new__');
+    if(!exists){
+      const opt=document.createElement('option');opt.value='__new__';opt.textContent='＋ 新規所有者（未保存）';
+      sel.appendChild(opt);
+    }
+    sel.value='__new__';
+  }
+  showToast('新規所有者として入力中。保存ボタンで追加されます');
 }
 async function saveLandowner(){
   const g=id=>document.getElementById(id).value;
   const price=g('elo_price')?Number(g('elo_price')):null;
+  const editingId=g('elo_current_id');
   const payload={case_id:currentCaseId,name:g('elo_name'),address:g('elo_address'),tel:g('elo_tel'),google_map:g('elo_google_map'),price,memo:g('elo_memo'),postal_code:g('elo_postal_code')||null,lat:g('elo_lat')?Number(g('elo_lat')):null,lng:g('elo_lng')?Number(g('elo_lng')):null};
-  const{data:ex}=await db.from('landowner_info').select('id').eq('case_id',currentCaseId).single();
-  const{error}=ex?await db.from('landowner_info').update(payload).eq('case_id',currentCaseId):await db.from('landowner_info').insert(payload);
-  if(error){showToast('保存エラー: '+error.message,'error');return;}
-  const{data:updatedCase,error:priceErr}=await db.from('cases').update({price:price}).eq('id',currentCaseId).select('id,price').single();
-  if(priceErr){showToast('価格同期エラー: '+priceErr.message,'error');}
-  else{const c=allCases.find(x=>String(x.id)===String(currentCaseId));if(c&&updatedCase)c.price=updatedCase.price;}
+  let saveErr=null;
+  if(editingId){
+    // 既存所有者の UPDATE：選択中のIDのみ
+    const{error}=await db.from('landowner_info').update(payload).eq('id',editingId);
+    saveErr=error;
+  }else{
+    // 新規 INSERT
+    const{error}=await db.from('landowner_info').insert(payload);
+    saveErr=error;
+  }
+  if(saveErr){showToast('保存エラー: '+saveErr.message,'error');return;}
+  // cases.price の同期は筆頭所有者のみ反映（従来挙動を維持）
+  const isFirst=_editLandownerList.length===0||(editingId&&String(_editLandownerList[0]?.id)===String(editingId))||(!editingId&&_editLandownerList.length===0);
+  if(isFirst){
+    const{data:updatedCase,error:priceErr}=await db.from('cases').update({price:price}).eq('id',currentCaseId).select('id,price').single();
+    if(priceErr){showToast('価格同期エラー: '+priceErr.message,'error');}
+    else{const c=allCases.find(x=>String(x.id)===String(currentCaseId));if(c&&updatedCase)c.price=updatedCase.price;}
+  }
   closeModal('editLandownerModal');
   await loadLandownerDetail(currentCaseId);
   await refreshAll();
