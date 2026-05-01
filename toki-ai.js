@@ -71,6 +71,30 @@
     return String(name).replace(/[\s　]+/g, '');
   }
 
+  // 国土地理院ジオコーダで住所→緯度経度を取得（同一住所はキャッシュ）
+  const _geocodeCache = {};
+  async function geocodeAddressGSI(address) {
+    if (!address) return null;
+    const addr = String(address).trim();
+    if (!addr) return null;
+    if (_geocodeCache[addr] !== undefined) return _geocodeCache[addr];
+    try {
+      const res = await fetch('https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(addr));
+      if (!res.ok) { _geocodeCache[addr] = null; return null; }
+      const data = await res.json();
+      if (!data || !data.length) { _geocodeCache[addr] = null; return null; }
+      const coord = data[0]?.geometry?.coordinates;
+      if (!coord || coord.length < 2) { _geocodeCache[addr] = null; return null; }
+      const result = { lat: coord[1], lng: coord[0] };
+      _geocodeCache[addr] = result;
+      return result;
+    } catch (e) {
+      console.warn('GSI geocode failed:', addr, e);
+      _geocodeCache[addr] = null;
+      return null;
+    }
+  }
+
   function formatDateJp(iso) {
     if (!iso) return '';
     const d = new Date(iso);
@@ -848,6 +872,11 @@
         }
 
         const payload = { case_id: state.caseId, name: formatOwnerNameWithSpaces(o.name) || null, address: o.address || null };
+        // 住所がある場合、地理院ジオコーダで lat/lng を取得して payload に追加（取得失敗時は null のまま・既存挙動を壊さない）
+        if (o.address) {
+          const geo = await geocodeAddressGSI(o.address);
+          if (geo) { payload.lat = geo.lat; payload.lng = geo.lng; }
+        }
         let landownerId = null;
         let prevName = null, prevAddress = null;
 

@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<title>📍 座標一括補完 — GRID LAND MGR</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="mobile-responsive.css?v=20260429a">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
+    --accent:#f0b429;--accent2:#e85d04;--green:#3fb950;--blue:#58a6ff;
+    --red:#f85149;--text:#e6edf3;--text-muted:#8b949e;--cyan:#06b6d4;
+    --font-main:'Zen Kaku Gothic New',sans-serif;
+    --font-mono:'Share Tech Mono',monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font-family:var(--font-main);min-height:100vh;padding:20px}
+  .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+  .header h1{font-size:22px;font-weight:700;color:var(--cyan)}
+  .header-actions{display:flex;gap:8px}
+  .btn{padding:10px 18px;border-radius:6px;border:1px solid var(--border);font-family:var(--font-main);font-size:13px;font-weight:500;cursor:pointer;transition:all .2s;background:none;color:var(--text)}
+  .btn:hover{background:var(--surface2)}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#000;font-weight:700}
+  .btn-primary:hover{background:#ffd54f}
+  .btn-primary:disabled{background:var(--border);color:var(--text-muted);cursor:not-allowed}
+  .btn-danger{background:var(--red);border-color:var(--red);color:#fff;font-weight:600}
+  .btn-cyan{background:var(--cyan);border-color:var(--cyan);color:#000;font-weight:700}
+  .btn-ghost{background:none}
+  .container{max-width:1200px;margin:0 auto}
+  .summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+  .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px}
+  .stat-label{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+  .stat-value{font-size:28px;font-weight:700;font-family:var(--font-mono)}
+  .stat-value.total{color:var(--text)}
+  .stat-value.pending{color:var(--accent)}
+  .stat-value.success{color:var(--green)}
+  .stat-value.failed{color:var(--red)}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px}
+  .panel-title{font-size:14px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .progress-wrap{background:var(--surface2);border-radius:6px;height:24px;overflow:hidden;border:1px solid var(--border);margin:8px 0}
+  .progress-bar{height:100%;background:linear-gradient(90deg,var(--cyan),var(--green));transition:width .3s;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#000}
+  .current-line{font-size:13px;color:var(--text-muted);font-family:var(--font-mono);margin-top:6px;min-height:18px}
+  .controls{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+  .results-table{width:100%;border-collapse:collapse;font-size:13px}
+  .results-table th{background:var(--surface2);padding:10px;text-align:left;border-bottom:1px solid var(--border);font-weight:600;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em}
+  .results-table td{padding:8px 10px;border-bottom:1px solid var(--border)}
+  .results-table tr:hover td{background:var(--surface2)}
+  .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+  .badge-success{background:rgba(63,185,80,.15);color:var(--green);border:1px solid rgba(63,185,80,.4)}
+  .badge-failed{background:rgba(248,81,73,.15);color:var(--red);border:1px solid rgba(248,81,73,.4)}
+  .badge-skip{background:rgba(139,148,158,.15);color:var(--text-muted);border:1px solid rgba(139,148,158,.4)}
+  .badge-processing{background:rgba(6,182,212,.15);color:var(--cyan);border:1px solid rgba(6,182,212,.4)}
+  .empty{padding:40px;text-align:center;color:var(--text-muted)}
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--surface);border:1px solid var(--border);padding:12px 18px;border-radius:6px;font-size:13px;z-index:9999;display:none;max-width:400px;box-shadow:0 4px 12px rgba(0,0,0,.5)}
+  .toast.show{display:block}
+  .toast.success{border-color:var(--green);color:var(--green)}
+  .toast.error{border-color:var(--red);color:var(--red)}
+  .info-box{background:rgba(6,182,212,.08);border:1px solid rgba(6,182,212,.3);border-radius:6px;padding:12px;margin-bottom:16px;font-size:13px;color:var(--text-muted);line-height:1.6}
+  .scroll-box{max-height:500px;overflow-y:auto;border:1px solid var(--border);border-radius:6px}
+  @media (max-width:768px){
+    .summary-grid{grid-template-columns:repeat(2,1fr)}
+    body{padding:12px}
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>📍 座標一括補完</h1>
+    <div class="header-actions">
+      <button class="btn" onclick="location.href='index.html'">← 案件マスターへ戻る</button>
+    </div>
+  </div>
+
+  <div class="info-box">
+    <strong style="color:var(--cyan)">国土地理院ジオコーダによる住所→緯度経度変換</strong><br>
+    landowner_info テーブルで <code>lat</code> または <code>lng</code> が <code>NULL</code> のレコードを対象に、住所から座標を取得してDBへ保存します。<br>
+    処理結果は即時にDBへ書き込まれるため、途中でブラウザを閉じても成功分は保持されます。残った未処理分はリロード後に再対象として表示されます。<br>
+    地理院サーバーへの配慮として処理間隔を 400ms 空けて順次実行します（1件あたり約0.5秒）。
+  </div>
+
+  <div class="summary-grid">
+    <div class="stat-card"><div class="stat-label">対象（座標未登録）</div><div class="stat-value pending" id="statPending">—</div></div>
+    <div class="stat-card"><div class="stat-label">登録済み</div><div class="stat-value success" id="statRegistered">—</div></div>
+    <div class="stat-card"><div class="stat-label">今回成功</div><div class="stat-value success" id="statSuccess">0</div></div>
+    <div class="stat-card"><div class="stat-label">今回失敗</div><div class="stat-value failed" id="statFailed">0</div></div>
+  </div>
+
+  <div class="panel" id="progressPanel" style="display:none">
+    <div class="panel-title">⏳ 進捗</div>
+    <div class="progress-wrap"><div class="progress-bar" id="progressBar" style="width:0%">0%</div></div>
+    <div class="current-line" id="currentLine">—</div>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-cyan" id="startBtn" onclick="startBatch()">▶ 一括補完を開始</button>
+    <button class="btn btn-danger" id="stopBtn" onclick="stopBatch()" disabled>⏸ 中断</button>
+    <button class="btn btn-ghost" onclick="loadPending()">🔄 対象リスト再読込</button>
+    <button class="btn btn-ghost" id="exportFailedBtn" onclick="exportFailedCSV()" disabled>📥 失敗リストをCSV出力</button>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">📋 処理結果ログ</div>
+    <div class="scroll-box">
+      <table class="results-table">
+        <thead><tr><th style="width:80px">状態</th><th style="width:120px">案件番号</th><th style="width:150px">氏名</th><th>住所</th><th style="width:160px">座標</th></tr></thead>
+        <tbody id="resultsBody"><tr><td colspan="5" class="empty">「対象リスト再読込」で対象を読み込んでください</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SUPABASE_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let pendingList = [];
+let isRunning = false;
+let stopRequested = false;
+let counters = { success: 0, failed: 0 };
+let failedList = []; // CSV出力用
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ' ' + type : '');
+  setTimeout(() => { t.classList.remove('show'); }, 3000);
+}
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function loadStats() {
+  // 全件 / 登録済み / 未登録 をカウント
+  const { data: all } = await db.from('landowner_info').select('id,lat,lng');
+  const total = all?.length || 0;
+  const registered = (all || []).filter(d => d.lat != null && d.lng != null).length;
+  const pending = total - registered;
+  document.getElementById('statPending').textContent = pending;
+  document.getElementById('statRegistered').textContent = registered;
+}
+
+async function loadPending() {
+  await loadStats();
+  // 対象リスト取得：lat/lng が NULL かつ address がある
+  const { data, error } = await db.from('landowner_info')
+    .select('id,case_id,name,address,lat,lng')
+    .or('lat.is.null,lng.is.null')
+    .order('id', { ascending: true });
+  if (error) { showToast('読込エラー: ' + error.message, 'error'); return; }
+  pendingList = (data || []).filter(d => d.address && d.address.trim());
+  // case_no を取得して付与
+  const caseIds = [...new Set(pendingList.map(d => d.case_id).filter(Boolean))];
+  if (caseIds.length) {
+    const { data: cases } = await db.from('cases').select('id,case_no').in('id', caseIds);
+    const caseMap = {};
+    (cases || []).forEach(c => { caseMap[c.id] = c.case_no; });
+    pendingList.forEach(d => { d.case_no = caseMap[d.case_id] || ''; });
+  }
+  renderPendingTable();
+  showToast('対象 ' + pendingList.length + ' 件を読み込みました', 'success');
+}
+
+function renderPendingTable() {
+  const tbody = document.getElementById('resultsBody');
+  if (pendingList.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">座標未登録のレコードはありません 🎉</td></tr>';
+    return;
+  }
+  tbody.innerHTML = pendingList.map(d =>
+    '<tr id="row_' + d.id + '"><td><span class="badge badge-skip">未処理</span></td>'
+    + '<td>' + escapeHtml(d.case_no || '—') + '</td>'
+    + '<td>' + escapeHtml(d.name || '—') + '</td>'
+    + '<td>' + escapeHtml(d.address || '—') + '</td>'
+    + '<td>—</td></tr>'
+  ).join('');
+}
+
+function setRowStatus(id, statusHtml, coordHtml) {
+  const row = document.getElementById('row_' + id);
+  if (!row) return;
+  row.children[0].innerHTML = statusHtml;
+  if (coordHtml !== undefined) row.children[4].innerHTML = coordHtml;
+}
+
+async function geocodeAddressGSI(address) {
+  try {
+    const res = await fetch('https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(address));
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !data.length) return null;
+    const coord = data[0]?.geometry?.coordinates;
+    if (!coord || coord.length < 2) return null;
+    return { lat: coord[1], lng: coord[0], title: data[0]?.properties?.title || '' };
+  } catch (e) {
+    return null;
+  }
+}
+
+async function startBatch() {
+  if (isRunning) return;
+  if (pendingList.length === 0) { showToast('先に「対象リスト再読込」を実行してください', 'error'); return; }
+  isRunning = true;
+  stopRequested = false;
+  counters = { success: 0, failed: 0 };
+  failedList = [];
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = false;
+  document.getElementById('exportFailedBtn').disabled = true;
+  document.getElementById('progressPanel').style.display = 'block';
+  document.getElementById('statSuccess').textContent = '0';
+  document.getElementById('statFailed').textContent = '0';
+
+  const total = pendingList.length;
+  for (let i = 0; i < pendingList.length; i++) {
+    if (stopRequested) break;
+    const item = pendingList[i];
+    document.getElementById('currentLine').textContent =
+      '[' + (i + 1) + '/' + total + '] ' + (item.case_no || '') + ' / ' + (item.name || '') + ' / ' + (item.address || '');
+    setRowStatus(item.id, '<span class="badge badge-processing">処理中</span>');
+
+    const geo = await geocodeAddressGSI(item.address);
+    if (geo) {
+      const { error } = await db.from('landowner_info').update({ lat: geo.lat, lng: geo.lng }).eq('id', item.id);
+      if (error) {
+        counters.failed++;
+        failedList.push({ ...item, reason: 'DB更新エラー: ' + error.message });
+        setRowStatus(item.id, '<span class="badge badge-failed">DB失敗</span>', escapeHtml(error.message));
+      } else {
+        counters.success++;
+        setRowStatus(item.id, '<span class="badge badge-success">成功</span>',
+          geo.lat.toFixed(6) + ', ' + geo.lng.toFixed(6));
+      }
+    } else {
+      counters.failed++;
+      failedList.push({ ...item, reason: '住所が見つかりませんでした' });
+      setRowStatus(item.id, '<span class="badge badge-failed">住所NG</span>', '—');
+    }
+
+    // 統計更新
+    document.getElementById('statSuccess').textContent = counters.success;
+    document.getElementById('statFailed').textContent = counters.failed;
+    const pct = Math.round(((i + 1) / total) * 100);
+    const bar = document.getElementById('progressBar');
+    bar.style.width = pct + '%';
+    bar.textContent = pct + '%';
+
+    // 地理院API配慮で 400ms 待機
+    if (i < pendingList.length - 1 && !stopRequested) {
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+
+  isRunning = false;
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+  document.getElementById('exportFailedBtn').disabled = failedList.length === 0;
+  document.getElementById('currentLine').textContent =
+    stopRequested ? '⏸ 中断しました' : '✅ 完了：成功 ' + counters.success + ' 件 / 失敗 ' + counters.failed + ' 件';
+  showToast(stopRequested ? '中断しました' : ('完了：成功' + counters.success + '・失敗' + counters.failed),
+    stopRequested ? 'error' : 'success');
+  await loadStats(); // 統計を再描画
+}
+
+function stopBatch() {
+  if (!isRunning) return;
+  stopRequested = true;
+  showToast('中断要求を受け付けました（現在の1件完了後に停止）', 'error');
+}
+
+function exportFailedCSV() {
+  if (failedList.length === 0) return;
+  const header = ['case_no', 'name', 'address', 'reason'];
+  const rows = failedList.map(d => [d.case_no || '', d.name || '', d.address || '', d.reason || '']);
+  const csv = [header, ...rows].map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'geocode_failed_' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadPending();
+});
+</script>
+</body>
+</html>
