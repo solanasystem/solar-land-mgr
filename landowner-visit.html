@@ -285,6 +285,32 @@
   .leaflet-container,
   .leaflet-grab,
   .leaflet-dragging .leaflet-grab { cursor: default !important; }
+
+  /* ===== 選択フラグ点滅エフェクト（3マップ共通） ===== */
+  .selection-flash { position: relative; pointer-events: none; }
+  .selection-flash .sf-pulse {
+    position: absolute; left: 50%; top: 50%;
+    width: 48px; height: 48px;
+    margin-left: -24px; margin-top: -24px;
+    border-radius: 50%;
+    background: rgba(248,81,73,0.45);
+    animation: sf-pulse 1.4s infinite ease-out;
+    pointer-events: none;
+  }
+  .selection-flash .sf-dot {
+    position: absolute; left: 50%; top: 50%;
+    width: 14px; height: 14px;
+    margin-left: -7px; margin-top: -7px;
+    border-radius: 50%;
+    background: #f85149;
+    border: 3px solid #fff;
+    box-shadow: 0 0 12px rgba(248,81,73,0.9);
+    pointer-events: none;
+  }
+  @keyframes sf-pulse {
+    0% { transform: scale(0.5); opacity: 1; }
+    100% { transform: scale(2.4); opacity: 0; }
+  }
 </style>
 </head>
 <body>
@@ -1600,5 +1626,40 @@ initDraggablePanels('landownerVisit', [
   })();
 </script>
 <script src="mobile-responsive.js?v=20260429a"></script>
+<script>
+/* ============================================================================
+ * 選択フラグ点滅機能（3マップ共通）
+ * ============================================================================ */
+(function() {
+  'use strict';
+  var selectionFlashMarker = null;
+  function showSelectionFlash(latlng) {
+    if (typeof map === 'undefined' || !map) return;
+    if (selectionFlashMarker) {
+      try { map.removeLayer(selectionFlashMarker); } catch (_) {}
+      selectionFlashMarker = null;
+    }
+    var icon = L.divIcon({
+      className: 'selection-flash',
+      html: '<div class="sf-pulse"></div><div class="sf-dot"></div>',
+      iconSize: [48, 48],
+      iconAnchor: [24, 24]
+    });
+    selectionFlashMarker = L.marker(latlng, {
+      icon: icon,
+      interactive: false,
+      zIndexOffset: 9999
+    }).addTo(map);
+  }
+  function attachHandler() {
+    if (typeof map === 'undefined' || !map) { setTimeout(attachHandler, 200); return; }
+    map.on('popupopen', function(e) {
+      var ll = e.popup && e.popup.getLatLng();
+      if (ll) showSelectionFlash(ll);
+    });
+  }
+  attachHandler();
+})();
+</script>
 </body>
 </html>

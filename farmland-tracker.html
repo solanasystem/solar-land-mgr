@@ -281,6 +281,32 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   .leaflet-container,
   .leaflet-grab,
   .leaflet-dragging .leaflet-grab { cursor: default !important; }
+
+  /* ===== 選択フラグ点滅エフェクト（3マップ共通） ===== */
+  .selection-flash { position: relative; pointer-events: none; }
+  .selection-flash .sf-pulse {
+    position: absolute; left: 50%; top: 50%;
+    width: 48px; height: 48px;
+    margin-left: -24px; margin-top: -24px;
+    border-radius: 50%;
+    background: rgba(248,81,73,0.45);
+    animation: sf-pulse 1.4s infinite ease-out;
+    pointer-events: none;
+  }
+  .selection-flash .sf-dot {
+    position: absolute; left: 50%; top: 50%;
+    width: 14px; height: 14px;
+    margin-left: -7px; margin-top: -7px;
+    border-radius: 50%;
+    background: #f85149;
+    border: 3px solid #fff;
+    box-shadow: 0 0 12px rgba(248,81,73,0.9);
+    pointer-events: none;
+  }
+  @keyframes sf-pulse {
+    0% { transform: scale(0.5); opacity: 1; }
+    100% { transform: scale(2.4); opacity: 0; }
+  }
 </style>
 </head>
 <body>
@@ -1846,5 +1872,57 @@ initDraggablePanels('farmlandTracker', [
   })();
 </script>
 <script src="mobile-responsive.js?v=20260429a"></script>
+<script>
+/* ============================================================================
+ * 選択フラグ点滅機能（3マップ共通）
+ * farmland-tracker は L.circleMarker を使用するため、
+ * markersLayer 監視＋既存clickイベントに後付けでフック
+ * ============================================================================ */
+(function() {
+  'use strict';
+  var selectionFlashMarker = null;
+  function showSelectionFlash(latlng) {
+    if (typeof map === 'undefined' || !map) return;
+    if (selectionFlashMarker) {
+      try { map.removeLayer(selectionFlashMarker); } catch (_) {}
+      selectionFlashMarker = null;
+    }
+    var icon = L.divIcon({
+      className: 'selection-flash',
+      html: '<div class="sf-pulse"></div><div class="sf-dot"></div>',
+      iconSize: [48, 48],
+      iconAnchor: [24, 24]
+    });
+    selectionFlashMarker = L.marker(latlng, {
+      icon: icon,
+      interactive: false,
+      zIndexOffset: 9999
+    }).addTo(map);
+  }
+  // farmland-tracker のマーカーは markersLayer に格納される FeatureGroup
+  // FeatureGroup の click イベントは内部マーカーのクリックを伝播する
+  function attachHandler() {
+    if (typeof map === 'undefined' || !map) { setTimeout(attachHandler, 200); return; }
+    // 全マップの汎用フック：markersLayer の click を監視
+    // markersLayer は loadDiff() 後に生成されるため、map 全体で layer 追加を監視
+    map.on('layeradd', function(e) {
+      if (e.layer && typeof e.layer.eachLayer === 'function') {
+        e.layer.on('click', function(ev) {
+          if (ev.latlng) showSelectionFlash(ev.latlng);
+        });
+      }
+    });
+    // 既に追加されている markersLayer があれば即時フック
+    map.eachLayer(function(layer) {
+      if (layer && typeof layer.eachLayer === 'function' && layer !== map) {
+        layer.on('click', function(ev) {
+          if (ev.latlng) showSelectionFlash(ev.latlng);
+        });
+      }
+    });
+  }
+  attachHandler();
+})();
+</script>
 </body>
 </html>
