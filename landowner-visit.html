@@ -280,6 +280,43 @@
   .hazard-panel-header, .mc-panel-header { cursor: grab; }
   .hazard-panel-header:active, .mc-panel-header:active { cursor: grabbing; }
   .draggable-panel { touch-action: none; }
+
+  /* ===== カーソルモード切替（右クリックメニュー） ===== */
+  body.cursor-mode-default .leaflet-container { cursor: default !important; }
+  body.cursor-mode-default .leaflet-grab { cursor: default !important; }
+  body.cursor-mode-default .leaflet-dragging .leaflet-grab { cursor: default !important; }
+  .cursor-context-menu {
+    position: fixed;
+    z-index: 99999;
+    background: var(--surface, #1a1f2c);
+    border: 1px solid var(--border, #2c3340);
+    border-radius: 6px;
+    padding: 4px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    min-width: 160px;
+    font-family: var(--font-main, sans-serif);
+  }
+  .cursor-context-menu-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    color: var(--text, #e2e8f0);
+    font-size: 13px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+  }
+  .cursor-context-menu-item:hover { background: var(--surface2, #232936); }
+  .cursor-context-menu-item.active {
+    background: rgba(240,180,41,0.15);
+    color: var(--accent, #f0b429);
+  }
+  .cursor-context-menu-item .check {
+    width: 14px;
+    text-align: center;
+    color: var(--accent, #f0b429);
+  }
 </style>
 </head>
 <body>
@@ -1595,5 +1632,78 @@ initDraggablePanels('landownerVisit', [
   })();
 </script>
 <script src="mobile-responsive.js?v=20260429a"></script>
+<script>
+/* ============================================================================
+ * カーソルモード切替（右クリックメニュー方式）
+ * 3マップ共通機能：手のひら / 矢印 を切り替え
+ * ============================================================================ */
+(function() {
+  'use strict';
+  var STORAGE_KEY = 'cursorMode_landownerVisit';
+  var current = 'grab';
+  try {
+    var saved = localStorage.getItem(STORAGE_KEY);
+    if (saved === 'default' || saved === 'grab') current = saved;
+  } catch (e) {}
+  applyCursorMode(current);
+
+  function applyCursorMode(mode) {
+    current = mode;
+    if (mode === 'default') document.body.classList.add('cursor-mode-default');
+    else document.body.classList.remove('cursor-mode-default');
+    try { localStorage.setItem(STORAGE_KEY, mode); } catch (e) {}
+  }
+
+  function showContextMenu(x, y) {
+    closeContextMenu();
+    var menu = document.createElement('div');
+    menu.className = 'cursor-context-menu';
+    menu.id = 'cursorContextMenu';
+    menu.innerHTML =
+      '<div class="cursor-context-menu-item' + (current === 'grab' ? ' active' : '') + '" data-mode="grab">' +
+        '<span class="check">' + (current === 'grab' ? '✓' : '') + '</span>' +
+        '<span>✋ 手のひら（標準）</span>' +
+      '</div>' +
+      '<div class="cursor-context-menu-item' + (current === 'default' ? ' active' : '') + '" data-mode="default">' +
+        '<span class="check">' + (current === 'default' ? '✓' : '') + '</span>' +
+        '<span>↖ 矢印（ピンポイント）</span>' +
+      '</div>';
+    var maxX = window.innerWidth - 180;
+    var maxY = window.innerHeight - 100;
+    menu.style.left = Math.min(x, maxX) + 'px';
+    menu.style.top = Math.min(y, maxY) + 'px';
+    document.body.appendChild(menu);
+    menu.querySelectorAll('.cursor-context-menu-item').forEach(function(item) {
+      item.addEventListener('click', function() {
+        applyCursorMode(item.dataset.mode);
+        closeContextMenu();
+      });
+    });
+  }
+
+  function closeContextMenu() {
+    var existing = document.getElementById('cursorContextMenu');
+    if (existing) existing.remove();
+  }
+
+  function attachContextHandler() {
+    var mapEl = document.getElementById('map');
+    if (!mapEl) { setTimeout(attachContextHandler, 200); return; }
+    mapEl.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      showContextMenu(e.clientX, e.clientY);
+    });
+  }
+  attachContextHandler();
+
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.cursor-context-menu')) closeContextMenu();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeContextMenu();
+  });
+})();
+</script>
 </body>
 </html>
