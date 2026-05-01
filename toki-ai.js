@@ -58,6 +58,19 @@
       .replace(/'/g, '&#39;');
   }
 
+  // 地権者氏名を「三　浦　正　義」形式（文字間に全角スペース）に整形
+  function formatOwnerNameWithSpaces(name) {
+    if (!name) return name;
+    const cleaned = String(name).replace(/[\s　]+/g, '');
+    return cleaned.split('').join('　');
+  }
+
+  // 突合比較用：氏名の空白（半角・全角）を全て除去して正規化
+  function normalizeNameForMatch(name) {
+    if (!name) return '';
+    return String(name).replace(/[\s　]+/g, '');
+  }
+
   function formatDateJp(iso) {
     if (!iso) return '';
     const d = new Date(iso);
@@ -285,9 +298,11 @@
   // 突合：name + address 完全一致で既存landowner_infoを検索
   // ============================================================================
   function matchOwner(aiName, aiAddress, existingLandowners) {
-    const exact = existingLandowners.find(d => d.name === aiName && d.address === aiAddress);
+    // 氏名は整形（空白挿入）後・既存DB値（空白あり/なし両対応）の整合のため、空白除去で比較
+    const normAiName = normalizeNameForMatch(aiName);
+    const exact = existingLandowners.find(d => normalizeNameForMatch(d.name) === normAiName && d.address === aiAddress);
     if (exact) return { type: 'update', existing: exact };
-    const sameName = existingLandowners.filter(d => d.name === aiName);
+    const sameName = existingLandowners.filter(d => normalizeNameForMatch(d.name) === normAiName);
     if (sameName.length > 0) return { type: 'new_with_warning', similar: sameName };
     return { type: 'new', existing: null };
   }
@@ -832,7 +847,7 @@
           continue;
         }
 
-        const payload = { case_id: state.caseId, name: o.name || null, address: o.address || null };
+        const payload = { case_id: state.caseId, name: formatOwnerNameWithSpaces(o.name) || null, address: o.address || null };
         let landownerId = null;
         let prevName = null, prevAddress = null;
 
@@ -910,10 +925,14 @@
       } else {
         showToast(`✅ AI転記完了：${totalActions}件のDB操作`, 'success');
       }
-      // モーダル閉じる + 一覧再読込
+      // モーダル閉じる + 関連UIの再読込
       overlay.classList.remove('open');
       setTimeout(() => overlay.remove(), 250);
+      // AI転記で更新される 地権者情報タブ・土地情報タブ・書類タブ・案件一覧 を全て再描画
+      if (typeof loadLandownerDetail === 'function' && state.caseId) loadLandownerDetail(state.caseId);
+      if (typeof loadLandDetail === 'function' && state.caseId) loadLandDetail(state.caseId);
       if (typeof loadDocuments === 'function' && state.caseId) loadDocuments(state.caseId);
+      if (typeof loadCases === 'function') loadCases();
     } catch (e) {
       console.error(e);
       showToast('反映処理失敗: ' + (e.message || e), 'error');
