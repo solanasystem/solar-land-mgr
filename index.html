@@ -8,11 +8,11 @@
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="mobile-responsive.css?v=20260429a">
-<link rel="stylesheet" href="toki-ai.css?v=20260501b">
+<link rel="stylesheet" href="toki-ai.css?v=20260501c">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-<script src="toki-ai.js?v=20260501b" defer></script>
+<script src="toki-ai.js?v=20260501c" defer></script>
 <style>
   :root {
     --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
@@ -1597,12 +1597,22 @@ async function openDetail(caseId,mode){
 }
 
 async function loadLandownerDetail(caseId){
-  const{data}=await db.from('landowner_info').select('*').eq('case_id',caseId).single();
-  currentLandownerId=data?.id||null;
-  const html=data?`<div class="info-item"><div class="info-label">氏名</div><div class="info-value">${data.name||'—'}</div></div><div class="info-item"><div class="info-label">電話番号</div><div class="info-value">${data.tel||'—'}</div></div><div class="info-item"><div class="info-label">郵便番号</div><div class="info-value">${data.postal_code?'〒'+data.postal_code:'—'}</div></div><div class="info-item full"><div class="info-label">住所</div><div class="info-value">${data.address||'—'}</div></div><div class="info-item"><div class="info-label">価格（円）</div><div class="info-value">${data.price?Number(data.price).toLocaleString():'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item full"><div class="info-label">メモ</div><div class="info-value">${data.memo||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">地権者情報が未登録です</div>';
+  const{data}=await db.from('landowner_info').select('*').eq('case_id',caseId).order('id',{ascending:true});
+  const list=data||[];
+  currentLandownerId=list[0]?.id||null;
+  const renderOne=(d)=>`<div class="info-item"><div class="info-label">氏名</div><div class="info-value">${d.name||'—'}</div></div><div class="info-item"><div class="info-label">電話番号</div><div class="info-value">${d.tel||'—'}</div></div><div class="info-item"><div class="info-label">郵便番号</div><div class="info-value">${d.postal_code?'〒'+d.postal_code:'—'}</div></div><div class="info-item full"><div class="info-label">住所</div><div class="info-value">${d.address||'—'}</div></div><div class="info-item"><div class="info-label">価格（円）</div><div class="info-value">${d.price?Number(d.price).toLocaleString():'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${d.google_map?`<a href="${safeUrl(d.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item full"><div class="info-label">メモ</div><div class="info-value">${d.memo||'—'}</div></div>`;
+  let html;
+  if(list.length===0){
+    html='<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">地権者情報が未登録です</div>';
+  }else if(list.length===1){
+    html=renderOne(list[0]);
+  }else{
+    const ord=['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
+    html=list.map((d,i)=>`<div class="info-item full" style="grid-column:1/-1;padding:8px 12px;background:rgba(255,193,7,.1);border-left:3px solid #ffc107;border-radius:4px;margin-top:${i===0?'0':'8px'};font-weight:600;color:#ffc107">所有者${ord[i]||(i+1)}${i===0?'（筆頭）':''}</div>${renderOne(d)}`).join('');
+  }
   document.getElementById('landownerInfo').innerHTML=html;
   document.getElementById('landownerInfoCollapse').innerHTML=html;
-  if(data?.id)await loadNegotiationLogs(data.id);
+  if(currentLandownerId)await loadNegotiationLogs(currentLandownerId);
 }
 
 async function loadNegotiationLogs(id){
