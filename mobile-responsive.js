@@ -15,7 +15,12 @@
   'use strict';
 
   // PC版では何もしない
-  if (window.innerWidth > 1024) return;
+  // タッチデバイス（iPad等）は1366px以下まで動作させる（iPad全機種カバー）
+  // 非タッチデバイス（マウス操作PC）は従来どおり1024px以下のみ動作
+  var isTouchDevice = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  var w = window.innerWidth;
+  if (w > 1366) return;
+  if (!isTouchDevice && w > 1024) return;
 
   // DOM読み込み後に実行
   if (document.readyState === 'loading') {
