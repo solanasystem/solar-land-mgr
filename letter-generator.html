@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>📝 手紙・宛名ラベル作成 | SOLAR LAND MGR</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="power-company-utils.js?v=20260501f"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700&display=swap" rel="stylesheet">
@@ -392,9 +393,11 @@ body{font-family:var(--font-main);background:var(--bg);color:var(--text);font-si
       <div class="section-title">📍 地権者選択</div>
       <div class="filter-row">
         <select class="form-select" id="filterArea" onchange="renderLandownerList()">
-          <option value="">すべてのエリア</option>
-          <option>北海道</option><option>東北</option><option>関東</option><option>中部</option>
-          <option>関西</option><option>中国</option><option>四国</option><option>九州</option>
+          <option value="">すべての電力会社エリア</option>
+          <option>北海道電力</option><option>東北電力</option><option>東京電力</option>
+          <option>中部電力</option><option>北陸電力</option><option>関西電力</option>
+          <option>中国電力</option><option>四国電力</option><option>九州電力</option>
+          <option>沖縄電力</option>
         </select>
         <select class="form-select" id="filterStatus" onchange="renderLandownerList()">
           <option value="">全ステータス</option>
@@ -573,7 +576,12 @@ function getFilteredLandowners(){
   const q=document.getElementById('searchQ').value.toLowerCase();
   const onlyAddr=document.getElementById('chkOnlyWithPostal').checked;
   return allLandowners.filter(lo=>{
-    if(area&&lo.cases?.area_name!==area)return false;
+    if(area){
+      // area には電力会社名が入る（例：「中部電力」）。case の area_name が市町村名/広域名いずれでも、
+      // power-company-utils.js の getPowerCompanyFromArea で電力会社判定して比較する
+      const pc=(typeof getPowerCompanyFromArea==='function')?getPowerCompanyFromArea(lo.cases?.area_name):null;
+      if(pc!==area)return false;
+    }
     if(status){
       if(status==='__LETTER_RELATED__'){
         const s=lo.cases?.status;
