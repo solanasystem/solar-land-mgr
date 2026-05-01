@@ -241,21 +241,60 @@
   }
 
   /* ----------------------------------------------------------
-     PC地図クリックハンドラ
+     PC地図長押しハンドラ（700ms押し続けで記録モーダル）
+     - 通常クリックでは発火しない
+     - 5px以上動いたら地図ドラッグとみなしてキャンセル
+     - マーカー等のクリックには干渉しない（map本体のpointerdownのみ捕捉）
      ---------------------------------------------------------- */
   function setupPcClickHandler() {
     if (!_map) return;
-    _map.on('click', function(e) {
+    var LONG_PRESS_MS = 700;
+    var MOVE_THRESHOLD = 5;  // 5px以上動いたらキャンセル
+    var pressTimer = null;
+    var startLatLng = null;
+    var startContainerPoint = null;
+    var pressTriggered = false;
+
+    function clearPress() {
+      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+      startLatLng = null;
+      startContainerPoint = null;
+    }
+
+    _map.on('mousedown', function(e) {
       // モバイル時はクリックでは記録しない（GPS FAB経由のみ）
       if (window.innerWidth <= 1024) return;
-      // モーダルを開く
-      openConfirmModal({
-        latitude: e.latlng.lat,
-        longitude: e.latlng.lng,
-        source: 'pc_click',
-        accuracy: null
-      });
+      // 右クリック・中クリックは無視（左ボタンのみ）
+      if (e.originalEvent && e.originalEvent.button !== 0) return;
+
+      pressTriggered = false;
+      startLatLng = e.latlng;
+      startContainerPoint = e.containerPoint;
+
+      pressTimer = setTimeout(function() {
+        pressTriggered = true;
+        if (startLatLng) {
+          openConfirmModal({
+            latitude: startLatLng.lat,
+            longitude: startLatLng.lng,
+            source: 'pc_click',
+            accuracy: null
+          });
+        }
+        clearPress();
+      }, LONG_PRESS_MS);
     });
+
+    _map.on('mousemove', function(e) {
+      if (!pressTimer || !startContainerPoint) return;
+      var dist = e.containerPoint.distanceTo(startContainerPoint);
+      if (dist > MOVE_THRESHOLD) clearPress();
+    });
+
+    _map.on('mouseup', function() { clearPress(); });
+    _map.on('mouseout', function() { clearPress(); });
+    // ドラッグ開始時もキャンセル
+    _map.on('movestart', function() { clearPress(); });
   }
 
   /* ----------------------------------------------------------
