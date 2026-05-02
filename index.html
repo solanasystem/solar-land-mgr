@@ -1220,22 +1220,31 @@ function toggleNgBlind(){
 function _escHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 /* 正規表現メタ文字エスケープ */
 function _escRe(s){return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
-/* 検索ハイライト：エスケープ済みHTML文字列を返す。マッチ部分を <mark class="search-hl"> で包む */
+/* 全角・半角スペース・タブ・改行をすべて除去 */
+function _stripSpaces(s){return String(s==null?'':s).replace(/[\s\u3000]/g,'');}
+/* 検索ハイライト：エスケープ済みHTML文字列を返す。
+   クエリの各文字の間に任意の空白（半角・全角）を許容してマッチさせる。
+   例: クエリ「岡本」→ データ「岡　本」「岡本」「岡 本」のいずれにもマッチ */
 function highlightText(text,query){
   const safe=_escHtml(text);
   if(!query||!query.trim())return safe;
-  const re=new RegExp(_escRe(query.trim()),'gi');
+  const q=query.trim();
+  /* クエリの各文字の間に [\s\u3000]* を挿入したパターン */
+  const pattern=q.split('').map(_escRe).join('[\\s\\u3000]*');
+  const re=new RegExp(pattern,'gi');
   return safe.replace(re,m=>`<mark class="search-hl">${m}</mark>`);
 }
-/* 検索スコア：オブジェクトの指定フィールド群でクエリヒット件数を返す */
+/* 検索スコア：オブジェクトの指定フィールド群でクエリヒット件数を返す。
+   全角・半角スペースを除去してから部分一致を判定する */
 function searchScore(obj,query,fields){
   if(!query)return 0;
-  const q=String(query).toLowerCase();
+  const q=_stripSpaces(String(query)).toLowerCase();
+  if(!q)return 0;
   let n=0;
   fields.forEach(f=>{
     const v=f.split('.').reduce((o,k)=>o?o[k]:null,obj);
     if(v==null)return;
-    const s=String(v).toLowerCase();
+    const s=_stripSpaces(String(v)).toLowerCase();
     if(!s)return;
     /* 出現回数 */
     let i=0,c=0;
