@@ -366,6 +366,13 @@
   .chiban-search input:focus{border-color:var(--accent);}
   .chiban-search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;pointer-events:none;}
   .chiban-results{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-top:4px;max-height:200px;overflow-y:auto;display:none;}
+  /* 市区町村境界の点滅アニメーション（マゼンタ） */
+  @keyframes boundary-pulse {
+    0%   { stroke-opacity: 1.0; fill-opacity: 0.12; }
+    50%  { stroke-opacity: 0.35; fill-opacity: 0.04; }
+    100% { stroke-opacity: 1.0; fill-opacity: 0.12; }
+  }
+  .boundary-pulse path { animation: boundary-pulse 2s ease-in-out infinite; }
   .chiban-result-item{padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid rgba(48,54,61,0.5);color:var(--text);}
   .chiban-result-item:hover{background:var(--surface2);}
   .chiban-result-item:last-child{border-bottom:none;}
@@ -2300,21 +2307,47 @@ async function _searchChiban(q, res) {
   if (_boundaryLayer) { map.removeLayer(_boundaryLayer); _boundaryLayer = null; }
   _boundaryCache = [];
   let html = '';
-  if (/[\u5e02\u753a\u6751\u533a\u90e1]/.test(q)) {
+  /* ===== 1) 行政境界検索（市町村区郡を含む場合はそのまま、含まない場合はサフィックス自動補完） ===== */
+  const hasAdminSuffix = /[\u5e02\u753a\u6751\u533a\u90e1]/.test(q);
+  const queriesToTry = hasAdminSuffix
+    ? [q]
+    : [q + '\u5e02', q + '\u753a', q + '\u6751'];
+  const seenLabels = new Set();
+  for (const tryQ of queriesToTry) {
     try {
-      const url = 'https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(q) + '&polygon_geojson=1&format=json&countrycodes=jp&limit=3&accept-language=ja';
+      const url = 'https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(tryQ) + '&polygon_geojson=1&format=json&countrycodes=jp&limit=3&accept-language=ja';
       const nr = await fetch(url);
       const ndata = await nr.json();
       ndata.forEach(d => {
         if (d.geojson && d.class === 'boundary' && d.type === 'administrative' && (d.geojson.type === 'Polygon' || d.geojson.type === 'MultiPolygon')) {
           const label = d.display_name.split(',')[0];
+          if (seenLabels.has(label)) return;
+          seenLabels.add(label);
           const idx = _boundaryCache.length;
           _boundaryCache.push(d.geojson);
           html += `<div class="chiban-result-item" style="color:var(--accent)" onmousedown="event.stopPropagation();jumpToBoundary(${idx},'${label.replace(/'/g,"\\'")}')">&#127961; ${label}</div>`;
         }
       });
+      if (_boundaryCache.length > 0 && !hasAdminSuffix) break;
     } catch(e) {}
   }
+  /* ===== 2) 地物検索（湖・山・観光地・駅など） ===== */
+  if (!hasAdminSuffix && q.length >= 2) {
+    try {
+      const url2 = 'https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(q) + '&format=json&countrycodes=jp&limit=3&accept-language=ja';
+      const nr2 = await fetch(url2);
+      const ndata2 = await nr2.json();
+      ndata2.forEach(d => {
+        if (d.class === 'boundary') return;
+        if (!d.lat || !d.lon) return;
+        const label = d.display_name.split(',').slice(0,2).join(',');
+        if (seenLabels.has(label)) return;
+        seenLabels.add(label);
+        html += `<div class="chiban-result-item" style="color:#06b6d4" onmousedown="event.stopPropagation();jumpToChiban(${d.lat},${d.lon},'${label.replace(/'/g,"\\'")}')">&#127757; ${label}</div>`;
+      });
+    } catch(e) {}
+  }
+  /* ===== 3) chiban_index検索 ===== */
   const tokens = q.split(/[\s\u3000]+/).filter(Boolean);
   const chibanToken = tokens.find(t => /^[0-9\uff0d\-]+$/.test(t));
   const nameTokens = tokens.filter(t => !/^[0-9\uff0d\-]+$/.test(t));
@@ -2337,7 +2370,7 @@ function jumpToBoundary(idx, label) {
   if (!geojson) return;
   if (_boundaryLayer) { map.removeLayer(_boundaryLayer); }
   _boundaryLayer = L.geoJSON(geojson, {
-    style: { color: '#f0b429', weight: 2.5, dashArray: '10, 7', fillColor: '#f0b429', fillOpacity: 0.06 }
+    style: { color: '#ec4899', weight: 3.5, dashArray: '12, 6', fillColor: '#ec4899', fillOpacity: 0.12, className: 'boundary-pulse' }
   }).addTo(map);
   map.fitBounds(_boundaryLayer.getBounds(), { padding: [40, 40] });
   document.getElementById('chibanResults').style.display = 'none';
