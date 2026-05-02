@@ -1647,6 +1647,28 @@ async function _fetchAndRenderUrban() {
 var _searchTimer=null;
 var _boundaryLayer=null;
 var _boundaryCache=[];
+/* Leaflet地図のイベント吸収を防ぐため、検索ボックス全体に伝播停止を適用 */
+(function(){
+  var sb=document.getElementById('chibanSearch');
+  if(sb&&typeof L!=='undefined'&&L.DomEvent){
+    L.DomEvent.disableClickPropagation(sb);
+    L.DomEvent.disableScrollPropagation(sb);
+  }
+})();
+/* 検索結果のクリックをイベント委譲で処理（インラインonmousedown廃止） */
+document.getElementById('chibanResults').addEventListener('mousedown',function(ev){
+  var item=ev.target.closest('.chiban-result-item');
+  if(!item)return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  var action=item.dataset.action;
+  var label=item.dataset.label||'';
+  if(action==='boundary'){
+    jumpToBoundary(parseInt(item.dataset.idx,10),label);
+  }else if(action==='chiban'){
+    jumpToChiban(parseFloat(item.dataset.lat),parseFloat(item.dataset.lng),label);
+  }
+});
 document.getElementById('chibanInput').addEventListener('input',function(){
   clearTimeout(_searchTimer);var q=this.value.trim();var res=document.getElementById('chibanResults');
   if(q.length<2){res.style.display='none';return;}
@@ -1669,7 +1691,8 @@ async function _searchChiban(q,res){
           var label=d.display_name.split(',')[0];
           var idx=_boundaryCache.length;
           _boundaryCache.push(d.geojson);
-          html+='<div class="chiban-result-item" style="color:var(--accent)" onmousedown="jumpToBoundary('+idx+',\''+label.replace(/'/g,"\\'")+'\')">&#127961; '+label+'</div>';
+          var safe=label.replace(/"/g,'&quot;');
+          html+='<div class="chiban-result-item" style="color:var(--accent)" data-action="boundary" data-idx="'+idx+'" data-label="'+safe+'">&#127961; '+label+'</div>';
         }
       });
     }catch(e){}
@@ -1684,7 +1707,8 @@ async function _searchChiban(q,res){
   if(result.data){
     result.data.forEach(function(r){
       var label=[r.city_name,r.oaza,r.koaza,r.chiban].filter(Boolean).join(' ');
-      html+='<div class="chiban-result-item" onmousedown="jumpToChiban('+r.lat+','+r.lng+',\''+label.replace(/'/g,"\\'")+'\')">&#128205; '+label+'</div>';
+      var safe=label.replace(/"/g,'&quot;');
+      html+='<div class="chiban-result-item" data-action="chiban" data-lat="'+r.lat+'" data-lng="'+r.lng+'" data-label="'+safe+'">&#128205; '+label+'</div>';
     });
   }
   if(!html){res.style.display='none';return;}
