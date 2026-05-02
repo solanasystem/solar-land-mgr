@@ -1314,15 +1314,22 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 
 function filterCases(){
-  const q=document.getElementById('searchInput').value.toLowerCase();
+  const q=document.getElementById('searchInput').value.toLowerCase().trim();
   const kubun=document.getElementById('filterKubun').value;
   const status=document.getElementById('filterStatus').value;
-  renderCases(allCases.filter(c=>{
+  /* 検索クエリは絞り込みではなくハイライト＆並び替えのみ。区分・ステータス・NGブラインド・電力会社タブのみで絞り込む */
+  let list=allCases.filter(c=>{
     if(ngBlind&&c.status==='NG')return false;
     if(currentPowerCompany&&getPowerCompanyFromArea(c.area_name)!==currentPowerCompany)return false;
-    return(!q||(c.case_no||'').toLowerCase().includes(q)||(c.area_name||'').toLowerCase().includes(q)||(c.landowner_name||'').toLowerCase().includes(q))
-      &&(!kubun||c.kubun===kubun)&&(!status||c.status===status);
-  }).sort((a,b)=>q?(searchScore(b,q,['case_no','area_name','landowner_name'])-searchScore(a,q,['case_no','area_name','landowner_name'])):0));
+    if(kubun&&c.kubun!==kubun)return false;
+    if(status&&c.status!==status)return false;
+    return true;
+  });
+  if(q){
+    /* ヒット件数で並び替え：ヒット行→非ヒット行の順、ヒット行内では件数の多い順 */
+    list=list.slice().sort((a,b)=>searchScore(b,q,['case_no','area_name','landowner_name'])-searchScore(a,q,['case_no','area_name','landowner_name']));
+  }
+  renderCases(list);
 }
 
 function renderCases(cases){
@@ -1944,18 +1951,15 @@ function renderLandownerStatusDashboard(_unused){
 function filterLandowners(){
   const status=document.getElementById('filterLoStatus').value;
   const q=(document.getElementById('loSearchInput')?.value||'').toLowerCase().trim();
+  /* 検索クエリは絞り込みではなくハイライト＆並び替えのみ */
   let filtered=allLandowners.filter(lo=>{
     if(ngBlind&&lo.cases?.status==='NG')return false;
     if(currentPowerCompany&&getPowerCompanyFromArea(lo.cases?.area_name)!==currentPowerCompany)return false;
     if(status && lo.cases?.status!==status)return false;
-    if(q){
-      const hay=((lo.cases?.case_no||'')+' '+(lo.name||'')+' '+(lo.address||'')+' '+(lo.tel||'')+' '+(lo.memo||'')).toLowerCase();
-      if(!hay.includes(q))return false;
-    }
     return true;
   });
   if(q){
-    filtered=filtered.sort((a,b)=>searchScore(b,q,['cases.case_no','name','address','tel','memo'])-searchScore(a,q,['cases.case_no','name','address','tel','memo']));
+    filtered=filtered.slice().sort((a,b)=>searchScore(b,q,['cases.case_no','name','address','tel','memo'])-searchScore(a,q,['cases.case_no','name','address','tel','memo']));
   }
   /* ダッシュボードは filtered ではなく内部で全体集計（ステータスフィルタの影響を受けない） */
   renderLandownerStatusDashboard();
@@ -2004,17 +2008,14 @@ async function loadLandMaster(){
 }
 function filterLandMaster(){
   const q=(document.getElementById('ldSearchInput')?.value||'').toLowerCase().trim();
+  /* 検索クエリは絞り込みではなくハイライト＆並び替えのみ */
   let filtered=allLands.filter(l=>{
     if(ngBlind&&l.cases?.status==='NG')return false;
     if(currentPowerCompany&&getPowerCompanyFromArea(l.cases?.area_name)!==currentPowerCompany)return false;
-    if(q){
-      const hay=((l.cases?.case_no||'')+' '+(l.location||'')+' '+(l.chiban||'')+' '+(l.horeijo_seigen||'')+' '+(l.biko||'')+' '+(l.hazard||'')+' '+(l.landowner_name||'')).toLowerCase();
-      if(!hay.includes(q))return false;
-    }
     return true;
   });
   if(q){
-    filtered=filtered.sort((a,b)=>searchScore(b,q,['cases.case_no','location','chiban','horeijo_seigen','biko','hazard','landowner_name'])-searchScore(a,q,['cases.case_no','location','chiban','horeijo_seigen','biko','hazard','landowner_name']));
+    filtered=filtered.slice().sort((a,b)=>searchScore(b,q,['cases.case_no','location','chiban','horeijo_seigen','biko','hazard','landowner_name'])-searchScore(a,q,['cases.case_no','location','chiban','horeijo_seigen','biko','hazard','landowner_name']));
   }
   renderLands(filtered);
 }
@@ -2058,17 +2059,14 @@ function sortRealestate(){
 }
 function filterRealestate(){
   const q=(document.getElementById('reSearchInput')?.value||'').toLowerCase().trim();
+  /* 検索クエリは絞り込みではなくハイライト＆並び替えのみ */
   let list=allRealestate.filter(r=>{
     if(ngBlind&&r.cases?.status==='NG')return false;
     if(currentPowerCompany&&getPowerCompanyFromArea(r.cases?.area_name)!==currentPowerCompany)return false;
-    if(q){
-      const hay=((r.cases?.case_no||'')+' '+(r.company_name||'')+' '+(r.address||'')+' '+(r.staff_name||'')+' '+(r.tel||'')).toLowerCase();
-      if(!hay.includes(q))return false;
-    }
     return true;
   });
   if(q){
-    list=list.sort((a,b)=>searchScore(b,q,['cases.case_no','company_name','address','staff_name','tel'])-searchScore(a,q,['cases.case_no','company_name','address','staff_name','tel']));
+    list=list.slice().sort((a,b)=>searchScore(b,q,['cases.case_no','company_name','address','staff_name','tel'])-searchScore(a,q,['cases.case_no','company_name','address','staff_name','tel']));
   }
   renderRealestate(list);
 }
@@ -3717,15 +3715,12 @@ function filterIntroductionCompanies(){
   const priority=document.getElementById('icFilterPriority')?.value||'';
   const status=document.getElementById('icFilterStatus')?.value||'';
   const kubun=document.getElementById('icFilterKubun')?.value||'';
+  /* 検索クエリは絞り込みではなくハイライト＆並び替えのみ。優先度・ステータス・関心区分・電力会社タブのみで絞り込む */
   let list=allIntroductionCompanies.filter(c=>{
     /* 電力会社タブ連動：配列に含まれる or 未指定（全国対応） */
     if(currentPowerCompany){
       const tp=c.target_power_companies||[];
       if(tp.length>0 && !tp.includes(currentPowerCompany))return false;
-    }
-    if(q){
-      const hay=((c.company_name||'')+' '+(c.representative||'')+' '+(c.department||'')+' '+(c.address||'')+' '+(c.tel||'')+' '+(c.mobile||'')).toLowerCase();
-      if(!hay.includes(q))return false;
     }
     if(priority && c.priority!==priority)return false;
     if(status && c.status!==status)return false;
@@ -3736,7 +3731,7 @@ function filterIntroductionCompanies(){
     return true;
   });
   if(q){
-    list=list.sort((a,b)=>searchScore(b,q,['company_name','representative','department','address','tel','mobile'])-searchScore(a,q,['company_name','representative','department','address','tel','mobile']));
+    list=list.slice().sort((a,b)=>searchScore(b,q,['company_name','representative','department','address','tel','mobile'])-searchScore(a,q,['company_name','representative','department','address','tel','mobile']));
   }
   renderIntroductionCompanies(list);
 }
@@ -3942,6 +3937,7 @@ function filterSalesIntroductions(){
   const q=(document.getElementById('siSearchInput')?.value||'').toLowerCase().trim();
   const status=document.getElementById('siFilterStatus')?.value||'';
   const pstatus=document.getElementById('siFilterPaymentStatus')?.value||'';
+  /* 検索クエリは絞り込みではなくハイライト＆並び替えのみ。ステータス・入金状況・電力会社タブ・ダッシュボード絞り込みで絞り込む */
   let list=allSalesIntroductions.filter(si=>{
     /* NG案件の紹介は非表示 */
     if(si.cases?.status==='NG')return false;
@@ -3958,10 +3954,6 @@ function filterSalesIntroductions(){
       if(pc && pc!==currentPowerCompany)return false;
       if(!pc)return false;/* 未マッピングは非表示 */
     }
-    if(q){
-      const hay=((si.cases?.case_no||'')+' '+(si.introduction_companies?.company_name||'')).toLowerCase();
-      if(!hay.includes(q))return false;
-    }
     if(status && si.status!==status)return false;
     if(pstatus){
       const prog=getPaymentProgress(si.id);
@@ -3977,7 +3969,7 @@ function filterSalesIntroductions(){
     list=list.slice().sort((a,b)=>(Number(b.contract_amount)||0)-(Number(a.contract_amount)||0));
   }else if(q){
     /* 検索クエリ時はヒット件数で降順ソート */
-    list=list.sort((a,b)=>searchScore(b,q,['cases.case_no','introduction_companies.company_name'])-searchScore(a,q,['cases.case_no','introduction_companies.company_name']));
+    list=list.slice().sort((a,b)=>searchScore(b,q,['cases.case_no','introduction_companies.company_name'])-searchScore(a,q,['cases.case_no','introduction_companies.company_name']));
   }
   renderSalesFilterBadge();
   renderSalesIntroductions(list);
