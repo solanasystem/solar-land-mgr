@@ -316,6 +316,76 @@ body{font-family:var(--font-main);background:var(--bg);color:var(--text);font-si
 .label-addr{font-size:9pt;line-height:1.35;margin-bottom:0.5mm;}
 .label-addr-2nd{font-size:9pt;color:#000;line-height:1.35;margin-bottom:2mm;}
 .label-name{font-size:12pt;font-weight:700;text-align:center;letter-spacing:2pt;}
+
+/* ===== 差出人シール（27面固定 / 30×70mm × 27マス） =====
+   宛名ラベルとは独立した専用グリッドを使用 */
+.label-grid-27{
+  display:grid;
+  grid-template-columns:repeat(3,70mm);
+  grid-template-rows:repeat(9,30mm);
+  padding:13.5mm 0;
+  column-gap:0;row-gap:0;
+  justify-content:center;
+}
+.seal-item{
+  width:70mm;height:30mm;
+  padding:2mm 3mm;
+  overflow:hidden;
+  border:1px dashed #ccc;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  color:#000;
+  font-family:var(--font-maru);
+  box-sizing:border-box;
+  text-align:center;
+}
+.label-grid-27 .seal-item:not(:nth-child(3n+1)){border-left:none;}
+.label-grid-27 .seal-item:not(:nth-child(-n+3)){border-top:none;}
+/* 1行目: 会社名 + ブランド */
+.seal-company{
+  font-weight:700;
+  font-size:12.5pt;
+  line-height:1.15;
+  letter-spacing:.2pt;
+  margin-bottom:1mm;
+  white-space:nowrap;
+}
+.seal-company .brand{
+  font-style:italic;
+  font-weight:500;
+  font-size:9.5pt;
+  color:#222;
+  margin-left:3pt;
+}
+/* 2行目: クローバー + 〒郵便番号（横並び） */
+.seal-postal-row{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:2.5mm;
+  margin-bottom:1mm;
+}
+.seal-logo{
+  height:6mm;
+  width:auto;
+  display:block;
+}
+.seal-postal{
+  font-family:var(--font-mono);
+  font-size:11pt;
+  letter-spacing:.4mm;
+  color:#222;
+  font-weight:500;
+}
+/* 3行目: 住所 */
+.seal-address{
+  font-size:10pt;
+  line-height:1.25;
+  white-space:nowrap;
+  letter-spacing:-0.1pt;
+}
 /* 長い住所はフォントとletter-spacingを縮小して1行に収まりやすくする */
 .label-item-long .label-addr,.label-item-long .label-addr-2nd{font-size:8pt;letter-spacing:-0.1mm;}
 .label-grid-12 .label-item-long .label-addr,.label-grid-12 .label-item-long .label-addr-2nd{font-size:9pt;letter-spacing:-0.05mm;}
@@ -487,10 +557,14 @@ body{font-family:var(--font-main);background:var(--bg);color:var(--text);font-si
             <label class="form-label" style="display:inline;font-size:11px;">開始位置:</label>
             <input class="form-input" type="number" id="labelStart" min="1" max="21" value="1" onchange="renderLabelPreview()" style="width:60px;display:inline-block;padding:4px 8px;">
           </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--accent);background:rgba(240,180,41,.08);border:1px solid rgba(240,180,41,.4);padding:4px 10px;border-radius:6px;cursor:pointer;">
+            <input type="checkbox" id="sealMode" onchange="onSealModeChange()" style="cursor:pointer">
+            <span>🍀 差出人シール（27面固定 / 30×70mm × A4一杯）</span>
+          </label>
           <span class="info" id="labelInfo">0件選択中</span>
         </div>
         <div>
-          <button class="btn btn-primary" onclick="printAndMarkLetters('label')">🖨 印刷 / PDF化</button>
+          <button class="btn btn-primary" onclick="printLabelOrSeal()">🖨 印刷 / PDF化</button>
         </div>
       </div>
       <div id="labelPreview">
@@ -969,16 +1043,27 @@ function renderXamaxLetter(lo,from,today,opt){
 }
 
 function renderLabelPreview(){
-  const sel=getSelectedLandowners();
+  const sealMode=document.getElementById('sealMode')?.checked;
   const el=document.getElementById('labelPreview');
+
+  // === シールモード ===: A4一杯に同じ差出人シールを敷き詰める（27面固定 / 30×70mm）
+  if(sealMode){
+    const cells=[];
+    for(let i=0;i<27;i++)cells.push(renderSealItem());
+    el.innerHTML=`<div class="label-sheet"><div class="label-grid-27">${cells.join('')}</div></div>`;
+    return;
+  }
+
+  // === 通常の宛名ラベルモード ===
+  const sel=getSelectedLandowners();
+  const format=document.getElementById('labelFormat').value;
+  const perSheet=format==='21'?21:12;
+  const gridClass=format==='21'?'label-grid-21':'label-grid-12';
   if(!sel.length){
     el.innerHTML='<div class="empty-preview"><div class="empty-preview-icon">🏷️</div>地権者を選択してください</div>';
     return;
   }
-  const format=document.getElementById('labelFormat').value;
   const start=Math.max(1,Number(document.getElementById('labelStart').value)||1);
-  const perSheet=format==='21'?21:12;
-  const gridClass=format==='21'?'label-grid-21':'label-grid-12';
   const items=[];
   for(let i=0;i<start-1;i++)items.push(null);
   sel.forEach(lo=>items.push(lo));
@@ -990,6 +1075,41 @@ function renderLabelPreview(){
     while(sheet.length<perSheet)sheet.push(null);
     return `<div class="label-sheet"><div class="${gridClass}">${sheet.map(lo=>renderLabelItem(lo)).join('')}</div></div>`;
   }).join('');
+}
+
+/* 印刷ボタン：シールモードならシール印刷、通常なら従来の宛名ラベル印刷 */
+function printLabelOrSeal(){
+  const sealMode=document.getElementById('sealMode')?.checked;
+  if(sealMode){
+    // シールモード時は地権者選択・LTR済マーキング・金額更新は一切行わずに直接印刷
+    window.print();
+    return;
+  }
+  printAndMarkLetters('label');
+}
+
+/* 差出人シール用UIトグル時の処理 */
+function onSealModeChange(){
+  const sealMode=document.getElementById('sealMode').checked;
+  // シールモード時は「ラベル形式」「開始位置」を無効化（27面固定なので不要）
+  const formatSel=document.getElementById('labelFormat');
+  const startInput=document.getElementById('labelStart');
+  if(formatSel)formatSel.disabled=sealMode;
+  if(startInput)startInput.disabled=sealMode;
+  renderLabelPreview();
+}
+
+/* 差出人シール1セル分のHTMLを返す（A4一杯に27マス同じものを敷き詰める）
+   レイアウト：会社名+ブランド／クローバー+〒郵便番号／住所 の3行 */
+function renderSealItem(){
+  return `<div class="seal-item">
+    <div class="seal-company">株式会社XAMAX<span class="brand">&amp; In the cloud</span></div>
+    <div class="seal-postal-row">
+      <img class="seal-logo" src="assets/xamax_logo.png" alt="">
+      <span class="seal-postal">〒472-0045</span>
+    </div>
+    <div class="seal-address">愛知県知立市長篠町新田38-4-102</div>
+  </div>`;
 }
 
 function renderLabelItem(lo){
