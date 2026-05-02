@@ -5,6 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
+<script>
+/* ===== version.json による自動更新チェック =====
+   修正時は version.json のバージョン文字列を更新すること。
+   ユーザーは Ctrl+Shift+R 不要。次回アクセス時に自動でリロード。 */
+(async function _vchk(){
+  try {
+    var lastCheck = parseInt(sessionStorage.getItem('vchk_at') || '0', 10);
+    if (Date.now() - lastCheck < 30000) return; /* 30秒以内なら再チェックしない */
+    sessionStorage.setItem('vchk_at', String(Date.now()));
+    var ctrl = new AbortController();
+    setTimeout(function(){ ctrl.abort(); }, 3000); /* 3秒タイムアウト */
+    var r = await fetch('./version.json?t=' + Date.now(), { cache: 'no-store', signal: ctrl.signal });
+    if (!r.ok) return;
+    var j = await r.json();
+    if (!j || !j.version) return;
+    var stored = localStorage.getItem('app_version');
+    if (!stored) { localStorage.setItem('app_version', j.version); return; }
+    if (stored !== j.version) {
+      localStorage.setItem('app_version', j.version); /* 順序厳守：保存先→リロード（無限ループ防止） */
+      var hasOpenModal = !!document.querySelector('.modal-overlay.open');
+      if (hasOpenModal) {
+        if (!confirm('新しいバージョンが利用可能です。編集中の内容は失われる可能性があります。更新しますか？')) return;
+      }
+      location.reload();
+    }
+  } catch(e) { /* オフライン・タイムアウト等は無視 */ }
+})();
+</script>
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="mobile-responsive.css?v=20260429a">
