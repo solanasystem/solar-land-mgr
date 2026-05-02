@@ -91,6 +91,9 @@
   .main{padding:8px 24px 20px;max-width:1400px;margin:0 auto;}
   .search-box{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 12px;color:var(--text);font-family:var(--font-main);font-size:13px;width:240px;transition:border-color .2s;}
   .search-box:focus{outline:none;border-color:var(--accent);}
+  /* 検索ハイライト：オレンジ＋太字 */
+  mark.search-hl{background:transparent;color:#f59e0b;font-weight:700;padding:0;border-radius:2px;}
+  mark.search-hl.search-hl-active{outline:2px solid #f59e0b;outline-offset:1px;border-radius:3px;background:rgba(245,158,11,.15);}
   .filter-select{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 12px;color:var(--text);font-family:var(--font-main);font-size:13px;cursor:pointer;}
   .filter-select:focus{outline:none;border-color:var(--accent);}
   .btn{padding:7px 14px;border-radius:6px;border:1px solid var(--border);font-family:var(--font-main);font-size:13px;font-weight:500;cursor:pointer;transition:all .2s;white-space:nowrap;}
@@ -355,7 +358,7 @@
   <div id="casesStickyBlock">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <input class="search-box" type="text" placeholder="案件番号・地名で検索..." id="searchInput" oninput="filterCases()">
+        <input class="search-box" type="text" placeholder="案件番号・地権者・地名で検索..." id="searchInput" oninput="filterCases()">
         <select class="filter-select" id="filterKubun" onchange="filterCases()">
           <option value="">すべての区分</option>
           <option>低圧太陽光</option><option>高圧太陽光</option>
@@ -390,7 +393,8 @@
       <div class="sd-legend" id="landownerDonutLegend"></div>
     </div>
     <div class="sticky-toolbar">
-      <div style="display:flex;align-items:center;gap:8px;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <input class="search-box" type="text" placeholder="案件番号・氏名・住所・電話・メモで検索..." id="loSearchInput" oninput="filterLandowners()">
         <select class="filter-select" id="filterLoStatus" onchange="filterLandowners()">
           <option value="">すべてのステータス</option>
           <option>NOT VISITED</option><option>THINKING↑</option><option>THINKING→</option>
@@ -408,7 +412,8 @@
   </div>
   <div id="landStickyBlock" style="display:none">
     <div class="sticky-toolbar">
-      <div style="display:flex;align-items:center;gap:8px;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <input class="search-box" type="text" placeholder="案件番号・所在・地番・地目・備考で検索..." id="ldSearchInput" oninput="filterLandMaster()">
         <button id="ngBlindBtnLd" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
     </div>
@@ -419,6 +424,12 @@
   </div>
   <div id="farmlandStickyBlock" style="display:none"></div>
   <div id="realestateStickyBlock" style="display:none">
+    <div class="sticky-toolbar">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <input class="search-box" type="text" placeholder="案件番号・会社名・住所・担当者・電話で検索..." id="reSearchInput" oninput="filterRealestate()">
+        <button id="ngBlindBtnRe" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
+      </div>
+    </div>
     <div class="cases-table-header" style="grid-template-columns:50px 120px 220px 140px 120px 1fr 80px">
       <div style="text-align:center">No</div><div>案件番号</div><div>会社名</div><div style="text-align:center">電話番号</div>
       <div style="text-align:center">契約状況</div>
@@ -429,7 +440,7 @@
   <div id="introcompanyStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <input class="search-box" type="text" placeholder="会社名・担当者で検索..." id="icSearchInput" oninput="filterIntroductionCompanies()">
+        <input class="search-box" type="text" placeholder="会社名・担当者・住所・電話・携帯で検索..." id="icSearchInput" oninput="filterIntroductionCompanies()">
         <select class="filter-select" id="icFilterPriority" onchange="filterIntroductionCompanies()">
           <option value="">全ての優先度</option>
           <option>S</option><option>A</option><option>B</option><option>C</option>
@@ -456,7 +467,7 @@
   <div id="salesStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <input class="search-box" type="text" placeholder="案件No・企業名で検索..." id="siSearchInput" oninput="filterSalesIntroductions()">
+        <input class="search-box" type="text" placeholder="案件No・案件名・紹介先企業で検索..." id="siSearchInput" oninput="filterSalesIntroductions()">
         <select class="filter-select" id="siFilterStatus" onchange="filterSalesIntroductions()">
           <option value="">全ての紹介ステータス</option>
           <option>紹介中</option><option>契約済</option><option>失注</option>
@@ -1113,6 +1124,10 @@ function setPowerCompany(pc){
   renderPowerCompanyTabs();
   populateAreaDropdowns();
   filterCases();filterLandowners();filterLandMaster();
+  /* 不動産会社マスタータブが表示中なら再フィルタ */
+  if(document.getElementById('realestateSection')?.style.display!=='none' && typeof filterRealestate==='function'){
+    filterRealestate();
+  }
   /* 紹介先企業タブが表示中なら再フィルタ */
   if(document.getElementById('introcompanySection')?.style.display!=='none'){
     filterIntroductionCompanies();
@@ -1189,14 +1204,115 @@ function toggleNgBlind(){
   ngBlind=!ngBlind;
   const label=`NGブラインド ${ngBlind?'ON':'OFF'}`;
   const style=ngBlind?'background:rgba(248,81,73,.4);color:#fff;border:1px solid rgba(248,81,73,.8);':'background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.4);';
-  ['ngBlindBtn','ngBlindBtnLo','ngBlindBtnLd'].forEach(id=>{
+  ['ngBlindBtn','ngBlindBtnLo','ngBlindBtnLd','ngBlindBtnRe'].forEach(id=>{
     const el=document.getElementById(id);
     if(el){el.textContent=label;el.style.cssText=el.style.cssText.replace(/background:[^;]+;color:[^;]+;border:[^;]+;/,style);}
   });
   filterCases();
   filterLandowners();
   filterLandMaster();
+  if(typeof filterRealestate==='function')filterRealestate();
 }
+// ============================================================================
+// 共通検索ユーティリティ：ハイライト・スコア・TABジャンプ
+// ============================================================================
+/* HTMLエスケープ */
+function _escHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+/* 正規表現メタ文字エスケープ */
+function _escRe(s){return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
+/* 検索ハイライト：エスケープ済みHTML文字列を返す。マッチ部分を <mark class="search-hl"> で包む */
+function highlightText(text,query){
+  const safe=_escHtml(text);
+  if(!query||!query.trim())return safe;
+  const re=new RegExp(_escRe(query.trim()),'gi');
+  return safe.replace(re,m=>`<mark class="search-hl">${m}</mark>`);
+}
+/* 検索スコア：オブジェクトの指定フィールド群でクエリヒット件数を返す */
+function searchScore(obj,query,fields){
+  if(!query)return 0;
+  const q=String(query).toLowerCase();
+  let n=0;
+  fields.forEach(f=>{
+    const v=f.split('.').reduce((o,k)=>o?o[k]:null,obj);
+    if(v==null)return;
+    const s=String(v).toLowerCase();
+    if(!s)return;
+    /* 出現回数 */
+    let i=0,c=0;
+    while((i=s.indexOf(q,i))!==-1){c++;i+=q.length;}
+    n+=c;
+  });
+  return n;
+}
+/* 現在の検索クエリ取得（マスターごと） */
+function getActiveSearchQuery(){
+  const visMap=[
+    {sec:'casesSection',inp:'searchInput'},
+    {sec:'landownersSection',inp:'loSearchInput'},
+    {sec:'landSection',inp:'ldSearchInput'},
+    {sec:'realestateSection',inp:'reSearchInput'},
+    {sec:'introcompanySection',inp:'icSearchInput'},
+    {sec:'salesSection',inp:'siSearchInput'}
+  ];
+  for(const m of visMap){
+    const sec=document.getElementById(m.sec);
+    if(sec && sec.style.display!=='none'){
+      const el=document.getElementById(m.inp);
+      return el?el.value.trim():'';
+    }
+  }
+  return '';
+}
+/* TABキーで次のヒット箇所へジャンプ */
+let _searchJumpIndex=-1;
+function _searchJumpReset(){_searchJumpIndex=-1;}
+function _searchJumpNext(direction){
+  /* 表示中のメインリストエリアからmark要素を取得 */
+  const containers=['casesList','landownersList','landList','realestateList','introcompanyList','salesList'];
+  let marks=[];
+  containers.forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el)return;
+    const sec=el.closest('[id$="Section"]');
+    if(sec && sec.style.display!=='none'){
+      marks=marks.concat([...el.querySelectorAll('mark.search-hl')]);
+    }
+  });
+  if(!marks.length)return;
+  /* 既存のactive解除 */
+  marks.forEach(m=>m.classList.remove('search-hl-active'));
+  if(direction==='next'){
+    _searchJumpIndex=(_searchJumpIndex+1)%marks.length;
+  }else{
+    _searchJumpIndex=(_searchJumpIndex-1+marks.length)%marks.length;
+  }
+  const target=marks[_searchJumpIndex];
+  target.classList.add('search-hl-active');
+  /* 画面の上から2/5の位置にスクロール */
+  const rect=target.getBoundingClientRect();
+  const targetY=window.innerHeight*0.4;
+  const delta=rect.top-targetY;
+  window.scrollBy({top:delta,left:0,behavior:'smooth'});
+}
+/* 検索ボックス共通keydownハンドラ */
+function _attachSearchJump(inputId){
+  const el=document.getElementById(inputId);
+  if(!el||el._jumpAttached)return;
+  el._jumpAttached=true;
+  el.addEventListener('input',_searchJumpReset);
+  el.addEventListener('keydown',ev=>{
+    if(ev.key==='Tab'){
+      if(!el.value.trim())return;/* 空ならOS標準動作 */
+      ev.preventDefault();
+      _searchJumpNext(ev.shiftKey?'prev':'next');
+    }
+  });
+}
+/* DOMContentLoaded後に各検索ボックスへバインド */
+document.addEventListener('DOMContentLoaded',()=>{
+  ['searchInput','loSearchInput','ldSearchInput','reSearchInput','icSearchInput','siSearchInput'].forEach(_attachSearchJump);
+});
+
 function filterCases(){
   const q=document.getElementById('searchInput').value.toLowerCase();
   const kubun=document.getElementById('filterKubun').value;
@@ -1206,17 +1322,18 @@ function filterCases(){
     if(currentPowerCompany&&getPowerCompanyFromArea(c.area_name)!==currentPowerCompany)return false;
     return(!q||(c.case_no||'').toLowerCase().includes(q)||(c.area_name||'').toLowerCase().includes(q)||(c.landowner_name||'').toLowerCase().includes(q))
       &&(!kubun||c.kubun===kubun)&&(!status||c.status===status);
-  }));
+  }).sort((a,b)=>q?(searchScore(b,q,['case_no','area_name','landowner_name'])-searchScore(a,q,['case_no','area_name','landowner_name'])):0));
 }
 
 function renderCases(cases){
   const el=document.getElementById('casesList');
   if(!cases.length){el.innerHTML='<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-text">案件が登録されていません</div></div>';return;}
+  const q=(document.getElementById('searchInput')?.value||'').trim();
   el.innerHTML=cases.map((c,i)=>{
     const isChild=!!c.parent_case_no;
     const displayNo=isChild?c.parent_case_no:(c.case_no||'—');
-    const caseNoHtml=isChild?`<span style="color:var(--text-muted);margin-right:4px">└</span>${displayNo}`:displayNo;
-    const branchHtml=isChild?`<span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700">${c.branch_no||''}</span>`:'<span style="color:var(--text-muted);font-size:11px">—</span>';
+    const caseNoHtml=isChild?`<span style="color:var(--text-muted);margin-right:4px">└</span>${highlightText(displayNo,q)}`:highlightText(displayNo,q);
+    const branchHtml=isChild?`<span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700">${_escHtml(c.branch_no||'')}</span>`:'<span style="color:var(--text-muted);font-size:11px">—</span>';
     const escapedCaseNo=(c.case_no||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
     return `<div class="case-row" style="grid-template-columns:50px 120px 40px 140px 140px 140px 150px 80px 1fr 160px;animation-delay:${i*.03}s">
       <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">${i+1}</div>
@@ -1224,9 +1341,9 @@ function renderCases(cases){
       <div style="text-align:center">${branchHtml}</div>
       <div style="text-align:center">${kubunBadgeInline(c.id,c.kubun)}</div>
       <div style="text-align:center">${statusBadgeInline(c.id,c.status)}</div>
-      <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.landowner_name||'—'}</div>
+      <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.landowner_name?highlightText(c.landowner_name,q):'—'}</div>
       <div class="price-cell">${c.price?Number(c.price).toLocaleString()+' 円':'—'}</div>
-      <div style="font-size:13px;color:var(--text-muted);text-align:center">${c.area_name||'—'}</div>
+      <div style="font-size:13px;color:var(--text-muted);text-align:center">${c.area_name?highlightText(c.area_name,q):'—'}</div>
       <div style="font-size:12px;color:var(--text-muted);text-align:center">${formatDate(c.created_at)}</div>
       <div class="actions-cell">
         <button class="action-toggle" data-case-id="${c.id}" data-case-no="${escapedCaseNo}" data-is-child="${isChild?'1':'0'}" onclick="toggleActionMenu(event)">操作 ▼</button>
@@ -1826,11 +1943,20 @@ function renderLandownerStatusDashboard(_unused){
 
 function filterLandowners(){
   const status=document.getElementById('filterLoStatus').value;
-  const filtered=allLandowners.filter(lo=>{
+  const q=(document.getElementById('loSearchInput')?.value||'').toLowerCase().trim();
+  let filtered=allLandowners.filter(lo=>{
     if(ngBlind&&lo.cases?.status==='NG')return false;
     if(currentPowerCompany&&getPowerCompanyFromArea(lo.cases?.area_name)!==currentPowerCompany)return false;
-    return !status||lo.cases?.status===status;
+    if(status && lo.cases?.status!==status)return false;
+    if(q){
+      const hay=((lo.cases?.case_no||'')+' '+(lo.name||'')+' '+(lo.address||'')+' '+(lo.tel||'')+' '+(lo.memo||'')).toLowerCase();
+      if(!hay.includes(q))return false;
+    }
+    return true;
   });
+  if(q){
+    filtered=filtered.sort((a,b)=>searchScore(b,q,['cases.case_no','name','address','tel','memo'])-searchScore(a,q,['cases.case_no','name','address','tel','memo']));
+  }
   /* ダッシュボードは filtered ではなく内部で全体集計（ステータスフィルタの影響を受けない） */
   renderLandownerStatusDashboard();
   renderLandowners(filtered);
@@ -1838,16 +1964,24 @@ function filterLandowners(){
 function renderLandowners(los){
   const el=document.getElementById('landownersList');
   if(!los||!los.length){el.innerHTML='<div class="empty-state"><div class="empty-state-icon">🧑</div><div class="empty-state-text">地権者情報が登録されていません</div></div>';return;}
-  el.innerHTML=los.map((lo,i)=>`<div class="case-row" style="grid-template-columns:50px 120px 160px 1fr 120px 140px 1fr 160px;animation-delay:${i*.03}s">
+  const q=(document.getElementById('loSearchInput')?.value||'').trim();
+  el.innerHTML=los.map((lo,i)=>{
+    const caseNoDisp=lo.cases?(lo.cases.parent_case_no?`${lo.cases.parent_case_no}<span style="color:var(--accent);font-size:10px;margin-left:4px;font-weight:700">(枝${lo.cases.branch_no||''})</span>`:(lo.cases.case_no||'—')):'—';
+    /* parent_case_noの場合はハイライト対象に枝情報も含めるため、案件番号テキストを生成してハイライト */
+    const rawCaseNo=lo.cases?(lo.cases.parent_case_no||lo.cases.case_no||'—'):'—';
+    const caseNoHl=highlightText(rawCaseNo,q)+(lo.cases?.parent_case_no?`<span style="color:var(--accent);font-size:10px;margin-left:4px;font-weight:700">(枝${_escHtml(lo.cases.branch_no||'')})</span>`:'');
+    const postalHtml=lo.postal_code?`<span style="color:#58a6ff;font-family:var(--font-mono)">〒${_escHtml(lo.postal_code)}</span> `:'';
+    return `<div class="case-row" style="grid-template-columns:50px 120px 160px 1fr 120px 140px 1fr 160px;animation-delay:${i*.03}s">
     <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">${i+1}</div>
-    <div class="case-no">${displayCaseNoForMaster(lo.cases)}</div>
-    <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lo.name||'—'}</div>
-    <div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lo.postal_code?`<span style="color:#58a6ff;font-family:var(--font-mono)">〒${lo.postal_code}</span> `:''}${lo.address||'—'}</div>
+    <div class="case-no">${caseNoHl}</div>
+    <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lo.name?highlightText(lo.name,q):'—'}</div>
+    <div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${postalHtml}${lo.address?highlightText(lo.address,q):'—'}</div>
     <div style="font-family:var(--font-mono);font-size:12px;color:var(--text);text-align:right">${lo.price?Number(lo.price).toLocaleString()+' 円':'—'}</div>
-    <div style="font-size:13px;white-space:nowrap;text-align:center">${lo.tel||'—'}</div>
+    <div style="font-size:13px;white-space:nowrap;text-align:center">${lo.tel?highlightText(lo.tel,q):'—'}</div>
     <div style="text-align:center">${statusBadgeInline(lo.case_id,lo.cases?.status)}</div>
     <div class="actions-cell"><button class="action-toggle" data-case-id="${lo.case_id}" onclick="toggleLandownerActionMenu(event)">操作 ▼</button></div>
-  </div>`).join('');
+  </div>`;
+  }).join('');
 }
 
 let allLands=[];
@@ -1869,15 +2003,25 @@ async function loadLandMaster(){
   filterLandMaster();
 }
 function filterLandMaster(){
-  renderLands(allLands.filter(l=>{
+  const q=(document.getElementById('ldSearchInput')?.value||'').toLowerCase().trim();
+  let filtered=allLands.filter(l=>{
     if(ngBlind&&l.cases?.status==='NG')return false;
     if(currentPowerCompany&&getPowerCompanyFromArea(l.cases?.area_name)!==currentPowerCompany)return false;
+    if(q){
+      const hay=((l.cases?.case_no||'')+' '+(l.location||'')+' '+(l.chiban||'')+' '+(l.horeijo_seigen||'')+' '+(l.biko||'')+' '+(l.hazard||'')+' '+(l.landowner_name||'')).toLowerCase();
+      if(!hay.includes(q))return false;
+    }
     return true;
-  }));
+  });
+  if(q){
+    filtered=filtered.sort((a,b)=>searchScore(b,q,['cases.case_no','location','chiban','horeijo_seigen','biko','hazard','landowner_name'])-searchScore(a,q,['cases.case_no','location','chiban','horeijo_seigen','biko','hazard','landowner_name']));
+  }
+  renderLands(filtered);
 }
 function renderLands(lands){
   const el=document.getElementById('landList');
   if(!lands||!lands.length){el.innerHTML='<div class="empty-state"><div class="empty-state-icon">🏔️</div><div class="empty-state-text">土地情報が登録されていません</div></div>';return;}
+  const q=(document.getElementById('ldSearchInput')?.value||'').trim();
   el.innerHTML=lands.map((land,i)=>{
     const locVal=land.location?String(land.location).trim():'';
     const locIsNum=locVal&&!isNaN(parseFloat(locVal))&&parseFloat(locVal)>0&&locVal.length<12;
@@ -1887,16 +2031,19 @@ function renderLands(lands){
     const hazRaw=land.hazard||land.biko||'';
     const hazText=hazRaw.includes('http')?hazRaw.split(/https?:\/\//)[0].replace(/\/\s*$/,'').trim():hazRaw;
     const mapUrl=land.google_map?safeUrl(land.google_map):(land.hazard&&land.hazard.includes('http')?land.hazard.match(/https?:\/\/\S+/)?.[0]:null);
+    /* 案件番号 */
+    const rawCaseNo=land.cases?(land.cases.parent_case_no||land.cases.case_no||'—'):'—';
+    const caseNoHl=highlightText(rawCaseNo,q)+(land.cases?.parent_case_no?`<span style="color:var(--accent);font-size:10px;margin-left:4px;font-weight:700">(枝${_escHtml(land.cases.branch_no||'')})</span>`:'');
     return `<div class="case-row" style="grid-template-columns:50px 120px 110px 140px 1fr 120px 100px 150px 150px 60px 80px;animation-delay:${i*.03}s">
       <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">${i+1}</div>
-      <div class="case-no" style="cursor:pointer;text-decoration:underline;text-decoration-color:rgba(163,113,247,.4);" onclick="openDetail('${land.case_id}','land')">${displayCaseNoForMaster(land.cases)}</div>
+      <div class="case-no" style="cursor:pointer;text-decoration:underline;text-decoration-color:rgba(163,113,247,.4);" onclick="openDetail('${land.case_id}','land')">${caseNoHl}</div>
       <div style="text-align:center">${statusBadge(land.cases?.status)}</div>
-      <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${land.landowner_name||'—'}</div>
-      <div style="font-size:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${soZai}</div>
+      <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${land.landowner_name?highlightText(land.landowner_name,q):'—'}</div>
+      <div style="font-size:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${soZai==='—'?'—':highlightText(soZai,q)}</div>
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--text);text-align:right">${land.cases?.price?Number(land.cases.price).toLocaleString()+' 円':'—'}</div>
       <div style="font-size:12px;color:var(--text-muted);white-space:nowrap;text-align:right">${menseki}</div>
-      <div style="font-size:12px;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-align:center">${yoto}</div>
-      <div style="font-size:12px;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-align:center">${hazText||'—'}</div>
+      <div style="font-size:12px;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-align:center">${yoto==='—'?'—':highlightText(yoto,q)}</div>
+      <div style="font-size:12px;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-align:center">${hazText?highlightText(hazText,q):'—'}</div>
       <div style="font-size:12px;text-align:center">${mapUrl?`<a href="${mapUrl}" target="_blank" style="color:var(--blue)">🔍</a>`:'—'}</div>
       <div class="actions-cell"><button class="action-toggle" data-case-id="${land.case_id}" onclick="toggleLandActionMenu(event)">操作 ▼</button></div>
     </div>`;
@@ -1907,7 +2054,23 @@ let allRealestate=[],reSortOrder=null;
 function sortRealestate(){
   reSortOrder=(reSortOrder===null||reSortOrder==='desc')?'asc':'desc';
   document.querySelectorAll('#rePriceSortIcon,#rePriceSortIcon2').forEach(el=>el.textContent=reSortOrder==='asc'?'↑':'↓');
-  renderRealestate(allRealestate);
+  filterRealestate();
+}
+function filterRealestate(){
+  const q=(document.getElementById('reSearchInput')?.value||'').toLowerCase().trim();
+  let list=allRealestate.filter(r=>{
+    if(ngBlind&&r.cases?.status==='NG')return false;
+    if(currentPowerCompany&&getPowerCompanyFromArea(r.cases?.area_name)!==currentPowerCompany)return false;
+    if(q){
+      const hay=((r.cases?.case_no||'')+' '+(r.company_name||'')+' '+(r.address||'')+' '+(r.staff_name||'')+' '+(r.tel||'')).toLowerCase();
+      if(!hay.includes(q))return false;
+    }
+    return true;
+  });
+  if(q){
+    list=list.sort((a,b)=>searchScore(b,q,['cases.case_no','company_name','address','staff_name','tel'])-searchScore(a,q,['cases.case_no','company_name','address','staff_name','tel']));
+  }
+  renderRealestate(list);
 }
 function renderRealestate(data){
   let list=[...data];
@@ -1915,13 +2078,18 @@ function renderRealestate(data){
   else if(reSortOrder==='desc')list.sort((a,b)=>(b.price||0)-(a.price||0));
   const el=document.getElementById('realestateList');
   if(!list.length){el.innerHTML='<div class="empty-state"><div class="empty-state-icon">🏢</div><div class="empty-state-text">不動産会社情報が登録されていません</div></div>';return;}
+  const q=(document.getElementById('reSearchInput')?.value||'').trim();
   el.innerHTML=list.map((r,i)=>{
     const compIsAddr=r.company_name&&(r.company_name.includes('県')||r.company_name.includes('府')||r.company_name.includes('都')||r.company_name.includes('道')||r.company_name.includes('市')||r.company_name.includes('町'))&&r.company_name.length>10;
+    const rawCaseNo=r.cases?(r.cases.parent_case_no||r.cases.case_no||'—'):'—';
+    const caseNoHl=highlightText(rawCaseNo,q)+(r.cases?.parent_case_no?`<span style="color:var(--accent);font-size:10px;margin-left:4px;font-weight:700">(枝${_escHtml(r.cases.branch_no||'')})</span>`:'');
+    const compTextRaw=compIsAddr?(r.contract_status||r.staff_name||'—'):(r.company_name||'—');
+    const compTextHl=compTextRaw==='—'?'—':highlightText(compTextRaw,q);
     return `<div class="case-row" style="grid-template-columns:50px 120px 220px 140px 120px 1fr 80px;animation-delay:${i*.03}s">
       <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">${i+1}</div>
-      <div class="case-no">${displayCaseNoForMaster(r.cases)}</div>
-      <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${compIsAddr?(r.contract_status||r.staff_name||'—'):(r.company_name||'—')}</div>
-      <div style="font-size:13px;white-space:nowrap;text-align:center">${r.tel||'—'}</div>
+      <div class="case-no">${caseNoHl}</div>
+      <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${compTextHl}</div>
+      <div style="font-size:13px;white-space:nowrap;text-align:center">${r.tel?highlightText(r.tel,q):'—'}</div>
       <div style="font-size:13px;color:var(--text-muted);text-align:center">${compIsAddr?'—':(r.contract_status||'—')}</div>
       <div class="price-cell">${r.price?Number(r.price).toLocaleString():'—'}</div>
       <div class="actions-cell"><button class="action-btn" onclick="openDetail('${r.case_id}','realestate')">詳細</button></div>
@@ -1929,7 +2097,7 @@ function renderRealestate(data){
   }).join('');
 }
 async function loadRealestateMaster(){
-  const{data}=await db.from('realestate_info').select('*,cases(case_no,status,parent_case_no,branch_no)');
+  const{data}=await db.from('realestate_info').select('*,cases(case_no,status,area_name,parent_case_no,branch_no)');
   allRealestate=(data||[]).sort((a,b)=>{
     const pa=a.cases?.parent_case_no||a.cases?.case_no||'';
     const pb=b.cases?.parent_case_no||b.cases?.case_no||'';
@@ -1939,7 +2107,7 @@ async function loadRealestateMaster(){
   });
   reSortOrder=null;
   document.querySelectorAll('#rePriceSortIcon,#rePriceSortIcon2').forEach(el=>el.textContent='↕');
-  renderRealestate(allRealestate);
+  filterRealestate();
 }
 
 function switchDetailTab(btn,tabId){
@@ -3545,18 +3713,18 @@ async function loadIntroductionCompanies(){
 }
 
 function filterIntroductionCompanies(){
-  const q=(document.getElementById('icSearchInput')?.value||'').toLowerCase();
+  const q=(document.getElementById('icSearchInput')?.value||'').toLowerCase().trim();
   const priority=document.getElementById('icFilterPriority')?.value||'';
   const status=document.getElementById('icFilterStatus')?.value||'';
   const kubun=document.getElementById('icFilterKubun')?.value||'';
-  renderIntroductionCompanies(allIntroductionCompanies.filter(c=>{
+  let list=allIntroductionCompanies.filter(c=>{
     /* 電力会社タブ連動：配列に含まれる or 未指定（全国対応） */
     if(currentPowerCompany){
       const tp=c.target_power_companies||[];
       if(tp.length>0 && !tp.includes(currentPowerCompany))return false;
     }
     if(q){
-      const hay=((c.company_name||'')+' '+(c.representative||'')+' '+(c.department||'')).toLowerCase();
+      const hay=((c.company_name||'')+' '+(c.representative||'')+' '+(c.department||'')+' '+(c.address||'')+' '+(c.tel||'')+' '+(c.mobile||'')).toLowerCase();
       if(!hay.includes(q))return false;
     }
     if(priority && c.priority!==priority)return false;
@@ -3566,24 +3734,35 @@ function filterIntroductionCompanies(){
       if(!tk.includes(kubun))return false;
     }
     return true;
-  }));
+  });
+  if(q){
+    list=list.sort((a,b)=>searchScore(b,q,['company_name','representative','department','address','tel','mobile'])-searchScore(a,q,['company_name','representative','department','address','tel','mobile']));
+  }
+  renderIntroductionCompanies(list);
 }
 
 function renderIntroductionCompanies(list){
   const el=document.getElementById('introcompanyList');
   if(!el)return;
   if(!list||!list.length){el.innerHTML='<div class="empty-state"><div class="empty-state-icon">📣</div><div class="empty-state-text">該当する紹介先企業がありません</div></div>';return;}
+  const q=(document.getElementById('icSearchInput')?.value||'').trim();
   el.innerHTML=list.map((c,i)=>{
     const priorityColor={'S':'#ec4899','A':'#f0b429','B':'#58a6ff','C':'#6b7280'}[c.priority]||'#6b7280';
     const statusColor={'未接触':'#6b7280','初回接触':'#58a6ff','商談中':'#f0b429','成約':'#22c55e','保留':'#a371f7','見送り':'#f85149'}[c.status]||'#6b7280';
     const areaLabel=(c.target_power_companies||[]).length?(c.target_power_companies||[]).join('・'):'—';
     const areaShort=areaLabel.length>12?areaLabel.slice(0,10)+'…':areaLabel;
+    const companyHl=c.company_name?highlightText(c.company_name,q):'—';
+    const deptHl=c.department?highlightText(c.department,q):'—';
+    const repHl=c.representative?highlightText(c.representative,q):'';
+    const telHl=c.tel?highlightText(c.tel,q):'—';
+    const mobileHl=c.mobile?highlightText(c.mobile,q):'';
+    const emailHl=c.email?highlightText(c.email,q):'—';
     return `<div class="case-row" style="grid-template-columns:50px 220px 180px 130px 1fr 110px 60px 100px 90px;animation-delay:${i*.03}s">
       <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">${i+1}</div>
-      <div style="font-weight:600;color:#ec4899;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(c.company_name||'').replace(/"/g,'&quot;')}">${c.company_name||'—'}</div>
-      <div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${((c.department||'')+' / '+(c.representative||'')).replace(/"/g,'&quot;')}">${c.department||'—'}<br><span style="color:var(--text)">${c.representative||''}</span></div>
-      <div style="font-size:12px;text-align:center;white-space:nowrap">${c.tel||'—'}${c.mobile?'<br><span style="color:var(--text-muted);font-size:11px">📱 '+c.mobile+'</span>':''}</div>
-      <div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.email||'—'}</div>
+      <div style="font-weight:600;color:#ec4899;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(c.company_name||'').replace(/"/g,'&quot;')}">${companyHl}</div>
+      <div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${((c.department||'')+' / '+(c.representative||'')).replace(/"/g,'&quot;')}">${deptHl}<br><span style="color:var(--text)">${repHl}</span></div>
+      <div style="font-size:12px;text-align:center;white-space:nowrap">${telHl}${c.mobile?'<br><span style="color:var(--text-muted);font-size:11px">📱 '+mobileHl+'</span>':''}</div>
+      <div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${emailHl}</div>
       <div style="font-size:11px;text-align:center" title="${areaLabel.replace(/"/g,'&quot;')}">${areaShort}</div>
       <div style="text-align:center"><span style="display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;background:${priorityColor}22;color:${priorityColor};border:1px solid ${priorityColor}66">${c.priority||'—'}</span></div>
       <div style="text-align:center"><span style="display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${statusColor}22;color:${statusColor};border:1px solid ${statusColor}66;white-space:nowrap">${c.status||'—'}</span></div>
@@ -3760,7 +3939,7 @@ function getPaymentProgress(introId){
 }
 
 function filterSalesIntroductions(){
-  const q=(document.getElementById('siSearchInput')?.value||'').toLowerCase();
+  const q=(document.getElementById('siSearchInput')?.value||'').toLowerCase().trim();
   const status=document.getElementById('siFilterStatus')?.value||'';
   const pstatus=document.getElementById('siFilterPaymentStatus')?.value||'';
   let list=allSalesIntroductions.filter(si=>{
@@ -3796,6 +3975,9 @@ function filterSalesIntroductions(){
   /* ダッシュボード絞り込み中は契約金額降順でソート */
   if(salesDashboardCompanyFilter!==null){
     list=list.slice().sort((a,b)=>(Number(b.contract_amount)||0)-(Number(a.contract_amount)||0));
+  }else if(q){
+    /* 検索クエリ時はヒット件数で降順ソート */
+    list=list.sort((a,b)=>searchScore(b,q,['cases.case_no','introduction_companies.company_name'])-searchScore(a,q,['cases.case_no','introduction_companies.company_name']));
   }
   renderSalesFilterBadge();
   renderSalesIntroductions(list);
@@ -3925,8 +4107,12 @@ function renderSalesIntroductions(list){
   const el=document.getElementById('salesList');
   if(!el)return;
   if(!list||!list.length){el.innerHTML='<div class="empty-state"><div class="empty-state-icon">📈</div><div class="empty-state-text">該当する紹介がありません</div></div>';return;}
+  const q=(document.getElementById('siSearchInput')?.value||'').trim();
   el.innerHTML=list.map((si,i)=>{
-    const caseNo=si.cases?.parent_case_no?`${si.cases.parent_case_no}_${String(si.cases.branch_no||0).padStart(3,'0')}`:(si.cases?.case_no||'—');
+    const caseNoRaw=si.cases?.parent_case_no?`${si.cases.parent_case_no}_${String(si.cases.branch_no||0).padStart(3,'0')}`:(si.cases?.case_no||'—');
+    const caseNoHl=caseNoRaw==='—'?'—':highlightText(caseNoRaw,q);
+    const compNameRaw=si.introduction_companies?.company_name||'—';
+    const compNameHl=compNameRaw==='—'?'—':highlightText(compNameRaw,q);
     const statusColor={'紹介中':'#6b7280','契約済':'#22c55e','失注':'#f85149','キャンセル':'#f85149','完了':'#0ea5e9'}[si.status]||'#6b7280';
     const prog=getPaymentProgress(si.id);
     const progPct=prog.total>0?Math.round(prog.paid/prog.total*100):0;
@@ -3934,8 +4120,8 @@ function renderSalesIntroductions(list){
     const progLabel=prog.count===0?'計画なし':`${prog.paidCount}/${prog.count} (${progPct}%)`;
     return `<div class="case-row" style="grid-template-columns:50px 120px 180px 90px 90px 130px 130px 100px 90px;animation-delay:${i*.03}s">
       <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">${i+1}</div>
-      <div class="case-no">${caseNo}</div>
-      <div style="font-weight:600;color:#ec4899;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(si.introduction_companies?.company_name||'').replace(/"/g,'&quot;')}">${si.introduction_companies?.company_name||'—'}</div>
+      <div class="case-no">${caseNoHl}</div>
+      <div style="font-weight:600;color:#ec4899;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(si.introduction_companies?.company_name||'').replace(/"/g,'&quot;')}">${compNameHl}</div>
       <div style="font-size:12px;text-align:center">${si.introduced_date||'—'}</div>
       <div style="font-size:12px;text-align:center;color:${si.contracted_date?'#22c55e':'var(--text-muted)'}">${si.contracted_date||'—'}</div>
       <div style="font-family:var(--font-mono);font-size:12px;text-align:right">${si.contract_amount?Number(si.contract_amount).toLocaleString()+' 円':'—'}</div>
