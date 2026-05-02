@@ -2244,32 +2244,20 @@ function toggleNoshin() {
     });
 }
 
-// ======== \u5730\u756a\u30fb\u4f4f\u6240\u691c\u7d22 ========
+// ======== 地番・住所検索 ========
 let _searchTimer = null;
 let _boundaryLayer = null;
 let _boundaryCache = [];
 /* Leaflet地図のイベント吸収を防ぐため、検索ボックス全体に伝播停止を適用 */
 (function(){
-  const sb = document.getElementById('chibanSearch');
-  if (sb && typeof L !== 'undefined' && L.DomEvent) {
-    L.DomEvent.disableClickPropagation(sb);
-    L.DomEvent.disableScrollPropagation(sb);
-  }
+  try {
+    const sb = document.getElementById('chibanSearch');
+    if (sb && typeof L !== 'undefined' && L.DomEvent) {
+      L.DomEvent.disableClickPropagation(sb);
+      L.DomEvent.disableScrollPropagation(sb);
+    }
+  } catch(e) {}
 })();
-/* 検索結果のクリックをイベント委譲で処理（インラインonmousedown廃止） */
-document.getElementById('chibanResults').addEventListener('mousedown', function(ev) {
-  const item = ev.target.closest('.chiban-result-item');
-  if (!item) return;
-  ev.preventDefault();
-  ev.stopPropagation();
-  const action = item.dataset.action;
-  const label = item.dataset.label || '';
-  if (action === 'boundary') {
-    jumpToBoundary(parseInt(item.dataset.idx, 10), label);
-  } else if (action === 'chiban') {
-    jumpToChiban(parseFloat(item.dataset.lat), parseFloat(item.dataset.lng), label);
-  }
-});
 document.getElementById('chibanInput').addEventListener('input', function() {
   clearTimeout(_searchTimer);
   const q = this.value.trim();
@@ -2294,8 +2282,7 @@ async function _searchChiban(q, res) {
           const label = d.display_name.split(',')[0];
           const idx = _boundaryCache.length;
           _boundaryCache.push(d.geojson);
-          const safe = label.replace(/"/g,'&quot;');
-          html += `<div class="chiban-result-item" style="color:var(--accent)" data-action="boundary" data-idx="${idx}" data-label="${safe}">&#127961; ${label}</div>`;
+          html += `<div class="chiban-result-item" style="color:var(--accent)" onmousedown="event.stopPropagation();jumpToBoundary(${idx},'${label.replace(/'/g,"\\'")}')">&#127961; ${label}</div>`;
         }
       });
     } catch(e) {}
@@ -2310,8 +2297,7 @@ async function _searchChiban(q, res) {
   if (data) {
     data.forEach(r => {
       const label = [r.city_name, r.oaza, r.koaza, r.chiban].filter(Boolean).join(' ');
-      const safe = label.replace(/"/g,'&quot;');
-      html += `<div class="chiban-result-item" data-action="chiban" data-lat="${r.lat}" data-lng="${r.lng}" data-label="${safe}">&#128205; ${label}</div>`;
+      html += `<div class="chiban-result-item" onmousedown="event.stopPropagation();jumpToChiban(${r.lat},${r.lng},'${label.replace(/'/g,"\\'")}')">&#128205; ${label}</div>`;
     });
   }
   if (!html) { res.style.display = 'none'; return; }
@@ -2399,7 +2385,7 @@ function initDraggablePanels(storageKeyPrefix, configs) {
     if (!handle) handle = panel;
     handle.title = '\u30c9\u30e9\u30c3\u30b0\u3067\u79fb\u52d5\u30fb\u30c0\u30d6\u30eb\u30af\u30ea\u30c3\u30af\u3067\u4f4d\u7f6e\u30ea\u30bb\u30c3\u30c8';
     handle.style.cursor = 'grab';
-    var SKIP_SELECTOR = 'button, input, select, textarea, a';
+    var SKIP_SELECTOR = 'button, input, select, textarea, a, .chiban-result-item, .chiban-results';
     // \u30d1\u30cd\u30eb\u306eoffsetParent\u57fa\u6e96\u306e\u4f4d\u7f6e\u3092\u8a08\u7b97\u3059\u308b\u30d8\u30eb\u30d1\u30fc
     function getParentOffset() {
       var op = panel.offsetParent || document.body;
