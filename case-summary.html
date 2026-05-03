@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v9 / 2026-05-03 / 21項目DB連携・警告バッジ・snow_load連携 -->
+<!-- BUILD: case-summary v10 / 2026-05-03 / location地番除去・extractCity改善 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>案件概要書 v9 - SOLAR LAND MGR</title>
+<title>案件概要書 v10 - SOLAR LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
 <script>
 // グローバルJSエラーを画面に表示する保険（DevToolsを開かなくても診断可能にする）
@@ -437,7 +437,7 @@ window.addEventListener('load', function() {
 
 <!-- ======== ツールバー ======== -->
 <div class="toolbar no-print">
-  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v9</span></h1>
+  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v10</span></h1>
   <input type="text" class="case-id-input" id="caseIdInput" placeholder="案件番号 (例: AICHI-001)" />
   <button onclick="loadByInput()">📥 読込</button>
   <button class="primary" onclick="window.print()">🖨 印刷 / PDF出力</button>
@@ -910,21 +910,45 @@ async function loadCase(caseNoOrId) {
 
     // ----- ③ 垂直積雪量を snow_load_master から照合 -----
     let snowDepth = null;
+    let snowDebug = '';
     try {
-      const cityName = extractCity(land.location || c.address || owner.address);
+      const rawLoc = land.location || c.address || owner.address;
+      const cityName = extractCity(rawLoc);
+      snowDebug = `city="${cityName}"`;
       if (cityName) {
         const snowR = await sbClient.from('snow_load_master')
-          .select('snow_depth_cm')
+          .select('snow_depth_cm,prefecture,current_city,former_area')
           .eq('current_city', cityName)
           .limit(1);
-        if (!snowR.error && snowR.data && snowR.data.length > 0) {
+        if (snowR.error) {
+          snowDebug += ` ERR=${snowR.error.message}`;
+          console.warn('snow_load_master query error:', snowR.error);
+        } else if (snowR.data && snowR.data.length > 0) {
           snowDepth = snowR.data[0].snow_depth_cm;
+          snowDebug += ` HIT=${snowDepth}cm`;
+        } else {
+          snowDebug += ` NOT_FOUND`;
+          // フォールバック: former_area で検索
+          const fb = await sbClient.from('snow_load_master')
+            .select('snow_depth_cm,former_area,parent_district')
+            .eq('former_area', cityName)
+            .limit(1);
+          if (!fb.error && fb.data && fb.data.length > 0) {
+            snowDepth = fb.data[0].snow_depth_cm;
+            snowDebug += ` FB_HIT=${snowDepth}cm`;
+          }
         }
+      } else {
+        snowDebug = 'city=NULL (extractCity失敗)';
       }
-    } catch(e) { console.warn('snow_load_master 照合エラー:', e); }
+    } catch(e) { 
+      console.warn('snow_load_master 照合エラー:', e); 
+      snowDebug = 'EXCEPTION:' + e.message;
+    }
+    console.log('Snow lookup:', snowDebug);
 
     render(c, land, owner, snowDepth);
-    setStatus(`読込完了: ${c.case_no || c.id} | land=${landR.data?.length||0}件, owner=${ownerR.data?.length||0}件, snow=${snowDepth??'NA'}cm`);
+    setStatus(`読込完了: ${c.case_no || c.id} | land=${landR.data?.length||0}件, owner=${ownerR.data?.length||0}件, snow=${snowDepth??'NA'}cm [${snowDebug}]`);
     document.getElementById('sheet').style.display = '';
   } catch (e) {
     console.error(e);
@@ -948,8 +972,9 @@ function render(c, land, owner, snowDepth) {
   const gmap = c.google_map || land.google_map || owner.google_map;
 
   // ===== 21項目仕様準拠でデータマッピング =====
-  // #2 所在 / 地番  (location=所在のみ, chiban=地番)
-  const address = land.location || c.address || owner.address;
+  // #2 所在 / 地番  (location=所在のみ表示用に整形, chiban=地番)
+  const rawLocation = land.location || c.address || owner.address;
+  const address = cleanLocation(rawLocation);  // 表示用：地番除去後
   const landNo  = land.chiban || null;
 
   // #3 地積（小数第2位表示）
@@ -1121,17 +1146,39 @@ function applyApplicationNotification(land) {
   }
 }
 
+// location文字列から地番部分を除去して所在のみを返す（表示用）
+// 例: "蒲郡市拾石町土取 24-2" → "蒲郡市拾石町土取"
+//     "{豊橋市西山町字西山 55-7}" → "豊橋市西山町字西山"
+//     "愛知県蒲郡市西浦町南関53番1" → "愛知県蒲郡市西浦町南関"
+function cleanLocation(location) {
+  if (!location) return null;
+  let s = String(location).trim();
+  // 波括弧除去 (全角・半角両対応)
+  s = s.replace(/^[\{｛](.+?)[\}｝]$/, '$1').trim();
+  // 末尾の地番パターンを段階的に削除
+  // ①「数字番数字」(全角・半角)
+  s = s.replace(/\s*[0-9０-９]+\s*番\s*[0-9０-９]+\s*$/, '');
+  // ②「数字-数字」または「数字－数字」(全角・半角)
+  s = s.replace(/\s*[0-9０-９]+\s*[-－ー]\s*[0-9０-９]+\s*$/, '');
+  // ③「数字番」(末尾のみ)
+  s = s.replace(/\s*[0-9０-９]+\s*番\s*$/, '');
+  return s.trim();
+}
+
 // location文字列から市町村名を抽出（snow_load_master 照合用）
 function extractCity(location) {
   if (!location) return null;
-  const s = String(location).trim();
+  // 先に地番除去・整形
+  const cleaned = cleanLocation(location);
+  if (!cleaned) return null;
+  const s = String(cleaned).trim();
   // 都道府県プレフィックス除去
   const stripped = s.replace(/^(東京都|北海道|大阪府|京都府|.{2,3}県)/, '');
-  // 「○○市」「○○郡○○町」「○○郡○○村」「○○区」を抽出
-  let m = stripped.match(/^(.+?[市区])/);
+  // 「○○市」「○○区」を抽出 (郡名がある場合は郡内町村を優先)
+  let m = stripped.match(/^(.+?郡.+?[町村])/);
+  if (m) return m[1].replace(/^.+?郡/, ''); // 町村名のみ
+  m = stripped.match(/^(.+?[市区])/);
   if (m) return m[1];
-  m = stripped.match(/^(.+?郡.+?[町村])/);
-  if (m) return m[1].replace(/^.+?郡/, ''); // 郡名は削除して町村名のみ
   return null;
 }
 
