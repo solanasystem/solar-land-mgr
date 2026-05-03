@@ -748,6 +748,19 @@
             <option>OK</option><option>SUCCESS</option><option>NON MEET</option><option>NG</option><option>LETTER</option><option>LTR済</option></select></div>
         <div class="form-group full"><label class="form-label">金額（円）</label>
           <input class="form-input" type="number" id="ec_price" placeholder="例：3000"></div>
+
+        <!-- 概要書用: 契約形態 / AC / DC -->
+        <div class="form-group"><label class="form-label">契約形態 <span style="font-size:10px;color:var(--text-muted)">概要書用</span></label>
+          <select class="form-select" id="ec_contract_type">
+            <option value="">未選択</option>
+            <option value="売却">売却</option>
+            <option value="賃貸">賃貸</option>
+          </select></div>
+        <div class="form-group"></div>
+        <div class="form-group"><label class="form-label">AC定格出力（kW） <span style="font-size:10px;color:var(--text-muted)">概要書用</span></label>
+          <input class="form-input" type="number" step="0.01" id="ec_ac_kw" placeholder="例：99.0"></div>
+        <div class="form-group"><label class="form-label">DC定格容量（kW） <span style="font-size:10px;color:var(--text-muted)">概要書用</span></label>
+          <input class="form-input" type="number" step="0.01" id="ec_dc_kw" placeholder="例：130.0"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -839,7 +852,21 @@
           </div>
           <div id="summarySection" style="display:none;margin-top:12px">
             <div class="form-grid">
-              <!-- ===== テキスト項目 ===== -->
+              <!-- ===== 基本3項目: 地目 / 土地権利 / 賃料 ===== -->
+              <div class="form-group"><label class="form-label">地目 <span style="font-size:10px;color:var(--text-muted)">登記簿表示</span></label>
+                <input class="form-input" type="text" id="eld_chimoku" placeholder="例：田、畑、山林、雑種地、宅地"></div>
+              <div class="form-group"><label class="form-label">土地権利</label>
+                <select class="form-input" id="eld_land_rights">
+                  <option value="">未選択</option>
+                  <option value="所有権">所有権</option>
+                  <option value="地上権">地上権</option>
+                </select>
+              </div>
+              <div class="form-group full"><label class="form-label">賃料 <span style="font-size:10px;color:var(--text-muted)">賃貸案件のみ・自由テキスト</span></label>
+                <input class="form-input" type="text" id="eld_rental_fee" placeholder="例：年額500,000円"></div>
+
+              <!-- ===== テキスト項目 =====
+              -->
               <div class="form-group full"><label class="form-label">権利(乙区)</label><input class="form-input" type="text" id="eld_otsu_rights" placeholder="例：抵当権設定 ●●銀行"></div>
 
               <div class="form-group"><label class="form-label">接道幅員</label><input class="form-input" type="text" id="eld_road_width" placeholder="例：4.5m"></div>
@@ -3477,6 +3504,10 @@ function openCaseEditModal(caseId){
   document.getElementById('ec_kubun').value=c.kubun||'';
   document.getElementById('ec_status').value=c.status||'UNKNOWN';
   document.getElementById('ec_price').value=c.price||'';
+  // 概要書用: 契約形態 / AC / DC
+  const ct=document.getElementById('ec_contract_type'); if(ct) ct.value=c.contract_type||'';
+  const ac=document.getElementById('ec_ac_kw');         if(ac) ac.value=c.ac_kw||'';
+  const dc=document.getElementById('ec_dc_kw');         if(dc) dc.value=c.dc_kw||'';
   document.getElementById('editCaseModal').classList.add('open');
 }
 async function refreshAll(){
@@ -3525,7 +3556,18 @@ async function refreshAll(){
   }
 }
 async function saveCase(){
-  const{error}=await db.from('cases').update({kubun:document.getElementById('ec_kubun').value,status:document.getElementById('ec_status').value,price:document.getElementById('ec_price').value?Number(document.getElementById('ec_price').value):null}).eq('id',currentCaseId);
+  const g=id=>document.getElementById(id);
+  const acVal=g('ec_ac_kw')?.value;
+  const dcVal=g('ec_dc_kw')?.value;
+  const payload={
+    kubun:g('ec_kubun').value,
+    status:g('ec_status').value,
+    price:g('ec_price').value?Number(g('ec_price').value):null,
+    contract_type:g('ec_contract_type')?.value||null,
+    ac_kw:acVal?Number(acVal):null,
+    dc_kw:dcVal?Number(dcVal):null
+  };
+  const{error}=await db.from('cases').update(payload).eq('id',currentCaseId);
   if(error){showToast('保存エラー: '+error.message,'error');return;}
   showToast('案件情報を更新しました');closeModal('editCaseModal');await refreshAll();
 }
@@ -3832,8 +3874,8 @@ async function openLandEditModal(){
   const{data}=await db.from('land_info').select('*').eq('case_id',currentCaseId).single();
   ['area_sqm','location','chiban','horeijo_seigen','google_map','hazard','biko','article5_forest','article5_checked_at','article5_notes'].forEach(f=>document.getElementById('eld_'+f).value=data?.[f]||'');
   document.getElementById('eld_lat').value=data?.lat||'';document.getElementById('eld_lng').value=data?.lng||'';
-  // ===== 概要書項目: テキスト14項目 =====
-  ['otsu_rights','road_width','road_pavement','logging_permit','noushinhou_kubun','youto_chiiki','jourei','guideline','pole_left','pole_center','pole_right','buried_culture_details','application_details','notification_details'].forEach(f=>{
+  // ===== 概要書項目: テキスト14項目 + 新3項目(chimoku/land_rights/rental_fee) =====
+  ['chimoku','land_rights','rental_fee','otsu_rights','road_width','road_pavement','logging_permit','noushinhou_kubun','youto_chiiki','jourei','guideline','pole_left','pole_center','pole_right','buried_culture_details','application_details','notification_details'].forEach(f=>{
     const el=document.getElementById('eld_'+f); if(el) el.value=data?.[f]||'';
   });
   // ===== 概要書項目: フラグ12項目 (BOOLEAN→string) =====
@@ -3876,6 +3918,10 @@ async function saveLand(){
     article5_forest:g('eld_article5_forest')||null,
     article5_checked_at:g('eld_article5_checked_at')||null,
     article5_notes:g('eld_article5_notes')||null,
+    // ===== 概要書項目: 新3項目 =====
+    chimoku:g('eld_chimoku')||null,
+    land_rights:g('eld_land_rights')||null,
+    rental_fee:g('eld_rental_fee')||null,
     // ===== 概要書項目: テキスト14本 =====
     otsu_rights:g('eld_otsu_rights')||null,
     road_width:g('eld_road_width')||null,

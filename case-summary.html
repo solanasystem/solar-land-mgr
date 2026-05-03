@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v11 / 2026-05-03 / extractCity市優先・郡を含む市名対応 -->
+<!-- BUILD: case-summary v12 / 2026-05-03 / AC/DC・権利・賃料・契約形態連携 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>案件概要書 v11 - SOLAR LAND MGR</title>
+<title>案件概要書 v12 - SOLAR LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
 <script>
 // グローバルJSエラーを画面に表示する保険（DevToolsを開かなくても診断可能にする）
@@ -437,7 +437,7 @@ window.addEventListener('load', function() {
 
 <!-- ======== ツールバー ======== -->
 <div class="toolbar no-print">
-  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v11</span></h1>
+  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v12</span></h1>
   <input type="text" class="case-id-input" id="caseIdInput" placeholder="案件番号 (例: AICHI-001)" />
   <button onclick="loadByInput()">📥 読込</button>
   <button class="primary" onclick="window.print()">🖨 印刷 / PDF出力</button>
@@ -993,17 +993,23 @@ function render(c, land, owner, snowDepth) {
   const roadPavement = land.road_pavement;
 
   // #9 発電所区分（cases.kubun から）
-  // #10 AC/DC（Phase 3で案件マスター連携、現状はDBに保存無）
-  const acVal = null;
-  const dcVal = null;
+  // #10 AC/DC（cases.ac_kw / cases.dc_kw から）
+  const acVal = (c.ac_kw != null && c.ac_kw !== '') ? `${c.ac_kw}kW` : null;
+  const dcVal = (c.dc_kw != null && c.dc_kw !== '') ? `${c.dc_kw}kW` : null;
 
-  // #11 権利・売価
-  const kenri = land.land_rights || (land.otsu_rights ? null : null) || '所有権'; // デフォルト所有権
-  // 売価は cases.price をマスク表示（営業先提出用）
-  const price = c.price;
+  // #11 権利（land.land_rights、なければ「所有権」）
+  const kenri = land.land_rights || '所有権';
 
-  // #12 賃料（賃貸案件のみ表示。現状は売却前提なのでNULL）
-  const chinryo = null;
+  // 契約形態（cases.contract_type）
+  const contractType = c.contract_type || '';
+  const isRental = contractType === '賃貸';
+
+  // 売価（売却案件のみ表示。賃貸案件は「ーーー」）
+  // cases.price をマスク表示（営業先提出用）
+  const price = isRental ? null : c.price;
+
+  // #12 賃料（賃貸案件のみ表示。売却案件は「ーーー」）
+  const chinryo = isRental ? (land.rental_fee || null) : null;
 
   // #13 農振法区分
   const noushinhou = land.noushinhou_kubun;
