@@ -334,6 +334,8 @@ window.addEventListener('load', function() {
     justify-content: center;
     overflow: hidden;
     flex-direction: column;
+    min-width: 0;   /* CSS Gridで内容に応じた拡大を防ぐ */
+    min-height: 0;  /* CSS Gridで内容に応じた拡大を防ぐ */
   }
   .img-cell-label {
     position: absolute;
@@ -386,15 +388,19 @@ window.addEventListener('load', function() {
   .koz-placeholder button:hover { background: #1d4ed8; }
   .koz-hint { font-size: 6.5pt; color: #9ca3af; margin-top: 1mm !important; }
   .koz-display {
-    position: relative;
-    width: 100%;
-    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     overflow: hidden;
   }
   .koz-image-wrap {
-    position: relative;
-    width: 100%;
-    height: calc(100% - 7mm); /* 下のコントロール分 */
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 7mm; /* 下のコントロール分 */
     overflow: hidden;
     display: flex;
     align-items: center;
@@ -442,6 +448,15 @@ window.addEventListener('load', function() {
   .koz-controls button.primary:hover { background: #dc2626; }
   .koz-controls button.success { background: #10b981; color: white; border-color: #10b981; }
   .koz-controls button.success:hover { background: #059669; }
+  .koz-controls button.danger { background: #ef4444; color: white; border-color: #ef4444; }
+  .koz-controls button.danger:hover { background: #dc2626; }
+  /* 公図セルのラベル位置: コントロールと重ならないよう上に表示 */
+  #koz-cell .img-cell-label {
+    bottom: auto;
+    top: 0;
+    border-top: none;
+    border-bottom: 1px solid #ccc;
+  }
   .koz-status {
     position: absolute;
     top: 0;
@@ -799,9 +814,10 @@ window.addEventListener('load', function() {
           <div class="koz-status" id="koz-status">編集中: クリックで点を追加</div>
           <div class="koz-controls">
             <button id="koz-edit-btn" onclick="togglePolygonMode()">📐 該当地を指定</button>
-            <button id="koz-clear-btn" onclick="clearPolygon()" style="display:none;">🗑️ クリア</button>
+            <button id="koz-clear-btn" onclick="clearPolygon()" style="display:none;">🗑️ 線をクリア</button>
             <button id="koz-save-btn" onclick="savePolygon()" class="success" style="display:none;">💾 保存</button>
             <button id="koz-replace-btn" onclick="document.getElementById('koz-input').click()">🔄 差替え</button>
+            <button id="koz-delete-btn" onclick="deleteCadastralMap()" class="danger">🗑️ 公図削除</button>
           </div>
         </div>
 
@@ -1692,6 +1708,67 @@ window.addEventListener('resize', () => {
 document.addEventListener('DOMContentLoaded', setupKozUploadHandler);
 // すでにDOMが読み込み済みの場合に備えて
 if (document.readyState !== 'loading') setupKozUploadHandler();
+
+// 公図削除：Storage上のファイル + DB参照 をすべて消去
+async function deleteCadastralMap() {
+  if (!_kozCurrentCaseId) {
+    alert('案件が読み込まれていません');
+    return;
+  }
+  if (!confirm('公図を削除します。よろしいですか？\n\n（赤線情報も同時に削除されます。元には戻せません）')) {
+    return;
+  }
+
+  try {
+    // Storage からファイル削除（URLからファイル名抽出）
+    const img = document.getElementById('koz-image');
+    if (img.src) {
+      try {
+        const urlParts = img.src.split('/cadastral-maps/');
+        if (urlParts.length === 2) {
+          const fileName = urlParts[1].split('?')[0];
+          if (fileName) {
+            await sbClient.storage.from('cadastral-maps').remove([fileName]);
+          }
+        }
+      } catch (storageErr) {
+        // Storage削除失敗は警告のみ（DB側の削除は続行）
+        console.warn('Storage上のファイル削除失敗:', storageErr);
+      }
+    }
+
+    // DB の cadastral_* をすべて NULL に
+    const { error } = await sbClient
+      .from('land_info')
+      .update({
+        cadastral_image_url: null,
+        cadastral_polygon: null,
+        cadastral_uploaded_at: null
+      })
+      .eq('case_id', _kozCurrentCaseId);
+    if (error) throw error;
+
+    // ローカル状態リセット
+    _kozPolygonPoints = [];
+    _kozPolygonMode = false;
+
+    // 表示をプレースホルダーに戻す
+    document.getElementById('koz-placeholder').style.display = 'flex';
+    document.getElementById('koz-display').style.display = 'none';
+    document.getElementById('koz-image').src = '';
+    const canvas = document.getElementById('koz-canvas');
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      canvas.classList.remove('editing');
+    }
+
+    setStatus('公図を削除しました');
+  } catch (err) {
+    console.error('公図削除失敗:', err);
+    alert('公図削除失敗: ' + (err.message || err));
+  }
+}
 
 // ============================================================
 // Phase 3-4: 位置図（地理院地図 pale + 赤丸 + スケールバー）
