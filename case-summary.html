@@ -917,7 +917,7 @@ window.addEventListener('load', function() {
         <!-- 状態2: アップロード済み -->
         <div class="koz-display" id="koz-display" style="display:none;">
           <div class="koz-image-wrap">
-            <img id="koz-image" src="" alt="公図">
+            <img id="koz-image" src="" alt="公図" crossorigin="anonymous">
             <canvas id="koz-canvas"></canvas>
           </div>
           <div class="koz-controls">
@@ -1881,19 +1881,23 @@ function calcPolygonBbox(points, paddingRatio = 0.15) {
   };
 }
 
-// 概要書セルにポリゴンと bbox クロップを描画
+// 概要書セルにポリゴンと bbox クロップを描画（Canvas-only方式）
 function drawKozPolygonOnCell() {
   const img = document.getElementById('koz-image');
   const canvas = document.getElementById('koz-canvas');
   if (!img || !canvas || !img.src) return;
 
-  // ポリゴンが無ければ Canvas をクリアして全体表示のまま
+  // ポリゴンが無ければ：imgで通常表示、Canvasは非表示
   if (!_kozPolygonPoints || _kozPolygonPoints.length === 0) {
-    canvas.width = 1;
-    canvas.height = 1;
-    img.style.objectFit = 'contain';
+    img.style.display = '';
+    img.style.position = '';
     img.style.transform = '';
     img.style.transformOrigin = '';
+    img.style.width = '';
+    img.style.height = '';
+    img.style.maxWidth = '';
+    img.style.maxHeight = '';
+    img.style.objectFit = 'contain';
     canvas.style.display = 'none';
     return;
   }
@@ -1902,7 +1906,6 @@ function drawKozPolygonOnCell() {
   const bbox = calcPolygonBbox(_kozPolygonPoints);
   if (!bbox) return;
 
-  // bbox を画像内に収める
   const naturalW = img.naturalWidth;
   const naturalH = img.naturalHeight;
   bbox.x = Math.max(0, bbox.x);
@@ -1910,59 +1913,68 @@ function drawKozPolygonOnCell() {
   bbox.width = Math.min(bbox.width, naturalW - bbox.x);
   bbox.height = Math.min(bbox.height, naturalH - bbox.y);
 
-  // 画像の表示位置を transform で調整（bbox 部分を拡大表示）
-  // セル幅 / セル高 を取得
+  // 表示先 wrap のサイズ取得
   const wrap = img.parentElement;
   const wrapRect = wrap.getBoundingClientRect();
+  if (wrapRect.width <= 0 || wrapRect.height <= 0) {
+    // レイアウト未確定のときは少し待ってリトライ
+    requestAnimationFrame(drawKozPolygonOnCell);
+    return;
+  }
 
-  // bbox を表示エリアに最大化（contain）
-  const scaleX = wrapRect.width / bbox.width;
-  const scaleY = wrapRect.height / bbox.height;
-  const scale = Math.min(scaleX, scaleY);
-
-  // 画像全体を scale 倍にして、bbox の中心が表示エリア中心に来るように移動
-  const imgScaleW = naturalW * scale;
-  const imgScaleH = naturalH * scale;
-  // bbox の中心
-  const bboxCenterX = (bbox.x + bbox.width / 2) * scale;
-  const bboxCenterY = (bbox.y + bbox.height / 2) * scale;
-  // 表示エリア中心
-  const wrapCenterX = wrapRect.width / 2;
-  const wrapCenterY = wrapRect.height / 2;
-  // 画像の左上のオフセット
-  const offsetX = wrapCenterX - bboxCenterX;
-  const offsetY = wrapCenterY - bboxCenterY;
-
-  img.style.objectFit = 'none';
-  img.style.transformOrigin = '0 0';
-  img.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
-  img.style.width = naturalW + 'px';
-  img.style.height = naturalH + 'px';
-  img.style.maxWidth = 'none';
-  img.style.maxHeight = 'none';
-
-  // Canvas を画像と同じ位置・サイズに（自然サイズ × scale で transform）
-  canvas.width = naturalW;
-  canvas.height = naturalH;
-  canvas.style.display = 'block';
-  canvas.style.transformOrigin = '0 0';
-  canvas.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
-  canvas.style.width = naturalW + 'px';
-  canvas.style.height = naturalH + 'px';
+  // Canvas のサイズを wrap のサイズに合わせる
+  // 高解像度のため、devicePixelRatio + 2倍 で描画バッファを大きく
+  const dpr = (window.devicePixelRatio || 1) * 2;
+  canvas.width = Math.round(wrapRect.width * dpr);
+  canvas.height = Math.round(wrapRect.height * dpr);
+  canvas.style.width = wrapRect.width + 'px';
+  canvas.style.height = wrapRect.height + 'px';
+  canvas.style.position = 'absolute';
   canvas.style.left = '0';
   canvas.style.top = '0';
+  canvas.style.transform = '';
+  canvas.style.transformOrigin = '';
+  canvas.style.display = 'block';
 
-  // 赤線描画
+  // img タグは非表示（Canvas のみ表示）
+  img.style.display = 'none';
+
+  // bbox 領域が canvas に収まるスケール
+  const scale = Math.min(
+    canvas.width / bbox.width,
+    canvas.height / bbox.height
+  );
+  const drawW = bbox.width * scale;
+  const drawH = bbox.height * scale;
+  const drawX = (canvas.width - drawW) / 2;
+  const drawY = (canvas.height - drawH) / 2;
+
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 1. 公図画像の bbox 部分を Canvas に描画
+  try {
+    ctx.drawImage(
+      img,
+      bbox.x, bbox.y, bbox.width, bbox.height,  // ソース
+      drawX, drawY, drawW, drawH                  // 描画先
+    );
+  } catch (e) {
+    console.warn('drawImage失敗:', e);
+    return;
+  }
+
+  // 2. 赤線多角形を bbox 座標系に変換して描画
   ctx.strokeStyle = '#dc2626';
-  ctx.lineWidth = Math.max(3, canvas.width / 400);
+  ctx.lineWidth = Math.max(2, scale * 4);
   ctx.lineJoin = 'round';
   ctx.beginPath();
-  ctx.moveTo(_kozPolygonPoints[0][0], _kozPolygonPoints[0][1]);
-  for (let i = 1; i < _kozPolygonPoints.length; i++) {
-    ctx.lineTo(_kozPolygonPoints[i][0], _kozPolygonPoints[i][1]);
-  }
+  _kozPolygonPoints.forEach(([px, py], i) => {
+    const x = drawX + (px - bbox.x) * scale;
+    const y = drawY + (py - bbox.y) * scale;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
   ctx.closePath();
   ctx.stroke();
 }
