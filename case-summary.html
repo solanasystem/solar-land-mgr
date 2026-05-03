@@ -2402,8 +2402,37 @@ function openOverlayModal() {
         document.getElementById('overlay-status').textContent = '✅ 設定済み（リセットで再指定 / 透明度を調整して保存）';
       }
     } else {
-      _overlayClickMode = 'sw';
-      document.getElementById('overlay-status').textContent = '公図の南西(左下)角を地図上でクリック';
+      // ===== 自動初期配置 =====
+      // 案件の緯度経度を中心に、公図のアスペクト比を保ったサイズで配置
+      // デフォルト短辺 = 150m（公図縮尺1:600想定 / 用紙短辺250mm = 150m相当）
+      const cadImg = document.getElementById('koz-image');
+      const aspectRatio = (cadImg && cadImg.naturalWidth > 0 && cadImg.naturalHeight > 0)
+        ? cadImg.naturalWidth / cadImg.naturalHeight
+        : 1.41; // A4横:縦 デフォルト
+
+      const baseSizeM = 150; // メートル
+      let widthM, heightM;
+      if (aspectRatio >= 1) {
+        // 横長
+        heightM = baseSizeM;
+        widthM = baseSizeM * aspectRatio;
+      } else {
+        // 縦長
+        widthM = baseSizeM;
+        heightM = baseSizeM / aspectRatio;
+      }
+
+      // メートル → 度数 変換
+      const latRad = lat * Math.PI / 180;
+      const dLat = (heightM / 2) / 111320;
+      const dLng = (widthM / 2) / (111320 * Math.cos(latRad));
+
+      _overlaySwLatLng = L.latLng(lat - dLat, lng - dLng);
+      _overlayNeLatLng = L.latLng(lat + dLat, lng + dLng);
+      _overlayClickMode = 'done';
+      renderOverlayState();
+      document.getElementById('overlay-status').textContent =
+        `⚠ 自動配置済み(${Math.round(widthM)}m×${Math.round(heightM)}m / 案件中心)。ずれていたらリセットで再指定`;
     }
 
     _overlayMap.on('click', handleOverlayMapClick);
