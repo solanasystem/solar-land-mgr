@@ -612,7 +612,12 @@ window.addEventListener('load', function() {
   .resize-handle.ne-handle, .resize-handle.sw-handle { cursor: nesw-resize; }
 
   /* ImageOverlay のドラッグ可能カーソル */
-  .leaflet-image-layer.draggable-overlay { cursor: move; pointer-events: auto !important; }
+  .leaflet-image-layer.draggable-overlay {
+    cursor: move;
+    pointer-events: auto !important;
+    /* 回転時もヒット領域が見た目に追従するようwill-changeでGPUレイヤー化 */
+    will-change: transform;
+  }
 
   /* ======== 公図編集モーダル ======== */
   .koz-modal {
@@ -2590,6 +2595,8 @@ function onOverlayDragStart(e) {
 
     _overlayImageLayer.setBounds(L.latLngBounds(_overlaySwLatLng, _overlayNeLatLng));
     updateResizeHandles();
+    // ドラッグ中も回転を維持（Leafletがtransformを書き換えた後に再適用）
+    applyOverlayRotation();
   };
 
   _overlayDragEndHandler = () => {
@@ -2720,6 +2727,8 @@ function handleResize(corner, newLatLng) {
   _overlayNeLatLng = L.latLng(newNeLat, newNeLng);
   _overlayImageLayer.setBounds(L.latLngBounds(_overlaySwLatLng, _overlayNeLatLng));
   updateResizeHandles();
+  // リサイズ中も回転を維持
+  applyOverlayRotation();
 }
 
 // 透明度変更
@@ -2764,23 +2773,25 @@ function resetOverlayRotation() {
   applyOverlayRotation();
 }
 
-// CSS transform で公図画像を中心回転（Leafletの位置決めtransformと共存）
+// imgタグ自身に rotate を適用（Leafletのtranslate3dと干渉しない方式）
 function applyOverlayRotation() {
   if (!_overlayImageLayer) return;
   const el = _overlayImageLayer.getElement();
   if (!el) return;
-  el.style.transformOrigin = '50% 50%';
-  // !important で確実に適用（Leafletの上書きを防ぐ）
+  // ImageOverlay の DOM 要素は <img> タグそのもの
+  // Leafletは親要素的に位置決めしないので、img自身にrotateを適用しても親transformに影響なし
+  // ただしLeafletは DOM要素のtransformを translate3dで設定しているため、
+  // 「Leafletのtransformはそのまま」かつ「rotateを末尾に追加」する戦略を取る
   if (_overlayRotation === 0) {
-    el.style.removeProperty('--koz-rotation');
-    el.style.transform = '';  // Leafletに任せる
-  } else {
-    // Leafletが適用するtranslate3d() を保ちつつrotateを追加
-    const baseTransform = el.style.transform || '';
-    // 既存のrotate指定を除去してから新しいrotateを追加
-    const cleaned = baseTransform.replace(/rotate\([^)]*\)/g, '').trim();
-    el.style.transform = `${cleaned} rotate(${_overlayRotation}deg)`.trim();
+    // rotateだけ除去（translate3dは残す）
+    const cur = el.style.transform || '';
+    el.style.transform = cur.replace(/\s*rotate\([^)]*\)/g, '').trim();
+    return;
   }
+  el.style.transformOrigin = '50% 50%';
+  const cur = el.style.transform || '';
+  const cleaned = cur.replace(/\s*rotate\([^)]*\)/g, '').trim();
+  el.style.transform = `${cleaned} rotate(${_overlayRotation}deg)`.trim();
 }
 
 // リセット
