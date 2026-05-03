@@ -40,6 +40,8 @@ window.addEventListener('unhandledrejection', function(ev) {
 <!-- Leaflet (Phase 3-4: 位置図用) -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- PDF.js: PDFアップロード時に1ページ目をPNG化するため -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <!-- Supabase SDK: UMDバンドルを直接指定（"@2"だけだとCJSが返る場合があるため） -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"
         onerror="(function(){var s=document.createElement('script');s.src='https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js';s.onerror=function(){var s2=document.createElement('script');s2.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';document.head.appendChild(s2);};document.head.appendChild(s);})()"></script>
@@ -356,6 +358,102 @@ window.addEventListener('load', function() {
   .img-cell-bottom {
     display: none;
   }
+
+  /* ======== 公図機能（Phase 3-3a+b） ======== */
+  .koz-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    width: 100%;
+    color: #6b7280;
+    font-size: 7.5pt;
+    padding: 4mm;
+    text-align: center;
+  }
+  .koz-placeholder p { margin: 1mm 0; }
+  .koz-placeholder button {
+    margin-top: 2mm;
+    padding: 1.5mm 4mm;
+    font-size: 8pt;
+    border: 1px solid #2563eb;
+    background: #2563eb;
+    color: white;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .koz-placeholder button:hover { background: #1d4ed8; }
+  .koz-hint { font-size: 6.5pt; color: #9ca3af; margin-top: 1mm !important; }
+  .koz-display {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  .koz-image-wrap {
+    position: relative;
+    width: 100%;
+    height: calc(100% - 7mm); /* 下のコントロール分 */
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .koz-image-wrap img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .koz-image-wrap canvas {
+    position: absolute;
+    pointer-events: none; /* 通常時は透過 */
+  }
+  .koz-image-wrap canvas.editing {
+    pointer-events: auto;
+    cursor: crosshair;
+  }
+  .koz-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 7mm;
+    display: flex;
+    gap: 1mm;
+    padding: 0.5mm 1mm;
+    background: rgba(255,255,255,0.9);
+    border-top: 1px solid #ccc;
+    z-index: 5;
+  }
+  .koz-controls button {
+    flex: 1;
+    font-size: 6.5pt;
+    padding: 0.5mm 1mm;
+    border: 1px solid #d1d5db;
+    background: white;
+    cursor: pointer;
+    border-radius: 2px;
+  }
+  .koz-controls button:hover { background: #f3f4f6; }
+  .koz-controls button.primary { background: #ef4444; color: white; border-color: #ef4444; }
+  .koz-controls button.primary:hover { background: #dc2626; }
+  .koz-controls button.success { background: #10b981; color: white; border-color: #10b981; }
+  .koz-controls button.success:hover { background: #059669; }
+  .koz-status {
+    position: absolute;
+    top: 0;
+    right: 0;
+    background: rgba(239, 68, 68, 0.9);
+    color: white;
+    padding: 0.5mm 2mm;
+    font-size: 6.5pt;
+    z-index: 6;
+    display: none;
+  }
+  .koz-status.show { display: block; }
   /* 接道セル: 大きく */
   .img-cell.setsudo {
     grid-column: 1 / 2;
@@ -681,9 +779,32 @@ window.addEventListener('load', function() {
         <div id="satellite-map" class="location-map-container"></div>
         <span class="img-cell-placeholder" id="satellite-map-placeholder">位置情報未登録</span>
       </div>
-      <div class="img-cell">
+      <div class="img-cell" id="koz-cell">
         <span class="img-cell-label">公図</span>
-        <span class="img-cell-placeholder">Phase 3で<br>公図PDFを<br>手動アップロード</span>
+
+        <!-- 状態1: 未アップロード -->
+        <div class="koz-placeholder" id="koz-placeholder">
+          <p>公図をアップロード</p>
+          <input type="file" id="koz-input" accept="image/png,image/jpeg,application/pdf" style="display:none">
+          <button onclick="document.getElementById('koz-input').click()">📎 ファイル選択</button>
+          <p class="koz-hint">PNG / JPG / PDF (最大10MB)</p>
+        </div>
+
+        <!-- 状態2: アップロード済み -->
+        <div class="koz-display" id="koz-display" style="display:none;">
+          <div class="koz-image-wrap">
+            <img id="koz-image" src="" alt="公図">
+            <canvas id="koz-canvas"></canvas>
+          </div>
+          <div class="koz-status" id="koz-status">編集中: クリックで点を追加</div>
+          <div class="koz-controls">
+            <button id="koz-edit-btn" onclick="togglePolygonMode()">📐 該当地を指定</button>
+            <button id="koz-clear-btn" onclick="clearPolygon()" style="display:none;">🗑️ クリア</button>
+            <button id="koz-save-btn" onclick="savePolygon()" class="success" style="display:none;">💾 保存</button>
+            <button id="koz-replace-btn" onclick="document.getElementById('koz-input').click()">🔄 差替え</button>
+          </div>
+        </div>
+
         <div class="img-cell-bottom" id="d-koz-cap">該当地</div>
       </div>
       <div class="img-cell">
@@ -1229,10 +1350,348 @@ function render(c, land, owner, snowDepth) {
   // ===== Phase 3-5+: 衛星写真描画（電柱情報含む） =====
   renderSatelliteMap(lat, lng, land);
 
+  // ===== Phase 3-3a+b: 公図表示 =====
+  loadCadastralMap(land);
+
   // ===== セル内テキスト自動フィット =====
   // DOM 反映後に適用するため setTimeout で遅延実行
   setTimeout(applyTextFitToCells, 50);
 }
+
+// ============================================================
+// Phase 3-3a+b: 公図機能（アップロード + 多角形赤線描画）
+// ============================================================
+let _kozCurrentLandId = null;   // 現在表示中の land_info.id
+let _kozCurrentCaseId = null;   // 現在表示中の case_id
+let _kozPolygonMode = false;    // 多角形編集モード
+let _kozPolygonPoints = [];     // 現在の多角形座標 [[x,y],...] 自然サイズ座標
+let _kozPolygonOriginal = null; // 編集開始時のバックアップ
+
+// PDF.js Worker設定（CDNロード後）
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+// 公図ロード（render時に呼ばれる）
+function loadCadastralMap(land) {
+  _kozCurrentLandId = land.id || null;
+  _kozCurrentCaseId = land.case_id || null;
+  _kozPolygonMode = false;
+  _kozPolygonPoints = [];
+
+  const placeholder = document.getElementById('koz-placeholder');
+  const display = document.getElementById('koz-display');
+
+  if (land && land.cadastral_image_url) {
+    // 既にアップロード済み → 画像表示
+    placeholder.style.display = 'none';
+    display.style.display = 'block';
+
+    const img = document.getElementById('koz-image');
+    img.src = land.cadastral_image_url;
+
+    img.onload = () => {
+      const canvas = document.getElementById('koz-canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      // 画像と同じ表示サイズに合わせる
+      const rect = img.getBoundingClientRect();
+      const wrapRect = img.parentElement.getBoundingClientRect();
+      canvas.style.width = rect.width + 'px';
+      canvas.style.height = rect.height + 'px';
+      canvas.style.left = (rect.left - wrapRect.left) + 'px';
+      canvas.style.top = (rect.top - wrapRect.top) + 'px';
+
+      // 既存の多角形があれば描画
+      if (Array.isArray(land.cadastral_polygon) && land.cadastral_polygon.length > 0) {
+        _kozPolygonPoints = land.cadastral_polygon;
+        drawKozPolygon();
+      }
+    };
+
+    // 編集ボタン状態リセット
+    document.getElementById('koz-edit-btn').textContent = '📐 該当地を指定';
+    document.getElementById('koz-clear-btn').style.display = 'none';
+    document.getElementById('koz-save-btn').style.display = 'none';
+    document.getElementById('koz-status').classList.remove('show');
+  } else {
+    // 未アップロード → プレースホルダー
+    placeholder.style.display = 'flex';
+    display.style.display = 'none';
+  }
+}
+
+// ファイル選択時のハンドラー（DOMContentLoaded時に登録）
+function setupKozUploadHandler() {
+  const input = document.getElementById('koz-input');
+  if (!input) return;
+  input.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = ''; // 同じファイル再選択を可能に
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert('ファイルサイズが10MBを超えています');
+      return;
+    }
+
+    if (!_kozCurrentCaseId) {
+      alert('案件が読み込まれていません');
+      return;
+    }
+
+    try {
+      // PDFなら画像化
+      let imageBlob = file;
+      let extension = 'png';
+      if (file.type === 'application/pdf') {
+        setStatus('公図PDF を画像化中...');
+        imageBlob = await convertPdfToPng(file);
+      } else if (file.type === 'image/jpeg') {
+        extension = 'jpg';
+      }
+
+      // Supabase Storage にアップロード
+      setStatus('公図をアップロード中...');
+      const fileName = `${_kozCurrentCaseId}_${Date.now()}.${extension}`;
+      const { data: upData, error: upError } = await sbClient.storage
+        .from('cadastral-maps')
+        .upload(fileName, imageBlob, {
+          contentType: imageBlob.type || 'image/png',
+          upsert: true
+        });
+      if (upError) throw upError;
+
+      // 公開URL取得
+      const { data: urlData } = sbClient.storage
+        .from('cadastral-maps')
+        .getPublicUrl(fileName);
+      const publicUrl = urlData.publicUrl;
+
+      // DB更新（cadastral_polygon は新規アップロードでクリア）
+      const { error: dbError } = await sbClient
+        .from('land_info')
+        .update({
+          cadastral_image_url: publicUrl,
+          cadastral_polygon: null,
+          cadastral_uploaded_at: new Date().toISOString()
+        })
+        .eq('case_id', _kozCurrentCaseId);
+      if (dbError) throw dbError;
+
+      // 表示更新
+      setStatus('公図アップロード完了');
+      loadCadastralMap({
+        id: _kozCurrentLandId,
+        case_id: _kozCurrentCaseId,
+        cadastral_image_url: publicUrl,
+        cadastral_polygon: null
+      });
+    } catch (err) {
+      console.error('公図アップロード失敗:', err);
+      alert('公図アップロード失敗: ' + (err.message || err));
+      setStatus('公図アップロード失敗', true);
+    }
+  });
+}
+
+// PDF を 1ページ目だけ PNG Blob に変換
+async function convertPdfToPng(pdfFile) {
+  if (typeof pdfjsLib === 'undefined') {
+    throw new Error('PDF.js が読み込まれていません');
+  }
+  const arrayBuffer = await pdfFile.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const page = await pdf.getPage(1);
+  // スケール 2.0 で高解像度化（A4 PDFが概ね1700×2400px相当）
+  const viewport = page.getViewport({ scale: 2.0 });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext('2d');
+
+  await page.render({ canvasContext: ctx, viewport }).promise;
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (blob) resolve(blob);
+      else reject(new Error('PDF→PNG変換に失敗しました'));
+    }, 'image/png');
+  });
+}
+
+// 多角形編集モード切り替え
+function togglePolygonMode() {
+  const canvas = document.getElementById('koz-canvas');
+  const editBtn = document.getElementById('koz-edit-btn');
+  const clearBtn = document.getElementById('koz-clear-btn');
+  const saveBtn = document.getElementById('koz-save-btn');
+  const status = document.getElementById('koz-status');
+
+  if (!_kozPolygonMode) {
+    // 編集開始
+    _kozPolygonMode = true;
+    _kozPolygonOriginal = JSON.parse(JSON.stringify(_kozPolygonPoints));
+    _kozPolygonPoints = []; // 新規描画
+    canvas.classList.add('editing');
+    canvas.addEventListener('click', addKozPoint);
+    canvas.addEventListener('contextmenu', finishKozPolygon);
+    editBtn.textContent = '✕ 編集をキャンセル';
+    editBtn.classList.add('primary');
+    clearBtn.style.display = 'block';
+    saveBtn.style.display = 'block';
+    status.classList.add('show');
+    status.textContent = '編集中: クリックで点追加 / 右クリックで完了';
+    drawKozPolygon();
+  } else {
+    // 編集キャンセル
+    _kozPolygonMode = false;
+    _kozPolygonPoints = _kozPolygonOriginal || [];
+    canvas.classList.remove('editing');
+    canvas.removeEventListener('click', addKozPoint);
+    canvas.removeEventListener('contextmenu', finishKozPolygon);
+    editBtn.textContent = '📐 該当地を指定';
+    editBtn.classList.remove('primary');
+    clearBtn.style.display = 'none';
+    saveBtn.style.display = 'none';
+    status.classList.remove('show');
+    drawKozPolygon();
+  }
+}
+
+// 点を追加
+function addKozPoint(e) {
+  if (!_kozPolygonMode) return;
+  const canvas = e.target;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+  _kozPolygonPoints.push([Math.round(x), Math.round(y)]);
+  drawKozPolygon();
+}
+
+// 右クリックで多角形を閉じる
+function finishKozPolygon(e) {
+  e.preventDefault();
+  if (_kozPolygonPoints.length < 3) {
+    alert('点を3つ以上クリックしてください');
+    return;
+  }
+  // 描画完了：閉じた多角形を表示
+  drawKozPolygon(true);
+  document.getElementById('koz-status').textContent =
+    `${_kozPolygonPoints.length}点で描画完了。「保存」を押してください`;
+}
+
+// クリア
+function clearPolygon() {
+  if (!confirm('多角形をクリアしますか？')) return;
+  _kozPolygonPoints = [];
+  drawKozPolygon();
+}
+
+// 保存
+async function savePolygon() {
+  if (_kozPolygonPoints.length < 3) {
+    alert('点を3つ以上指定してください');
+    return;
+  }
+  if (!_kozCurrentCaseId) {
+    alert('案件が読み込まれていません');
+    return;
+  }
+
+  try {
+    const { error } = await sbClient
+      .from('land_info')
+      .update({ cadastral_polygon: _kozPolygonPoints })
+      .eq('case_id', _kozCurrentCaseId);
+    if (error) throw error;
+
+    // 編集モード終了
+    _kozPolygonMode = false;
+    const canvas = document.getElementById('koz-canvas');
+    canvas.classList.remove('editing');
+    canvas.removeEventListener('click', addKozPoint);
+    canvas.removeEventListener('contextmenu', finishKozPolygon);
+
+    document.getElementById('koz-edit-btn').textContent = '📐 該当地を指定';
+    document.getElementById('koz-edit-btn').classList.remove('primary');
+    document.getElementById('koz-clear-btn').style.display = 'none';
+    document.getElementById('koz-save-btn').style.display = 'none';
+    document.getElementById('koz-status').classList.remove('show');
+
+    drawKozPolygon();
+    setStatus('多角形を保存しました');
+  } catch (err) {
+    console.error('多角形保存失敗:', err);
+    alert('多角形保存失敗: ' + (err.message || err));
+  }
+}
+
+// 多角形を描画（赤線）
+function drawKozPolygon(closed = false) {
+  const canvas = document.getElementById('koz-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (_kozPolygonPoints.length === 0) return;
+
+  // 赤線多角形
+  ctx.strokeStyle = '#dc2626';
+  ctx.lineWidth = Math.max(3, canvas.width / 400); // 画像サイズに応じて線幅調整
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(_kozPolygonPoints[0][0], _kozPolygonPoints[0][1]);
+  for (let i = 1; i < _kozPolygonPoints.length; i++) {
+    ctx.lineTo(_kozPolygonPoints[i][0], _kozPolygonPoints[i][1]);
+  }
+
+  // 編集中以外、または点が3つ以上なら閉じる
+  if (!_kozPolygonMode || closed || _kozPolygonPoints.length >= 3) {
+    if (!_kozPolygonMode) {
+      ctx.closePath();
+    }
+  }
+  ctx.stroke();
+
+  // 編集モード時のみ、各点に小さな赤丸
+  if (_kozPolygonMode) {
+    const r = Math.max(5, canvas.width / 250);
+    _kozPolygonPoints.forEach((p) => {
+      ctx.fillStyle = '#dc2626';
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    });
+  }
+}
+
+// ウィンドウリサイズ時にCanvas位置を再調整
+window.addEventListener('resize', () => {
+  const img = document.getElementById('koz-image');
+  const canvas = document.getElementById('koz-canvas');
+  if (!img || !canvas || !img.src) return;
+  const rect = img.getBoundingClientRect();
+  const wrapRect = img.parentElement.getBoundingClientRect();
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  canvas.style.left = (rect.left - wrapRect.left) + 'px';
+  canvas.style.top = (rect.top - wrapRect.top) + 'px';
+});
+
+// DOMContentLoaded時にアップロードハンドラー登録
+document.addEventListener('DOMContentLoaded', setupKozUploadHandler);
+// すでにDOMが読み込み済みの場合に備えて
+if (document.readyState !== 'loading') setupKozUploadHandler();
 
 // ============================================================
 // Phase 3-4: 位置図（地理院地図 pale + 赤丸 + スケールバー）
