@@ -854,6 +854,53 @@ function formatCoords(lat, lng) {
   return `${f(parseFloat(lat),'N','S')} ${f(parseFloat(lng),'E','W')}`;
 }
 
+// ============================================================
+// セル内テキスト自動フィット（フォントサイズをセルに合わせて縮小）
+// ============================================================
+function fitTextInCell(el, opts) {
+  if (!el) return;
+  opts = opts || {};
+  const minPx    = opts.minPx    || 5;        // 最小フォントサイズ(px)
+  const maxPx    = opts.maxPx    || null;     // 最大フォントサイズ(px)、null=現在値
+  const noWrap   = opts.noWrap   !== false;   // 改行禁止（デフォルトtrue）
+  const stepPx   = opts.stepPx   || 0.5;      // 縮小ステップ
+  const maxIters = 30;                         // 無限ループ防止
+
+  // 現在のフォントサイズを取得
+  const cs = window.getComputedStyle(el);
+  let size = maxPx || parseFloat(cs.fontSize);
+
+  // 改行制御
+  if (noWrap) el.style.whiteSpace = 'nowrap';
+  el.style.overflow = 'hidden';
+  el.style.fontSize = size + 'px';
+
+  // 幅オーバーしている間、段階的にフォントサイズ縮小
+  let iter = 0;
+  while ((el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight)
+         && size > minPx && iter < maxIters) {
+    size -= stepPx;
+    el.style.fontSize = size + 'px';
+    iter++;
+  }
+}
+
+// render の最後に呼び出す：収まり問題がありそうなセルに自動フィット適用
+function applyTextFitToCells() {
+  // 横長のデータセル（横方向に収める）
+  ['d-name', 'd-coords', 'd-map', 'd-address', 'd-baika'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) fitTextInCell(el, { minPx: 5, noWrap: true });
+  });
+
+  // rowspan ラベル（縦複数行可、ただし高さ制限）
+  // 土地ラベル・電柱番号ラベルなど、style="font-size:..." が指定されたセル
+  const labelTh = document.querySelectorAll('table.dt th[rowspan]');
+  labelTh.forEach(el => {
+    fitTextInCell(el, { minPx: 4.5, noWrap: false });
+  });
+}
+
 // 案件番号→発電所名称（とりあえず案件番号＋区分から推定）
 function deriveName(caseNo, kubun, addr, landNo) {
   // 「本庄児玉713-2蓄電所」のような形式を再現したいが、
@@ -1151,6 +1198,10 @@ function render(c, land, owner, snowDepth) {
 
   // ===== Phase 3-5+: 衛星写真描画（電柱情報含む） =====
   renderSatelliteMap(lat, lng, land);
+
+  // ===== セル内テキスト自動フィット =====
+  // DOM 反映後に適用するため setTimeout で遅延実行
+  setTimeout(applyTextFitToCells, 50);
 }
 
 // ============================================================
