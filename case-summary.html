@@ -132,7 +132,7 @@ window.addEventListener('load', function() {
     .img-cell-label { padding: 0.4mm 1mm !important; font-size: 6.5pt !important; }
     .img-cell-bottom { padding: 0.3mm !important; font-size: 6pt !important; }
     /* 公図セルのボタン類は印刷時非表示 */
-    .koz-controls, .koz-zoom-controls { display: none !important; }
+    .koz-controls, .koz-zoom-controls, .overlay-edit-btn { display: none !important; }
     /* 公図画像エリアを下までフルに拡大（コントロール分の余白を解除） */
     .koz-image-wrap { bottom: 0 !important; }
   }
@@ -483,6 +483,119 @@ window.addEventListener('load', function() {
   }
   .koz-zoom-controls button:hover { background: #f3f4f6; }
   .koz-zoom-controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ======== 公図重ね編集モーダル（Phase 3-3-overlay） ======== */
+  .overlay-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Hiragino Kaku Gothic ProN','Hiragino Sans','Meiryo',sans-serif;
+  }
+  .overlay-modal.active { display: flex; }
+  .overlay-modal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+  }
+  .overlay-modal-content {
+    position: relative;
+    width: 95vw;
+    height: 92vh;
+    max-width: 1400px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .overlay-modal-header {
+    padding: 10px 16px;
+    background: #f3f4f6;
+    border-bottom: 1px solid #d1d5db;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .overlay-modal-header .close-btn {
+    border: none;
+    background: transparent;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px 12px;
+  }
+  .overlay-modal-header .close-btn:hover { background: #e5e7eb; border-radius: 4px; }
+  .overlay-modal-body {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  #overlay-edit-map {
+    width: 100%;
+    height: 100%;
+  }
+  .overlay-modal-footer {
+    padding: 10px 16px;
+    background: #f9fafb;
+    border-top: 1px solid #d1d5db;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .overlay-modal-footer button {
+    padding: 8px 16px;
+    font-size: 13px;
+    border-radius: 4px;
+    border: 1px solid #d1d5db;
+    background: white;
+    cursor: pointer;
+  }
+  .overlay-modal-footer button:hover { background: #f3f4f6; }
+  .overlay-modal-footer button.success { background: #10b981; color: white; border-color: #10b981; }
+  .overlay-modal-footer button.success:hover { background: #059669; }
+  .overlay-modal-footer button.danger  { background: #ef4444; color: white; border-color: #ef4444; }
+  .overlay-modal-footer button.danger:hover  { background: #dc2626; }
+  .overlay-modal-footer .spacer { flex: 1; }
+  .overlay-modal-footer .status {
+    font-size: 12px;
+    color: #444;
+    background: #fef3c7;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid #fde68a;
+  }
+  .overlay-modal-footer .opacity-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+  }
+  .overlay-modal-footer .opacity-control input[type="range"] {
+    width: 120px;
+  }
+
+  /* 衛星写真セルの「公図を重ねる」ボタン */
+  .overlay-edit-btn {
+    position: absolute;
+    bottom: 6mm;   /* セル下部のラベルを避ける */
+    right: 1mm;
+    z-index: 1001;
+    padding: 1.5mm 3mm;
+    font-size: 7pt;
+    border: 1px solid #2563eb;
+    background: rgba(255,255,255,0.95);
+    color: #2563eb;
+    border-radius: 3px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .overlay-edit-btn:hover { background: #dbeafe; }
 
   /* ======== 公図編集モーダル ======== */
   .koz-modal {
@@ -935,6 +1048,7 @@ window.addEventListener('load', function() {
         <span class="img-cell-label" style="z-index:1000;">Google MAP 重ね</span>
         <div id="satellite-map" class="location-map-container"></div>
         <span class="img-cell-placeholder" id="satellite-map-placeholder">位置情報未登録</span>
+        <button class="overlay-edit-btn" id="overlay-edit-btn" onclick="openOverlayModal()" style="display:none;">📍 公図を重ねる</button>
       </div>
       <div class="img-cell" id="koz-cell">
         <span class="img-cell-label">公図</span>
@@ -1010,6 +1124,32 @@ window.addEventListener('load', function() {
   <div class="sheet-footer">株式会社XAMAX &amp; In the cloud</div>
 
 </div><!-- /summary-sheet -->
+
+<!-- ======== 公図重ね編集モーダル（Phase 3-3-overlay） ======== -->
+<div id="overlay-modal" class="overlay-modal">
+  <div class="overlay-modal-overlay" onclick="closeOverlayModal()"></div>
+  <div class="overlay-modal-content">
+    <div class="overlay-modal-header">
+      <span>📍 公図を衛星写真に重ねる — 地図上で公図の南西角と北東角をクリック</span>
+      <button class="close-btn" onclick="closeOverlayModal()" title="閉じる">✕</button>
+    </div>
+    <div class="overlay-modal-body">
+      <div id="overlay-edit-map"></div>
+    </div>
+    <div class="overlay-modal-footer">
+      <button onclick="overlayModeReset()" class="danger">↺ リセット</button>
+      <span class="status" id="overlay-status">公図の南西(左下)角を地図上でクリック</span>
+      <span class="spacer"></span>
+      <div class="opacity-control">
+        透明度:
+        <input type="range" id="overlay-opacity-slider" min="0" max="100" value="60" oninput="changeOverlayOpacity(this.value)">
+        <span id="overlay-opacity-value">60%</span>
+      </div>
+      <button onclick="closeOverlayModal()">キャンセル</button>
+      <button onclick="saveOverlay()" class="success">💾 保存して閉じる</button>
+    </div>
+  </div>
+</div>
 
 <!-- ======== 公図編集モーダル（Phase 3-3a+b） ======== -->
 <div id="koz-modal" class="koz-modal">
@@ -1561,6 +1701,7 @@ function loadCadastralMap(land) {
   _kozCurrentCaseId = land.case_id || null;
   _kozPolygonMode = false;
   _kozPolygonPoints = [];
+  _overlayCurrentLand = land || null;  // overlay編集用
 
   const placeholder = document.getElementById('koz-placeholder');
   const display = document.getElementById('koz-display');
@@ -1569,6 +1710,7 @@ function loadCadastralMap(land) {
     // 既にアップロード済み → 画像表示
     placeholder.style.display = 'none';
     display.style.display = 'block';
+    updateOverlayEditButtonVisibility(true);
 
     const img = document.getElementById('koz-image');
 
@@ -1591,6 +1733,7 @@ function loadCadastralMap(land) {
     // 未アップロード → プレースホルダー
     placeholder.style.display = 'flex';
     display.style.display = 'none';
+    updateOverlayEditButtonVisibility(false);
     // 念のため img/canvas をリセット
     const img = document.getElementById('koz-image');
     if (img) {
@@ -2156,6 +2299,278 @@ async function deleteCadastralMap() {
 }
 
 // ============================================================
+// Phase 3-3-overlay: 公図を衛星写真に重ねる（編集モーダル）
+// ============================================================
+let _overlayMap = null;
+let _overlayImageLayer = null;
+let _overlaySwMarker = null;
+let _overlayNeMarker = null;
+let _overlayClickMode = 'sw'; // 'sw' | 'ne' | 'done'
+let _overlaySwLatLng = null;
+let _overlayNeLatLng = null;
+let _overlayOpacity = 0.6;
+let _overlayCurrentLand = null;
+
+// 公図重ね編集ボタンの表示/非表示制御（公図がアップロード済みなら表示）
+function updateOverlayEditButtonVisibility(hasCadastralImage) {
+  const btn = document.getElementById('overlay-edit-btn');
+  if (!btn) return;
+  btn.style.display = hasCadastralImage ? 'block' : 'none';
+}
+
+// 編集モーダルを開く
+function openOverlayModal() {
+  if (!_kozCurrentCaseId) {
+    alert('案件を読み込んでください');
+    return;
+  }
+  const cadImg = document.getElementById('koz-image');
+  if (!cadImg || !cadImg.src) {
+    alert('先に公図をアップロードしてください');
+    return;
+  }
+  if (typeof L === 'undefined') {
+    alert('地図ライブラリが読み込まれていません');
+    return;
+  }
+  if (!_overlayCurrentLand) {
+    alert('案件情報の取得に失敗しています。再読込してください');
+    return;
+  }
+
+  // モーダル表示
+  document.getElementById('overlay-modal').classList.add('active');
+  document.body.style.overflow = 'hidden';
+
+  // 透明度初期値（既存値があればそれ、なければ0.6）
+  _overlayOpacity = (typeof _overlayCurrentLand.cadastral_overlay_opacity === 'number')
+    ? _overlayCurrentLand.cadastral_overlay_opacity : 0.6;
+  document.getElementById('overlay-opacity-slider').value = Math.round(_overlayOpacity * 100);
+  document.getElementById('overlay-opacity-value').textContent = Math.round(_overlayOpacity * 100) + '%';
+
+  // 大きな衛星写真マップを初期化
+  setTimeout(() => {
+    if (_overlayMap) {
+      try { _overlayMap.remove(); } catch(_) {}
+      _overlayMap = null;
+    }
+
+    const land = _overlayCurrentLand;
+    const lat = parseFloat(land.lat) || parseFloat(land.case_lat) || 35.0;
+    const lng = parseFloat(land.lng) || parseFloat(land.case_lng) || 137.0;
+
+    _overlayMap = L.map('overlay-edit-map', {
+      center: [lat, lng],
+      zoom: 18,
+      zoomControl: true,
+      attributionControl: false
+    });
+
+    // ESRI 衛星写真
+    L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      attribution: 'Esri'
+    }).addTo(_overlayMap);
+
+    // スケールバー
+    L.control.scale({ position: 'bottomright', metric: true, imperial: false, maxWidth: 200 }).addTo(_overlayMap);
+
+    // 案件位置の赤丸
+    L.circleMarker([lat, lng], {
+      radius: 6,
+      color: '#FF0000',
+      weight: 3,
+      fillOpacity: 0
+    }).addTo(_overlayMap);
+
+    // 既存 bounds があれば復元
+    _overlaySwLatLng = null;
+    _overlayNeLatLng = null;
+    _overlayImageLayer = null;
+    _overlaySwMarker = null;
+    _overlayNeMarker = null;
+
+    if (land.cadastral_overlay_bounds) {
+      const b = land.cadastral_overlay_bounds;
+      const sw = b.sw || b.southwest;
+      const ne = b.ne || b.northeast;
+      if (Array.isArray(sw) && Array.isArray(ne)) {
+        _overlaySwLatLng = L.latLng(sw[0], sw[1]);
+        _overlayNeLatLng = L.latLng(ne[0], ne[1]);
+        _overlayClickMode = 'done';
+        renderOverlayState();
+        document.getElementById('overlay-status').textContent = '✅ 設定済み（リセットで再指定 / 透明度を調整して保存）';
+      }
+    } else {
+      _overlayClickMode = 'sw';
+      document.getElementById('overlay-status').textContent = '公図の南西(左下)角を地図上でクリック';
+    }
+
+    _overlayMap.on('click', handleOverlayMapClick);
+
+    // タイル安定化
+    setTimeout(() => { try { _overlayMap.invalidateSize(); } catch(_) {} }, 200);
+  }, 100);
+}
+
+// 地図クリック処理
+function handleOverlayMapClick(e) {
+  if (_overlayClickMode === 'sw') {
+    _overlaySwLatLng = e.latlng;
+    _overlayClickMode = 'ne';
+    document.getElementById('overlay-status').textContent =
+      '✓ 南西OK — 公図の北東(右上)角をクリック';
+    renderOverlayState();
+  } else if (_overlayClickMode === 'ne') {
+    _overlayNeLatLng = e.latlng;
+    _overlayClickMode = 'done';
+    document.getElementById('overlay-status').textContent =
+      '✅ 設定完了（透明度を調整して保存 / リセットで再指定）';
+    renderOverlayState();
+  }
+}
+
+// 現状を描画（マーカー + ImageOverlay）
+function renderOverlayState() {
+  if (!_overlayMap) return;
+  const cadImg = document.getElementById('koz-image');
+
+  // マーカー再描画
+  if (_overlaySwMarker) { _overlayMap.removeLayer(_overlaySwMarker); _overlaySwMarker = null; }
+  if (_overlayNeMarker) { _overlayMap.removeLayer(_overlayNeMarker); _overlayNeMarker = null; }
+  if (_overlayImageLayer) { _overlayMap.removeLayer(_overlayImageLayer); _overlayImageLayer = null; }
+
+  if (_overlaySwLatLng) {
+    _overlaySwMarker = L.marker(_overlaySwLatLng, { title: '南西(SW)' }).addTo(_overlayMap);
+    _overlaySwMarker.bindTooltip('SW', { permanent: true, direction: 'right', offset: [10, 0] });
+  }
+  if (_overlayNeLatLng) {
+    _overlayNeMarker = L.marker(_overlayNeLatLng, { title: '北東(NE)' }).addTo(_overlayMap);
+    _overlayNeMarker.bindTooltip('NE', { permanent: true, direction: 'right', offset: [10, 0] });
+  }
+
+  // 両端が決まれば ImageOverlay 表示
+  if (_overlaySwLatLng && _overlayNeLatLng && cadImg && cadImg.src) {
+    const sw = [
+      Math.min(_overlaySwLatLng.lat, _overlayNeLatLng.lat),
+      Math.min(_overlaySwLatLng.lng, _overlayNeLatLng.lng)
+    ];
+    const ne = [
+      Math.max(_overlaySwLatLng.lat, _overlayNeLatLng.lat),
+      Math.max(_overlaySwLatLng.lng, _overlayNeLatLng.lng)
+    ];
+    _overlayImageLayer = L.imageOverlay(cadImg.src, [sw, ne], {
+      opacity: _overlayOpacity,
+      crossOrigin: 'anonymous'
+    }).addTo(_overlayMap);
+  }
+}
+
+// 透明度変更
+function changeOverlayOpacity(value) {
+  _overlayOpacity = parseInt(value, 10) / 100;
+  document.getElementById('overlay-opacity-value').textContent = value + '%';
+  if (_overlayImageLayer) {
+    _overlayImageLayer.setOpacity(_overlayOpacity);
+  }
+}
+
+// リセット
+function overlayModeReset() {
+  _overlayClickMode = 'sw';
+  _overlaySwLatLng = null;
+  _overlayNeLatLng = null;
+  if (_overlaySwMarker) { _overlayMap.removeLayer(_overlaySwMarker); _overlaySwMarker = null; }
+  if (_overlayNeMarker) { _overlayMap.removeLayer(_overlayNeMarker); _overlayNeMarker = null; }
+  if (_overlayImageLayer) { _overlayMap.removeLayer(_overlayImageLayer); _overlayImageLayer = null; }
+  document.getElementById('overlay-status').textContent = '公図の南西(左下)角を地図上でクリック';
+}
+
+// 保存
+async function saveOverlay() {
+  if (!_overlaySwLatLng || !_overlayNeLatLng) {
+    alert('南西と北東の2点を地図上でクリックして範囲を指定してください');
+    return;
+  }
+  if (!_kozCurrentCaseId) {
+    alert('案件が読み込まれていません');
+    return;
+  }
+
+  const sw = [
+    Math.min(_overlaySwLatLng.lat, _overlayNeLatLng.lat),
+    Math.min(_overlaySwLatLng.lng, _overlayNeLatLng.lng)
+  ];
+  const ne = [
+    Math.max(_overlaySwLatLng.lat, _overlayNeLatLng.lat),
+    Math.max(_overlaySwLatLng.lng, _overlayNeLatLng.lng)
+  ];
+
+  try {
+    const { error } = await sbClient
+      .from('land_info')
+      .update({
+        cadastral_overlay_bounds: { sw: sw, ne: ne },
+        cadastral_overlay_opacity: _overlayOpacity
+      })
+      .eq('case_id', _kozCurrentCaseId);
+    if (error) throw error;
+
+    // ローカル状態も更新
+    if (_overlayCurrentLand) {
+      _overlayCurrentLand.cadastral_overlay_bounds = { sw: sw, ne: ne };
+      _overlayCurrentLand.cadastral_overlay_opacity = _overlayOpacity;
+    }
+
+    // 衛星写真セルにも反映（既存overlayを削除して再追加）
+    applyOverlayToSatelliteMap(
+      document.getElementById('koz-image').src,
+      [sw, ne],
+      _overlayOpacity
+    );
+
+    setStatus('公図の重ね位置を保存しました');
+    closeOverlayModal();
+  } catch (err) {
+    console.error('保存失敗:', err);
+    alert('保存失敗: ' + (err.message || err));
+  }
+}
+
+// 衛星写真セルに即座に反映
+function applyOverlayToSatelliteMap(imageUrl, bounds, opacity) {
+  if (!_satelliteMap) return;
+  // 既存の cadastral overlay を削除
+  _satelliteMap.eachLayer(layer => {
+    if (layer instanceof L.ImageOverlay && layer._isCadastralOverlay) {
+      _satelliteMap.removeLayer(layer);
+    }
+  });
+  const overlay = L.imageOverlay(imageUrl, bounds, {
+    opacity: opacity,
+    crossOrigin: 'anonymous'
+  });
+  overlay._isCadastralOverlay = true;
+  overlay.addTo(_satelliteMap);
+}
+
+// モーダルを閉じる
+function closeOverlayModal() {
+  document.getElementById('overlay-modal').classList.remove('active');
+  document.body.style.overflow = '';
+  if (_overlayMap) {
+    try {
+      _overlayMap.off('click', handleOverlayMapClick);
+      _overlayMap.remove();
+    } catch(_) {}
+    _overlayMap = null;
+  }
+  _overlayImageLayer = null;
+  _overlaySwMarker = null;
+  _overlayNeMarker = null;
+}
+
+// ============================================================
 // Phase 3-4: 位置図（地理院地図 pale + 赤丸 + スケールバー）
 // ============================================================
 let _locationMap = null;
@@ -2341,6 +2756,28 @@ function renderSatelliteMap(lat, lng, land) {
           weight: 2.5,
           opacity: 0.95
         }).addTo(map);
+      }
+
+      // ===== 公図ImageOverlay（Phase 3-3-overlay） =====
+      if (land.cadastral_image_url && land.cadastral_overlay_bounds) {
+        try {
+          const b = land.cadastral_overlay_bounds;
+          const sw = b.sw || b.southwest;
+          const ne = b.ne || b.northeast;
+          if (Array.isArray(sw) && Array.isArray(ne) && sw.length === 2 && ne.length === 2) {
+            const opacity = (typeof land.cadastral_overlay_opacity === 'number')
+              ? land.cadastral_overlay_opacity : 0.6;
+            const overlay = L.imageOverlay(
+              land.cadastral_image_url,
+              [[sw[0], sw[1]], [ne[0], ne[1]]],
+              { opacity: opacity, crossOrigin: 'anonymous' }
+            );
+            overlay._isCadastralOverlay = true;
+            overlay.addTo(map);
+          }
+        } catch(overlayErr) {
+          console.warn('公図 Overlay 描画失敗:', overlayErr);
+        }
       }
     }
 
