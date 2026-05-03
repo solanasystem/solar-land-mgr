@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v8 / 2026-05-01 / printer safe margin (5mm) -->
+<!-- BUILD: case-summary v9 / 2026-05-03 / 21項目DB連携・警告バッジ・snow_load連携 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>案件概要書 v8 - SOLAR LAND MGR</title>
+<title>案件概要書 v9 - SOLAR LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
 <script>
 // グローバルJSエラーを画面に表示する保険（DevToolsを開かなくても診断可能にする）
@@ -437,11 +437,12 @@ window.addEventListener('load', function() {
 
 <!-- ======== ツールバー ======== -->
 <div class="toolbar no-print">
-  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v8</span></h1>
+  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v9</span></h1>
   <input type="text" class="case-id-input" id="caseIdInput" placeholder="案件番号 (例: AICHI-001)" />
   <button onclick="loadByInput()">📥 読込</button>
   <button class="primary" onclick="window.print()">🖨 印刷 / PDF出力</button>
   <button onclick="history.back()">← 戻る</button>
+  <span id="warnBadge" style="display:none;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:8px;"></span>
   <span class="status-msg" id="statusMsg"></span>
 </div>
 
@@ -649,33 +650,51 @@ window.addEventListener('load', function() {
 <script>
 'use strict';
 
-// ハザード項目定義（PDFサンプル準拠）
+// ハザード項目定義（PDFサンプル準拠 / hazard_*_flag カラムと対応）
 const HAZARD_ITEMS = [
-  { key: 'kozui',     name: '洪　水' },
-  { key: 'dosha',     name: '土砂災害' },
-  { key: 'takashio',  name: '高　潮' },
-  { key: 'tsunami',   name: '津　波' },
-  { key: 'sabo',      name: '砂防指定地' },
-  { key: 'kasen',     name: '河川区域\n河川保全区域' },
-  { key: 'chouju',    name: '鳥獣保護\n特別保護地区' },
-  { key: 'maizou',    name: '埋蔵文化財\n包蔵地' },
-  { key: 'koen',      name: '国立公園\n県立自然公園' },
-  { key: 'shizen',    name: '県自然環境\n保全地域' },
-  { key: 'shinsei',   name: '申　請' },
-  { key: 'todoke',    name: '届　出' },
+  { key: 'flood',           dbCol: 'hazard_flood_flag',          name: '洪　水' },
+  { key: 'landslide',       dbCol: 'hazard_landslide_flag',      name: '土砂災害' },
+  { key: 'high_tide',       dbCol: 'hazard_high_tide_flag',      name: '高　潮' },
+  { key: 'tsunami',         dbCol: 'hazard_tsunami_flag',        name: '津　波' },
+  { key: 'sabo',            dbCol: 'hazard_sabo_flag',           name: '砂防指定地' },
+  { key: 'river',           dbCol: 'hazard_river_flag',          name: '河川区域\n河川保全区域' },
+  { key: 'wildlife',        dbCol: 'hazard_wildlife_flag',       name: '鳥獣保護\n特別保護地区' },
+  { key: 'buried_culture',  dbCol: 'hazard_buried_culture_flag', name: '埋蔵文化財\n包蔵地' },
+  { key: 'national_park',   dbCol: 'hazard_national_park_flag',  name: '国立公園\n県立自然公園' },
+  { key: 'natural_env',     dbCol: 'hazard_natural_env_flag',    name: '県自然環境\n保全地域' },
 ];
 
-// ハザード行を生成（Phase1: 全部「なし」固定）
+// ハザード行を生成（初期状態は全て不確定: あり/なしどちらも未チェック）
 (function buildHazardRows(){
   const tbody = document.getElementById('hazard-tbody');
-  tbody.innerHTML = HAZARD_ITEMS.map(it => `
+  // ハザード10項目 + 申請 + 届出 = 12行
+  const rowsHtml = HAZARD_ITEMS.map(it => `
     <tr>
       <td class="dat" style="white-space:pre-line; font-size:7.5pt;">${it.name}</td>
       <td class="dat" id="hz-${it.key}-on"><span class="chk-off"></span></td>
-      <td class="dat" id="hz-${it.key}-off"><span class="chk-on"></span></td>
+      <td class="dat" id="hz-${it.key}-off"><span class="chk-off"></span></td>
       <td class="dat-l" id="hz-${it.key}-detail">　</td>
     </tr>
   `).join('');
+  // 申請行
+  const appRow = `
+    <tr>
+      <td class="dat" style="font-size:7.5pt;">申　請</td>
+      <td class="dat" id="hz-app-on"><span class="chk-off"></span></td>
+      <td class="dat" id="hz-app-off"><span class="chk-off"></span></td>
+      <td class="dat-l" id="hz-app-detail">　</td>
+    </tr>
+  `;
+  // 届出行
+  const notifyRow = `
+    <tr>
+      <td class="dat" style="font-size:7.5pt;">届　出</td>
+      <td class="dat" id="hz-notify-on"><span class="chk-off"></span></td>
+      <td class="dat" id="hz-notify-off"><span class="chk-off"></span></td>
+      <td class="dat-l" id="hz-notify-detail">　</td>
+    </tr>
+  `;
+  tbody.innerHTML = rowsHtml + appRow + notifyRow;
 })();
 
 // ====== Supabase 接続情報 ======
@@ -793,12 +812,12 @@ function deriveName(caseNo, kubun, addr, landNo) {
   return `${caseNo}${suffix}`;
 }
 
-// 地積を整形（例: 1619 → 1619㎡）
+// 地積を整形（例: 1619 → 1619.00㎡, 小数第2位まで表示）
 function formatArea(v) {
   if (v == null || v === '') return null;
   const n = parseFloat(v);
   if (isNaN(n)) return String(v);
-  return `${n}㎡`;
+  return `${n.toFixed(2)}㎡`;
 }
 
 // 売価を整形（数値→¥カンマ区切り）。マスク表示にも対応。
@@ -869,6 +888,9 @@ async function loadCase(caseNoOrId) {
     const c = cases[0];
     setStatus('案件取得OK / 関連テーブル取得中...');
 
+    // 警告バッジ表示（NG / 中部外）
+    updateWarnBadge(c);
+
     // ----- ② land_info / landowner_info を case_id で取得 -----
     const [landR, ownerR] = await Promise.all([
       sbClient.from('land_info').select('*').eq('case_id', c.id).limit(1),
@@ -886,8 +908,23 @@ async function loadCase(caseNoOrId) {
     const land = (landR.data && landR.data[0]) || {};
     const owner = (ownerR.data && ownerR.data[0]) || {};
 
-    render(c, land, owner);
-    setStatus(`読込完了: ${c.case_no || c.id} | land_info=${landR.data?.length||0}件, landowner_info=${ownerR.data?.length||0}件`);
+    // ----- ③ 垂直積雪量を snow_load_master から照合 -----
+    let snowDepth = null;
+    try {
+      const cityName = extractCity(land.location || c.address || owner.address);
+      if (cityName) {
+        const snowR = await sbClient.from('snow_load_master')
+          .select('snow_depth_cm')
+          .eq('current_city', cityName)
+          .limit(1);
+        if (!snowR.error && snowR.data && snowR.data.length > 0) {
+          snowDepth = snowR.data[0].snow_depth_cm;
+        }
+      }
+    } catch(e) { console.warn('snow_load_master 照合エラー:', e); }
+
+    render(c, land, owner, snowDepth);
+    setStatus(`読込完了: ${c.case_no || c.id} | land=${landR.data?.length||0}件, owner=${ownerR.data?.length||0}件, snow=${snowDepth??'NA'}cm`);
     document.getElementById('sheet').style.display = '';
   } catch (e) {
     console.error(e);
@@ -897,12 +934,12 @@ async function loadCase(caseNoOrId) {
 }
 
 // ====== 描画 ======
-function render(c, land, owner) {
-  // 案件番号は cases / land_info / landowner_info それぞれに散在する可能性あり
+function render(c, land, owner, snowDepth) {
+  // 案件番号・発電区分
   const caseNo = c.case_no || c.no || '';
   const kubun  = c.kubun || c.power_kubun || '';
 
-  // 緯度経度（cases優先 → land_info → landowner_info）
+  // 緯度経度
   const lat = c.lat ?? land.lat ?? owner.lat;
   const lng = c.lng ?? land.lng ?? owner.lng;
   const coords = formatCoords(lat, lng);
@@ -910,23 +947,56 @@ function render(c, land, owner) {
   // Google Map URL
   const gmap = c.google_map || land.google_map || owner.google_map;
 
-  // 所在（land_info.chiban が所在地テキスト）
-  const address = land.chiban || land.location_text || c.address || owner.address;
+  // ===== 21項目仕様準拠でデータマッピング =====
+  // #2 所在 / 地番  (location=所在のみ, chiban=地番)
+  const address = land.location || c.address || owner.address;
+  const landNo  = land.chiban || null;
 
-  // 地番（独立カラムが無い可能性大→ーーー）
-  const landNo = land.chiban_no || land.land_no || null;
+  // #3 地積（小数第2位表示）
+  const area    = land.area_sqm;
 
-  // 地目（land_info.chimoku が新カラム）
-  const chimoku = land.chimoku || null;
+  // #4 権利(乙区)
+  const otsuRights = land.otsu_rights;
 
-  // 地積（land_info.location が面積数値、area_sqm にも候補）
-  const area = land.area_sqm ?? land.location ?? land.menseki;
+  // #5/#6 接道（道接続→「道」、現場確認情報があれば「有り」表示）
+  // road_pavement に値があれば現地確認済みと推定
+  const setsuFlag = (land.road_width || land.road_pavement) ? '有り' : null;
+  const tokijo    = (land.road_width || land.road_pavement) ? '道' : null;
 
-  // 用途地域・地目（horeijo_seigen）はチェック項目側でも参照
-  const horeijo = land.horeijo_seigen;
+  // #7 接道幅員 / #8 舗装状況
+  const roadWidth    = land.road_width;
+  const roadPavement = land.road_pavement;
 
-  // 売価（landowner_info.price）
-  const price = owner.price;
+  // #9 発電所区分（cases.kubun から）
+  // #10 AC/DC（Phase 3で案件マスター連携、現状はDBに保存無）
+  const acVal = null;
+  const dcVal = null;
+
+  // #11 権利・売価
+  const kenri = land.land_rights || (land.otsu_rights ? null : null) || '所有権'; // デフォルト所有権
+  // 売価は cases.price をマスク表示（営業先提出用）
+  const price = c.price;
+
+  // #12 賃料（賃貸案件のみ表示。現状は売却前提なのでNULL）
+  const chinryo = null;
+
+  // #13 農振法区分
+  const noushinhou = land.noushinhou_kubun;
+
+  // #14 伐採届
+  const bassai = land.logging_permit;
+
+  // #15 垂直積雪量（snow_load_master から自動引当）
+  const sekisetsu = snowDepth ? `${snowDepth}cm` : null;
+
+  // #16 電柱番号
+  const poleL = land.pole_left;
+  const poleC = land.pole_center;
+  const poleR = land.pole_right;
+
+  // #17 条例・ガイドライン
+  const jourei    = land.jourei;
+  const guideline = land.guideline;
 
   // 備考
   const bikou = land.biko || c.bikou || c.memo;
@@ -944,77 +1014,142 @@ function render(c, land, owner) {
 
   setText('d-address', address);
   setText('d-landno', landNo);
-  setText('d-landtype', chimoku);
+  setText('d-landtype', land.chimoku);
   setText('d-area', formatArea(area));
-  setText('d-otsu', null); // Phase 1 ではDB未対応
+  setText('d-otsu', otsuRights);
 
   // 接道行
-  setText('d-setsu', null);
-  setText('d-tokijo', null);
-  setText('d-haba', null);
-  setText('d-pavement', null);
-  setText('d-kubun', kubun);
-  setText('d-ac', null);
-  setText('d-dc', null);
+  setText('d-setsu',    setsuFlag);
+  setText('d-tokijo',   tokijo);
+  setText('d-haba',     roadWidth);
+  setText('d-pavement', roadPavement);
+  setText('d-kubun',    kubun);
+  setText('d-ac',       acVal);
+  setText('d-dc',       dcVal);
 
   // 土地行
-  setText('d-kenri', null);
-  setText('d-baika', formatPrice(price, true)); // 営業先提出はマスク表示
-  setText('d-chinryo', null);
-  setText('d-noshin', null);
-  setText('d-bassai', null);
-  setText('d-sekisetsu', null);
+  setText('d-kenri',    kenri);
+  setText('d-baika',    formatPrice(price, true)); // 営業先提出はマスク表示
+  setText('d-chinryo',  chinryo);
+  setText('d-noshin',   noushinhou);
+  setText('d-bassai',   bassai);
+  setText('d-sekisetsu', sekisetsu);
 
   // 電柱
-  setText('d-pole-l', null);
-  setText('d-pole-c', null);
-  setText('d-pole-r', null);
+  setText('d-pole-l', poleL);
+  setText('d-pole-c', poleC);
+  setText('d-pole-r', poleR);
 
   // 条例・ガイドライン
-  setText('d-jorei', null);
-  setText('d-guideline', null);
+  setText('d-jorei',     jourei);
+  setText('d-guideline', guideline);
 
-  // ハザード詳細（land_info.hazard テキストから簡易解析を試みる）
-  applyHazardText(land.hazard);
+  // ハザード（フラグベース）
+  applyHazardFlags(land);
 
-  // 備考（東電変電所までの距離など、複数情報を結合する将来余地あり）
+  // 申請・届出
+  applyApplicationNotification(land);
+
+  // 備考
   setText('d-bikou', bikou);
 
-  // 画像下キャプション
-  setText('d-pole-l-cap', '(左側)ーーー');
-  setText('d-pole-c-cap', '(中央)ーーー');
-  setText('d-pole-r-cap', '(右側)ーーー');
+  // 画像下キャプション（電柱）
+  setText('d-pole-l-cap', `(左側)${safe(poleL)}`);
+  setText('d-pole-c-cap', `(中央)${safe(poleC)}`);
+  setText('d-pole-r-cap', `(右側)${safe(poleR)}`);
 }
 
-// ハザードテキストから「あり/なし」を簡易解析
-function applyHazardText(hazardText) {
-  // Phase 1 ではDB未構造化のため、テキストにキーワードがあれば「あり」に倒す簡易判定
-  if (!hazardText) return;
-  const txt = String(hazardText);
-  const keywordMap = {
-    kozui:    ['洪水'],
-    dosha:    ['土砂', '急傾斜'],
-    takashio: ['高潮'],
-    tsunami:  ['津波'],
-    sabo:     ['砂防'],
-    kasen:    ['河川'],
-    chouju:   ['鳥獣'],
-    maizou:   ['埋蔵', '遺跡'],
-    koen:     ['国立公園', '県立自然公園'],
-    shizen:   ['自然環境'],
-  };
-  for (const [k, kws] of Object.entries(keywordMap)) {
-    const hit = kws.some(kw => txt.includes(kw));
-    if (hit) {
-      setHTML(`hz-${k}-on`,  '<span class="chk-on"></span>');
-      setHTML(`hz-${k}-off`, '<span class="chk-off"></span>');
-      // 詳細にテキスト全体を入れる（Phase2 で項目別構造化）
-      const detailEl = document.getElementById(`hz-${k}-detail`);
-      if (detailEl && kws.some(kw => txt.includes(kw))) {
-        // テキストの該当部分を抜粋して入れる
-        detailEl.textContent = txt.length > 30 ? txt.slice(0,30) + '…' : txt;
-      }
+// ハザードフラグから ✓/□ を反映 (NULL=未調査・両方□, true=あり・あり側✓, false=なし・なし側✓)
+function applyHazardFlags(land) {
+  HAZARD_ITEMS.forEach(it => {
+    const v = land[it.dbCol]; // BOOLEAN: null / true / false
+    const onEl  = document.getElementById(`hz-${it.key}-on`);
+    const offEl = document.getElementById(`hz-${it.key}-off`);
+    if (!onEl || !offEl) return;
+    if (v === true) {
+      onEl.innerHTML  = '<span class="chk-on"></span>';
+      offEl.innerHTML = '<span class="chk-off"></span>';
+    } else if (v === false) {
+      onEl.innerHTML  = '<span class="chk-off"></span>';
+      offEl.innerHTML = '<span class="chk-on"></span>';
+    } else {
+      // NULL = 未調査（両方□のまま）
+      onEl.innerHTML  = '<span class="chk-off"></span>';
+      offEl.innerHTML = '<span class="chk-off"></span>';
     }
+  });
+  // 埋蔵文化財詳細
+  const buriedDetail = document.getElementById('hz-buried_culture-detail');
+  if (buriedDetail && land.buried_culture_details) {
+    buriedDetail.textContent = land.buried_culture_details;
+  }
+}
+
+// 申請・届出フラグの反映
+function applyApplicationNotification(land) {
+  // 申請
+  const appOn  = document.getElementById('hz-app-on');
+  const appOff = document.getElementById('hz-app-off');
+  const appDetail = document.getElementById('hz-app-detail');
+  if (appOn && appOff) {
+    if (land.application_flag === true) {
+      appOn.innerHTML = '<span class="chk-on"></span>';
+      appOff.innerHTML = '<span class="chk-off"></span>';
+    } else if (land.application_flag === false) {
+      appOn.innerHTML = '<span class="chk-off"></span>';
+      appOff.innerHTML = '<span class="chk-on"></span>';
+    }
+  }
+  if (appDetail && land.application_details) {
+    appDetail.textContent = land.application_details;
+  }
+  // 届出
+  const ntOn  = document.getElementById('hz-notify-on');
+  const ntOff = document.getElementById('hz-notify-off');
+  const ntDetail = document.getElementById('hz-notify-detail');
+  if (ntOn && ntOff) {
+    if (land.notification_flag === true) {
+      ntOn.innerHTML = '<span class="chk-on"></span>';
+      ntOff.innerHTML = '<span class="chk-off"></span>';
+    } else if (land.notification_flag === false) {
+      ntOn.innerHTML = '<span class="chk-off"></span>';
+      ntOff.innerHTML = '<span class="chk-on"></span>';
+    }
+  }
+  if (ntDetail && land.notification_details) {
+    ntDetail.textContent = land.notification_details;
+  }
+}
+
+// location文字列から市町村名を抽出（snow_load_master 照合用）
+function extractCity(location) {
+  if (!location) return null;
+  const s = String(location).trim();
+  // 都道府県プレフィックス除去
+  const stripped = s.replace(/^(東京都|北海道|大阪府|京都府|.{2,3}県)/, '');
+  // 「○○市」「○○郡○○町」「○○郡○○村」「○○区」を抽出
+  let m = stripped.match(/^(.+?[市区])/);
+  if (m) return m[1];
+  m = stripped.match(/^(.+?郡.+?[町村])/);
+  if (m) return m[1].replace(/^.+?郡/, ''); // 郡名は削除して町村名のみ
+  return null;
+}
+
+// 警告バッジ更新（NG / 中部外）
+function updateWarnBadge(c) {
+  const el = document.getElementById('warnBadge');
+  if (!el) return;
+  const status = c.status || '';
+  const area   = c.area_name || '';
+  const isChubu = ['中部','田原市','蒲郡市','豊橋市'].includes(area);
+  if (status === 'NG') {
+    el.style.cssText = 'display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:8px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;';
+    el.textContent = '🚫 NG案件 - 概要書出力非推奨';
+  } else if (!isChubu) {
+    el.style.cssText = 'display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:8px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;';
+    el.textContent = '⚠ 精査未完 (中部電力管外)';
+  } else {
+    el.style.display = 'none';
   }
 }
 
