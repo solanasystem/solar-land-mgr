@@ -659,6 +659,7 @@
     <div class="detail-header">
       <div class="detail-back-row">
         <button class="detail-back-btn" onclick="closeModal('detailModal')">← 案件一覧に戻る</button>
+        <span id="detailSummaryBtnSlot" style="margin-left:auto"></span>
       </div>
       <div class="detail-case-info" id="detailCaseInfo"></div>
       <div class="detail-tabs">
@@ -1655,6 +1656,21 @@ function toggleActionMenu(event){
   html += `<button class="action-menu-item landowner" onclick="closeActionMenu();openDetail('${caseId}','landowner')">🧑 地権者情報</button>`;
   html += `<button class="action-menu-item land" onclick="closeActionMenu();openDetail('${caseId}','land')">🏔 土地情報</button>`;
   html += `<button class="action-menu-item photo" onclick="closeActionMenu();openSurveyPhotos('${caseId}')">📷 画像確認</button>`;
+  // 📄 概要書生成（中部電力管内・非NG案件のみ）
+  const _c4sum = allCases.find(x=>String(x.id)===String(caseId));
+  if(_c4sum){
+    const _isChubu=['中部','田原市','蒲郡市','豊橋市'].includes(_c4sum.area_name||'');
+    const _isNG=(_c4sum.status||'')==='NG';
+    if(_isChubu && !_isNG){
+      html += `<div class="action-menu-divider"></div>`;
+      html += `<button class="action-menu-item" style="color:#16a34a;font-weight:600" onclick="closeActionMenu();openCaseSummary('${_c4sum.case_no}')">📄 概要書を生成</button>`;
+    } else {
+      // 中部外 or NG: グレーアウト表示（クリックで警告ダイアログ）
+      html += `<div class="action-menu-divider"></div>`;
+      const _reason=_isNG?'NG案件':'中部電力管外';
+      html += `<button class="action-menu-item" style="color:#9ca3af" onclick="closeActionMenu();openCaseSummaryWarn('${_c4sum.case_no}','${_reason}')">📄 概要書 (${_reason})</button>`;
+    }
+  }
   menu.innerHTML = html;
   // 表示してから位置計算（getBoundingClientRectのため一時的に表示）
   menu.classList.add('open');
@@ -1898,6 +1914,18 @@ async function openDetail(caseId,mode){
   const c=allCases.find(x=>String(x.id)===String(caseId));if(!c)return;
   const displayNo=c.parent_case_no?`${c.parent_case_no}<span style="color:var(--accent);font-size:12px;margin-left:6px;font-weight:700">(枝${c.branch_no||''})</span>`:c.case_no;
   document.getElementById('detailCaseInfo').innerHTML=`<span class="detail-case-no">${displayNo}</span>${kubunBadge(c.kubun)}${statusBadge(c.status)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
+  // 📄 概要書生成ボタン（中部電力管内・非NGなら通常表示、それ以外は警告色）
+  const slot=document.getElementById('detailSummaryBtnSlot');
+  if(slot){
+    const isChubu=['中部','田原市','蒲郡市','豊橋市'].includes(c.area_name||'');
+    const isNG=(c.status||'')==='NG';
+    if(isChubu && !isNG){
+      slot.innerHTML=`<button class="btn btn-primary" style="background:#16a34a;border-color:#15803d;font-size:13px" onclick="openCaseSummary('${c.case_no}')">📄 概要書を生成</button>`;
+    }else{
+      const reason=isNG?'NG案件':'中部電力管外';
+      slot.innerHTML=`<button class="btn btn-ghost" style="color:#9ca3af;font-size:13px" onclick="openCaseSummaryWarn('${c.case_no}','${reason}')">📄 概要書 (${reason})</button>`;
+    }
+  }
   const tab=mode==='land'?'tab-land':'tab-landowner';
   document.querySelectorAll('.detail-tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab-pane').forEach(t=>t.classList.remove('active'));
@@ -1905,6 +1933,18 @@ async function openDetail(caseId,mode){
   document.getElementById(mode==='land'?'tabLand':'tabLandowner').classList.add('active');
   document.getElementById('detailModal').classList.add('open');
   await Promise.all([loadLandownerDetail(caseId),loadLandDetail(caseId),loadRealestateDetail(caseId),loadDocuments(caseId)]);
+}
+
+// 📄 概要書を生成（新タブで case-summary.html を開く）
+function openCaseSummary(caseNo){
+  if(!caseNo){showToast('案件番号が取得できませんでした','error');return;}
+  const url='./case-summary.html?case_id='+encodeURIComponent(caseNo);
+  window.open(url,'_blank','noopener');
+}
+// 📄 警告付き: 中部外/NG案件の概要書生成
+function openCaseSummaryWarn(caseNo,reason){
+  if(!confirm(`この案件は${reason}です。概要書を出力しますか？\n\n※ ${reason}の案件はデータが精査されていない可能性があります。\n（情報が不正確、もしくは出力非推奨）`)) return;
+  openCaseSummary(caseNo);
 }
 
 async function loadLandownerDetail(caseId){
