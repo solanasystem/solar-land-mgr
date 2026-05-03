@@ -131,6 +131,10 @@ window.addEventListener('load', function() {
     }
     .img-cell-label { padding: 0.4mm 1mm !important; font-size: 6.5pt !important; }
     .img-cell-bottom { padding: 0.3mm !important; font-size: 6pt !important; }
+    /* 公図セルのボタン類は印刷時非表示 */
+    .koz-controls, .koz-zoom-controls { display: none !important; }
+    /* 公図画像エリアを下までフルに拡大（コントロール分の余白を解除） */
+    .koz-image-wrap { bottom: 0 !important; }
   }
 
   /* ======== 共通 ======== */
@@ -1989,6 +1993,28 @@ function drawKozPolygonOnCell() {
     return;
   }
 
+  // bbox を Canvas の aspect ratio に合わせて拡張（セル一杯表示・余白なし）
+  const wrapAspect = wrapRect.width / wrapRect.height;
+  const bboxAspect = bbox.width / bbox.height;
+  if (bboxAspect < wrapAspect) {
+    // bbox が縦長 → 横を広げる
+    const newWidth = bbox.height * wrapAspect;
+    bbox.x -= (newWidth - bbox.width) / 2;
+    bbox.width = newWidth;
+  } else if (bboxAspect > wrapAspect) {
+    // bbox が横長 → 縦を広げる
+    const newHeight = bbox.width / wrapAspect;
+    bbox.y -= (newHeight - bbox.height) / 2;
+    bbox.height = newHeight;
+  }
+  // 画像範囲外にはみ出した場合の補正
+  if (bbox.x < 0) { bbox.x = 0; }
+  if (bbox.y < 0) { bbox.y = 0; }
+  if (bbox.x + bbox.width > naturalW) { bbox.x = naturalW - bbox.width; }
+  if (bbox.y + bbox.height > naturalH) { bbox.y = naturalH - bbox.height; }
+  if (bbox.x < 0) { bbox.width = naturalW; bbox.x = 0; }
+  if (bbox.y < 0) { bbox.height = naturalH; bbox.y = 0; }
+
   // Canvas のサイズを wrap のサイズに合わせる
   // 高解像度のため、devicePixelRatio + 2倍 で描画バッファを大きく
   const dpr = (window.devicePixelRatio || 1) * 2;
@@ -2006,25 +2032,22 @@ function drawKozPolygonOnCell() {
   // img タグは非表示（Canvas のみ表示）
   img.style.display = 'none';
 
-  // bbox 領域が canvas に収まるスケール
-  const scale = Math.min(
-    canvas.width / bbox.width,
-    canvas.height / bbox.height
-  );
-  const drawW = bbox.width * scale;
-  const drawH = bbox.height * scale;
-  const drawX = (canvas.width - drawW) / 2;
-  const drawY = (canvas.height - drawH) / 2;
+  // bbox は wrap aspect に合わせ済みなので、Canvas にぴったりフィット
+  const scale = canvas.width / bbox.width;  // canvas.height / bbox.height と等しい
+  const drawW = canvas.width;
+  const drawH = canvas.height;
+  const drawX = 0;
+  const drawY = 0;
 
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // 1. 公図画像の bbox 部分を Canvas に描画
+  // 1. 公図画像の bbox 部分を Canvas にフルサイズで描画
   try {
     ctx.drawImage(
       img,
       bbox.x, bbox.y, bbox.width, bbox.height,  // ソース
-      drawX, drawY, drawW, drawH                  // 描画先
+      drawX, drawY, drawW, drawH                  // 描画先（Canvas全面）
     );
   } catch (e) {
     console.warn('drawImage失敗:', e);
