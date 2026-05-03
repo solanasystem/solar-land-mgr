@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v14 / 2026-05-03 / Phase 3-5+電柱描画(EXIF対応・水色#00BFFF) -->
+<!-- BUILD: case-summary v16 / 2026-05-03 / Phase 3-3a+b 公図機能 + 3-3-overlay 衛星写真重ね -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>案件概要書 v14 - SOLAR LAND MGR</title>
+<title>案件概要書 v16 - SOLAR LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
 <script>
 // グローバルJSエラーを画面に表示する保険（DevToolsを開かなくても診断可能にする）
@@ -895,7 +895,7 @@ window.addEventListener('load', function() {
 
 <!-- ======== ツールバー ======== -->
 <div class="toolbar no-print">
-  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v14</span></h1>
+  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v16</span></h1>
   <input type="text" class="case-id-input" id="caseIdInput" placeholder="案件番号 (例: AICHI-001)" />
   <button onclick="loadByInput()">📥 読込</button>
   <button class="primary" onclick="window.print()">🖨 印刷 / PDF出力</button>
@@ -1079,7 +1079,7 @@ window.addEventListener('load', function() {
         <div class="koz-placeholder" id="koz-placeholder">
           <p>公図をアップロード</p>
           <input type="file" id="koz-input" accept="image/png,image/jpeg,application/pdf" style="display:none">
-          <button onclick="document.getElementById('koz-input').click()">📎 ファイル選択</button>
+          <label for="koz-input" style="display:inline-block; margin-top:2mm; padding:1.5mm 4mm; font-size:8pt; border:1px solid #2563eb; background:#2563eb; color:white; border-radius:3px; cursor:pointer;">📎 ファイル選択</label>
           <p class="koz-hint">PNG / JPG / PDF (最大10MB)</p>
         </div>
 
@@ -1095,7 +1095,7 @@ window.addEventListener('load', function() {
           </div>
           <div class="koz-controls">
             <button id="koz-edit-btn" onclick="openKozModal()" class="success">📐 該当地を指定</button>
-            <button id="koz-replace-btn" onclick="document.getElementById('koz-input').click()">🔄 差替え</button>
+            <button id="koz-replace-btn" onclick="kozReplaceFile()">🔄 差替え</button>
             <button id="koz-delete-btn" onclick="deleteCadastralMap()" class="danger">🗑️ 公図削除</button>
           </div>
         </div>
@@ -1780,10 +1780,25 @@ function loadCadastralMap(land) {
   }
 }
 
+// ファイル選択ダイアログを明示的に開く（差替えボタン用）
+function kozReplaceFile() {
+  const input = document.getElementById('koz-input');
+  if (input) {
+    // labelに対する明示的なclick発火
+    input.click();
+  } else {
+    alert('ファイル選択input要素が見つかりません');
+  }
+}
+
 // ファイル選択時のハンドラー（DOMContentLoaded時に登録）
 function setupKozUploadHandler() {
   const input = document.getElementById('koz-input');
   if (!input) return;
+  // 重複登録防止
+  if (input._kozHandlerAttached) return;
+  input._kozHandlerAttached = true;
+
   input.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
