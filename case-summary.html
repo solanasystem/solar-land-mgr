@@ -451,6 +451,35 @@ window.addEventListener('load', function() {
   .koz-controls button.danger { background: #ef4444; color: white; border-color: #ef4444; }
   .koz-controls button.danger:hover { background: #dc2626; }
 
+  /* ズームボタン: 公図画像の右上に絶対配置 */
+  .koz-zoom-controls {
+    position: absolute;
+    top: 4mm;
+    right: 1mm;
+    z-index: 10;
+    display: none;
+    flex-direction: column;
+    gap: 1mm;
+  }
+  .koz-zoom-controls.show { display: flex; }
+  .koz-zoom-controls button {
+    width: 7mm;
+    height: 7mm;
+    border-radius: 50%;
+    border: 1px solid #6b7280;
+    background: rgba(255,255,255,0.95);
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 12pt;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  }
+  .koz-zoom-controls button:hover { background: #f3f4f6; }
+  .koz-zoom-controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+
   /* ======== 公図編集モーダル ======== */
   .koz-modal {
     position: fixed;
@@ -919,6 +948,10 @@ window.addEventListener('load', function() {
           <div class="koz-image-wrap">
             <img id="koz-image" src="" alt="公図" crossorigin="anonymous">
             <canvas id="koz-canvas"></canvas>
+            <div class="koz-zoom-controls" id="koz-zoom-controls">
+              <button onclick="kozZoomIn()" title="拡大">＋</button>
+              <button onclick="kozZoomOut()" title="縮小">−</button>
+            </div>
           </div>
           <div class="koz-controls">
             <button id="koz-edit-btn" onclick="openKozModal()" class="success">📐 該当地を指定</button>
@@ -1858,8 +1891,14 @@ function drawKozModalPolygon(closed = false) {
 // ============================================================
 // 概要書セルでの bbox クロップ表示 + 赤線オーバーレイ
 // ============================================================
+// パディング比率（小さいほど該当地に寄った表示、大きいほど広域）
+let _kozPaddingRatio = 0.15;
+const _kozPaddingMin = 0.0;
+const _kozPaddingMax = 2.0;
+const _kozPaddingStep = 0.15;
+
 // ポリゴン点群から bbox を計算（パディング付き）
-function calcPolygonBbox(points, paddingRatio = 0.15) {
+function calcPolygonBbox(points) {
   if (!points || points.length === 0) return null;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   points.forEach(([x, y]) => {
@@ -1870,9 +1909,9 @@ function calcPolygonBbox(points, paddingRatio = 0.15) {
   });
   const w = maxX - minX;
   const h = maxY - minY;
-  // パディング追加（多角形周辺の余白）
-  const padX = w * paddingRatio;
-  const padY = h * paddingRatio;
+  // パディング追加（_kozPaddingRatio に基づく）
+  const padX = w * _kozPaddingRatio;
+  const padY = h * _kozPaddingRatio;
   return {
     x: Math.max(0, minX - padX),
     y: Math.max(0, minY - padY),
@@ -1881,13 +1920,36 @@ function calcPolygonBbox(points, paddingRatio = 0.15) {
   };
 }
 
+// ズームイン（パディング縮小 → 該当地により寄る）
+function kozZoomIn() {
+  _kozPaddingRatio = Math.max(_kozPaddingMin, _kozPaddingRatio - _kozPaddingStep);
+  drawKozPolygonOnCell();
+  updateKozZoomButtons();
+}
+
+// ズームアウト（パディング拡大 → より広範囲表示）
+function kozZoomOut() {
+  _kozPaddingRatio = Math.min(_kozPaddingMax, _kozPaddingRatio + _kozPaddingStep);
+  drawKozPolygonOnCell();
+  updateKozZoomButtons();
+}
+
+// ボタンの活性/非活性更新
+function updateKozZoomButtons() {
+  const buttons = document.querySelectorAll('#koz-zoom-controls button');
+  if (buttons.length < 2) return;
+  buttons[0].disabled = (_kozPaddingRatio <= _kozPaddingMin);  // ＋（拡大）= パディング下限
+  buttons[1].disabled = (_kozPaddingRatio >= _kozPaddingMax);  // −（縮小）= パディング上限
+}
+
 // 概要書セルにポリゴンと bbox クロップを描画（Canvas-only方式）
 function drawKozPolygonOnCell() {
   const img = document.getElementById('koz-image');
   const canvas = document.getElementById('koz-canvas');
+  const zoomCtrl = document.getElementById('koz-zoom-controls');
   if (!img || !canvas || !img.src) return;
 
-  // ポリゴンが無ければ：imgで通常表示、Canvasは非表示
+  // ポリゴンが無ければ：imgで通常表示、Canvasは非表示、ズームボタンも非表示
   if (!_kozPolygonPoints || _kozPolygonPoints.length === 0) {
     img.style.display = '';
     img.style.position = '';
@@ -1899,8 +1961,13 @@ function drawKozPolygonOnCell() {
     img.style.maxHeight = '';
     img.style.objectFit = 'contain';
     canvas.style.display = 'none';
+    if (zoomCtrl) zoomCtrl.classList.remove('show');
     return;
   }
+
+  // ポリゴンあり：ズームボタンを表示
+  if (zoomCtrl) zoomCtrl.classList.add('show');
+  updateKozZoomButtons();
 
   // bbox 計算
   const bbox = calcPolygonBbox(_kozPolygonPoints);
