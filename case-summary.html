@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v12 / 2026-05-03 / AC/DC・権利・賃料・契約形態連携 -->
+<!-- BUILD: case-summary v13 / 2026-05-03 / Phase 3-4: 位置図(地理院地図 pale)自動生成 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>案件概要書 v12 - SOLAR LAND MGR</title>
+<title>案件概要書 v13 - SOLAR LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
 <script>
 // グローバルJSエラーを画面に表示する保険（DevToolsを開かなくても診断可能にする）
@@ -37,6 +37,9 @@ window.addEventListener('unhandledrejection', function(ev) {
   } catch(_){}
 });
 </script>
+<!-- Leaflet (Phase 3-4: 位置図用) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- Supabase SDK: UMDバンドルを直接指定（"@2"だけだとCJSが返る場合があるため） -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"
         onerror="(function(){var s=document.createElement('script');s.src='https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js';s.onerror=function(){var s2=document.createElement('script');s2.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';document.head.appendChild(s2);};document.head.appendChild(s);})()"></script>
@@ -367,6 +370,35 @@ window.addEventListener('load', function() {
     margin-top: 1mm;
   }
 
+  /* ======== 位置図 (Phase 3-4) ======== */
+  .location-map-container {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+  }
+  .location-map-container .leaflet-control-attribution {
+    font-size: 5.5pt !important;
+    background: rgba(255,255,255,.85) !important;
+    padding: 0 3px !important;
+  }
+  .location-map-container .leaflet-control-scale-line {
+    background: rgba(255,255,255,.92) !important;
+    border: 1.5px solid #1e293b !important;
+    border-top: none !important;
+    color: #0f172a !important;
+    font-weight: 700 !important;
+    font-size: 7pt !important;
+    padding: 1px 5px !important;
+    line-height: 1.2 !important;
+  }
+  /* 印刷時は Leaflet UI を最小化 */
+  @media print {
+    .location-map-container .leaflet-control-attribution { font-size: 5pt !important; }
+    .location-map-container .leaflet-control-scale-line { font-size: 6.5pt !important; }
+  }
+
   /* ======== フッター ======== */
   .sheet-footer {
     text-align: right;
@@ -437,7 +469,7 @@ window.addEventListener('load', function() {
 
 <!-- ======== ツールバー ======== -->
 <div class="toolbar no-print">
-  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v12</span></h1>
+  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v13</span></h1>
   <input type="text" class="case-id-input" id="caseIdInput" placeholder="案件番号 (例: AICHI-001)" />
   <button onclick="loadByInput()">📥 読込</button>
   <button class="primary" onclick="window.print()">🖨 印刷 / PDF出力</button>
@@ -601,8 +633,9 @@ window.addEventListener('load', function() {
     <!-- ======== 右：画像エリア ======== -->
     <div class="img-grid">
       <div class="img-cell">
-        <span class="img-cell-label">位置図</span>
-        <span class="img-cell-placeholder">Phase 3で<br>地理院地図を自動取得</span>
+        <span class="img-cell-label" style="z-index:1000;">位置図</span>
+        <div id="location-map" class="location-map-container"></div>
+        <span class="img-cell-placeholder" id="location-map-placeholder">位置情報未登録</span>
       </div>
       <div class="img-cell">
         <span class="img-cell-label">Google MAP 重ね</span>
@@ -1088,6 +1121,103 @@ function render(c, land, owner, snowDepth) {
   setText('d-pole-l-cap', `(左側)${safe(poleL)}`);
   setText('d-pole-c-cap', `(中央)${safe(poleC)}`);
   setText('d-pole-r-cap', `(右側)${safe(poleR)}`);
+
+  // ===== Phase 3-4: 位置図描画 =====
+  renderLocationMap(lat, lng);
+}
+
+// ============================================================
+// Phase 3-4: 位置図（地理院地図 pale + 赤丸 + スケールバー）
+// ============================================================
+let _locationMap = null;
+function renderLocationMap(lat, lng) {
+  const container = document.getElementById('location-map');
+  const placeholder = document.getElementById('location-map-placeholder');
+  if (!container) return;
+
+  // 緯度経度の妥当性チェック
+  const flat = parseFloat(lat);
+  const flng = parseFloat(lng);
+  const valid = Number.isFinite(flat) && Number.isFinite(flng)
+             && flat >= -90 && flat <= 90 && flng >= -180 && flng <= 180
+             && !(flat === 0 && flng === 0);
+  if (!valid) {
+    if (placeholder) placeholder.style.display = '';
+    container.style.display = 'none';
+    return;
+  }
+  if (placeholder) placeholder.style.display = 'none';
+  container.style.display = '';
+
+  // Leaflet 未ロードならスキップ（ネット不調時の保険）
+  if (typeof L === 'undefined') {
+    console.warn('Leaflet not loaded, skip location map');
+    if (placeholder) {
+      placeholder.style.display = '';
+      placeholder.textContent = '地図ライブラリ読込失敗';
+    }
+    container.style.display = 'none';
+    return;
+  }
+
+  // 既存マップが残っていれば破棄
+  if (_locationMap) {
+    try { _locationMap.remove(); } catch(_){}
+    _locationMap = null;
+  }
+
+  try {
+    const map = L.map('location-map', {
+      center: [flat, flng],
+      zoom: 14,                   // 概要書標準縮尺
+      zoomControl: false,
+      attributionControl: true,
+      scrollWheelZoom: false,
+      doubleClickZoom: false,
+      dragging: false,            // 概要書では固定表示
+      keyboard: false,
+      touchZoom: false,
+      boxZoom: false,
+      tap: false
+    });
+
+    // 地理院地図 pale（淡色地図）
+    L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', {
+      attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">国土地理院</a>',
+      maxZoom: 18,
+      minZoom: 5
+    }).addTo(map);
+
+    // 赤丸マーカー
+    L.circleMarker([flat, flng], {
+      radius: 10,
+      color: '#FF0000',
+      weight: 2.5,
+      fillColor: '#FF0000',
+      fillOpacity: 0.3
+    }).addTo(map);
+
+    // スケールバー（右下）
+    L.control.scale({
+      position: 'bottomright',
+      metric: true,
+      imperial: false,
+      maxWidth: 120,
+      updateWhenIdle: true
+    }).addTo(map);
+
+    _locationMap = map;
+
+    // タイル描画安定化（コンテナサイズ確定後にinvalidate）
+    setTimeout(() => { try { map.invalidateSize(); } catch(_){} }, 100);
+  } catch(err) {
+    console.error('Location map render failed:', err);
+    if (placeholder) {
+      placeholder.style.display = '';
+      placeholder.textContent = '位置図描画エラー';
+    }
+    container.style.display = 'none';
+  }
 }
 
 // ハザードフラグから ✓/□ を反映 (NULL=未調査・両方□, true=あり・あり側✓, false=なし・なし側✓)
