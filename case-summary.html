@@ -597,6 +597,23 @@ window.addEventListener('load', function() {
   }
   .overlay-edit-btn:hover { background: #dbeafe; }
 
+  /* リサイズハンドル（4隅） */
+  .resize-handle {
+    background: #2563eb;
+    border: 2px solid white;
+    border-radius: 50%;
+    width: 14px !important;
+    height: 14px !important;
+    margin-left: -7px !important;
+    margin-top: -7px !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  }
+  .resize-handle.nw-handle, .resize-handle.se-handle { cursor: nwse-resize; }
+  .resize-handle.ne-handle, .resize-handle.sw-handle { cursor: nesw-resize; }
+
+  /* ImageOverlay のドラッグ可能カーソル */
+  .leaflet-image-layer.draggable-overlay { cursor: move; pointer-events: auto !important; }
+
   /* ======== 公図編集モーダル ======== */
   .koz-modal {
     position: fixed;
@@ -1144,6 +1161,12 @@ window.addEventListener('load', function() {
         透明度:
         <input type="range" id="overlay-opacity-slider" min="0" max="100" value="60" oninput="changeOverlayOpacity(this.value)">
         <span id="overlay-opacity-value">60%</span>
+      </div>
+      <div class="opacity-control">
+        回転:
+        <input type="range" id="overlay-rotation-slider" min="-180" max="180" value="0" step="1" oninput="changeOverlayRotation(this.value)">
+        <span id="overlay-rotation-value">0°</span>
+        <button onclick="resetOverlayRotation()" style="padding:2px 6px; font-size:11px;" title="回転をリセット">↺</button>
       </div>
       <button onclick="closeOverlayModal()">キャンセル</button>
       <button onclick="saveOverlay()" class="success">💾 保存して閉じる</button>
@@ -2309,6 +2332,7 @@ let _overlayClickMode = 'sw'; // 'sw' | 'ne' | 'done'
 let _overlaySwLatLng = null;
 let _overlayNeLatLng = null;
 let _overlayOpacity = 0.6;
+let _overlayRotation = 0;  // 度数（-180〜+180）
 let _overlayCurrentLand = null;
 
 // 公図重ね編集ボタンの表示/非表示制御（公図がアップロード済みなら表示）
@@ -2347,6 +2371,12 @@ function openOverlayModal() {
     ? _overlayCurrentLand.cadastral_overlay_opacity : 0.6;
   document.getElementById('overlay-opacity-slider').value = Math.round(_overlayOpacity * 100);
   document.getElementById('overlay-opacity-value').textContent = Math.round(_overlayOpacity * 100) + '%';
+
+  // 回転初期値
+  _overlayRotation = (typeof _overlayCurrentLand.cadastral_overlay_rotation === 'number')
+    ? _overlayCurrentLand.cadastral_overlay_rotation : 0;
+  document.getElementById('overlay-rotation-slider').value = _overlayRotation;
+  document.getElementById('overlay-rotation-value').textContent = _overlayRotation + '°';
 
   // 大きな衛星写真マップを初期化
   setTimeout(() => {
@@ -2459,26 +2489,29 @@ function handleOverlayMapClick(e) {
   }
 }
 
-// 現状を描画（マーカー + ImageOverlay）
+// 現状を描画（マーカー + ImageOverlay + リサイズハンドル）
 function renderOverlayState() {
   if (!_overlayMap) return;
   const cadImg = document.getElementById('koz-image');
 
-  // マーカー再描画
+  // 既存マーカー・オーバーレイ・ハンドルを削除
   if (_overlaySwMarker) { _overlayMap.removeLayer(_overlaySwMarker); _overlaySwMarker = null; }
   if (_overlayNeMarker) { _overlayMap.removeLayer(_overlayNeMarker); _overlayNeMarker = null; }
   if (_overlayImageLayer) { _overlayMap.removeLayer(_overlayImageLayer); _overlayImageLayer = null; }
+  removeResizeHandles();
 
-  if (_overlaySwLatLng) {
+  // 編集中（2点指定モード）はSW/NEマーカーのみ
+  if (_overlayClickMode === 'sw') {
+    return;
+  }
+
+  if (_overlayClickMode === 'ne' && _overlaySwLatLng) {
     _overlaySwMarker = L.marker(_overlaySwLatLng, { title: '南西(SW)' }).addTo(_overlayMap);
     _overlaySwMarker.bindTooltip('SW', { permanent: true, direction: 'right', offset: [10, 0] });
-  }
-  if (_overlayNeLatLng) {
-    _overlayNeMarker = L.marker(_overlayNeLatLng, { title: '北東(NE)' }).addTo(_overlayMap);
-    _overlayNeMarker.bindTooltip('NE', { permanent: true, direction: 'right', offset: [10, 0] });
+    return;
   }
 
-  // 両端が決まれば ImageOverlay 表示
+  // 'done' モード：ImageOverlay + 4隅ハンドル
   if (_overlaySwLatLng && _overlayNeLatLng && cadImg && cadImg.src) {
     const sw = [
       Math.min(_overlaySwLatLng.lat, _overlayNeLatLng.lat),
@@ -2488,11 +2521,203 @@ function renderOverlayState() {
       Math.max(_overlaySwLatLng.lat, _overlayNeLatLng.lat),
       Math.max(_overlaySwLatLng.lng, _overlayNeLatLng.lng)
     ];
+    // 内部状態を正規化
+    _overlaySwLatLng = L.latLng(sw[0], sw[1]);
+    _overlayNeLatLng = L.latLng(ne[0], ne[1]);
+
     _overlayImageLayer = L.imageOverlay(cadImg.src, [sw, ne], {
       opacity: _overlayOpacity,
-      crossOrigin: 'anonymous'
+      crossOrigin: 'anonymous',
+      interactive: true
     }).addTo(_overlayMap);
+
+    // ImageOverlay の DOM 要素にドラッグ機能と回転を付与
+    setTimeout(() => {
+      const el = _overlayImageLayer && _overlayImageLayer.getElement();
+      if (el) {
+        el.classList.add('draggable-overlay');
+        attachOverlayDragHandlers(el);
+        applyOverlayRotation(); // 既存の回転値を適用
+      }
+    }, 50);
+
+    // map のpan/zoom後に回転を再適用（Leafletがtransformを書き換えるため）
+    if (!_overlayMap._kozRotationListenerAttached) {
+      _overlayMap.on('move zoom moveend zoomend', applyOverlayRotation);
+      _overlayMap._kozRotationListenerAttached = true;
+    }
+
+    // 4隅ハンドル作成
+    createResizeHandles();
   }
+}
+
+// ===== ImageOverlay 本体のドラッグ =====
+let _overlayDragStartClient = null;
+let _overlayDragStartBounds = null;
+let _overlayDragMoveHandler = null;
+let _overlayDragEndHandler = null;
+
+function attachOverlayDragHandlers(el) {
+  L.DomEvent.on(el, 'mousedown', onOverlayDragStart);
+  L.DomEvent.on(el, 'touchstart', onOverlayDragStart);
+}
+
+function onOverlayDragStart(e) {
+  L.DomEvent.preventDefault(e);
+  L.DomEvent.stopPropagation(e);
+
+  const point = e.touches ? e.touches[0] : e;
+  _overlayDragStartClient = { x: point.clientX, y: point.clientY };
+  _overlayDragStartBounds = _overlayImageLayer.getBounds();
+  _overlayMap.dragging.disable();
+
+  _overlayDragMoveHandler = (ev) => {
+    const p = ev.touches ? ev.touches[0] : ev;
+    const dx = p.clientX - _overlayDragStartClient.x;
+    const dy = p.clientY - _overlayDragStartClient.y;
+
+    const startSwPx = _overlayMap.latLngToContainerPoint(_overlayDragStartBounds.getSouthWest());
+    const startNePx = _overlayMap.latLngToContainerPoint(_overlayDragStartBounds.getNorthEast());
+
+    const newSw = _overlayMap.containerPointToLatLng(L.point(startSwPx.x + dx, startSwPx.y + dy));
+    const newNe = _overlayMap.containerPointToLatLng(L.point(startNePx.x + dx, startNePx.y + dy));
+
+    _overlaySwLatLng = L.latLng(Math.min(newSw.lat, newNe.lat), Math.min(newSw.lng, newNe.lng));
+    _overlayNeLatLng = L.latLng(Math.max(newSw.lat, newNe.lat), Math.max(newSw.lng, newNe.lng));
+
+    _overlayImageLayer.setBounds(L.latLngBounds(_overlaySwLatLng, _overlayNeLatLng));
+    updateResizeHandles();
+  };
+
+  _overlayDragEndHandler = () => {
+    _overlayDragStartClient = null;
+    _overlayDragStartBounds = null;
+    _overlayMap.dragging.enable();
+    document.removeEventListener('mousemove', _overlayDragMoveHandler);
+    document.removeEventListener('touchmove', _overlayDragMoveHandler);
+    document.removeEventListener('mouseup', _overlayDragEndHandler);
+    document.removeEventListener('touchend', _overlayDragEndHandler);
+  };
+
+  document.addEventListener('mousemove', _overlayDragMoveHandler);
+  document.addEventListener('touchmove', _overlayDragMoveHandler, { passive: false });
+  document.addEventListener('mouseup', _overlayDragEndHandler);
+  document.addEventListener('touchend', _overlayDragEndHandler);
+}
+
+// ===== 4隅ハンドルでアスペクト比維持リサイズ =====
+let _resizeHandles = []; // [nw, ne, se, sw]
+
+function createResizeHandles() {
+  removeResizeHandles();
+  if (!_overlayImageLayer) return;
+  const bounds = _overlayImageLayer.getBounds();
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+  const nw = L.latLng(ne.lat, sw.lng);
+  const se = L.latLng(sw.lat, ne.lng);
+
+  const corners = [
+    { latlng: nw, key: 'nw', cssClass: 'nw-handle' },
+    { latlng: ne, key: 'ne', cssClass: 'ne-handle' },
+    { latlng: se, key: 'se', cssClass: 'se-handle' },
+    { latlng: sw, key: 'sw', cssClass: 'sw-handle' }
+  ];
+
+  corners.forEach(c => {
+    const marker = L.marker(c.latlng, {
+      icon: L.divIcon({
+        className: 'resize-handle ' + c.cssClass,
+        html: '',
+        iconSize: [14, 14],
+        iconAnchor: [7, 7]
+      }),
+      draggable: true,
+      zIndexOffset: 1000
+    });
+    marker._resizeKey = c.key;
+    marker.on('drag', (e) => handleResize(c.key, e.latlng));
+    marker.addTo(_overlayMap);
+    _resizeHandles.push(marker);
+  });
+}
+
+function removeResizeHandles() {
+  _resizeHandles.forEach(h => {
+    try { _overlayMap.removeLayer(h); } catch(_){}
+  });
+  _resizeHandles = [];
+}
+
+function updateResizeHandles() {
+  if (!_overlayImageLayer || _resizeHandles.length !== 4) return;
+  const bounds = _overlayImageLayer.getBounds();
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+  _resizeHandles[0].setLatLng(L.latLng(ne.lat, sw.lng));  // nw
+  _resizeHandles[1].setLatLng(ne);                        // ne
+  _resizeHandles[2].setLatLng(L.latLng(sw.lat, ne.lng));  // se
+  _resizeHandles[3].setLatLng(sw);                        // sw
+}
+
+function handleResize(corner, newLatLng) {
+  if (!_overlayImageLayer) return;
+  const cadImg = document.getElementById('koz-image');
+  if (!cadImg || cadImg.naturalWidth === 0) return;
+
+  const aspectRatio = cadImg.naturalWidth / cadImg.naturalHeight;
+  const bounds = _overlayImageLayer.getBounds();
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+
+  // 操作した角の対角を「固定」
+  let fixed;  // 固定する角の緯度経度
+  if (corner === 'nw')      fixed = { lat: sw.lat, lng: ne.lng };  // se 固定
+  else if (corner === 'ne') fixed = { lat: sw.lat, lng: sw.lng };  // sw 固定
+  else if (corner === 'se') fixed = { lat: ne.lat, lng: sw.lng };  // nw 固定
+  else if (corner === 'sw') fixed = { lat: ne.lat, lng: ne.lng };  // ne 固定
+
+  // 緯度経度差をメートルに変換（簡易計算）
+  const latRad = fixed.lat * Math.PI / 180;
+  const meterPerLatDeg = 111320;
+  const meterPerLngDeg = 111320 * Math.cos(latRad);
+
+  let dLat = newLatLng.lat - fixed.lat;
+  let dLng = newLatLng.lng - fixed.lng;
+  let widthM  = Math.abs(dLng) * meterPerLngDeg;
+  let heightM = Math.abs(dLat) * meterPerLatDeg;
+
+  // 最小サイズ制限（10m）
+  if (widthM < 10) widthM = 10;
+  if (heightM < 10) heightM = 10;
+
+  // アスペクト比維持：操作距離が大きい方を採用
+  const dragAspect = widthM / heightM;
+  if (dragAspect > aspectRatio) {
+    // 横が広すぎる → 横を縮めて高さに合わせる
+    widthM = heightM * aspectRatio;
+  } else {
+    // 縦が広すぎる → 縦を縮めて幅に合わせる
+    heightM = widthM / aspectRatio;
+  }
+
+  // 新しい操作対象角の位置（固定角からの方向を維持）
+  const signLat = (dLat >= 0) ? 1 : -1;
+  const signLng = (dLng >= 0) ? 1 : -1;
+  const newCornerLat = fixed.lat + signLat * (heightM / meterPerLatDeg);
+  const newCornerLng = fixed.lng + signLng * (widthM / meterPerLngDeg);
+
+  // 新bounds
+  const newSwLat = Math.min(fixed.lat, newCornerLat);
+  const newSwLng = Math.min(fixed.lng, newCornerLng);
+  const newNeLat = Math.max(fixed.lat, newCornerLat);
+  const newNeLng = Math.max(fixed.lng, newCornerLng);
+
+  _overlaySwLatLng = L.latLng(newSwLat, newSwLng);
+  _overlayNeLatLng = L.latLng(newNeLat, newNeLng);
+  _overlayImageLayer.setBounds(L.latLngBounds(_overlaySwLatLng, _overlayNeLatLng));
+  updateResizeHandles();
 }
 
 // 透明度変更
@@ -2504,6 +2729,41 @@ function changeOverlayOpacity(value) {
   }
 }
 
+// 回転変更（中心を基準に回転）
+function changeOverlayRotation(value) {
+  _overlayRotation = parseInt(value, 10);
+  document.getElementById('overlay-rotation-value').textContent = value + '°';
+  applyOverlayRotation();
+}
+
+// 回転をリセット（0度に戻す）
+function resetOverlayRotation() {
+  _overlayRotation = 0;
+  const slider = document.getElementById('overlay-rotation-slider');
+  if (slider) slider.value = 0;
+  document.getElementById('overlay-rotation-value').textContent = '0°';
+  applyOverlayRotation();
+}
+
+// CSS transform で公図画像を中心回転（Leafletの位置決めtransformと共存）
+function applyOverlayRotation() {
+  if (!_overlayImageLayer) return;
+  const el = _overlayImageLayer.getElement();
+  if (!el) return;
+  el.style.transformOrigin = '50% 50%';
+  // !important で確実に適用（Leafletの上書きを防ぐ）
+  if (_overlayRotation === 0) {
+    el.style.removeProperty('--koz-rotation');
+    el.style.transform = '';  // Leafletに任せる
+  } else {
+    // Leafletが適用するtranslate3d() を保ちつつrotateを追加
+    const baseTransform = el.style.transform || '';
+    // 既存のrotate指定を除去してから新しいrotateを追加
+    const cleaned = baseTransform.replace(/rotate\([^)]*\)/g, '').trim();
+    el.style.transform = `${cleaned} rotate(${_overlayRotation}deg)`.trim();
+  }
+}
+
 // リセット
 function overlayModeReset() {
   _overlayClickMode = 'sw';
@@ -2512,6 +2772,7 @@ function overlayModeReset() {
   if (_overlaySwMarker) { _overlayMap.removeLayer(_overlaySwMarker); _overlaySwMarker = null; }
   if (_overlayNeMarker) { _overlayMap.removeLayer(_overlayNeMarker); _overlayNeMarker = null; }
   if (_overlayImageLayer) { _overlayMap.removeLayer(_overlayImageLayer); _overlayImageLayer = null; }
+  removeResizeHandles();
   document.getElementById('overlay-status').textContent = '公図の南西(左下)角を地図上でクリック';
 }
 
@@ -2540,7 +2801,8 @@ async function saveOverlay() {
       .from('land_info')
       .update({
         cadastral_overlay_bounds: { sw: sw, ne: ne },
-        cadastral_overlay_opacity: _overlayOpacity
+        cadastral_overlay_opacity: _overlayOpacity,
+        cadastral_overlay_rotation: _overlayRotation
       })
       .eq('case_id', _kozCurrentCaseId);
     if (error) throw error;
@@ -2549,13 +2811,15 @@ async function saveOverlay() {
     if (_overlayCurrentLand) {
       _overlayCurrentLand.cadastral_overlay_bounds = { sw: sw, ne: ne };
       _overlayCurrentLand.cadastral_overlay_opacity = _overlayOpacity;
+      _overlayCurrentLand.cadastral_overlay_rotation = _overlayRotation;
     }
 
     // 衛星写真セルにも反映（既存overlayを削除して再追加）
     applyOverlayToSatelliteMap(
       document.getElementById('koz-image').src,
       [sw, ne],
-      _overlayOpacity
+      _overlayOpacity,
+      _overlayRotation
     );
 
     setStatus('公図の重ね位置を保存しました');
@@ -2567,7 +2831,7 @@ async function saveOverlay() {
 }
 
 // 衛星写真セルに即座に反映
-function applyOverlayToSatelliteMap(imageUrl, bounds, opacity) {
+function applyOverlayToSatelliteMap(imageUrl, bounds, opacity, rotation) {
   if (!_satelliteMap) return;
   // 既存の cadastral overlay を削除
   _satelliteMap.eachLayer(layer => {
@@ -2580,13 +2844,44 @@ function applyOverlayToSatelliteMap(imageUrl, bounds, opacity) {
     crossOrigin: 'anonymous'
   });
   overlay._isCadastralOverlay = true;
+  overlay._kozRotation = rotation || 0;
   overlay.addTo(_satelliteMap);
+
+  // 回転反映（DOM要素に CSS transform）
+  setTimeout(() => {
+    const el = overlay.getElement();
+    if (el && rotation) {
+      el.style.transformOrigin = '50% 50%';
+      const cur = el.style.transform || '';
+      const cleaned = cur.replace(/rotate\([^)]*\)/g, '').trim();
+      el.style.transform = `${cleaned} rotate(${rotation}deg)`.trim();
+    }
+  }, 50);
+
+  // pan/zoom後にも再適用
+  if (rotation && !_satelliteMap._kozRotationListenerAttached) {
+    _satelliteMap.on('move zoom moveend zoomend', () => {
+      _satelliteMap.eachLayer(layer => {
+        if (layer instanceof L.ImageOverlay && layer._isCadastralOverlay && layer._kozRotation) {
+          const el2 = layer.getElement();
+          if (el2) {
+            el2.style.transformOrigin = '50% 50%';
+            const cur2 = el2.style.transform || '';
+            const cleaned2 = cur2.replace(/rotate\([^)]*\)/g, '').trim();
+            el2.style.transform = `${cleaned2} rotate(${layer._kozRotation}deg)`.trim();
+          }
+        }
+      });
+    });
+    _satelliteMap._kozRotationListenerAttached = true;
+  }
 }
 
 // モーダルを閉じる
 function closeOverlayModal() {
   document.getElementById('overlay-modal').classList.remove('active');
   document.body.style.overflow = '';
+  removeResizeHandles();
   if (_overlayMap) {
     try {
       _overlayMap.off('click', handleOverlayMapClick);
@@ -2796,13 +3091,40 @@ function renderSatelliteMap(lat, lng, land) {
           if (Array.isArray(sw) && Array.isArray(ne) && sw.length === 2 && ne.length === 2) {
             const opacity = (typeof land.cadastral_overlay_opacity === 'number')
               ? land.cadastral_overlay_opacity : 0.6;
+            const rotation = (typeof land.cadastral_overlay_rotation === 'number')
+              ? land.cadastral_overlay_rotation : 0;
             const overlay = L.imageOverlay(
               land.cadastral_image_url,
               [[sw[0], sw[1]], [ne[0], ne[1]]],
               { opacity: opacity, crossOrigin: 'anonymous' }
             );
             overlay._isCadastralOverlay = true;
+            overlay._kozRotation = rotation;
             overlay.addTo(map);
+
+            // 回転を適用
+            if (rotation) {
+              setTimeout(() => {
+                const el = overlay.getElement();
+                if (el) {
+                  el.style.transformOrigin = '50% 50%';
+                  const cur = el.style.transform || '';
+                  const cleaned = cur.replace(/rotate\([^)]*\)/g, '').trim();
+                  el.style.transform = `${cleaned} rotate(${rotation}deg)`.trim();
+                }
+              }, 100);
+
+              // pan/zoom後の再適用
+              map.on('move zoom moveend zoomend', () => {
+                const el = overlay.getElement();
+                if (el) {
+                  el.style.transformOrigin = '50% 50%';
+                  const cur = el.style.transform || '';
+                  const cleaned = cur.replace(/rotate\([^)]*\)/g, '').trim();
+                  el.style.transform = `${cleaned} rotate(${rotation}deg)`.trim();
+                }
+              });
+            }
           }
         } catch(overlayErr) {
           console.warn('公図 Overlay 描画失敗:', overlayErr);
