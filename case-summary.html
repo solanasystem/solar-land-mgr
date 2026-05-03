@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v13 / 2026-05-03 / Phase 3-4位置図(pale Z12) + 3-5衛星(ESRI Z17) -->
+<!-- BUILD: case-summary v14 / 2026-05-03 / Phase 3-5+電柱描画(EXIF対応・水色#00BFFF) -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>案件概要書 v13 - SOLAR LAND MGR</title>
+<title>案件概要書 v14 - SOLAR LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
 <script>
 // グローバルJSエラーを画面に表示する保険（DevToolsを開かなくても診断可能にする）
@@ -399,6 +399,26 @@ window.addEventListener('load', function() {
     .location-map-container .leaflet-control-scale-line { font-size: 6.5pt !important; }
   }
 
+  /* ======== 電柱ラベル (Phase 3-5+) ======== */
+  .pole-label {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .pole-label-text {
+    color: #00BFFF;
+    font-weight: 700;
+    font-size: 7pt;
+    line-height: 1;
+    white-space: nowrap;
+    text-shadow:
+      -1px -1px 0 #fff,  1px -1px 0 #fff,
+      -1px  1px 0 #fff,  1px  1px 0 #fff,
+      -1px  0   0 #fff,  1px  0   0 #fff,
+       0  -1px 0 #fff,   0   1px 0 #fff;
+    padding: 1px 3px;
+  }
+
   /* ======== フッター ======== */
   .sheet-footer {
     text-align: right;
@@ -469,7 +489,7 @@ window.addEventListener('load', function() {
 
 <!-- ======== ツールバー ======== -->
 <div class="toolbar no-print">
-  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v13</span></h1>
+  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v14</span></h1>
   <input type="text" class="case-id-input" id="caseIdInput" placeholder="案件番号 (例: AICHI-001)" />
   <button onclick="loadByInput()">📥 読込</button>
   <button class="primary" onclick="window.print()">🖨 印刷 / PDF出力</button>
@@ -1126,8 +1146,8 @@ function render(c, land, owner, snowDepth) {
   // ===== Phase 3-4: 位置図描画 =====
   renderLocationMap(lat, lng);
 
-  // ===== Phase 3-5: 衛星写真描画 =====
-  renderSatelliteMap(lat, lng);
+  // ===== Phase 3-5+: 衛星写真描画（電柱情報含む） =====
+  renderSatelliteMap(lat, lng, land);
 }
 
 // ============================================================
@@ -1225,10 +1245,10 @@ function renderLocationMap(lat, lng) {
 }
 
 // ============================================================
-// Phase 3-5: 衛星写真（ESRI World Imagery + 赤丸枠線 + スケールバー）
+// Phase 3-5+: 衛星写真（ESRI World Imagery + 赤丸枠線 + スケールバー + 電柱）
 // ============================================================
 let _satelliteMap = null;
-function renderSatelliteMap(lat, lng) {
+function renderSatelliteMap(lat, lng, land) {
   const container = document.getElementById('satellite-map');
   const placeholder = document.getElementById('satellite-map-placeholder');
   if (!container) return;
@@ -1303,6 +1323,22 @@ function renderSatelliteMap(lat, lng) {
       updateWhenIdle: true
     }).addTo(map);
 
+    // ===== 電柱描画（Phase 3-5+） =====
+    if (land) {
+      drawPoleOnMap(map, 'left',   land.pole_left,   land.pole_left_lat,   land.pole_left_lng);
+      drawPoleOnMap(map, 'right',  land.pole_right,  land.pole_right_lat,  land.pole_right_lng);
+      const centerLatLng = drawPoleOnMap(map, 'center', land.pole_center, land.pole_center_lat, land.pole_center_lng);
+
+      // 中央電柱から土地中心への接続線（中央電柱の座標が有効な場合のみ）
+      if (centerLatLng) {
+        L.polyline([[flat, flng], centerLatLng], {
+          color: '#00BFFF',
+          weight: 2.5,
+          opacity: 0.95
+        }).addTo(map);
+      }
+    }
+
     _satelliteMap = map;
 
     // タイル描画安定化
@@ -1315,6 +1351,44 @@ function renderSatelliteMap(lat, lng) {
     }
     container.style.display = 'none';
   }
+}
+
+// 電柱マーカー＋ラベル描画ヘルパー
+// position: 'left' | 'center' | 'right'
+// 戻り値: 描画した [lat, lng] / 座標が無効なら null
+function drawPoleOnMap(map, position, poleNumber, poleLat, poleLng) {
+  const flat = parseFloat(poleLat);
+  const flng = parseFloat(poleLng);
+  if (!Number.isFinite(flat) || !Number.isFinite(flng)) return null;
+  if (flat === 0 && flng === 0) return null;
+
+  const radius = (position === 'center') ? 8 : 6;
+
+  // 〇マーカー（水色・塗り40%透過）
+  L.circleMarker([flat, flng], {
+    radius: radius,
+    color: '#00BFFF',
+    weight: 2.5,
+    fillColor: '#00BFFF',
+    fillOpacity: 0.4
+  }).addTo(map);
+
+  // 電柱番号ラベル（番号がある場合のみ）
+  if (poleNumber && String(poleNumber).trim() !== '' && String(poleNumber).trim() !== 'ーーー') {
+    const label = String(poleNumber).trim();
+    L.marker([flat, flng], {
+      icon: L.divIcon({
+        className: 'pole-label',
+        html: `<span class="pole-label-text">${label}</span>`,
+        iconSize: [80, 16],
+        iconAnchor: [-radius - 2, 8]   // 〇の右側に配置（半径分オフセット）
+      }),
+      interactive: false,
+      keyboard: false
+    }).addTo(map);
+  }
+
+  return [flat, flng];
 }
 
 // ハザードフラグから ✓/□ を反映 (NULL=未調査・両方□, true=あり・あり側✓, false=なし・なし側✓)
