@@ -1763,10 +1763,10 @@ function loadCadastralMap(land) {
     placeholder.style.display = 'flex';
     display.style.display = 'none';
     updateOverlayEditButtonVisibility(false);
-    // 念のため img/canvas をリセット
+    // img.src を確実にクリア（前の案件の画像が残らないように）
     const img = document.getElementById('koz-image');
     if (img) {
-      img.src = '';
+      img.removeAttribute('src');
       img.style.transform = '';
       img.style.objectFit = 'contain';
     }
@@ -2367,17 +2367,22 @@ function openOverlayModal() {
     alert('案件を読み込んでください');
     return;
   }
+  if (!_overlayCurrentLand) {
+    alert('案件情報の取得に失敗しています。再読込してください');
+    return;
+  }
+  // 案件データから公図の有無を判定（DOM残存に依存しない確実な判定）
+  if (!_overlayCurrentLand.cadastral_image_url) {
+    alert('先に「公図」セルから公図をアップロードしてください');
+    return;
+  }
   const cadImg = document.getElementById('koz-image');
-  if (!cadImg || !cadImg.src) {
-    alert('先に公図をアップロードしてください');
+  if (!cadImg || !cadImg.src || cadImg.src === window.location.href) {
+    alert('公図画像の読み込みに失敗しています。リロードしてください');
     return;
   }
   if (typeof L === 'undefined') {
     alert('地図ライブラリが読み込まれていません');
-    return;
-  }
-  if (!_overlayCurrentLand) {
-    alert('案件情報の取得に失敗しています。再読込してください');
     return;
   }
 
