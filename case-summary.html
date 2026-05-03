@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v10 / 2026-05-03 / location地番除去・extractCity改善 -->
+<!-- BUILD: case-summary v11 / 2026-05-03 / extractCity市優先・郡を含む市名対応 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>案件概要書 v10 - SOLAR LAND MGR</title>
+<title>案件概要書 v11 - SOLAR LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
 <script>
 // グローバルJSエラーを画面に表示する保険（DevToolsを開かなくても診断可能にする）
@@ -437,7 +437,7 @@ window.addEventListener('load', function() {
 
 <!-- ======== ツールバー ======== -->
 <div class="toolbar no-print">
-  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v10</span></h1>
+  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v11</span></h1>
   <input type="text" class="case-id-input" id="caseIdInput" placeholder="案件番号 (例: AICHI-001)" />
   <button onclick="loadByInput()">📥 読込</button>
   <button class="primary" onclick="window.print()">🖨 印刷 / PDF出力</button>
@@ -1174,10 +1174,12 @@ function extractCity(location) {
   const s = String(cleaned).trim();
   // 都道府県プレフィックス除去
   const stripped = s.replace(/^(東京都|北海道|大阪府|京都府|.{2,3}県)/, '');
-  // 「○○市」「○○区」を抽出 (郡名がある場合は郡内町村を優先)
-  let m = stripped.match(/^(.+?郡.+?[町村])/);
-  if (m) return m[1].replace(/^.+?郡/, ''); // 町村名のみ
-  m = stripped.match(/^(.+?[市区])/);
+  // ① 「○○市」「○○区」を最優先で抽出
+  // (注: 「蒲郡市」「郡上市」など"郡"を含む市名を正しく扱うため、市判定を先に行う)
+  let m = stripped.match(/^(.+?[市区])/);
+  if (m) return m[1];
+  // ② 「○○郡△△町/村」(市が見つからなかった場合のフォールバック)
+  m = stripped.match(/^.+?郡(.+?[町村])/);
   if (m) return m[1];
   return null;
 }
