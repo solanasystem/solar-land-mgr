@@ -1164,8 +1164,9 @@ window.addEventListener('load', function() {
       </div>
       <div class="opacity-control">
         回転:
-        <input type="range" id="overlay-rotation-slider" min="-180" max="180" value="0" step="1" oninput="changeOverlayRotation(this.value)">
-        <span id="overlay-rotation-value">0°</span>
+        <input type="range" id="overlay-rotation-slider" min="-180" max="180" value="0" step="0.1" oninput="changeOverlayRotation(this.value)">
+        <input type="number" id="overlay-rotation-input" value="0" step="0.1" min="-180" max="180" oninput="changeOverlayRotationFromInput(this.value)" style="width:60px; padding:2px 4px; font-size:11px;">
+        <span style="font-size:11px;">°</span>
         <button onclick="resetOverlayRotation()" style="padding:2px 6px; font-size:11px;" title="回転をリセット">↺</button>
       </div>
       <button onclick="closeOverlayModal()">キャンセル</button>
@@ -2375,8 +2376,9 @@ function openOverlayModal() {
   // 回転初期値
   _overlayRotation = (typeof _overlayCurrentLand.cadastral_overlay_rotation === 'number')
     ? _overlayCurrentLand.cadastral_overlay_rotation : 0;
+  const rotDisplay = (Math.round(_overlayRotation * 10) / 10).toFixed(1);
   document.getElementById('overlay-rotation-slider').value = _overlayRotation;
-  document.getElementById('overlay-rotation-value').textContent = _overlayRotation + '°';
+  document.getElementById('overlay-rotation-input').value = rotDisplay;
 
   // 大きな衛星写真マップを初期化
   setTimeout(() => {
@@ -2729,19 +2731,36 @@ function changeOverlayOpacity(value) {
   }
 }
 
-// 回転変更（中心を基準に回転）
+// 回転変更（中心を基準に回転、0.1度刻み）
 function changeOverlayRotation(value) {
-  _overlayRotation = parseInt(value, 10);
-  document.getElementById('overlay-rotation-value').textContent = value + '°';
+  _overlayRotation = parseFloat(value);
+  if (isNaN(_overlayRotation)) _overlayRotation = 0;
+  // 表示を小数1桁に丸める
+  const display = (Math.round(_overlayRotation * 10) / 10).toFixed(1);
+  // スライダーと数値入力欄を同期（無限ループ防止のため値が違うときのみ）
+  const slider = document.getElementById('overlay-rotation-slider');
+  const input = document.getElementById('overlay-rotation-input');
+  if (slider && parseFloat(slider.value).toFixed(1) !== display) slider.value = _overlayRotation;
+  if (input  && parseFloat(input.value).toFixed(1)  !== display) input.value  = display;
   applyOverlayRotation();
+}
+
+// 数値入力欄からの変更（範囲チェック付き）
+function changeOverlayRotationFromInput(value) {
+  let n = parseFloat(value);
+  if (isNaN(n)) return; // 入力途中（"-"など）は無視
+  if (n < -180) n = -180;
+  if (n >  180) n =  180;
+  changeOverlayRotation(n);
 }
 
 // 回転をリセット（0度に戻す）
 function resetOverlayRotation() {
   _overlayRotation = 0;
   const slider = document.getElementById('overlay-rotation-slider');
+  const input  = document.getElementById('overlay-rotation-input');
   if (slider) slider.value = 0;
-  document.getElementById('overlay-rotation-value').textContent = '0°';
+  if (input)  input.value  = '0.0';
   applyOverlayRotation();
 }
 
