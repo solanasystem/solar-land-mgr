@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v13 / 2026-05-03 / Phase 3-4: 位置図(地理院地図 pale, デフォルトZ12広域) -->
+<!-- BUILD: case-summary v13 / 2026-05-03 / Phase 3-4位置図(pale Z12) + 3-5衛星(ESRI Z17) -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -638,8 +638,9 @@ window.addEventListener('load', function() {
         <span class="img-cell-placeholder" id="location-map-placeholder">位置情報未登録</span>
       </div>
       <div class="img-cell">
-        <span class="img-cell-label">Google MAP 重ね</span>
-        <span class="img-cell-placeholder">Phase 3で<br>衛星写真を自動取得</span>
+        <span class="img-cell-label" style="z-index:1000;">Google MAP 重ね</span>
+        <div id="satellite-map" class="location-map-container"></div>
+        <span class="img-cell-placeholder" id="satellite-map-placeholder">位置情報未登録</span>
       </div>
       <div class="img-cell">
         <span class="img-cell-label">公図</span>
@@ -1124,6 +1125,9 @@ function render(c, land, owner, snowDepth) {
 
   // ===== Phase 3-4: 位置図描画 =====
   renderLocationMap(lat, lng);
+
+  // ===== Phase 3-5: 衛星写真描画 =====
+  renderSatelliteMap(lat, lng);
 }
 
 // ============================================================
@@ -1190,7 +1194,7 @@ function renderLocationMap(lat, lng) {
 
     // 赤丸マーカー
     L.circleMarker([flat, flng], {
-      radius: 10,
+      radius: 5,
       color: '#FF0000',
       weight: 2.5,
       fillColor: '#FF0000',
@@ -1215,6 +1219,99 @@ function renderLocationMap(lat, lng) {
     if (placeholder) {
       placeholder.style.display = '';
       placeholder.textContent = '位置図描画エラー';
+    }
+    container.style.display = 'none';
+  }
+}
+
+// ============================================================
+// Phase 3-5: 衛星写真（ESRI World Imagery + 赤丸枠線 + スケールバー）
+// ============================================================
+let _satelliteMap = null;
+function renderSatelliteMap(lat, lng) {
+  const container = document.getElementById('satellite-map');
+  const placeholder = document.getElementById('satellite-map-placeholder');
+  if (!container) return;
+
+  // 緯度経度の妥当性チェック
+  const flat = parseFloat(lat);
+  const flng = parseFloat(lng);
+  const valid = Number.isFinite(flat) && Number.isFinite(flng)
+             && flat >= -90 && flat <= 90 && flng >= -180 && flng <= 180
+             && !(flat === 0 && flng === 0);
+  if (!valid) {
+    if (placeholder) placeholder.style.display = '';
+    container.style.display = 'none';
+    return;
+  }
+  if (placeholder) placeholder.style.display = 'none';
+  container.style.display = '';
+
+  // Leaflet 未ロードならスキップ
+  if (typeof L === 'undefined') {
+    console.warn('Leaflet not loaded, skip satellite map');
+    if (placeholder) {
+      placeholder.style.display = '';
+      placeholder.textContent = '地図ライブラリ読込失敗';
+    }
+    container.style.display = 'none';
+    return;
+  }
+
+  // 既存マップが残っていれば破棄
+  if (_satelliteMap) {
+    try { _satelliteMap.remove(); } catch(_){}
+    _satelliteMap = null;
+  }
+
+  try {
+    const map = L.map('satellite-map', {
+      center: [flat, flng],
+      zoom: 17,                   // 土地現況確認用（半径約65m）
+      zoomControl: false,
+      attributionControl: true,
+      scrollWheelZoom: false,
+      doubleClickZoom: false,
+      dragging: false,
+      keyboard: false,
+      touchZoom: false,
+      boxZoom: false,
+      tap: false
+    });
+
+    // ESRI World Imagery（衛星写真）
+    L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Tiles &copy; Esri',
+      maxZoom: 19,
+      minZoom: 5
+    }).addTo(map);
+
+    // 赤丸マーカー（塗りなし枠線のみ：衛星写真の地表が見えるように）
+    L.circleMarker([flat, flng], {
+      radius: 14,
+      color: '#FF0000',
+      weight: 3,
+      fillOpacity: 0
+    }).addTo(map);
+
+    // スケールバー（右下）
+    L.control.scale({
+      position: 'bottomright',
+      metric: true,
+      imperial: false,
+      maxWidth: 120,
+      updateWhenIdle: true
+    }).addTo(map);
+
+    _satelliteMap = map;
+
+    // タイル描画安定化
+    setTimeout(() => { try { map.invalidateSize(); } catch(_){} }, 100);
+  } catch(err) {
+    console.error('Satellite map render failed:', err);
+    if (placeholder) {
+      placeholder.style.display = '';
+      placeholder.textContent = '衛星写真描画エラー';
     }
     container.style.display = 'none';
   }
