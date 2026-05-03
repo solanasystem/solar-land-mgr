@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>位置図テスト | SOLAR LAND MGR Phase 3</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --accent: #0066cc;
+    --border: #cbd5e1;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 20px;
+    font-family: "Hiragino Kaku Gothic ProN", "Meiryo", -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  .info {
+    background: var(--surface);
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .info strong { color: var(--accent); }
+  .info code { background: #eef2f7; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+  .controls {
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .controls span { font-size: 13px; color: var(--text-muted); }
+  .controls button {
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 13px;
+    transition: all .15s ease;
+  }
+  .controls button:hover { background: #eef2f7; }
+  .controls button.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  /* A4横の概要書右側枠を想定したサイズ感 */
+  .map-frame {
+    background: var(--surface);
+    padding: 10px;
+    border: 2px solid #1e293b;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    width: fit-content;
+    max-width: 100%;
+  }
+  .map-title {
+    font-size: 14px;
+    font-weight: bold;
+    margin-bottom: 8px;
+    padding: 5px 10px;
+    background: #f1f5f9;
+    border-left: 4px solid var(--accent);
+  }
+  #map {
+    width: 530px;
+    height: 380px;
+    border: 1px solid #94a3b8;
+    background: #fff;
+  }
+  /* Leaflet スケールバーを概要書に映える色味に */
+  .leaflet-control-scale-line {
+    background: rgba(255,255,255,.92) !important;
+    border: 2px solid #1e293b !important;
+    border-top: none !important;
+    color: #0f172a !important;
+    font-weight: bold !important;
+    font-size: 11px !important;
+    padding: 2px 8px !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,.1) !important;
+  }
+  .meta {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  /* モバイル対応 */
+  @media (max-width: 600px) {
+    #map { width: calc(100vw - 64px); height: 300px; }
+  }
+  /* 印刷時 */
+  @media print {
+    body { background: #fff; padding: 0; }
+    .info, .controls, .meta { display: none; }
+    .map-frame { box-shadow: none; border: 1px solid #000; padding: 0; }
+    .map-title { display: none; }
+    #map { border: 1px solid #000; }
+  }
+</style>
+</head>
+<body>
+
+<h1>📍 位置図テスト（Phase 3-4 着手前検証）</h1>
+
+<div class="info">
+  <strong>テスト案件：</strong> 蒲郡市-001<br>
+  <strong>座標：</strong> <code>34.82556358668793, 137.19559836387634</code><br>
+  <strong>仕様：</strong> 地理院地図 pale（淡色地図） ／ デフォルト Z14 ／ 赤丸（透過30%） ／ 右下スケールバー
+</div>
+
+<div class="controls">
+  <span>縮尺切替：</span>
+  <button onclick="setZoom(13)" id="z13">Z13（広域・約2.5km）</button>
+  <button onclick="setZoom(14)" id="z14" class="active">Z14（標準・約1.2km）</button>
+  <button onclick="setZoom(15)" id="z15">Z15（詳細・約600m）</button>
+</div>
+
+<div class="map-frame">
+  <div class="map-title">位置図</div>
+  <div id="map"></div>
+  <div class="meta" id="meta">表示中：Z14 / 中心 (34.82556, 137.19560)</div>
+</div>
+
+<script>
+  // ===== 蒲郡市-001 の座標 =====
+  const LAT = 34.82556358668793;
+  const LNG = 137.19559836387634;
+  const DEFAULT_ZOOM = 14;
+
+  // ===== マップ初期化 =====
+  const map = L.map('map', {
+    center: [LAT, LNG],
+    zoom: DEFAULT_ZOOM,
+    zoomControl: false,         // ズームボタンは概要書では不要
+    attributionControl: true,
+    scrollWheelZoom: false,     // 誤操作防止（印刷用UI）
+    doubleClickZoom: false,
+    dragging: true,             // ドラッグは確認用に許可
+    keyboard: false
+  });
+
+  // ===== 地理院地図 pale（淡色地図） =====
+  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', {
+    attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">国土地理院</a>',
+    maxZoom: 18,
+    minZoom: 5
+  }).addTo(map);
+
+  // ===== 赤丸マーカー（当該地） =====
+  const marker = L.circleMarker([LAT, LNG], {
+    radius: 12,
+    color: '#FF0000',
+    weight: 3,
+    fillColor: '#FF0000',
+    fillOpacity: 0.3
+  }).addTo(map);
+
+  // ===== スケールバー（右下の定規） =====
+  L.control.scale({
+    position: 'bottomright',
+    metric: true,
+    imperial: false,
+    maxWidth: 150,
+    updateWhenIdle: true
+  }).addTo(map);
+
+  // ===== ズーム切替 =====
+  function setZoom(z) {
+    map.setView([LAT, LNG], z);
+    document.querySelectorAll('.controls button').forEach(b => b.classList.remove('active'));
+    const btn = document.getElementById('z' + z);
+    if (btn) btn.classList.add('active');
+    updateMeta();
+  }
+
+  function updateMeta() {
+    const z = map.getZoom();
+    const c = map.getCenter();
+    document.getElementById('meta').textContent =
+      `表示中：Z${z} / 中心 (${c.lat.toFixed(5)}, ${c.lng.toFixed(5)})`;
+  }
+
+  map.on('zoomend moveend', updateMeta);
+</script>
+
+</body>
+</html>
