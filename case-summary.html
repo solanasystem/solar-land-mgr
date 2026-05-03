@@ -450,6 +450,115 @@ window.addEventListener('load', function() {
   .koz-controls button.success:hover { background: #059669; }
   .koz-controls button.danger { background: #ef4444; color: white; border-color: #ef4444; }
   .koz-controls button.danger:hover { background: #dc2626; }
+
+  /* ======== 公図編集モーダル ======== */
+  .koz-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Hiragino Kaku Gothic ProN','Hiragino Sans','Meiryo',sans-serif;
+  }
+  .koz-modal.active {
+    display: flex;
+  }
+  .koz-modal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+  }
+  .koz-modal-content {
+    position: relative;
+    width: 95vw;
+    height: 92vh;
+    max-width: 1400px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .koz-modal-header {
+    padding: 10px 16px;
+    background: #f3f4f6;
+    border-bottom: 1px solid #d1d5db;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .koz-modal-header .close-btn {
+    border: none;
+    background: transparent;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px 12px;
+  }
+  .koz-modal-header .close-btn:hover { background: #e5e7eb; border-radius: 4px; }
+  .koz-modal-body {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: #1f2937;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .koz-modal-body img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .koz-modal-body canvas {
+    position: absolute;
+    cursor: crosshair;
+  }
+  .koz-modal-instructions {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.75);
+    color: white;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .koz-modal-footer {
+    padding: 10px 16px;
+    background: #f9fafb;
+    border-top: 1px solid #d1d5db;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .koz-modal-footer button {
+    padding: 8px 16px;
+    font-size: 13px;
+    border-radius: 4px;
+    border: 1px solid #d1d5db;
+    background: white;
+    cursor: pointer;
+  }
+  .koz-modal-footer button:hover { background: #f3f4f6; }
+  .koz-modal-footer button.success { background: #10b981; color: white; border-color: #10b981; }
+  .koz-modal-footer button.success:hover { background: #059669; }
+  .koz-modal-footer button.danger  { background: #ef4444; color: white; border-color: #ef4444; }
+  .koz-modal-footer button.danger:hover  { background: #dc2626; }
+  .koz-modal-footer .spacer { flex: 1; }
+  .koz-modal-footer .status {
+    font-size: 12px;
+    color: #6b7280;
+    margin-left: 8px;
+  }
   /* 公図セルのラベル位置: コントロールと重ならないよう上に表示 */
   #koz-cell .img-cell-label {
     bottom: auto;
@@ -811,11 +920,8 @@ window.addEventListener('load', function() {
             <img id="koz-image" src="" alt="公図">
             <canvas id="koz-canvas"></canvas>
           </div>
-          <div class="koz-status" id="koz-status">編集中: クリックで点を追加</div>
           <div class="koz-controls">
-            <button id="koz-edit-btn" onclick="togglePolygonMode()">📐 該当地を指定</button>
-            <button id="koz-clear-btn" onclick="clearPolygon()" style="display:none;">🗑️ 線をクリア</button>
-            <button id="koz-save-btn" onclick="savePolygon()" class="success" style="display:none;">💾 保存</button>
+            <button id="koz-edit-btn" onclick="openKozModal()" class="success">📐 該当地を指定</button>
             <button id="koz-replace-btn" onclick="document.getElementById('koz-input').click()">🔄 差替え</button>
             <button id="koz-delete-btn" onclick="deleteCadastralMap()" class="danger">🗑️ 公図削除</button>
           </div>
@@ -867,6 +973,29 @@ window.addEventListener('load', function() {
   <div class="sheet-footer">株式会社XAMAX &amp; In the cloud</div>
 
 </div><!-- /summary-sheet -->
+
+<!-- ======== 公図編集モーダル（Phase 3-3a+b） ======== -->
+<div id="koz-modal" class="koz-modal">
+  <div class="koz-modal-overlay" onclick="closeKozModal()"></div>
+  <div class="koz-modal-content">
+    <div class="koz-modal-header">
+      <span>📐 該当地を指定 — 公図上をクリックして該当地の輪郭を描いてください</span>
+      <button class="close-btn" onclick="closeKozModal()" title="閉じる">✕</button>
+    </div>
+    <div class="koz-modal-body">
+      <img id="koz-modal-image" src="" alt="公図">
+      <canvas id="koz-modal-canvas"></canvas>
+      <div class="koz-modal-instructions">クリックで点を追加 / 右クリックで多角形を閉じる</div>
+    </div>
+    <div class="koz-modal-footer">
+      <button onclick="kozModalClear()" class="danger">🗑️ クリア</button>
+      <span class="status" id="koz-modal-status">点を3つ以上クリックしてください</span>
+      <span class="spacer"></span>
+      <button onclick="closeKozModal()">キャンセル</button>
+      <button onclick="kozModalSave()" class="success">💾 保存して閉じる</button>
+    </div>
+  </div>
+</div>
 
 
 <!-- ======== JavaScript ======== -->
@@ -1405,36 +1534,40 @@ function loadCadastralMap(land) {
     display.style.display = 'block';
 
     const img = document.getElementById('koz-image');
+
+    // ポリゴンをロード
+    if (Array.isArray(land.cadastral_polygon) && land.cadastral_polygon.length > 0) {
+      _kozPolygonPoints = land.cadastral_polygon;
+    }
+
+    // 画像読み込み完了後に bbox クロップ + 赤線描画
+    img.onload = () => {
+      refreshKozCellDisplay();
+    };
     img.src = land.cadastral_image_url;
 
-    img.onload = () => {
-      const canvas = document.getElementById('koz-canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      // 画像と同じ表示サイズに合わせる
-      const rect = img.getBoundingClientRect();
-      const wrapRect = img.parentElement.getBoundingClientRect();
-      canvas.style.width = rect.width + 'px';
-      canvas.style.height = rect.height + 'px';
-      canvas.style.left = (rect.left - wrapRect.left) + 'px';
-      canvas.style.top = (rect.top - wrapRect.top) + 'px';
-
-      // 既存の多角形があれば描画
-      if (Array.isArray(land.cadastral_polygon) && land.cadastral_polygon.length > 0) {
-        _kozPolygonPoints = land.cadastral_polygon;
-        drawKozPolygon();
-      }
-    };
-
-    // 編集ボタン状態リセット
-    document.getElementById('koz-edit-btn').textContent = '📐 該当地を指定';
-    document.getElementById('koz-clear-btn').style.display = 'none';
-    document.getElementById('koz-save-btn').style.display = 'none';
-    document.getElementById('koz-status').classList.remove('show');
+    // 既にロード済みの場合（同じURL）
+    if (img.complete && img.naturalWidth > 0 && img.src === land.cadastral_image_url) {
+      refreshKozCellDisplay();
+    }
   } else {
     // 未アップロード → プレースホルダー
     placeholder.style.display = 'flex';
     display.style.display = 'none';
+    // 念のため img/canvas をリセット
+    const img = document.getElementById('koz-image');
+    if (img) {
+      img.src = '';
+      img.style.transform = '';
+      img.style.objectFit = 'contain';
+    }
+    const canvas = document.getElementById('koz-canvas');
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      canvas.style.transform = '';
+      canvas.style.display = 'none';
+    }
   }
 }
 
@@ -1538,48 +1671,79 @@ async function convertPdfToPng(pdfFile) {
   });
 }
 
-// 多角形編集モード切り替え
-function togglePolygonMode() {
-  const canvas = document.getElementById('koz-canvas');
-  const editBtn = document.getElementById('koz-edit-btn');
-  const clearBtn = document.getElementById('koz-clear-btn');
-  const saveBtn = document.getElementById('koz-save-btn');
-  const status = document.getElementById('koz-status');
+// ============================================================
+// モーダルベースの多角形編集（公図全体を大きく表示して編集）
+// ============================================================
 
-  if (!_kozPolygonMode) {
-    // 編集開始
-    _kozPolygonMode = true;
-    _kozPolygonOriginal = JSON.parse(JSON.stringify(_kozPolygonPoints));
-    _kozPolygonPoints = []; // 新規描画
-    canvas.classList.add('editing');
-    canvas.addEventListener('click', addKozPoint);
-    canvas.addEventListener('contextmenu', finishKozPolygon);
-    editBtn.textContent = '✕ 編集をキャンセル';
-    editBtn.classList.add('primary');
-    clearBtn.style.display = 'block';
-    saveBtn.style.display = 'block';
-    status.classList.add('show');
-    status.textContent = '編集中: クリックで点追加 / 右クリックで完了';
-    drawKozPolygon();
-  } else {
-    // 編集キャンセル
-    _kozPolygonMode = false;
-    _kozPolygonPoints = _kozPolygonOriginal || [];
-    canvas.classList.remove('editing');
-    canvas.removeEventListener('click', addKozPoint);
-    canvas.removeEventListener('contextmenu', finishKozPolygon);
-    editBtn.textContent = '📐 該当地を指定';
-    editBtn.classList.remove('primary');
-    clearBtn.style.display = 'none';
-    saveBtn.style.display = 'none';
-    status.classList.remove('show');
-    drawKozPolygon();
+// モーダルを開く（公図画像のURL を渡す）
+function openKozModal() {
+  if (!_kozCurrentCaseId) {
+    alert('案件が読み込まれていません');
+    return;
   }
+  const img = document.getElementById('koz-image');
+  if (!img || !img.src) {
+    alert('先に公図をアップロードしてください');
+    return;
+  }
+
+  const modalImg = document.getElementById('koz-modal-image');
+  modalImg.src = img.src;
+
+  // 既存ポリゴンがあればコピーして編集開始
+  _kozPolygonOriginal = JSON.parse(JSON.stringify(_kozPolygonPoints));
+
+  modalImg.onload = () => {
+    const canvas = document.getElementById('koz-modal-canvas');
+    canvas.width = modalImg.naturalWidth;
+    canvas.height = modalImg.naturalHeight;
+
+    // 画像と同じ表示サイズに合わせる
+    requestAnimationFrame(() => {
+      syncKozModalCanvasSize();
+      drawKozModalPolygon();
+    });
+
+    canvas.addEventListener('click', addKozModalPoint);
+    canvas.addEventListener('contextmenu', finishKozModalPolygon);
+
+    updateKozModalStatus();
+  };
+
+  // 既に画像がキャッシュされている場合はonloadが発火しないことがあるので
+  if (modalImg.complete && modalImg.naturalWidth > 0) {
+    modalImg.onload();
+  }
+
+  document.getElementById('koz-modal').classList.add('active');
+  document.body.style.overflow = 'hidden';
 }
 
-// 点を追加
-function addKozPoint(e) {
-  if (!_kozPolygonMode) return;
+// モーダル内のCanvasサイズを画像表示サイズに合わせる
+function syncKozModalCanvasSize() {
+  const img = document.getElementById('koz-modal-image');
+  const canvas = document.getElementById('koz-modal-canvas');
+  if (!img || !canvas) return;
+  const rect = img.getBoundingClientRect();
+  const wrapRect = img.parentElement.getBoundingClientRect();
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  canvas.style.left = (rect.left - wrapRect.left) + 'px';
+  canvas.style.top = (rect.top - wrapRect.top) + 'px';
+}
+
+// モーダルを閉じる（保存せずに）
+function closeKozModal() {
+  // 編集をキャンセル：オリジナルの状態に戻す
+  _kozPolygonPoints = _kozPolygonOriginal || [];
+  document.getElementById('koz-modal').classList.remove('active');
+  document.body.style.overflow = '';
+  // 概要書セルの表示を更新
+  drawKozPolygonOnCell();
+}
+
+// モーダル内：点を追加
+function addKozModalPoint(e) {
   const canvas = e.target;
   const rect = canvas.getBoundingClientRect();
   const scaleX = canvas.width / rect.width;
@@ -1587,33 +1751,35 @@ function addKozPoint(e) {
   const x = (e.clientX - rect.left) * scaleX;
   const y = (e.clientY - rect.top) * scaleY;
   _kozPolygonPoints.push([Math.round(x), Math.round(y)]);
-  drawKozPolygon();
+  drawKozModalPolygon();
+  updateKozModalStatus();
 }
 
-// 右クリックで多角形を閉じる
-function finishKozPolygon(e) {
+// モーダル内：多角形を閉じる（右クリック）
+function finishKozModalPolygon(e) {
   e.preventDefault();
   if (_kozPolygonPoints.length < 3) {
     alert('点を3つ以上クリックしてください');
     return;
   }
-  // 描画完了：閉じた多角形を表示
-  drawKozPolygon(true);
-  document.getElementById('koz-status').textContent =
-    `${_kozPolygonPoints.length}点で描画完了。「保存」を押してください`;
+  drawKozModalPolygon(true);
+  document.getElementById('koz-modal-status').textContent =
+    `${_kozPolygonPoints.length}点で描画完了。「保存して閉じる」を押してください`;
 }
 
-// クリア
-function clearPolygon() {
+// モーダル内：クリア
+function kozModalClear() {
+  if (_kozPolygonPoints.length === 0) return;
   if (!confirm('多角形をクリアしますか？')) return;
   _kozPolygonPoints = [];
-  drawKozPolygon();
+  drawKozModalPolygon();
+  updateKozModalStatus();
 }
 
-// 保存
-async function savePolygon() {
+// モーダル内：保存
+async function kozModalSave() {
   if (_kozPolygonPoints.length < 3) {
-    alert('点を3つ以上指定してください');
+    alert('点を3つ以上クリックしてください');
     return;
   }
   if (!_kozCurrentCaseId) {
@@ -1628,30 +1794,34 @@ async function savePolygon() {
       .eq('case_id', _kozCurrentCaseId);
     if (error) throw error;
 
-    // 編集モード終了
-    _kozPolygonMode = false;
-    const canvas = document.getElementById('koz-canvas');
-    canvas.classList.remove('editing');
-    canvas.removeEventListener('click', addKozPoint);
-    canvas.removeEventListener('contextmenu', finishKozPolygon);
-
-    document.getElementById('koz-edit-btn').textContent = '📐 該当地を指定';
-    document.getElementById('koz-edit-btn').classList.remove('primary');
-    document.getElementById('koz-clear-btn').style.display = 'none';
-    document.getElementById('koz-save-btn').style.display = 'none';
-    document.getElementById('koz-status').classList.remove('show');
-
-    drawKozPolygon();
     setStatus('多角形を保存しました');
+    document.getElementById('koz-modal').classList.remove('active');
+    document.body.style.overflow = '';
+
+    // 概要書セルの表示を更新（bboxクロップ + 赤線）
+    drawKozPolygonOnCell();
   } catch (err) {
     console.error('多角形保存失敗:', err);
     alert('多角形保存失敗: ' + (err.message || err));
   }
 }
 
-// 多角形を描画（赤線）
-function drawKozPolygon(closed = false) {
-  const canvas = document.getElementById('koz-canvas');
+// モーダル内：状態テキスト更新
+function updateKozModalStatus() {
+  const status = document.getElementById('koz-modal-status');
+  if (!status) return;
+  if (_kozPolygonPoints.length === 0) {
+    status.textContent = '点をクリックして該当地の輪郭を描いてください';
+  } else if (_kozPolygonPoints.length < 3) {
+    status.textContent = `${_kozPolygonPoints.length}点（あと${3 - _kozPolygonPoints.length}点以上必要）`;
+  } else {
+    status.textContent = `${_kozPolygonPoints.length}点描画中（右クリックで完了）`;
+  }
+}
+
+// モーダル内のポリゴン描画
+function drawKozModalPolygon(closed = false) {
+  const canvas = document.getElementById('koz-modal-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1660,48 +1830,161 @@ function drawKozPolygon(closed = false) {
 
   // 赤線多角形
   ctx.strokeStyle = '#dc2626';
-  ctx.lineWidth = Math.max(3, canvas.width / 400); // 画像サイズに応じて線幅調整
+  ctx.lineWidth = Math.max(3, canvas.width / 400);
   ctx.lineJoin = 'round';
   ctx.beginPath();
   ctx.moveTo(_kozPolygonPoints[0][0], _kozPolygonPoints[0][1]);
   for (let i = 1; i < _kozPolygonPoints.length; i++) {
     ctx.lineTo(_kozPolygonPoints[i][0], _kozPolygonPoints[i][1]);
   }
-
-  // 編集中以外、または点が3つ以上なら閉じる
-  if (!_kozPolygonMode || closed || _kozPolygonPoints.length >= 3) {
-    if (!_kozPolygonMode) {
-      ctx.closePath();
-    }
+  if (closed && _kozPolygonPoints.length >= 3) {
+    ctx.closePath();
   }
   ctx.stroke();
 
-  // 編集モード時のみ、各点に小さな赤丸
-  if (_kozPolygonMode) {
-    const r = Math.max(5, canvas.width / 250);
-    _kozPolygonPoints.forEach((p) => {
-      ctx.fillStyle = '#dc2626';
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(p[0], p[1], r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    });
-  }
+  // 各点に小さな赤丸（編集用）
+  const r = Math.max(5, canvas.width / 250);
+  _kozPolygonPoints.forEach((p) => {
+    ctx.fillStyle = '#dc2626';
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(p[0], p[1], r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  });
 }
 
-// ウィンドウリサイズ時にCanvas位置を再調整
-window.addEventListener('resize', () => {
+// ============================================================
+// 概要書セルでの bbox クロップ表示 + 赤線オーバーレイ
+// ============================================================
+// ポリゴン点群から bbox を計算（パディング付き）
+function calcPolygonBbox(points, paddingRatio = 0.15) {
+  if (!points || points.length === 0) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  points.forEach(([x, y]) => {
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  });
+  const w = maxX - minX;
+  const h = maxY - minY;
+  // パディング追加（多角形周辺の余白）
+  const padX = w * paddingRatio;
+  const padY = h * paddingRatio;
+  return {
+    x: Math.max(0, minX - padX),
+    y: Math.max(0, minY - padY),
+    width: w + padX * 2,
+    height: h + padY * 2
+  };
+}
+
+// 概要書セルにポリゴンと bbox クロップを描画
+function drawKozPolygonOnCell() {
   const img = document.getElementById('koz-image');
   const canvas = document.getElementById('koz-canvas');
   if (!img || !canvas || !img.src) return;
-  const rect = img.getBoundingClientRect();
-  const wrapRect = img.parentElement.getBoundingClientRect();
-  canvas.style.width = rect.width + 'px';
-  canvas.style.height = rect.height + 'px';
-  canvas.style.left = (rect.left - wrapRect.left) + 'px';
-  canvas.style.top = (rect.top - wrapRect.top) + 'px';
+
+  // ポリゴンが無ければ Canvas をクリアして全体表示のまま
+  if (!_kozPolygonPoints || _kozPolygonPoints.length === 0) {
+    canvas.width = 1;
+    canvas.height = 1;
+    img.style.objectFit = 'contain';
+    img.style.transform = '';
+    img.style.transformOrigin = '';
+    canvas.style.display = 'none';
+    return;
+  }
+
+  // bbox 計算
+  const bbox = calcPolygonBbox(_kozPolygonPoints);
+  if (!bbox) return;
+
+  // bbox を画像内に収める
+  const naturalW = img.naturalWidth;
+  const naturalH = img.naturalHeight;
+  bbox.x = Math.max(0, bbox.x);
+  bbox.y = Math.max(0, bbox.y);
+  bbox.width = Math.min(bbox.width, naturalW - bbox.x);
+  bbox.height = Math.min(bbox.height, naturalH - bbox.y);
+
+  // 画像の表示位置を transform で調整（bbox 部分を拡大表示）
+  // セル幅 / セル高 を取得
+  const wrap = img.parentElement;
+  const wrapRect = wrap.getBoundingClientRect();
+
+  // bbox を表示エリアに最大化（contain）
+  const scaleX = wrapRect.width / bbox.width;
+  const scaleY = wrapRect.height / bbox.height;
+  const scale = Math.min(scaleX, scaleY);
+
+  // 画像全体を scale 倍にして、bbox の中心が表示エリア中心に来るように移動
+  const imgScaleW = naturalW * scale;
+  const imgScaleH = naturalH * scale;
+  // bbox の中心
+  const bboxCenterX = (bbox.x + bbox.width / 2) * scale;
+  const bboxCenterY = (bbox.y + bbox.height / 2) * scale;
+  // 表示エリア中心
+  const wrapCenterX = wrapRect.width / 2;
+  const wrapCenterY = wrapRect.height / 2;
+  // 画像の左上のオフセット
+  const offsetX = wrapCenterX - bboxCenterX;
+  const offsetY = wrapCenterY - bboxCenterY;
+
+  img.style.objectFit = 'none';
+  img.style.transformOrigin = '0 0';
+  img.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+  img.style.width = naturalW + 'px';
+  img.style.height = naturalH + 'px';
+  img.style.maxWidth = 'none';
+  img.style.maxHeight = 'none';
+
+  // Canvas を画像と同じ位置・サイズに（自然サイズ × scale で transform）
+  canvas.width = naturalW;
+  canvas.height = naturalH;
+  canvas.style.display = 'block';
+  canvas.style.transformOrigin = '0 0';
+  canvas.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+  canvas.style.width = naturalW + 'px';
+  canvas.style.height = naturalH + 'px';
+  canvas.style.left = '0';
+  canvas.style.top = '0';
+
+  // 赤線描画
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = '#dc2626';
+  ctx.lineWidth = Math.max(3, canvas.width / 400);
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(_kozPolygonPoints[0][0], _kozPolygonPoints[0][1]);
+  for (let i = 1; i < _kozPolygonPoints.length; i++) {
+    ctx.lineTo(_kozPolygonPoints[i][0], _kozPolygonPoints[i][1]);
+  }
+  ctx.closePath();
+  ctx.stroke();
+}
+
+// loadCadastralMap で呼ぶための統一エントリ
+function refreshKozCellDisplay() {
+  // 画像が読み込み済みなら即描画、未読込なら onload を待つ
+  const img = document.getElementById('koz-image');
+  if (!img || !img.src) return;
+  if (img.complete && img.naturalWidth > 0) {
+    drawKozPolygonOnCell();
+  } else {
+    img.addEventListener('load', drawKozPolygonOnCell, { once: true });
+  }
+}
+
+// ウィンドウリサイズ時にセル内表示を再調整
+window.addEventListener('resize', () => {
+  refreshKozCellDisplay();
+  if (document.getElementById('koz-modal').classList.contains('active')) {
+    syncKozModalCanvasSize();
+  }
 });
 
 // DOMContentLoaded時にアップロードハンドラー登録
