@@ -1174,6 +1174,12 @@ window.addEventListener('load', function() {
         <span style="font-size:11px;">°</span>
         <button onclick="resetOverlayRotation()" style="padding:2px 6px; font-size:11px;" title="回転をリセット">↺</button>
       </div>
+      <div class="opacity-control">
+        <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+          <input type="checkbox" id="overlay-highlight-toggle" checked onchange="toggleHighlightMode(this.checked)">
+          <span>線だけ黄色</span>
+        </label>
+      </div>
       <button onclick="closeOverlayModal()">キャンセル</button>
       <button onclick="saveOverlay()" class="success">💾 保存して閉じる</button>
     </div>
@@ -2358,10 +2364,115 @@ let _overlayNeLatLng = null;
 let _overlayOpacity = 0.6;
 let _overlayRotation = 0;  // 度数（-180〜+180）
 let _overlayCurrentLand = null;
+let _kozHighlightMode = true;  // 線だけ黄色化モード（デフォルトON）
+let _kozHighlightedDataUrl = null;  // 処理済み画像のキャッシュ（同一URLでの再処理回避）
+let _kozHighlightedSourceUrl = null;
+
+// ============================================================
+// 画像処理：白い紙面を透明化、暗い線を黄色化
+// ============================================================
+function processCadastralImageForOverlay(srcImg) {
+  if (!srcImg || !srcImg.complete || srcImg.naturalWidth === 0) {
+    return null;
+  }
+  // 同じソースなら前回の結果を再利用
+  if (_kozHighlightedSourceUrl === srcImg.src && _kozHighlightedDataUrl) {
+    return _kozHighlightedDataUrl;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = srcImg.naturalWidth;
+  canvas.height = srcImg.naturalHeight;
+  const ctx = canvas.getContext('2d');
+
+  try {
+    ctx.drawImage(srcImg, 0, 0);
+  } catch (e) {
+    console.warn('画像処理: drawImage失敗（CORS?）:', e);
+    return null;
+  }
+
+  let imageData;
+  try {
+    imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  } catch (e) {
+    console.warn('画像処理: getImageData失敗（CORS?）:', e);
+    return null;
+  }
+
+  const data = imageData.data;
+  const len = data.length;
+
+  // 閾値設定
+  const WHITE_THRESHOLD = 200;   // この値以上のRGB平均は「紙面」とみなす → 透明化
+  const LINE_THRESHOLD  = 120;   // この値以下のRGB平均は「線」とみなす → 黄色化
+  // 中間値（影や薄い色）は元の透明度を保ちつつ黄色味を加える
+
+  // 黄色の RGB
+  const Y_R = 255, Y_G = 220, Y_B = 0;
+
+  for (let i = 0; i < len; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const avg = (r + g + b) / 3;
+
+    if (avg >= WHITE_THRESHOLD) {
+      // 白い紙面 → 完全透明
+      data[i + 3] = 0;
+    } else if (avg <= LINE_THRESHOLD) {
+      // 暗い線 → 黄色（不透明）
+      data[i] = Y_R;
+      data[i + 1] = Y_G;
+      data[i + 2] = Y_B;
+      data[i + 3] = 255;
+    } else {
+      // 中間色 → 黄色寄りで半透明（線の太さやアンチエイリアス部分を保持）
+      const t = (WHITE_THRESHOLD - avg) / (WHITE_THRESHOLD - LINE_THRESHOLD); // 0〜1
+      data[i]     = Math.round(Y_R * t + r * (1 - t));
+      data[i + 1] = Math.round(Y_G * t + g * (1 - t));
+      data[i + 2] = Math.round(Y_B * t + b * (1 - t));
+      data[i + 3] = Math.round(255 * t);
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  const dataUrl = canvas.toDataURL('image/png');
+
+  _kozHighlightedSourceUrl = srcImg.src;
+  _kozHighlightedDataUrl = dataUrl;
+  return dataUrl;
+}
+
+// 重ね表示用の画像URLを取得（ハイライトモードならprocess済み、OFFなら元のURL）
+function getOverlayImageUrl() {
+  const cadImg = document.getElementById('koz-image');
+  if (!cadImg || !cadImg.src) return null;
+  if (_kozHighlightMode) {
+    const processed = processCadastralImageForOverlay(cadImg);
+    return processed || cadImg.src;  // 処理失敗時は元画像にフォールバック
+  }
+  return cadImg.src;
+}
+
 
 // 公図重ね編集ボタンは常時表示（クリック時に状態チェックしてアラート）
 function updateOverlayEditButtonVisibility(hasCadastralImage) {
   // 常時表示するため、何もしない（互換性維持のため関数自体は残す）
+}
+
+// ハイライトモード（線だけ黄色）切替
+function toggleHighlightMode(checked) {
+  _kozHighlightMode = !!checked;
+  // 編集モーダル中なら即時反映
+  if (_overlayImageLayer) {
+    const newUrl = getOverlayImageUrl();
+    if (newUrl) {
+      _overlayImageLayer.setUrl(newUrl);
+      // 回転を再適用
+      setTimeout(applyOverlayRotation, 50);
+    }
+  }
 }
 
 // 編集モーダルを開く
@@ -2405,6 +2516,10 @@ function openOverlayModal() {
   const rotDisplay = (Math.round(_overlayRotation * 10) / 10).toFixed(1);
   document.getElementById('overlay-rotation-slider').value = _overlayRotation;
   document.getElementById('overlay-rotation-input').value = rotDisplay;
+
+  // ハイライトモードトグルを現在の状態に同期
+  const highlightToggle = document.getElementById('overlay-highlight-toggle');
+  if (highlightToggle) highlightToggle.checked = _kozHighlightMode;
 
   // 大きな衛星写真マップを初期化
   setTimeout(() => {
@@ -2558,7 +2673,7 @@ function renderOverlayState() {
     _overlaySwLatLng = L.latLng(sw[0], sw[1]);
     _overlayNeLatLng = L.latLng(ne[0], ne[1]);
 
-    _overlayImageLayer = L.imageOverlay(cadImg.src, [sw, ne], {
+    _overlayImageLayer = L.imageOverlay(getOverlayImageUrl() || cadImg.src, [sw, ne], {
       opacity: _overlayOpacity,
       crossOrigin: 'anonymous',
       interactive: true
@@ -2872,7 +2987,7 @@ async function saveOverlay() {
 
     // 衛星写真セルにも反映（既存overlayを削除して再追加）
     applyOverlayToSatelliteMap(
-      document.getElementById('koz-image').src,
+      getOverlayImageUrl() || document.getElementById('koz-image').src,
       [sw, ne],
       _overlayOpacity,
       _overlayRotation
@@ -3149,14 +3264,36 @@ function renderSatelliteMap(lat, lng, land) {
               ? land.cadastral_overlay_opacity : 0.6;
             const rotation = (typeof land.cadastral_overlay_rotation === 'number')
               ? land.cadastral_overlay_rotation : 0;
+            // 概要書セルでもハイライト処理済み画像を使用
+            // ただし koz-image がまだロード完了していない可能性があるので、
+            // ロード完了後に処理 → URL差し替えする
+            const initialUrl = land.cadastral_image_url;
             const overlay = L.imageOverlay(
-              land.cadastral_image_url,
+              initialUrl,
               [[sw[0], sw[1]], [ne[0], ne[1]]],
               { opacity: opacity, crossOrigin: 'anonymous' }
             );
             overlay._isCadastralOverlay = true;
             overlay._kozRotation = rotation;
             overlay.addTo(map);
+
+            // 公図画像のロード完了を待ってハイライト処理→URL差し替え
+            const tryApplyHighlight = () => {
+              const processedUrl = getOverlayImageUrl();
+              if (processedUrl && processedUrl !== initialUrl) {
+                overlay.setUrl(processedUrl);
+              }
+            };
+            const cadImgElement = document.getElementById('koz-image');
+            if (cadImgElement) {
+              if (cadImgElement.complete && cadImgElement.naturalWidth > 0) {
+                setTimeout(tryApplyHighlight, 100);
+              } else {
+                cadImgElement.addEventListener('load', () => {
+                  setTimeout(tryApplyHighlight, 50);
+                }, { once: true });
+              }
+            }
 
             // 回転を適用
             if (rotation) {
