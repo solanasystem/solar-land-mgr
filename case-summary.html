@@ -1730,7 +1730,10 @@ function loadCadastralMap(land) {
   _kozCurrentCaseId = land.case_id || null;
   _kozPolygonMode = false;
   _kozPolygonPoints = [];
-  _overlayCurrentLand = land || null;  // overlay編集用
+
+  // _overlayCurrentLand に land をそのまま保持（land.lat/lng が土地の正しい位置）
+  // cases テーブルには lat/lng カラムが存在しないため land 由来のみを使う
+  _overlayCurrentLand = land || null;
 
   const placeholder = document.getElementById('koz-placeholder');
   const display = document.getElementById('koz-display');
@@ -2411,8 +2414,13 @@ function openOverlayModal() {
     }
 
     const land = _overlayCurrentLand;
-    const lat = parseFloat(land.lat) || parseFloat(land.case_lat) || 35.0;
-    const lng = parseFloat(land.lng) || parseFloat(land.case_lng) || 137.0;
+    const lat = parseFloat(land.lat);
+    const lng = parseFloat(land.lng);
+    if (isNaN(lat) || isNaN(lng)) {
+      alert('この案件には緯度経度が登録されていません（land_info.lat/lng が空）');
+      closeOverlayModal();
+      return;
+    }
 
     _overlayMap = L.map('overlay-edit-map', {
       center: [lat, lng],
