@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>eMAFF Importer | SOLAR LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
@@ -388,6 +390,41 @@ body{
 .match-pct.high{background:rgba(63,185,80,0.15);color:var(--success);}
 .match-pct.mid{background:rgba(251,191,36,0.15);color:var(--warning);}
 .match-pct.low{background:rgba(248,81,73,0.15);color:var(--error);}
+/* === 自治体境界プレビューマップ === */
+.area-preview{
+  margin-top:14px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  overflow:hidden;
+  background:var(--bg-card-2);
+}
+.area-preview-header{
+  padding:8px 14px;
+  background:var(--bg-card-2);
+  border-bottom:1px solid var(--border);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  font-size:12px;
+  color:var(--text-muted);
+}
+.area-preview-header strong{color:var(--text);font-size:13px;}
+#miniMap{
+  width:100%;
+  height:280px;
+  background:#0a0d12;
+}
+#miniMap .leaflet-container{background:#1a1f26;}
+.area-preview-status{
+  padding:6px 14px;
+  font-size:11px;
+  color:var(--text-muted);
+  border-top:1px solid var(--border);
+  background:var(--bg-card);
+}
+.area-preview-status.loading{color:var(--accent);}
+.area-preview-status.error{color:var(--error);}
+.area-preview-status.success{color:var(--success);}
 @media (max-width: 768px){
   .container{padding:14px;}
   .step-card{padding:16px;}
@@ -429,6 +466,16 @@ body{
         </select>
       </div>
       <div id="sourceInfo" class="muted"></div>
+
+      <!-- 自治体境界プレビューマップ（Nominatim API） -->
+      <div class="area-preview" id="areaPreview" style="display:none;">
+        <div class="area-preview-header">
+          <strong>🗺️ 自治体境界プレビュー</strong>
+          <span id="areaPreviewLabel">—</span>
+        </div>
+        <div id="miniMap"></div>
+        <div class="area-preview-status" id="areaPreviewStatus">境界データ取得中...</div>
+      </div>
     </div>
   </div>
 
@@ -576,6 +623,13 @@ var emaffKeyIndex={}; // 重複チェック用インデックス（O(1)アクセ
 var matchResult=null; // マッチ結果
 var loadedFiles=[]; // 取り込んだファイル名リスト
 
+// 自治体境界プレビュー用
+var miniMap=null;             // Leaflet map インスタンス
+var boundaryLayer=null;       // 境界GeoJSONレイヤ
+var boundaryListingsLayer=null; // 物件ピンレイヤ
+var currentBoundary=null;     // 現在表示中の境界 {center:{lat,lng}, bounds:[[s,w],[n,e]]}
+var boundaryCache={};         // Nominatim結果キャッシュ（再選択高速化）
+
 // ============================================================
 // 初期化
 // ============================================================
@@ -633,6 +687,7 @@ async function onSourceChange(){
   if(!id){
     listings=[];
     document.getElementById('sourceInfo').textContent='';
+    document.getElementById('areaPreview').style.display='none';
     return;
   }
   showLoading('物件データを読込中...');
@@ -647,6 +702,112 @@ async function onSourceChange(){
     showToast('物件読込エラー: '+e.message,'error');
   }
   hideLoading();
+
+  // 境界プレビューマップを起動
+  var s2=sources.find(function(x){return x.id===id;});
+  if(s2){
+    loadAreaBoundary(s2.prefecture,s2.municipality);
+  }
+}
+
+// ============================================================
+// 自治体境界プレビュー（Nominatim API）
+// ============================================================
+function ensureMiniMap(){
+  if(miniMap)return;
+  miniMap=L.map('miniMap',{
+    zoomControl:true,
+    attributionControl:true,
+    scrollWheelZoom:true
+  }).setView([35.0,136.0],8);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© OpenStreetMap',
+    maxZoom:18
+  }).addTo(miniMap);
+}
+
+async function loadAreaBoundary(prefecture,municipality){
+  document.getElementById('areaPreview').style.display='block';
+  document.getElementById('areaPreviewLabel').textContent=prefecture+' '+municipality;
+  setBoundaryStatus('loading','境界データを取得中... (Nominatim/OpenStreetMap)');
+
+  // ミニマップ初期化（display:noneだったdivが表示されたあとにinvalidateSize）
+  setTimeout(function(){
+    ensureMiniMap();
+    miniMap.invalidateSize();
+  },50);
+
+  var key=prefecture+'__'+municipality;
+  try{
+    var data;
+    if(boundaryCache[key]){
+      data=boundaryCache[key];
+    }else{
+      var url='https://nominatim.openstreetmap.org/search?q='+
+        encodeURIComponent(prefecture+' '+municipality)+
+        '&polygon_geojson=1&format=json&addressdetails=1&limit=1';
+      var resp=await fetch(url,{headers:{'Accept':'application/json'}});
+      if(!resp.ok)throw new Error('HTTP '+resp.status);
+      var arr=await resp.json();
+      if(!arr||arr.length===0)throw new Error('該当する自治体が見つかりませんでした');
+      data=arr[0];
+      boundaryCache[key]=data;
+    }
+    displayBoundary(data);
+
+    // 物件ピンも重ねて表示
+    setTimeout(function(){displayListingPins();},100);
+  }catch(e){
+    setBoundaryStatus('error','❌ 境界取得失敗: '+e.message);
+    showToast('境界取得失敗: '+e.message,'error');
+  }
+}
+
+function displayBoundary(nomResult){
+  ensureMiniMap();
+  // 既存レイヤ削除
+  if(boundaryLayer){miniMap.removeLayer(boundaryLayer);boundaryLayer=null;}
+
+  if(nomResult.geojson){
+    boundaryLayer=L.geoJSON(nomResult.geojson,{
+      style:{color:'#ff4d4d',weight:2.5,fillColor:'#ff4d4d',fillOpacity:0.08}
+    }).addTo(miniMap);
+    miniMap.fitBounds(boundaryLayer.getBounds(),{padding:[20,20]});
+    var b=boundaryLayer.getBounds();
+    currentBoundary={
+      center:{lat:b.getCenter().lat,lng:b.getCenter().lng},
+      bounds:[[b.getSouth(),b.getWest()],[b.getNorth(),b.getEast()]]
+    };
+    setBoundaryStatus('success','✅ 境界表示OK｜中心: '+
+      currentBoundary.center.lat.toFixed(4)+', '+currentBoundary.center.lng.toFixed(4)+
+      '｜「eMAFFを開く」でこの中心座標にジャンプします');
+  }else{
+    // 境界ポリゴンが返ってこなかった場合は中心点のみ
+    var lat=parseFloat(nomResult.lat),lon=parseFloat(nomResult.lon);
+    miniMap.setView([lat,lon],12);
+    L.marker([lat,lon]).addTo(miniMap);
+    currentBoundary={center:{lat:lat,lng:lon},bounds:null};
+    setBoundaryStatus('success','✅ 中心座標のみ取得（境界ポリゴンなし）');
+  }
+}
+
+function displayListingPins(){
+  if(!miniMap)return;
+  if(boundaryListingsLayer){miniMap.removeLayer(boundaryListingsLayer);boundaryListingsLayer=null;}
+  var withCoords=listings.filter(function(l){return l.lat&&l.lng;});
+  if(withCoords.length===0)return;
+  var markers=withCoords.map(function(l){
+    return L.circleMarker([parseFloat(l.lat),parseFloat(l.lng)],{
+      radius:4,color:'#3fb950',fillColor:'#3fb950',fillOpacity:0.7,weight:1
+    }).bindPopup((l.oaza||'')+(l.aza||'')+(l.chiban||''));
+  });
+  boundaryListingsLayer=L.layerGroup(markers).addTo(miniMap);
+}
+
+function setBoundaryStatus(type,msg){
+  var el=document.getElementById('areaPreviewStatus');
+  el.className='area-preview-status '+type;
+  el.textContent=msg;
 }
 
 // ============================================================
@@ -658,19 +819,27 @@ async function openEmaff(){
     showToast('先に自治体を選択してください','warning');
     return;
   }
-  // 物件の中心座標を計算
+  // 1) 物件の中心座標があればそれを優先
   var withCoords=listings.filter(function(l){return l.lat&&l.lng;});
-  if(withCoords.length===0){
-    // 自治体名で検索開く
-    window.open('https://map.maff.go.jp/','_blank');
+  if(withCoords.length>0){
+    var avgLat=withCoords.reduce(function(a,l){return a+parseFloat(l.lat);},0)/withCoords.length;
+    var avgLng=withCoords.reduce(function(a,l){return a+parseFloat(l.lng);},0)/withCoords.length;
+    var url='https://map.maff.go.jp/?z=15&clat='+avgLat.toFixed(6)+'&clon='+avgLng.toFixed(6);
+    window.open(url,'_blank');
+    showToast('eMAFFを物件中心で開きました','success');
     return;
   }
-  var avgLat=withCoords.reduce(function(a,l){return a+parseFloat(l.lat);},0)/withCoords.length;
-  var avgLng=withCoords.reduce(function(a,l){return a+parseFloat(l.lng);},0)/withCoords.length;
-  // eMAFF はクエリパラメータで初期座標指定可能
-  var url='https://map.maff.go.jp/?z=15&clat='+avgLat.toFixed(6)+'&clon='+avgLng.toFixed(6);
-  window.open(url,'_blank');
-  showToast('eMAFFを新しいタブで開きました（自治体中心座標にプリセット）','success');
+  // 2) 物件座標がない場合、Nominatim取得済の自治体境界中心を使う
+  if(currentBoundary&&currentBoundary.center){
+    var c=currentBoundary.center;
+    var url2='https://map.maff.go.jp/?z=14&clat='+c.lat.toFixed(6)+'&clon='+c.lng.toFixed(6);
+    window.open(url2,'_blank');
+    showToast('eMAFFを自治体境界の中心で開きました（zoom=14）','success');
+    return;
+  }
+  // 3) いずれもない場合はeMAFFのトップを開く
+  window.open('https://map.maff.go.jp/','_blank');
+  showToast('座標未取得のためeMAFFトップを開きました','warning');
 }
 
 // ============================================================
@@ -1026,6 +1195,7 @@ function escapeHtml(s){
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
+<script src="mobile-responsive.js"></script>
 
 </body>
 </html>
