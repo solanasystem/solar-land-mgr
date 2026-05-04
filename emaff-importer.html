@@ -668,6 +668,7 @@ body{
                   <th>地番</th>
                   <th>現在 lat,lng</th>
                   <th>原因(推定)</th>
+                  <th>eMAFF候補(Address例)</th>
                 </tr>
               </thead>
               <tbody id="unmatchedTable"></tbody>
@@ -1306,16 +1307,28 @@ function renderResult(){
   ut.innerHTML='';
   matchResult.unmatched.slice(0,500).forEach(function(u){
     var tr=document.createElement('tr');
+    // 候補例（最初の1件の Address）を取得。最大3件まで列挙して表記揺れを把握しやすくする
+    var candAddrs='—';
+    if(u.candidates&&u.candidates.length>0){
+      var addrs=u.candidates.slice(0,3).map(function(f){
+        return String((f.properties&&(f.properties.Address||f.properties.address))||'(Address欠損)');
+      });
+      candAddrs=addrs.map(escapeHtml).join('<br>');
+      if(u.candidates.length>3){
+        candAddrs+='<br><span style="color:var(--text-muted);">…他 '+(u.candidates.length-3)+'件</span>';
+      }
+    }
     tr.innerHTML=
       '<td>'+escapeHtml((u.listing.oaza||'')+(u.listing.aza||''))+'</td>'+
       '<td>'+escapeHtml(u.listing.chiban||'')+'</td>'+
       '<td>'+(u.listing.lat?Number(u.listing.lat).toFixed(6)+', '+Number(u.listing.lng).toFixed(6):'—')+'</td>'+
-      '<td style="color:var(--warning);">'+escapeHtml(u.reason)+'</td>';
+      '<td style="color:var(--warning);">'+escapeHtml(u.reason)+'</td>'+
+      '<td style="font-size:11px;color:var(--text-muted);">'+candAddrs+'</td>';
     ut.appendChild(tr);
   });
   if(matchResult.unmatched.length>500){
     var note=document.createElement('tr');
-    note.innerHTML='<td colspan="4" style="text-align:center;color:var(--text-muted);">…他 '+(matchResult.unmatched.length-500)+'件</td>';
+    note.innerHTML='<td colspan="5" style="text-align:center;color:var(--text-muted);">…他 '+(matchResult.unmatched.length-500)+'件</td>';
     ut.appendChild(note);
   }
   document.getElementById('matchResult').style.display='block';
