@@ -411,7 +411,7 @@ body{
 .area-preview-header strong{color:var(--text);font-size:13px;}
 #miniMap{
   width:100%;
-  height:280px;
+  height:380px;
   background:#0a0d12;
 }
 #miniMap .leaflet-container{background:#1a1f26;}
@@ -484,16 +484,15 @@ body{
     <div class="step-number">2</div>
     <div class="step-title">eMAFFでデータをダウンロード</div>
     <div class="step-body">
-      <button id="btnOpenEmaff" class="button button-primary">🌐 eMAFF農地ナビを新しいタブで開く</button>
+      <button id="btnOpenEmaff" class="button button-primary">🌐 eMAFFをトップで開く（または上のグリッドから個別に開く）</button>
       <ol class="guide-list">
-        <li>新しいタブでeMAFFが開きます（自治体の中心座標で表示）</li>
-        <li>地図のズームを<strong style="color:var(--text);">14以上</strong>にする（DLボタンが有効化）</li>
-        <li>上部メニューの<strong style="color:var(--text);">「ダウンロード」</strong>をクリック</li>
+        <li><strong style="color:var(--text);">推奨：上のミニマップのグリッド（黄色破線）をクリック</strong> → そのセルの中心がzoom=14でeMAFFに表示されます</li>
+        <li>eMAFFで上部メニューの<strong style="color:var(--text);">「ダウンロード」</strong>をクリック</li>
         <li>形式は<strong style="color:var(--text);">「GeoJSON」</strong>を選択</li>
-        <li>範囲が広い場合は<strong style="color:var(--text);">複数回に分けて</strong>DL（北部・中部・南部など）</li>
         <li>DLしたファイルをこのページに戻り、Step 3にドロップ</li>
+        <li>未DLの黄色セルを順次クリックして全範囲を網羅（クリック済セルは緑になる）</li>
       </ol>
-      <div class="tip">💡 1ファイルずつDLしてその都度ドロップしてもOK。マルチアップロード対応です。</div>
+      <div class="tip">💡 セルは1kmずつ重なっているため、境界線上の農地も取りこぼしません。重複featureは取込時に自動除外されます。</div>
     </div>
   </div>
 
@@ -629,6 +628,14 @@ var boundaryLayer=null;       // 境界GeoJSONレイヤ
 var boundaryListingsLayer=null; // 物件ピンレイヤ
 var currentBoundary=null;     // 現在表示中の境界 {center:{lat,lng}, bounds:[[s,w],[n,e]]}
 var boundaryCache={};         // Nominatim結果キャッシュ（再選択高速化）
+
+// DLグリッド管理
+var gridLayer=null;           // グリッド矩形＋ラベルのLayerGroup
+var gridCells=[];             // 現在のグリッド配列
+var gridCellRects={};         // セルID→矩形 のマップ（再描画用）
+var clickedCells=new Set();   // クリック済（DL済）セルIDのセット（セッションのみ）
+var GRID_CORE_KM=5;           // コアサイズ
+var GRID_OVERLAP_KM=1;        // オーバーラップ
 
 // ============================================================
 // 初期化
@@ -767,10 +774,13 @@ function displayBoundary(nomResult){
   ensureMiniMap();
   // 既存レイヤ削除
   if(boundaryLayer){miniMap.removeLayer(boundaryLayer);boundaryLayer=null;}
+  if(gridLayer){miniMap.removeLayer(gridLayer);gridLayer=null;}
+  // 自治体が変わったらクリック済もリセット
+  clickedCells.clear();
 
   if(nomResult.geojson){
     boundaryLayer=L.geoJSON(nomResult.geojson,{
-      style:{color:'#ff4d4d',weight:2.5,fillColor:'#ff4d4d',fillOpacity:0.08}
+      style:{color:'#ff4d4d',weight:2.5,fillColor:'#ff4d4d',fillOpacity:0.05}
     }).addTo(miniMap);
     miniMap.fitBounds(boundaryLayer.getBounds(),{padding:[20,20]});
     var b=boundaryLayer.getBounds();
@@ -778,16 +788,16 @@ function displayBoundary(nomResult){
       center:{lat:b.getCenter().lat,lng:b.getCenter().lng},
       bounds:[[b.getSouth(),b.getWest()],[b.getNorth(),b.getEast()]]
     };
-    setBoundaryStatus('success','✅ 境界表示OK｜中心: '+
-      currentBoundary.center.lat.toFixed(4)+', '+currentBoundary.center.lng.toFixed(4)+
-      '｜「eMAFFを開く」でこの中心座標にジャンプします');
+    // DLグリッドを生成して表示
+    gridCells=generateGrid(currentBoundary.bounds,GRID_CORE_KM,GRID_OVERLAP_KM);
+    displayGrid(gridCells);
+    setBoundaryStatus('success','✅ '+gridCells.length+'セル ('+GRID_CORE_KM+'×'+GRID_CORE_KM+'km/オーバーラップ'+GRID_OVERLAP_KM+'km) を生成｜各セルクリックでeMAFFを開きます');
   }else{
-    // 境界ポリゴンが返ってこなかった場合は中心点のみ
     var lat=parseFloat(nomResult.lat),lon=parseFloat(nomResult.lon);
     miniMap.setView([lat,lon],12);
     L.marker([lat,lon]).addTo(miniMap);
     currentBoundary={center:{lat:lat,lng:lon},bounds:null};
-    setBoundaryStatus('success','✅ 中心座標のみ取得（境界ポリゴンなし）');
+    setBoundaryStatus('success','✅ 中心座標のみ取得（境界ポリゴンなし・グリッド生成不可）');
   }
 }
 
@@ -808,6 +818,103 @@ function setBoundaryStatus(type,msg){
   var el=document.getElementById('areaPreviewStatus');
   el.className='area-preview-status '+type;
   el.textContent=msg;
+}
+
+// ============================================================
+// DLグリッド生成・表示
+//   コアサイズ × コアサイズ km の格子を境界範囲に被せる
+//   各セルはオーバーラップ込みで実DL範囲を確保
+// ============================================================
+function generateGrid(bounds,coreKm,overlapKm){
+  var south=bounds[0][0],west=bounds[0][1];
+  var north=bounds[1][0],east=bounds[1][1];
+  var avgLat=(south+north)/2;
+  var latStep=coreKm/111;
+  var lngStep=coreKm/(111*Math.cos(avgLat*Math.PI/180));
+  var latOver=overlapKm/111;
+  var lngOver=overlapKm/(111*Math.cos(avgLat*Math.PI/180));
+
+  var cells=[];
+  var rowIdx=0;
+  for(var lat=south;lat<north;lat+=latStep,rowIdx++){
+    var colIdx=0;
+    for(var lng=west;lng<east;lng+=lngStep,colIdx++){
+      var coreS=lat,coreW=lng;
+      var coreN=Math.min(lat+latStep,north);
+      var coreE=Math.min(lng+lngStep,east);
+      var dlS=coreS-latOver,dlW=coreW-lngOver;
+      var dlN=coreN+latOver,dlE=coreE+lngOver;
+      var center={lat:(coreS+coreN)/2,lng:(coreW+coreE)/2};
+      // ラベル: A1, A2, ..., B1, B2, ... (Z以降は AA, AB, ...)
+      var rowLabel;
+      if(rowIdx<26){rowLabel=String.fromCharCode(65+rowIdx);}
+      else{rowLabel=String.fromCharCode(65+Math.floor(rowIdx/26)-1)+String.fromCharCode(65+(rowIdx%26));}
+      cells.push({
+        id:rowLabel+(colIdx+1),
+        coreBounds:[[coreS,coreW],[coreN,coreE]],
+        dlBounds:[[dlS,dlW],[dlN,dlE]],
+        center:center,
+        row:rowIdx,col:colIdx
+      });
+    }
+  }
+  return cells;
+}
+
+function displayGrid(cells){
+  if(gridLayer){miniMap.removeLayer(gridLayer);gridLayer=null;}
+  gridCellRects={};
+  var layers=[];
+
+  cells.forEach(function(cell){
+    var isClicked=clickedCells.has(cell.id);
+    var rect=L.rectangle(cell.coreBounds,{
+      color:isClicked?'#3fb950':'#fbbf24',
+      weight:1.5,
+      fillColor:isClicked?'#3fb950':'#fbbf24',
+      fillOpacity:isClicked?0.22:0.05,
+      dashArray:'5,4'
+    });
+    rect.bindTooltip(
+      '<strong>セル '+cell.id+'</strong><br>'+
+      'コア '+GRID_CORE_KM+'×'+GRID_CORE_KM+'km / 実DL '+(GRID_CORE_KM+GRID_OVERLAP_KM*2)+'×'+(GRID_CORE_KM+GRID_OVERLAP_KM*2)+'km<br>'+
+      '中心 '+cell.center.lat.toFixed(4)+', '+cell.center.lng.toFixed(4)+'<br>'+
+      '<span style="color:#3fb950;">クリック → eMAFFを開く</span>',
+      {direction:'top',sticky:false}
+    );
+    rect.on('click',function(){onGridCellClick(cell,rect);});
+    gridCellRects[cell.id]=rect;
+    layers.push(rect);
+
+    // セルラベル（クリックを邪魔しないようinteractive:false）
+    var labelMarker=L.marker(cell.center,{
+      icon:L.divIcon({
+        html:'<div style="background:rgba(0,0,0,0.7);color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;white-space:nowrap;pointer-events:none;">'+cell.id+'</div>',
+        className:'grid-label-icon',
+        iconSize:[30,18],
+        iconAnchor:[15,9]
+      }),
+      interactive:false
+    });
+    layers.push(labelMarker);
+  });
+
+  gridLayer=L.layerGroup(layers).addTo(miniMap);
+}
+
+function onGridCellClick(cell,rect){
+  var url='https://map.maff.go.jp/?z=14&clat='+cell.center.lat.toFixed(6)+
+          '&clon='+cell.center.lng.toFixed(6);
+  window.open(url,'_blank');
+  clickedCells.add(cell.id);
+  rect.setStyle({
+    color:'#3fb950',
+    fillColor:'#3fb950',
+    fillOpacity:0.22
+  });
+  setBoundaryStatus('success',
+    '✅ セル '+cell.id+' でeMAFFを開きました｜'+
+    'クリック済: '+clickedCells.size+' / '+gridCells.length+'セル');
 }
 
 // ============================================================
