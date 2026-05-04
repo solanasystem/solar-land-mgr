@@ -239,9 +239,23 @@ async function loadData(){
       return;
     }
     var latestDate=dateRes.data[0].snapshot_date;
+    // === paging fetch helper（Supabase max-rows=1000 制限を回避）===
+    async function _fetchAllPaged(buildQuery){
+      var all=[];
+      for(var page=0;page<30;page++){
+        var from=page*1000,to=from+999;
+        var res=await buildQuery().range(from,to);
+        if(res.error)return{data:null,error:res.error};
+        var rows=res.data||[];
+        if(!rows.length)break;
+        all=all.concat(rows);
+        if(rows.length<1000)break;
+      }
+      return{data:all,error:null};
+    }
     var results=await Promise.all([
-      db.from('farmland_snapshots').select('*').eq('snapshot_date',latestDate).limit(10000),
-      db.from('farmland_ng_list').select('feature_id').limit(10000),
+      _fetchAllPaged(function(){return db.from('farmland_snapshots').select('*').eq('snapshot_date',latestDate);}),
+      _fetchAllPaged(function(){return db.from('farmland_ng_list').select('feature_id');}),
       db.from('farmland_status').select('feature_id,status').limit(10000),
       db.from('farmland_comments').select('feature_id,comment').limit(10000),
       db.from('farmland_promoted').select('feature_id').limit(10000),
@@ -303,13 +317,6 @@ async function loadData(){
         comment:commentMap[f.feature_id]||''
       });
     });
-    // === DEBUG: 中野市の取りこぼし調査 ===
-    var dbgChunoSnap=snapshots.filter(function(f){return f.city==='\u9577\u91ce\u770c\u4e2d\u91ce\u5e02';});
-    var dbgChunoNg=dbgChunoSnap.filter(function(f){return ngSet[f.feature_id];});
-    var dbgChunoProm=dbgChunoSnap.filter(function(f){return promotedSet[f.feature_id];});
-    var dbgChunoFarm=farmlands.filter(function(f){return f.city==='\u9577\u91ce\u770c\u4e2d\u91ce\u5e02';});
-    alert('[DEBUG] snapshots\u4e2d\u91ce\u5e02='+dbgChunoSnap.length+' / ngSet\u8a72\u5f53='+dbgChunoNg.length+' / promotedSet\u8a72\u5f53='+dbgChunoProm.length+' / farmlands\u4e2d\u91ce\u5e02='+dbgChunoFarm.length+'\n\nngSet\u7dcf\u8981\u7d20\u6570='+Object.keys(ngSet).length+' / promotedSet\u7dcf\u8981\u7d20\u6570='+Object.keys(promotedSet).length);
-    // === DEBUG END ===
     // \u5e02\u533a\u753a\u6751\u306e\u9078\u629e\u80a2\u3092\u751f\u6210
     var cities={};
     farmlands.forEach(function(f){if(f.city)cities[f.city]=true;});
