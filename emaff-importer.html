@@ -508,6 +508,130 @@ body{
   .step-title{margin-left:32px;font-size:14px;}
   .header{padding:12px 14px;}
 }
+/* モード選択UI */
+.mode-selector{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:24px 26px;
+  margin-bottom:24px;
+}
+.mode-selector h2{
+  font-size:17px;
+  font-weight:700;
+  margin-bottom:8px;
+}
+.mode-selector .mode-warning{
+  color:var(--warning);
+  font-size:13px;
+  margin-bottom:18px;
+  padding:10px 12px;
+  background:rgba(251,191,36,0.08);
+  border:1px solid rgba(251,191,36,0.3);
+  border-radius:6px;
+}
+.mode-cards{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:16px;
+}
+.mode-card{
+  background:var(--bg-card-2);
+  border:2px solid var(--border);
+  border-radius:10px;
+  padding:20px 22px;
+  cursor:pointer;
+  transition:all 0.2s;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.mode-card:hover{
+  border-color:var(--accent);
+  background:#1d2733;
+  transform:translateY(-2px);
+}
+.mode-card.mode-a:hover{border-color:var(--accent);}
+.mode-card.mode-b:hover{border-color:#0ea5e9;}
+.mode-card .mode-icon{font-size:28px;}
+.mode-card .mode-title{
+  font-size:15px;
+  font-weight:700;
+  color:var(--text);
+}
+.mode-card .mode-subtitle{
+  font-size:12px;
+  color:var(--text-muted);
+  margin-bottom:6px;
+}
+.mode-card .mode-desc{
+  font-size:13px;
+  color:var(--text);
+  line-height:1.65;
+}
+.mode-card .mode-meta{
+  font-size:11px;
+  color:var(--text-muted);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  background:var(--bg);
+  padding:8px 10px;
+  border-radius:5px;
+  margin-top:6px;
+  line-height:1.6;
+}
+.mode-card .mode-cta{
+  margin-top:auto;
+  padding:8px 14px;
+  border-radius:6px;
+  text-align:center;
+  font-size:13px;
+  font-weight:600;
+}
+.mode-card.mode-a .mode-cta{background:var(--accent);color:#0d1117;}
+.mode-card.mode-b .mode-cta{background:#0ea5e9;color:#fff;}
+.back-link{
+  margin-bottom:16px;
+}
+.back-link a{
+  color:var(--accent);
+  font-size:13px;
+  cursor:pointer;
+  text-decoration:none;
+}
+.back-link a:hover{text-decoration:underline;}
+.modeB-intro{
+  background:linear-gradient(135deg,rgba(14,165,233,0.10),rgba(14,165,233,0.02));
+  border:1px solid rgba(14,165,233,0.4);
+}
+.modeB-intro h2{color:#0ea5e9;}
+.btn-modeB{
+  background:#0ea5e9;
+  color:#fff;
+}
+.btn-modeB:hover{background:#0284c7;}
+.preview-bar{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:10px;
+  margin-top:12px;
+}
+.preview-bar .pv-cell{
+  background:var(--bg-card-2);
+  border:1px solid var(--border);
+  border-radius:6px;
+  padding:10px 12px;
+  text-align:center;
+}
+.preview-bar .pv-num{font-size:20px;font-weight:700;}
+.preview-bar .pv-label{font-size:11px;color:var(--text-muted);}
+.preview-bar .pv-cell.target{border-color:#0ea5e9;}
+.preview-bar .pv-cell.target .pv-num{color:#0ea5e9;}
+.preview-bar .pv-cell.exclude{border-color:#3b82f6;}
+.preview-bar .pv-cell.exclude .pv-num{color:#60a5fa;}
+@media (max-width: 768px){
+  .mode-cards{grid-template-columns:1fr;}
+  .preview-bar{grid-template-columns:repeat(2,1fr);}
+}
 </style>
 </head>
 <body>
@@ -523,7 +647,56 @@ body{
 
 <div class="container">
 
-  <div class="intro">
+  <!-- ============================================================ -->
+  <!-- モード選択画面（最初に表示） -->
+  <!-- ============================================================ -->
+  <div id="modeSelector" class="mode-selector">
+    <h2>🎯 取込モードを選択してください</h2>
+    <div class="mode-warning">
+      ⚠️ このページには<strong style="color:var(--text);">用途が異なる2つのモード</strong>があります。<br>
+      取り違えると既存データを壊す恐れがあるため、必ず正しいモードを選んでください。
+    </div>
+    <div class="mode-cards">
+      <!-- モードA -->
+      <div class="mode-card mode-a" onclick="selectMode('A')">
+        <div class="mode-icon">📍</div>
+        <div class="mode-title">モードA：座標補正</div>
+        <div class="mode-subtitle">既存物件の座標を番地レベル精度に更新</div>
+        <div class="mode-desc">
+          自治体公開農地（中野市・長浜市など）に登録済みの物件で、字レベル精度（pub_）の座標をeMAFF GeoJSONとTiban JOINして<strong style="color:var(--text);">番地レベル精度（pubH_）</strong>に置換します。
+        </div>
+        <div class="mode-meta">
+          入力 : 自治体エリアのGeoJSON<br>
+          出力 : public_farmland_listings の lat/lng 更新<br>
+          目的 : 既存物件の座標精度向上
+        </div>
+        <div class="mode-cta">このモードで進む →</div>
+      </div>
+      <!-- モードB -->
+      <div class="mode-card mode-b" onclick="selectMode('B')">
+        <div class="mode-icon">🆕</div>
+        <div class="mode-title">モードB：売却希望取込（新規）</div>
+        <div class="mode-subtitle">eMAFF「売りたい」絞込GeoJSONを新規案件候補として取込</div>
+        <div class="mode-desc">
+          eMAFF農地ナビで<strong style="color:#0ea5e9;">「売りたい」絞り込み</strong>を適用してDLしたGeoJSONを取り込み、<strong style="color:var(--text);">青地は自動除外</strong>。残りを <code>farmland_snapshots</code> に <code>emaffN_</code> プレフィックスで投入し、農地変更トラッカーに🟦水色マーカーで表示します。
+        </div>
+        <div class="mode-meta">
+          入力 : 「売りたい」絞込済GeoJSON<br>
+          出力 : farmland_snapshots に emaffN_ 投入<br>
+          目的 : 新規案件候補の発掘
+        </div>
+        <div class="mode-cta">このモードで進む →</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- モードA：座標補正（既存機能） -->
+  <!-- ============================================================ -->
+  <div id="modeAContent" style="display:none;">
+    <div class="back-link"><a onclick="backToSelector()">← モード選択へ戻る</a></div>
+
+    <div class="intro">
     <h2>🎯 公開農地マッチング情報の座標精度を向上</h2>
     <p>
       eMAFF農地ナビからGeoJSONをダウンロードし、現在登録されている物件（字レベル精度・誤差100〜200m）と地番JOINで紐付けることで、座標を<strong style="color:var(--accent);">番地レベル精度（誤差数m〜数十m）</strong>に置換します。<br>
@@ -687,6 +860,98 @@ body{
     </div>
   </div>
 
+  </div><!-- /#modeAContent -->
+
+  <!-- ============================================================ -->
+  <!-- モードB：売却希望取込（新規） -->
+  <!-- ============================================================ -->
+  <div id="modeBContent" style="display:none;">
+    <div class="back-link"><a onclick="backToSelector()">← モード選択へ戻る</a></div>
+
+    <div class="intro modeB-intro">
+      <h2>🆕 eMAFF売却希望取込（新規案件発掘）</h2>
+      <p>
+        eMAFF農地ナビ（<a href="https://map.maff.go.jp/" target="_blank" style="color:#0ea5e9;">map.maff.go.jp</a>）で<strong style="color:#0ea5e9;">「売りたい」絞り込み</strong>を適用した状態でGeoJSONをDLし、ここにアップロードしてください。<br>
+        <strong style="color:var(--text);">青地（農用地区域内）は自動除外</strong>。残りを <code style="background:var(--bg);padding:1px 6px;border-radius:3px;">farmland_snapshots</code> に <code style="background:var(--bg);padding:1px 6px;border-radius:3px;">emaffN_</code> プレフィックスで投入し、<a href="farmland-tracker.html" style="color:#0ea5e9;">農地変更トラッカー</a>に🟦水色マーカーで表示します。<br>
+        その後は既存の「ハザード5種・農振農用地・目視」3段階チェックフローに自動的に乗ります。
+      </p>
+    </div>
+
+    <!-- Step B-1 -->
+    <div class="step-card">
+      <div class="step-number">B-1</div>
+      <div class="step-title">eMAFFで「売りたい」絞り込み → GeoJSONをDL</div>
+      <div class="step-body">
+        <button onclick="window.open('https://map.maff.go.jp/','_blank');" class="button button-primary">🌐 eMAFF農地ナビを開く</button>
+        <ol class="guide-list">
+          <li>eMAFFを開いたら<strong style="color:var(--text);">対象エリアにズーム14以上</strong>で移動</li>
+          <li>左メニューの<strong style="color:var(--text);">絞り込み</strong>から<strong style="color:#0ea5e9;">「売りたい」</strong>を選択（色フラグ表示）</li>
+          <li>上部の<strong style="color:var(--text);">「ダウンロード」</strong>→<strong style="color:var(--text);">「GeoJSON」</strong>を選択してDL</li>
+          <li>DLしたファイルをStep B-2にドロップ</li>
+        </ol>
+        <div class="tip">💡 「売りたい」フィルタを掛けないとDLに「貸したい」も混ざります。必ず絞り込み済みでDLしてください。</div>
+      </div>
+    </div>
+
+    <!-- Step B-2 -->
+    <div class="step-card">
+      <div class="step-number">B-2</div>
+      <div class="step-title">GeoJSONを取り込み（青地は自動除外）</div>
+      <div class="step-body">
+        <div id="dropzoneB" class="dropzone">
+          <div class="dropzone-icon">📂</div>
+          <div class="dropzone-text">
+            <strong>「売りたい」絞り込み済の GeoJSON ファイル をここにドロップ</strong><br>
+            <span style="color:var(--warning);font-size:12px;">⚠️ 絞り込み未適用のGeoJSONは混在の元になります</span><br>
+            または<button id="btnSelectFileB" class="button button-secondary" style="margin-top:10px;">ファイルを選択</button>
+          </div>
+          <input id="fileInputB" type="file" accept=".geojson,.json" multiple style="display:none;">
+        </div>
+        <div id="fileListB" class="file-list"></div>
+
+        <div id="previewSummaryB" style="display:none;margin-top:14px;">
+          <div class="preview-bar">
+            <div class="pv-cell">
+              <div class="pv-num" id="bvTotal">0</div>
+              <div class="pv-label">取込feature総数</div>
+            </div>
+            <div class="pv-cell exclude">
+              <div class="pv-num" id="bvAochi">0</div>
+              <div class="pv-label">青地除外</div>
+            </div>
+            <div class="pv-cell" style="border-color:var(--warning);">
+              <div class="pv-num" id="bvNoCoord" style="color:var(--warning);">0</div>
+              <div class="pv-label">座標欠損除外</div>
+            </div>
+            <div class="pv-cell target">
+              <div class="pv-num" id="bvTarget">0</div>
+              <div class="pv-label">投入対象</div>
+            </div>
+          </div>
+          <div id="bvBreakdown" class="muted" style="margin-top:8px;font-size:12px;line-height:1.7;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step B-3 -->
+    <div class="step-card" id="stepB3Card" style="opacity:0.5;pointer-events:none;">
+      <div class="step-number">B-3</div>
+      <div class="step-title">farmland_snapshots に投入（emaffN_ プレフィックス）</div>
+      <div class="step-body">
+        <div class="muted" style="margin-bottom:10px;">
+          投入後、<a href="farmland-tracker.html" style="color:#0ea5e9;">農地変更トラッカー</a>で🟦水色マーカーとして表示されます。<br>
+          スナップショット日付は<strong style="color:var(--text);">本日</strong>。同じ <code>feature_id</code> は <code>upsert</code> で重複回避します。
+        </div>
+        <div class="action-row">
+          <button id="btnSaveB" class="button btn-modeB" disabled>💾 farmland_snapshots に投入する</button>
+          <button id="btnResetB" class="button button-secondary">🔄 やり直し</button>
+        </div>
+        <div id="saveResultB" class="muted" style="margin-top:12px;"></div>
+      </div>
+    </div>
+
+  </div><!-- /#modeBContent -->
+
 </div>
 
 <div class="loading-overlay" id="loadingOverlay">
@@ -726,6 +991,14 @@ var areaGroups=[];            // 現在のグループ配列
 var dlDoneGroups=new Set();   // 「DL済み」マークされたグループキー（セッションのみ）
 
 // ============================================================
+// モードB（売却希望取込）専用 State
+// ============================================================
+var modeBFeatures=[];     // 取込済みfeature配列
+var modeBKeyIndex={};     // 重複チェック
+var modeBLoadedFiles=[];  // 取込ファイル名リスト
+var modeBStats=null;      // 集計結果
+
+// ============================================================
 // 初期化
 // ============================================================
 document.addEventListener('DOMContentLoaded',function(){
@@ -741,7 +1014,40 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('btnMatch').addEventListener('click',runMatching);
   document.getElementById('btnSave').addEventListener('click',saveToDb);
   document.getElementById('btnReset').addEventListener('click',resetAll);
+
+  // モードB初期化
+  initDropzoneB();
+  document.getElementById('btnSelectFileB').addEventListener('click',function(e){
+    e.stopPropagation();
+    document.getElementById('fileInputB').click();
+  });
+  document.getElementById('fileInputB').addEventListener('change',function(e){
+    handleFilesB(Array.from(e.target.files));
+  });
+  document.getElementById('btnSaveB').addEventListener('click',saveToSnapshotsB);
+  document.getElementById('btnResetB').addEventListener('click',resetModeB);
 });
+
+// ============================================================
+// モード切替
+// ============================================================
+function selectMode(mode){
+  document.getElementById('modeSelector').style.display='none';
+  if(mode==='A'){
+    document.getElementById('modeAContent').style.display='block';
+    document.getElementById('modeBContent').style.display='none';
+  }else if(mode==='B'){
+    document.getElementById('modeAContent').style.display='none';
+    document.getElementById('modeBContent').style.display='block';
+  }
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function backToSelector(){
+  document.getElementById('modeSelector').style.display='block';
+  document.getElementById('modeAContent').style.display='none';
+  document.getElementById('modeBContent').style.display='none';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
 
 // ============================================================
 // Step 1: 自治体マスタ読込
@@ -1423,6 +1729,311 @@ function showToast(msg,type){
 }
 function escapeHtml(s){
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ============================================================
+// ============================================================
+// モードB: eMAFF売却希望取込（独立フロー）
+// ============================================================
+// ============================================================
+
+function initDropzoneB(){
+  var dz=document.getElementById('dropzoneB');
+  if(!dz)return;
+  dz.addEventListener('click',function(){document.getElementById('fileInputB').click();});
+  dz.addEventListener('dragover',function(e){
+    e.preventDefault();
+    dz.classList.add('dragover');
+  });
+  dz.addEventListener('dragleave',function(){
+    dz.classList.remove('dragover');
+  });
+  dz.addEventListener('drop',function(e){
+    e.preventDefault();
+    dz.classList.remove('dragover');
+    var files=Array.from(e.dataTransfer.files);
+    handleFilesB(files);
+  });
+}
+
+async function handleFilesB(files){
+  for(var i=0;i<files.length;i++){
+    await loadOneFileB(files[i]);
+  }
+  updateFileListB();
+  recomputeStatsB();
+}
+
+function loadOneFileB(file){
+  return new Promise(function(resolve){
+    var name=file.name.toLowerCase();
+    if(name.endsWith('.zip')){
+      modeBLoadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'❌ ZIPファイル不可'});
+      showToast('❌ '+file.name+' は ZIPファイルです。eMAFF農地ナビで「GeoJSON」を選んでDLしてください','error');
+      resolve();return;
+    }
+    if(!name.endsWith('.geojson')&&!name.endsWith('.json')){
+      modeBLoadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'❌ 拡張子不正'});
+      showToast('❌ '+file.name+' は対応外の形式','error');
+      resolve();return;
+    }
+    var reader=new FileReader();
+    reader.onload=function(e){
+      var text=e.target.result;
+      if(text.length>2&&text.charCodeAt(0)===0x50&&text.charCodeAt(1)===0x4B){
+        modeBLoadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'❌ 中身がZIP'});
+        showToast('❌ '+file.name+' は中身がZIP。eMAFFで「GeoJSON」を選んでDLしてください','error');
+        resolve();return;
+      }
+      try{
+        var json=JSON.parse(text);
+        var feats=json.features||[];
+        if(!Array.isArray(feats)){
+          modeBLoadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'❌ features配列なし'});
+          showToast('❌ '+file.name+' は GeoJSON ではありません','error');
+          resolve();return;
+        }
+        if(feats.length===0){
+          modeBLoadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'⚠️ 空ファイル'});
+          showToast('⚠️ '+file.name+' は空のGeoJSON','warning');
+          resolve();return;
+        }
+        var added=0;
+        feats.forEach(function(f){
+          var key=getFeatureKey(f);
+          if(modeBKeyIndex[key])return;
+          modeBKeyIndex[key]=true;
+          modeBFeatures.push(f);
+          added++;
+        });
+        modeBLoadedFiles.push({name:file.name,size:file.size,total:feats.length,added:added,status:'success'});
+        showToast('✅ '+file.name+': '+feats.length+'件中 '+added+'件追加','success');
+      }catch(err){
+        modeBLoadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'❌ JSON解析エラー'});
+        showToast('❌ '+file.name+' の読込失敗: '+err.message,'error');
+      }
+      resolve();
+    };
+    reader.onerror=function(){
+      modeBLoadedFiles.push({name:file.name,size:file.size,total:0,added:0,status:'error',error:'❌ 読込エラー'});
+      resolve();
+    };
+    reader.readAsText(file);
+  });
+}
+
+function updateFileListB(){
+  var fl=document.getElementById('fileListB');
+  fl.innerHTML='';
+  modeBLoadedFiles.forEach(function(f){
+    var div=document.createElement('div');
+    div.className='file-item';
+    div.innerHTML=
+      '<span class="file-status">'+(f.status==='success'?'✅':'❌')+'</span>'+
+      '<span class="file-name">'+escapeHtml(f.name)+'</span>'+
+      '<span class="file-meta">'+(f.status==='success'?(f.total+'件 (新規 '+f.added+'件)'):f.error)+'</span>';
+    fl.appendChild(div);
+  });
+}
+
+// 青地判定（SectionOfNoushinhouCodeName: 1=青地, 2=白地, 3=農振外, 9=調査中）
+function isAochi(p){
+  if(!p)return false;
+  // コード値で判定（最も確実）
+  var code=String(p.SectionOfNoushinhouCode||p.NoushinhouCode||'').trim();
+  if(code==='1')return true;
+  // 名称で判定
+  var name=String(p.SectionOfNoushinhouCodeName||p.NoushinhouCodeName||p.NoushinhouSection||'').trim();
+  if(name==='青地')return true;
+  if(name.indexOf('青地')>=0)return true;
+  if(name.indexOf('農用地区域内')>=0)return true;
+  return false;
+}
+
+function getNoushinhouLabel(p){
+  if(!p)return '不明';
+  var name=String(p.SectionOfNoushinhouCodeName||p.NoushinhouCodeName||p.NoushinhouSection||'').trim();
+  if(name)return name;
+  var code=String(p.SectionOfNoushinhouCode||p.NoushinhouCode||'').trim();
+  var map={'1':'青地','2':'白地','3':'農振外','9':'調査中'};
+  return map[code]||'不明';
+}
+
+// emaffN_ feature_id 生成
+function makeEmaffNFeatureId(f){
+  var p=f.properties||{};
+  if(p.uid)return 'emaffN_uid_'+p.uid;
+  if(p.fid)return 'emaffN_fid_'+p.fid;
+  var c=f.geometry&&f.geometry.coordinates;
+  if(c&&c.length>=2)return 'emaffN_'+Number(c[1]).toFixed(6)+'_'+Number(c[0]).toFixed(6);
+  return 'emaffN_unk_'+Math.random().toString(36).slice(2,10);
+}
+
+// 集計＆プレビュー
+function recomputeStatsB(){
+  var total=modeBFeatures.length;
+  var aochi=0,noCoord=0,target=0;
+  var byNoshin={};
+  modeBFeatures.forEach(function(f){
+    var p=f.properties||{};
+    var label=getNoushinhouLabel(p);
+    byNoshin[label]=(byNoshin[label]||0)+1;
+    if(isAochi(p)){aochi++;return;}
+    var c=f.geometry&&f.geometry.coordinates;
+    if(!c||c.length<2||isNaN(parseFloat(c[0]))||isNaN(parseFloat(c[1]))){noCoord++;return;}
+    target++;
+  });
+  modeBStats={total:total,aochi:aochi,noCoord:noCoord,target:target,byNoshin:byNoshin};
+
+  if(total>0){
+    document.getElementById('previewSummaryB').style.display='block';
+    document.getElementById('bvTotal').textContent=total;
+    document.getElementById('bvAochi').textContent=aochi;
+    document.getElementById('bvNoCoord').textContent=noCoord;
+    document.getElementById('bvTarget').textContent=target;
+    var bdParts=[];
+    Object.keys(byNoshin).forEach(function(k){
+      bdParts.push(k+': '+byNoshin[k]+'件');
+    });
+    document.getElementById('bvBreakdown').textContent='農振区分内訳 → '+bdParts.join(' / ');
+
+    // Step B-3 有効化
+    var ok=target>0;
+    document.getElementById('btnSaveB').disabled=!ok;
+    var card=document.getElementById('stepB3Card');
+    card.style.opacity=ok?'1':'0.5';
+    card.style.pointerEvents=ok?'auto':'none';
+  }else{
+    document.getElementById('previewSummaryB').style.display='none';
+    document.getElementById('btnSaveB').disabled=true;
+    var card2=document.getElementById('stepB3Card');
+    card2.style.opacity='0.5';
+    card2.style.pointerEvents='none';
+  }
+}
+
+// farmland_snapshots へ投入
+async function saveToSnapshotsB(){
+  if(!modeBStats||modeBStats.target===0){
+    showToast('投入対象がありません','warning');
+    return;
+  }
+  if(!confirm(modeBStats.target+'件をfarmland_snapshotsに投入します。\n\n・青地除外: '+modeBStats.aochi+'件\n・座標欠損: '+modeBStats.noCoord+'件\n・投入対象: '+modeBStats.target+'件\n\nfeature_idは「emaffN_」プレフィックス、source_typeは「emaff_navi」、intentは「売りたい」固定。\n農地変更トラッカーに🟦水色マーカーで表示されます。\n\n実行しますか？'))return;
+
+  showLoading('投入準備中...');
+  var today=new Date().toISOString().substring(0,10);
+  var rows=[];
+  modeBFeatures.forEach(function(f){
+    var p=f.properties||{};
+    if(isAochi(p))return;
+    var c=f.geometry&&f.geometry.coordinates;
+    if(!c||c.length<2)return;
+    var lng=parseFloat(c[0]),lat=parseFloat(c[1]);
+    if(isNaN(lat)||isNaN(lng))return;
+    var fid=makeEmaffNFeatureId(f);
+    var addr=String(p.Address||p.address||'');
+    var tiban=String(p.Tiban||p.tiban||'');
+    var area=parseFloat(p.AreaOnRegistry||p.areaOnRegistry||p.area||0)||null;
+    var chimoku=String(p.ClassificationOfLandCodeName||p.LandClassificationName||'')||null;
+    var noshin=getNoushinhouLabel(p);
+    // city: Address先頭から推定（"○○市..." or "○○県○○市..."）
+    var city=null;
+    var m=addr.match(/^([^県府都道]+?県|[^府]+?府|[^道]+?道|[^都]+?都)?([^市区町村]+?[市区町村])/);
+    if(m)city=m[2];
+    rows.push({
+      feature_id:fid,
+      snapshot_date:today,
+      lat:lat,
+      lng:lng,
+      address:addr+(tiban?(' '+tiban):''),
+      city:city,
+      intent:'売りたい',
+      area_sqm:area,
+      land_category:chimoku,
+      noshin_section:noshin,
+      source_type:'emaff_navi'
+    });
+  });
+
+  if(rows.length===0){
+    hideLoading();
+    showToast('投入対象が0件です','warning');
+    return;
+  }
+
+  // バッチupsert（500件ずつ）
+  var saved=0,failed=0,errors=[];
+  var BATCH=500;
+  // 先に拡張カラムがDBになければ落とすため、最小構成と拡張構成の2段階で試す
+  // → まず最小構成（feature_id, snapshot_date, lat, lng, address, city, intent, source_type）で実行
+  //   area_sqm/land_category/noshin_section が無いカラムだとエラーになるため、まず full で試して、
+  //   失敗したら最小構成にフォールバック
+  function buildMin(r){
+    return{feature_id:r.feature_id,snapshot_date:r.snapshot_date,lat:r.lat,lng:r.lng,address:r.address,city:r.city,intent:r.intent,source_type:r.source_type};
+  }
+
+  showLoading('投入中... (0/'+rows.length+')');
+  var fallbackToMin=false;
+  for(var i=0;i<rows.length;i+=BATCH){
+    var batch=rows.slice(i,i+BATCH);
+    var payload=fallbackToMin?batch.map(buildMin):batch;
+    try{
+      var r=await db.from('farmland_snapshots').upsert(payload,{onConflict:'feature_id,snapshot_date'});
+      if(r.error){
+        // 拡張カラム不在エラー → 最小構成に切替
+        if(!fallbackToMin&&/column .* does not exist/i.test(r.error.message||'')){
+          fallbackToMin=true;
+          console.warn('拡張カラム不在 → 最小構成にフォールバック');
+          // 同バッチを最小構成で再試行
+          var rm=await db.from('farmland_snapshots').upsert(batch.map(buildMin),{onConflict:'feature_id,snapshot_date'});
+          if(rm.error){
+            failed+=batch.length;
+            errors.push(rm.error.message);
+          }else{
+            saved+=batch.length;
+          }
+        }else{
+          failed+=batch.length;
+          errors.push(r.error.message);
+        }
+      }else{
+        saved+=batch.length;
+      }
+    }catch(e){
+      failed+=batch.length;
+      errors.push(e.message);
+    }
+    document.getElementById('loadingText').textContent='投入中... ('+Math.min(i+BATCH,rows.length)+'/'+rows.length+')';
+    await new Promise(function(r){setTimeout(r,0);});
+  }
+  hideLoading();
+
+  var msg='完了：投入 '+saved+'件 / 失敗 '+failed+'件';
+  if(fallbackToMin)msg+='（※拡張カラム不在のため最小構成で投入）';
+  showToast(msg,failed>0?'warning':'success');
+
+  document.getElementById('saveResultB').innerHTML=
+    '<div style="padding:10px 12px;background:rgba(14,165,233,0.10);border:1px solid rgba(14,165,233,0.4);border-radius:6px;color:var(--text);">'+
+    '✅ <strong>'+saved+'件</strong>を投入しました。<br>'+
+    (failed>0?'⚠️ '+failed+'件失敗（'+escapeHtml((errors[0]||'').substring(0,200))+'）<br>':'')+
+    '🌾 <a href="farmland-tracker.html" style="color:#0ea5e9;">農地変更トラッカー</a>を開いて、本日の日付で🟦水色マーカーを確認してください。'+
+    '</div>';
+}
+
+function resetModeB(){
+  if(!confirm('モードBの取込内容をクリアします（DB変更には影響しません）'))return;
+  modeBFeatures=[];
+  modeBKeyIndex={};
+  modeBLoadedFiles=[];
+  modeBStats=null;
+  document.getElementById('fileListB').innerHTML='';
+  document.getElementById('previewSummaryB').style.display='none';
+  document.getElementById('saveResultB').innerHTML='';
+  document.getElementById('fileInputB').value='';
+  document.getElementById('btnSaveB').disabled=true;
+  document.getElementById('stepB3Card').style.opacity='0.5';
+  document.getElementById('stepB3Card').style.pointerEvents='none';
+  showToast('リセットしました','success');
 }
 </script>
 <script src="mobile-responsive.js"></script>
