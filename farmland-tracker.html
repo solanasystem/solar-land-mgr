@@ -43,6 +43,8 @@
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
 <script src="https://unpkg.com/pbf@3.2.1/dist/pbf.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.0.0/turf.min.js"></script>
+<!-- 筆ポリゴンPMTiles表示用 -->
+<script src="https://unpkg.com/protomaps-leaflet@4.0.1/dist/protomaps-leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;--accent:#f0b429;--green:#3fb950;--red:#f85149;--text:#e6edf3;--text-muted:#8b949e;--font-main:'Zen Kaku Gothic New',sans-serif;--font-mono:'Share Tech Mono',monospace;}
@@ -477,6 +479,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
       </div>
     </div>
     <div class="hazard-divider"></div>
+    <button class="hazard-btn active" id="hzFude" onclick="toggleFudePolygon()">&#127809; 筆ポリゴン</button>
     <button class="hazard-btn" id="hzNoshin" onclick="toggleNoshin()">&#127806; 農振農用地</button>
     <button class="hazard-btn" id="hzForest5jou" onclick="toggleForest5jou()">&#127795; 5条森林</button>
     <div id="forestLegend" class="forest-legend">
@@ -2231,6 +2234,184 @@ initDraggablePanels('farmlandTracker', [
       }catch(_){}
     });
     return result;
+  }
+})();
+
+/* ============================================================================
+ * 筆ポリゴンPMTiles表示機能
+ * Cloudflare R2配信のaichi.pmtiles（557,514筆）を地図に重ねる
+ * ============================================================================ */
+(function(){
+  'use strict';
+  var FUDE_PMTILES_URL='https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/aichi.pmtiles';
+  var FUDE_MIN_ZOOM=14;
+  var fudeLayer=null;
+  var fudeEnabled=true; // デフォルトON
+  var fudePopup=null;
+
+  function getMap(){return (typeof map!=='undefined'&&map)?map:null;}
+
+  // PaintRules（描画スタイル）：細い赤線で筆界を描画
+  function buildPaintRules(){
+    return [{
+      dataLayer:'parcels',
+      symbolizer:new protomapsL.PolygonSymbolizer({
+        fill:'rgba(255,140,0,0.05)',
+        stroke:'#f85149',
+        width:1.0,
+        opacity:0.85
+      })
+    }];
+  }
+
+  function createFudeLayer(){
+    if(typeof protomapsL==='undefined'){
+      console.warn('protomaps-leaflet 未読み込み');
+      return null;
+    }
+    var layer=protomapsL.leafletLayer({
+      url:FUDE_PMTILES_URL,
+      paintRules:buildPaintRules(),
+      labelRules:[],
+      maxDataZoom:14,
+      maxZoom:19,
+      attribution:'筆ポリゴン © 法務省登記所備付地図 / 農林水産省'
+    });
+    return layer;
+  }
+
+  function showFude(){
+    var m=getMap();
+    if(!m)return;
+    if(fudeLayer){
+      try{m.removeLayer(fudeLayer);}catch(_){}
+      fudeLayer=null;
+    }
+    fudeLayer=createFudeLayer();
+    if(!fudeLayer){
+      if(typeof showToast==='function')showToast('筆ポリゴンライブラリが読み込めません','error');
+      return;
+    }
+    fudeLayer.addTo(m);
+    // ズーム14未満は自動非表示（重複防止のためopacityで制御）
+    updateFudeVisibility();
+    m.on('zoomend',updateFudeVisibility);
+    // クリック検出（FeatureService 風）：protomaps-leafletは直接クリックイベント取れないため
+    // mapのクリックイベントで筆界へのクエリを実行
+    m.on('click',onMapClickForFude);
+  }
+
+  function hideFude(){
+    var m=getMap();
+    if(!m)return;
+    if(fudeLayer){
+      try{m.removeLayer(fudeLayer);}catch(_){}
+      fudeLayer=null;
+    }
+    m.off('zoomend',updateFudeVisibility);
+    m.off('click',onMapClickForFude);
+    if(fudePopup){
+      try{m.closePopup(fudePopup);}catch(_){}
+      fudePopup=null;
+    }
+  }
+
+  function updateFudeVisibility(){
+    var m=getMap();
+    if(!m||!fudeLayer)return;
+    var z=m.getZoom();
+    // protomaps-leafletは内部でmaxDataZoomを尊重する
+    // ズーム14未満は描画コストが大きいので、レイヤを一時的にopacity 0
+    var container=fudeLayer.getContainer&&fudeLayer.getContainer();
+    if(!container){
+      // 4.0系の場合 _container プロパティ
+      container=fudeLayer._container||document.querySelector('.protomaps-leaflet-layer');
+    }
+    if(container){
+      container.style.opacity=(z<FUDE_MIN_ZOOM)?'0':'1';
+      container.style.pointerEvents=(z<FUDE_MIN_ZOOM)?'none':'auto';
+    }
+  }
+
+  // 筆ポリゴンクリック時：マーカーが上にある場合は何もしない（マーカー優先）
+  async function onMapClickForFude(ev){
+    if(!fudeEnabled)return;
+    var m=getMap();
+    if(!m||m.getZoom()<FUDE_MIN_ZOOM)return;
+    // マーカーが直近にあればスキップ（マーカークリック処理を優先）
+    if(typeof markersLayer!=='undefined'&&markersLayer){
+      var clicked=ev.containerPoint;
+      var hitMarker=false;
+      markersLayer.eachLayer(function(mk){
+        if(hitMarker)return;
+        try{
+          var pos=m.latLngToContainerPoint(mk.getLatLng());
+          var dx=pos.x-clicked.x,dy=pos.y-clicked.y;
+          if(dx*dx+dy*dy<=10*10)hitMarker=true; // 10px以内
+        }catch(_){}
+      });
+      if(hitMarker)return;
+    }
+    // 筆ポリゴン属性を取得
+    try{
+      var features=await fudeLayer.queryFeatures(ev.latlng.lng,ev.latlng.lat);
+      if(!features||features.length===0){
+        // 何もヒットしない→エリア外
+        return;
+      }
+      // parcels レイヤの最初のfeature
+      var f=null;
+      for(var i=0;i<features.length;i++){
+        if(features[i].layerName==='parcels'){f=features[i];break;}
+      }
+      if(!f)f=features[0];
+      var p=f.props||f.properties||{};
+      var html='<div style="font-family:var(--font-main,sans-serif);font-size:12px;line-height:1.6;min-width:180px;">'+
+        '<div style="font-weight:700;color:#f85149;margin-bottom:6px;border-bottom:1px solid rgba(248,81,73,0.3);padding-bottom:4px;">🟧 筆ポリゴン</div>'+
+        (p['市区町村名']?'<div><b>市区町村:</b> '+escFude(p['市区町村名'])+'</div>':'')+
+        (p['大字名']?'<div><b>大字:</b> '+escFude(p['大字名'])+'</div>':'')+
+        (p['小字名']?'<div><b>小字:</b> '+escFude(p['小字名'])+'</div>':'')+
+        (p['丁目名']?'<div><b>丁目:</b> '+escFude(p['丁目名'])+'</div>':'')+
+        (p['地番']?'<div><b>地番:</b> '+escFude(p['地番'])+'</div>':'')+
+        (p.ID?'<div style="color:#7d8590;font-size:10px;margin-top:4px;">ID: '+escFude(p.ID)+'</div>':'')+
+      '</div>';
+      if(fudePopup){try{m.closePopup(fudePopup);}catch(_){}}
+      fudePopup=L.popup({maxWidth:280,className:'fude-popup'})
+        .setLatLng(ev.latlng)
+        .setContent(html)
+        .openOn(m);
+    }catch(e){
+      console.warn('筆ポリゴンクエリ失敗:',e);
+    }
+  }
+
+  function escFude(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+  // ヘッダーボタンonclick
+  window.toggleFudePolygon=function(){
+    fudeEnabled=!fudeEnabled;
+    var btn=document.getElementById('hzFude');
+    if(fudeEnabled){
+      if(btn)btn.classList.add('active');
+      showFude();
+    }else{
+      if(btn)btn.classList.remove('active');
+      hideFude();
+    }
+  };
+
+  // 起動時にデフォルトON（mapが初期化されるのを待つ）
+  function tryInitFude(){
+    if(typeof map==='undefined'||!map){
+      setTimeout(tryInitFude,300);
+      return;
+    }
+    if(fudeEnabled)showFude();
+  }
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',function(){setTimeout(tryInitFude,500);});
+  }else{
+    setTimeout(tryInitFude,500);
   }
 })();
 </script>
