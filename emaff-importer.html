@@ -2272,12 +2272,22 @@ async function saveToSnapshotsB(){
     return;
   }
 
-  // ① 事前に同日のemaffN_データを削除（再投入時の重複回避）
-  showLoading('既存emaffN_データをクリーンアップ中...');
+  // ① 事前削除：「今ドロップしたファイルの feature_id」のみピンポイントで削除
+  // ⚠️ 重要：旧版では同日付のemaffN_全件を削除していたため、他エリアのデータまで消える事故が発生。
+  // 修正版では rows[].feature_id のみ削除するため、他市町村のデータは保持される。
+  showLoading('既存データをクリーンアップ中...');
   try{
-    var delRes=await db.from('farmland_snapshots').delete().eq('snapshot_date',today).like('feature_id','emaffN_%');
-    if(delRes.error){
-      console.warn('事前削除失敗（無視して続行）:',delRes.error);
+    var targetIds=rows.map(function(r){return r.feature_id;});
+    // .in() は1リクエスト最大2000件目安。多い場合は分割
+    var DEL_CHUNK=500;
+    for(var di=0;di<targetIds.length;di+=DEL_CHUNK){
+      var chunk=targetIds.slice(di,di+DEL_CHUNK);
+      var delRes=await db.from('farmland_snapshots').delete().eq('snapshot_date',today).in('feature_id',chunk);
+      if(delRes.error){
+        console.warn('事前削除失敗（無視して続行）:',delRes.error);
+        break;
+      }
+      document.getElementById('loadingText').textContent='クリーンアップ中... ('+Math.min(di+DEL_CHUNK,targetIds.length)+'/'+targetIds.length+')';
     }
   }catch(e){
     console.warn('事前削除例外（無視）:',e);
