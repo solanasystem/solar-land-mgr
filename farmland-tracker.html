@@ -60,6 +60,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 .btn-ghost:hover{background:var(--surface2);color:var(--text);}
 .btn-ghost.active{background:rgba(248,81,73,.15);color:#f85149;border-color:rgba(248,81,73,.4);}
 .btn-ghost.active.contacted-active{background:rgba(34,211,238,.15);color:#22d3ee;border-color:rgba(34,211,238,.4);}
+/* 矩形選択モード */
+.rect-ng-active .leaflet-container{cursor:crosshair !important;}
+.rect-ng-banner{position:absolute;top:60px;left:50%;transform:translateX(-50%);z-index:600;background:rgba(248,81,73,.92);color:#fff;padding:8px 18px;border-radius:6px;font-size:13px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:14px;}
+.rect-ng-banner .rect-ng-cancel{background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:3px 10px;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600;}
+.rect-ng-banner .rect-ng-cancel:hover{background:rgba(255,255,255,0.3);}
+.rect-ng-rectangle{stroke:#f85149;stroke-width:2;stroke-dasharray:6 4;fill:#f85149;fill-opacity:0.15;pointer-events:none;}
+#btnRectNg.active{background:rgba(248,81,73,.18);color:#f85149;border-color:rgba(248,81,73,.5);}
 .btn-primary{background:var(--accent);color:#000;border-color:var(--accent);}
 .toolbar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex-shrink:0;z-index:999;}
 .toolbar-label{font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;white-space:nowrap;}
@@ -389,6 +396,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <button class="btn btn-ghost active" id="btnNgFilter" onclick="toggleNgFilter()" style="font-size:12px;padding:5px 12px;">&#128683; NG非表示</button>
   <button class="btn btn-ghost" id="btnContactedFilter" onclick="toggleContactedFilter()" style="font-size:12px;padding:5px 12px;">&#9995; SUCCESS&OK非表示</button>
   <button class="btn btn-ghost" id="btnAutoJudge" onclick="runAutoNgJudgment()" style="font-size:12px;padding:5px 12px;">&#129302; AI自動判定</button>
+  <button class="btn btn-ghost" id="btnRectNg" onclick="toggleRectNgMode()" style="font-size:12px;padding:5px 12px;">&#128306; 範囲NG</button>
   <button class="btn btn-ghost" id="btnCaseSync" onclick="runCaseMasterSync()" style="font-size:12px;padding:5px 12px;">&#128260; 案件同期</button>
   <button class="btn btn-ghost" id="btnDiagnose" onclick="diagnosePBFKeys()" style="font-size:12px;padding:5px 12px;">&#128269; PBF診断</button>
   <div class="stats-bar">
@@ -2027,6 +2035,203 @@ initDraggablePanels('farmlandTracker', [
     });
   }
   attachHandler();
+})();
+
+/* ============================================================================
+ * 矩形範囲NG判定機能
+ * ツールボタンON → 地図上をドラッグで矩形描画 → 内側のマーカーを一括NG
+ * ============================================================================ */
+(function(){
+  'use strict';
+  var rectMode=false;
+  var rectStartLatLng=null;
+  var rectLayer=null;
+  var rectBanner=null;
+  var savedDragEnabled=null;
+  var savedDoubleClickZoom=null;
+  var savedBoxZoom=null;
+
+  function getMap(){return (typeof map!=='undefined'&&map)?map:null;}
+
+  // モード切替（ヘッダーボタンonclick）
+  window.toggleRectNgMode=function(){
+    if(rectMode){
+      exitRectMode();
+    }else{
+      enterRectMode();
+    }
+  };
+
+  function enterRectMode(){
+    var m=getMap();
+    if(!m){if(typeof showToast==='function')showToast('地図が初期化されていません','error');return;}
+    rectMode=true;
+    document.body.classList.add('rect-ng-active');
+    var btn=document.getElementById('btnRectNg');
+    if(btn)btn.classList.add('active');
+    // map操作の一時無効化
+    savedDragEnabled=m.dragging.enabled();
+    savedDoubleClickZoom=m.doubleClickZoom.enabled();
+    savedBoxZoom=m.boxZoom.enabled();
+    m.dragging.disable();
+    m.doubleClickZoom.disable();
+    m.boxZoom.disable();
+    // バナー表示
+    showBanner();
+    // mapイベントbind
+    m.on('mousedown',onMouseDown);
+    m.on('mousemove',onMouseMove);
+    m.on('mouseup',onMouseUp);
+    // ESCキーでキャンセル
+    document.addEventListener('keydown',onKeyDown);
+  }
+
+  function exitRectMode(){
+    var m=getMap();
+    rectMode=false;
+    document.body.classList.remove('rect-ng-active');
+    var btn=document.getElementById('btnRectNg');
+    if(btn)btn.classList.remove('active');
+    if(m){
+      m.off('mousedown',onMouseDown);
+      m.off('mousemove',onMouseMove);
+      m.off('mouseup',onMouseUp);
+      // map操作復元
+      if(savedDragEnabled!==false)m.dragging.enable();
+      if(savedDoubleClickZoom!==false)m.doubleClickZoom.enable();
+      if(savedBoxZoom!==false)m.boxZoom.enable();
+      // 残ったrect削除
+      if(rectLayer){try{m.removeLayer(rectLayer);}catch(_){};rectLayer=null;}
+    }
+    document.removeEventListener('keydown',onKeyDown);
+    hideBanner();
+    rectStartLatLng=null;
+  }
+
+  function showBanner(){
+    if(rectBanner)return;
+    rectBanner=document.createElement('div');
+    rectBanner.className='rect-ng-banner';
+    rectBanner.innerHTML='🚫 範囲NGモード｜地図上をドラッグで矩形を描いてください <button class="rect-ng-cancel" id="rectNgCancelBtn">キャンセル (ESC)</button>';
+    var mapEl=document.getElementById('map');
+    (mapEl||document.body).appendChild(rectBanner);
+    document.getElementById('rectNgCancelBtn').addEventListener('click',exitRectMode);
+  }
+
+  function hideBanner(){
+    if(rectBanner&&rectBanner.parentNode)rectBanner.parentNode.removeChild(rectBanner);
+    rectBanner=null;
+  }
+
+  function onKeyDown(ev){
+    if(ev.key==='Escape'||ev.keyCode===27){
+      exitRectMode();
+    }
+  }
+
+  function onMouseDown(ev){
+    if(!rectMode)return;
+    rectStartLatLng=ev.latlng;
+    var m=getMap();
+    if(rectLayer){try{m.removeLayer(rectLayer);}catch(_){}}
+    rectLayer=L.rectangle([ev.latlng,ev.latlng],{
+      className:'rect-ng-rectangle',
+      interactive:false
+    }).addTo(m);
+  }
+
+  function onMouseMove(ev){
+    if(!rectMode||!rectStartLatLng||!rectLayer)return;
+    rectLayer.setBounds([rectStartLatLng,ev.latlng]);
+  }
+
+  async function onMouseUp(ev){
+    if(!rectMode||!rectStartLatLng)return;
+    var m=getMap();
+    var endLatLng=ev.latlng;
+    var bounds=L.latLngBounds(rectStartLatLng,endLatLng);
+    // 微小な誤クリック防止（2px未満は無視）
+    var startPt=m.latLngToContainerPoint(rectStartLatLng);
+    var endPt=m.latLngToContainerPoint(endLatLng);
+    var pixelDist=Math.abs(startPt.x-endPt.x)+Math.abs(startPt.y-endPt.y);
+    if(pixelDist<6){
+      if(rectLayer){try{m.removeLayer(rectLayer);}catch(_){};rectLayer=null;}
+      rectStartLatLng=null;
+      return;
+    }
+    // 矩形内のマーカーを抽出
+    var inside=collectMarkersInBounds(bounds);
+    if(rectLayer){try{m.removeLayer(rectLayer);}catch(_){};rectLayer=null;}
+    rectStartLatLng=null;
+    if(inside.length===0){
+      if(typeof showToast==='function')showToast('範囲内に対象マーカーがありませんでした','warning');
+      return;
+    }
+    // 既にNGの分は除外
+    var targets=inside.filter(function(it){
+      return !(typeof ngFeatureIds!=='undefined'&&ngFeatureIds[it.feature_id]);
+    });
+    if(targets.length===0){
+      if(typeof showToast==='function')showToast('範囲内のマーカーは全てNG済みでした','warning');
+      return;
+    }
+    // 確認ダイアログ
+    var msg=targets.length+'件のマーカーをNG判定します。\n\n';
+    var sample=targets.slice(0,5).map(function(t){return '・'+(t.city||'')+' '+(t.address||'').substring(0,30);}).join('\n');
+    msg+=sample;
+    if(targets.length>5)msg+='\n…他 '+(targets.length-5)+'件';
+    msg+='\n\n実行しますか？（NG解除は個別マーカー詳細から可能）';
+    if(!confirm(msg)){return;}
+    // 一括INSERT(upsert)
+    if(typeof showLoading==='function')showLoading('NG登録中... (0/'+targets.length+')');
+    var saved=0,failed=0;
+    var BATCH=100;
+    var records=targets.map(function(t){return{feature_id:t.feature_id,ng_reason:'manual_rect',updated_at:new Date().toISOString()};});
+    for(var i=0;i<records.length;i+=BATCH){
+      var batch=records.slice(i,i+BATCH);
+      try{
+        var r=await db.from('farmland_ng_list').upsert(batch,{onConflict:'feature_id'});
+        if(r.error){
+          failed+=batch.length;
+          console.warn('範囲NG失敗:',r.error);
+        }else{
+          saved+=batch.length;
+          // ローカル状態更新
+          batch.forEach(function(b){if(typeof ngFeatureIds!=='undefined')ngFeatureIds[b.feature_id]=true;});
+        }
+      }catch(e){
+        failed+=batch.length;
+        console.warn('範囲NG例外:',e);
+      }
+      if(typeof showLoading==='function')document.getElementById('loadingText').textContent='NG登録中... ('+Math.min(i+BATCH,records.length)+'/'+records.length+')';
+    }
+    if(typeof hideLoading==='function')hideLoading();
+    if(typeof showToast==='function'){
+      var msg2='範囲NG完了：'+saved+'件登録 / 失敗 '+failed+'件';
+      showToast(msg2,failed>0?'warning':'success');
+    }
+    // 地図再描画
+    if(typeof loadDiff==='function')await loadDiff();
+    // モード継続（連続して範囲NG可能）。ESC または ボタン再押下で終了。
+  }
+
+  // markersLayer内のマーカーから bounds 内のものを抽出
+  function collectMarkersInBounds(bounds){
+    var result=[];
+    if(typeof markersLayer==='undefined'||!markersLayer)return result;
+    markersLayer.eachLayer(function(mk){
+      try{
+        var ll=mk.getLatLng?mk.getLatLng():null;
+        if(!ll)return;
+        if(!bounds.contains(ll))return;
+        // _item / _featureId は _addMarkerFromItem / loadDiff で付与済み
+        var item=mk._item||{feature_id:mk._featureId,lat:ll.lat,lng:ll.lng};
+        if(!item.feature_id)return;
+        result.push(item);
+      }catch(_){}
+    });
+    return result;
+  }
 })();
 </script>
 </body>
