@@ -1886,6 +1886,8 @@ function makeEmaffNFeatureId(f){
 
 // 出手意向フィールドの候補（eMAFF/未来の農地マップ系）
 var INTENT_FIELD_CANDIDATES=[
+  // ⭐ eMAFF農地ナビの実フィールド（最優先・実証済み）
+  'OwnerFarmIntentionCodeName','OwnerFarmIntention',
   // 日本語キー
   '出手意向','所有者の農地に関する意向','所有者意向','農地に関する意向','意向',
   '売却貸付意向','利用意向','処分意向','譲渡意向',
@@ -1899,6 +1901,17 @@ var INTENT_FIELD_CANDIDATES=[
   'FarmlandIntent','LandIntent',
   'IntentRegardingFarmland','IntentRegardingLand'
 ];
+
+// OwnerFarmIntention の数値コード値マッピング（コード値版フィールド対応）
+// eMAFF: 1=売りたい, 2=貸したい, 3=貸したい・売りたい, 5=自ら耕作したい, 999=非公表
+var OWNER_FARM_INTENTION_CODE_MAP={
+  '1':'売りたい',
+  '2':'貸したい',
+  '3':'貸したい・売りたい',
+  '4':'貸したい・売りたい',
+  '5':'自ら耕作したい',
+  '999':'非公表'
+};
 
 // 「売りたい」「貸したい」「貸したい・売りたい」等の値が入っている可能性のあるフィールドを値ベースで自動検出
 // 全featureをスキャンし、これらのキーワードが値として現れる頻度が高いフィールドを採用する
@@ -1969,7 +1982,13 @@ function isWantToSell(p){
   if(!p)return false;
   var fname=modeBStats&&modeBStats.intentField;
   if(!fname)return false;
-  var v=String(p[fname]||'').trim();
+  var raw=p[fname];
+  if(raw===null||raw===undefined||raw==='')return false;
+  var v=String(raw).trim();
+  // OwnerFarmIntention（コード値版）→ ラベル変換
+  if(fname==='OwnerFarmIntention'&&OWNER_FARM_INTENTION_CODE_MAP[v]){
+    v=OWNER_FARM_INTENTION_CODE_MAP[v];
+  }
   if(!v)return false;
   if(v==='売りたい')return true;
   if(v==='貸したい・売りたい')return true;
@@ -1977,6 +1996,20 @@ function isWantToSell(p){
   // ゆるい判定: 「売」が含まれ「貸」だけではない
   if(v.indexOf('売')>=0)return true;
   return false;
+}
+
+// 表示用：意向値の人間可読化（コード値→ラベル）
+function intentValueLabel(p){
+  if(!p)return '';
+  var fname=modeBStats&&modeBStats.intentField;
+  if(!fname)return '';
+  var raw=p[fname];
+  if(raw===null||raw===undefined||raw==='')return '';
+  var v=String(raw).trim();
+  if(fname==='OwnerFarmIntention'&&OWNER_FARM_INTENTION_CODE_MAP[v]){
+    return OWNER_FARM_INTENTION_CODE_MAP[v];
+  }
+  return v;
 }
 
 // 集計＆プレビュー
@@ -1998,7 +2031,7 @@ function recomputeStatsB(){
       notWantSell++;
       return;
     }
-    var iv=String(p[intentField]||'').trim()||'(空)';
+    var iv=intentValueLabel(p)||String(p[intentField]||'').trim()||'(空)';
     byIntent[iv]=(byIntent[iv]||0)+1;
     if(!isWantToSell(p)){notWantSell++;return;}
     if(isAochi(p)){aochi++;return;}
@@ -2175,7 +2208,47 @@ async function saveToSnapshotsB(){
     var city=null;
     var m=addr.match(/^([^県府都道]+?県|[^府]+?府|[^道]+?道|[^都]+?都)?([^市区町村]+?[市区町村])/);
     if(m)city=m[2];
-    // 最小構成のみ（farmland_snapshots に確実に存在するカラムのみ）
+    // 面積（登記面積）。eMAFFは複数の命名パターンがあるため広めに探索
+    var area=parseFloat(
+      p.AreaOnRegistry||p.areaOnRegistry||
+      p.RegisteredArea||p.registeredArea||
+      p.Area||p.area||
+      p['登記面積']||0
+    )||null;
+    // 地目（申請地目/登記地目）
+    var chimoku=String(
+      p.ClassificationOfLandCodeName||p.LandClassificationName||
+      p.ClassificationOfLandName||
+      p.RegisteredLandCategoryName||p.RegisteredLandCategory||
+      p['申請地目']||p['登記地目']||''
+    );
+    // 耕作状況
+    var kousa=String(
+      p.CultivationStatusCodeName||p.CultivationStatusName||
+      p.FarmingStatusName||p.FarmingStatus||
+      p['耕作状況']||''
+    );
+    // 売却希望金額
+    var uri=String(
+      p.SaleHopeAmount||p.SalePriceHope||p.DesiredSaleAmount||
+      p['出手売却金額']||p['売却希望金額']||''
+    );
+    // 賃貸希望金額
+    var chintai=String(
+      p.RentHopeAmount||p.RentPriceHope||p.DesiredRentAmount||
+      p['出手賃金額']||p['賃貸希望金額']||''
+    );
+    // 農振区分（備考に格納）
+    var noshinLabel=getNoushinhouLabel(p);
+    var remarksParts=['[eMAFF\u58f2\u308a\u305f\u3044]'];
+    if(noshinLabel&&noshinLabel!=='\u4e0d\u660e')remarksParts.push('\u8fb2\u632f\u533a\u5206:'+noshinLabel);
+    // 耕作者整理番号ハッシュ（同一所有者の土地をグルーピングする鍵）
+    var ownerHash=String(p.FarmerIndicationNumberHash||p.farmerIndicationNumberHash||p.OwnerHash||'');
+    if(ownerHash)remarksParts.push('\u8015\u4f5c\u8005ID:'+ownerHash);
+    if(p.OwnerName)remarksParts.push('\u6240\u6709\u8005:'+String(p.OwnerName).substring(0,40));
+    if(tiban)remarksParts.push('\u5730\u756a:'+tiban);
+    var remarks=remarksParts.join(' / ');
+    // PBF系統と同じ形式で投入（registered_date は地目|耕作||賃料 のパイプ区切り）
     rows.push({
       feature_id:fid,
       snapshot_date:today,
@@ -2183,7 +2256,12 @@ async function saveToSnapshotsB(){
       lng:lng,
       address:addr+(tiban?(' '+tiban):''),
       city:city,
-      intent:'売りたい',
+      intent:'\u58f2\u308a\u305f\u3044',
+      area_sqm:area,
+      price:uri,
+      registered_date:chimoku+'|'+kousa+'||'+chintai,
+      remarks:remarks,
+      status:'active',
       source_type:'emaff_navi'
     });
   });
@@ -2209,37 +2287,47 @@ async function saveToSnapshotsB(){
   var saved=0,failed=0,errors=[];
   var BATCH=100;
   showLoading('投入中... (0/'+rows.length+')');
-  // フォールバック用フラグ：途中でカラム不在エラーが出たら以後は最小構成で投入
-  var minMode=false;
-  function buildMinRow(r){
-    return{feature_id:r.feature_id,snapshot_date:r.snapshot_date,lat:r.lat,lng:r.lng,address:r.address,intent:r.intent};
+  // フォールバックモード： 0=full, 1=source_type除外, 2=最小構成
+  var fallbackMode=0;
+  function buildPayload(batch,mode){
+    if(mode===0)return batch;
+    if(mode===1){
+      return batch.map(function(r){
+        var c={};Object.keys(r).forEach(function(k){if(k!=='source_type')c[k]=r[k];});return c;
+      });
+    }
+    // 最小構成
+    return batch.map(function(r){
+      return{feature_id:r.feature_id,snapshot_date:r.snapshot_date,lat:r.lat,lng:r.lng,address:r.address,city:r.city,intent:r.intent,status:r.status||'active'};
+    });
   }
   for(var i=0;i<rows.length;i+=BATCH){
     var batch=rows.slice(i,i+BATCH);
-    var payload=minMode?batch.map(buildMinRow):batch;
-    try{
-      var r=await db.from('farmland_snapshots').insert(payload);
-      if(r.error){
-        // カラム不在エラー → 最小構成にフォールバックして再試行
-        if(!minMode&&/column|schema cache|source_type|city/i.test(r.error.message||'')){
-          minMode=true;
-          var r2=await db.from('farmland_snapshots').insert(batch.map(buildMinRow));
-          if(r2.error){
-            failed+=batch.length;
-            errors.push(r2.error.message);
+    var success=false;
+    while(!success&&fallbackMode<=2){
+      try{
+        var payload=buildPayload(batch,fallbackMode);
+        var r=await db.from('farmland_snapshots').insert(payload);
+        if(r.error){
+          // カラム不在エラー → 1段階下げる
+          if(fallbackMode<2&&/column|schema cache/i.test(r.error.message||'')){
+            console.warn('カラム不在 → fallbackMode '+(fallbackMode+1)+'に切替:',r.error.message);
+            fallbackMode++;
+            continue;
           }else{
-            saved+=batch.length;
+            failed+=batch.length;
+            errors.push(r.error.message);
+            success=true;
           }
         }else{
-          failed+=batch.length;
-          errors.push(r.error.message);
+          saved+=batch.length;
+          success=true;
         }
-      }else{
-        saved+=batch.length;
+      }catch(e){
+        failed+=batch.length;
+        errors.push(e.message);
+        success=true;
       }
-    }catch(e){
-      failed+=batch.length;
-      errors.push(e.message);
     }
     document.getElementById('loadingText').textContent='投入中... ('+Math.min(i+BATCH,rows.length)+'/'+rows.length+')';
     await new Promise(function(r){setTimeout(r,0);});
@@ -2247,7 +2335,7 @@ async function saveToSnapshotsB(){
   hideLoading();
 
   var msg='完了：投入 '+saved+'件 / 失敗 '+failed+'件';
-  if(minMode)msg+='（拡張カラム不在のため最小構成で投入）';
+  if(fallbackMode>0)msg+='（'+(fallbackMode===1?'source_type':'拡張カラム')+'不在のためフォールバック投入）';
   showToast(msg,failed>0?'warning':'success');
 
   document.getElementById('saveResultB').innerHTML=
