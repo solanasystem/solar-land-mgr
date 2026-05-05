@@ -611,7 +611,7 @@ body{
 .btn-modeB:hover{background:#0284c7;}
 .preview-bar{
   display:grid;
-  grid-template-columns:repeat(4,1fr);
+  grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
   gap:10px;
   margin-top:12px;
 }
@@ -889,7 +889,10 @@ body{
           <li>上部の<strong style="color:var(--text);">「ダウンロード」</strong>→<strong style="color:var(--text);">「GeoJSON」</strong>を選択してDL</li>
           <li>DLしたファイルをStep B-2にドロップ</li>
         </ol>
-        <div class="tip">💡 「売りたい」フィルタを掛けないとDLに「貸したい」も混ざります。必ず絞り込み済みでDLしてください。</div>
+        <div class="tip">
+          💡 <strong>重要：</strong>eMAFFのDLは画面表示の絞込が効かず<strong style="color:var(--warning);">範囲内の全農地ピン</strong>が含まれます（数千件レベル）。<br>
+          システム側でGeoJSONに含まれる<strong style="color:#0ea5e9;">「出手意向」フィールド</strong>を検出して「売りたい」「貸したい・売りたい」のみ自動絞込します。フィールドが見つからない場合は警告とフィールド一覧を表示します。
+        </div>
       </div>
     </div>
 
@@ -915,6 +918,10 @@ body{
               <div class="pv-num" id="bvTotal">0</div>
               <div class="pv-label">取込feature総数</div>
             </div>
+            <div class="pv-cell" style="border-color:#7d8590;">
+              <div class="pv-num" id="bvNotWantSell" style="color:#a1a8b3;">0</div>
+              <div class="pv-label">売りたい以外除外</div>
+            </div>
             <div class="pv-cell exclude">
               <div class="pv-num" id="bvAochi">0</div>
               <div class="pv-label">青地除外</div>
@@ -928,7 +935,15 @@ body{
               <div class="pv-label">投入対象</div>
             </div>
           </div>
+          <div id="intentFieldStatus" class="muted" style="margin-top:10px;font-size:12px;line-height:1.7;padding:8px 10px;background:var(--bg-card-2);border:1px solid var(--border);border-radius:6px;"></div>
           <div id="bvBreakdown" class="muted" style="margin-top:8px;font-size:12px;line-height:1.7;"></div>
+          <div id="samplePropsBox" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card-2);">
+            <div id="samplePropsHeader" style="padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;user-select:none;">
+              <span id="samplePropsIcon">▶</span>
+              <span>📋 propertiesサンプルを表示（フィールド名確認用）</span>
+            </div>
+            <div id="samplePropsContent" style="display:none;padding:8px 12px 12px;border-top:1px solid var(--border);max-height:400px;overflow:auto;"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1869,32 +1884,105 @@ function makeEmaffNFeatureId(f){
   return 'emaffN_unk_'+Math.random().toString(36).slice(2,10);
 }
 
+// 出手意向フィールドの候補（eMAFF/未来の農地マップ系）
+var INTENT_FIELD_CANDIDATES=[
+  '出手意向','IntentName','Intent',
+  'TransferIntent','TransferIntentName',
+  'DesiredTransferType','DesiredTransferTypeName',
+  'Iko','IkoName',
+  '売却貸付意向','SaleRentalIntent',
+  'IntentOfTransfer','IntentOfTransferName'
+];
+
+// データセット全体で意向フィールド名を1度だけ確定
+function detectIntentField(features){
+  if(!features||features.length===0)return null;
+  for(var k=0;k<INTENT_FIELD_CANDIDATES.length;k++){
+    var fname=INTENT_FIELD_CANDIDATES[k];
+    // 1件でもこのキーに値が入っているサンプルがあれば採用
+    for(var i=0;i<features.length;i++){
+      var p=features[i].properties||{};
+      var v=p[fname];
+      if(v!==undefined&&v!==null&&v!==''){
+        return fname;
+      }
+    }
+  }
+  return null;
+}
+
+// 「売りたい」相当か判定（売りたい / 貸したい・売りたい は対象、貸したい のみは除外）
+function isWantToSell(p){
+  if(!p)return false;
+  var fname=modeBStats&&modeBStats.intentField;
+  if(!fname)return false;
+  var v=String(p[fname]||'').trim();
+  if(!v)return false;
+  if(v==='売りたい')return true;
+  if(v==='貸したい・売りたい')return true;
+  if(v==='売りたい・貸したい')return true;
+  // ゆるい判定: 「売」が含まれ「貸」だけではない
+  if(v.indexOf('売')>=0)return true;
+  return false;
+}
+
 // 集計＆プレビュー
 function recomputeStatsB(){
   var total=modeBFeatures.length;
-  var aochi=0,noCoord=0,target=0;
-  var byNoshin={};
+  var aochi=0,noCoord=0,target=0,notWantSell=0;
+  var byNoshin={},byIntent={};
+  // 意向フィールドを検出（最初のloadで確定）
+  var intentField=detectIntentField(modeBFeatures);
+  // modeBStats を仮置きしてから isWantToSell が参照できるように
+  modeBStats={intentField:intentField,intentFieldFound:!!intentField};
+
   modeBFeatures.forEach(function(f){
     var p=f.properties||{};
     var label=getNoushinhouLabel(p);
     byNoshin[label]=(byNoshin[label]||0)+1;
+    // 意向フィールドが見つかった場合のみ「売りたい」絞込を適用
+    if(intentField){
+      var iv=String(p[intentField]||'').trim()||'(空)';
+      byIntent[iv]=(byIntent[iv]||0)+1;
+      if(!isWantToSell(p)){notWantSell++;return;}
+    }
     if(isAochi(p)){aochi++;return;}
     var c=f.geometry&&f.geometry.coordinates;
     if(!c||c.length<2||isNaN(parseFloat(c[0]))||isNaN(parseFloat(c[1]))){noCoord++;return;}
     target++;
   });
-  modeBStats={total:total,aochi:aochi,noCoord:noCoord,target:target,byNoshin:byNoshin};
+  modeBStats={
+    total:total,notWantSell:notWantSell,aochi:aochi,noCoord:noCoord,target:target,
+    byNoshin:byNoshin,byIntent:byIntent,
+    intentField:intentField,intentFieldFound:!!intentField
+  };
 
   if(total>0){
     document.getElementById('previewSummaryB').style.display='block';
     document.getElementById('bvTotal').textContent=total;
+    document.getElementById('bvNotWantSell').textContent=notWantSell;
     document.getElementById('bvAochi').textContent=aochi;
     document.getElementById('bvNoCoord').textContent=noCoord;
     document.getElementById('bvTarget').textContent=target;
+
+    // 意向フィールドの状態を表示
+    var intentDiv=document.getElementById('intentFieldStatus');
+    if(intentField){
+      var ivParts=[];
+      Object.keys(byIntent).forEach(function(k){ivParts.push(k+': '+byIntent[k]+'件');});
+      intentDiv.innerHTML='✅ 意向フィールド検出: <code style="background:var(--bg);padding:1px 6px;border-radius:3px;color:#0ea5e9;">'+escapeHtml(intentField)+'</code><br>内訳: '+ivParts.map(escapeHtml).join(' / ');
+      intentDiv.style.color='var(--text)';
+    }else{
+      intentDiv.innerHTML='⚠️ <strong style="color:var(--warning);">意向フィールドが見つかりません</strong>。<br>「売りたい」絞込が適用できないため、<strong>青地除外のみ</strong>で投入されます。<br>下の「📋 propertiesサンプルを表示」で実際のフィールド名を確認してください。';
+      intentDiv.style.color='var(--warning)';
+    }
+
+    // propertiesサンプル
+    renderSamplePropsB();
+
+    // 内訳
     var bdParts=[];
-    Object.keys(byNoshin).forEach(function(k){
-      bdParts.push(k+': '+byNoshin[k]+'件');
-    });
+    Object.keys(byNoshin).forEach(function(k){bdParts.push(k+': '+byNoshin[k]+'件');});
     document.getElementById('bvBreakdown').textContent='農振区分内訳 → '+bdParts.join(' / ');
 
     // Step B-3 有効化
@@ -1912,19 +2000,73 @@ function recomputeStatsB(){
   }
 }
 
+// propertiesサンプル表示（先頭最大5件）
+function renderSamplePropsB(){
+  var box=document.getElementById('samplePropsBox');
+  if(!box)return;
+  var head=document.getElementById('samplePropsHeader');
+  if(modeBFeatures.length===0){box.style.display='none';return;}
+  // 折りたたみ機能（クリックで開閉）
+  if(!head.dataset.bound){
+    head.dataset.bound='1';
+    head.addEventListener('click',function(){
+      var content=document.getElementById('samplePropsContent');
+      var icon=document.getElementById('samplePropsIcon');
+      if(content.style.display==='none'){
+        content.style.display='block';
+        icon.textContent='▼';
+        // 開いた時に内容を生成
+        var cnt=document.getElementById('samplePropsContent');
+        var parts=[];
+        // 全featureからキーを集計
+        var keyStats={};
+        modeBFeatures.slice(0,200).forEach(function(f){
+          var p=f.properties||{};
+          Object.keys(p).forEach(function(k){
+            keyStats[k]=keyStats[k]||{count:0,sample:null};
+            keyStats[k].count++;
+            if(keyStats[k].sample===null&&p[k]!==''&&p[k]!==null)keyStats[k].sample=p[k];
+          });
+        });
+        var keys=Object.keys(keyStats).sort();
+        parts.push('<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">サンプル(先頭200件中)で出現したフィールド一覧（クリックでJSONを別ウィンドウで確認）:</div>');
+        parts.push('<table style="width:100%;font-size:11px;font-family:ui-monospace,Menlo,monospace;border-collapse:collapse;">');
+        parts.push('<thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:4px;width:40%;">フィールド名</th><th style="text-align:left;padding:4px;width:60%;">サンプル値</th></tr></thead>');
+        parts.push('<tbody>');
+        keys.forEach(function(k){
+          var s=keyStats[k].sample;
+          var v=s===null||s===undefined?'(空)':String(s);
+          if(v.length>80)v=v.substring(0,80)+'…';
+          parts.push('<tr style="border-bottom:1px solid rgba(48,54,61,0.5);"><td style="padding:4px;color:#0ea5e9;">'+escapeHtml(k)+'</td><td style="padding:4px;color:var(--text);">'+escapeHtml(v)+'</td></tr>');
+        });
+        parts.push('</tbody></table>');
+        cnt.innerHTML=parts.join('');
+      }else{
+        content.style.display='none';
+        icon.textContent='▶';
+      }
+    });
+  }
+  box.style.display='block';
+}
+
 // farmland_snapshots へ投入
 async function saveToSnapshotsB(){
   if(!modeBStats||modeBStats.target===0){
     showToast('投入対象がありません','warning');
     return;
   }
-  if(!confirm(modeBStats.target+'件をfarmland_snapshotsに投入します。\n\n・青地除外: '+modeBStats.aochi+'件\n・座標欠損: '+modeBStats.noCoord+'件\n・投入対象: '+modeBStats.target+'件\n\nfeature_idは「emaffN_」プレフィックス、source_typeは「emaff_navi」、intentは「売りたい」固定。\n農地変更トラッカーに🟦水色マーカーで表示されます。\n\n実行しますか？'))return;
+  if(!confirm(modeBStats.target+'件をfarmland_snapshotsに投入します。\n\n・売りたい以外除外: '+(modeBStats.notWantSell||0)+'件\n・青地除外: '+modeBStats.aochi+'件\n・座標欠損: '+modeBStats.noCoord+'件\n・投入対象: '+modeBStats.target+'件\n\nfeature_idは「emaffN_」プレフィックス、source_typeは「emaff_navi」、intentは「売りたい」固定。\n農地変更トラッカーに🟦水色マーカーで表示されます。\n\n実行しますか？'))return;
 
   showLoading('投入準備中...');
   var today=new Date().toISOString().substring(0,10);
   var rows=[];
   modeBFeatures.forEach(function(f){
     var p=f.properties||{};
+    // 売りたい絞込（意向フィールドが見つかった場合のみ適用）
+    if(modeBStats.intentFieldFound){
+      if(!isWantToSell(p))return;
+    }
     if(isAochi(p))return;
     var c=f.geometry&&f.geometry.coordinates;
     if(!c||c.length<2)return;
@@ -1933,13 +2075,11 @@ async function saveToSnapshotsB(){
     var fid=makeEmaffNFeatureId(f);
     var addr=String(p.Address||p.address||'');
     var tiban=String(p.Tiban||p.tiban||'');
-    var area=parseFloat(p.AreaOnRegistry||p.areaOnRegistry||p.area||0)||null;
-    var chimoku=String(p.ClassificationOfLandCodeName||p.LandClassificationName||'')||null;
-    var noshin=getNoushinhouLabel(p);
     // city: Address先頭から推定（"○○市..." or "○○県○○市..."）
     var city=null;
     var m=addr.match(/^([^県府都道]+?県|[^府]+?府|[^道]+?道|[^都]+?都)?([^市区町村]+?[市区町村])/);
     if(m)city=m[2];
+    // 最小構成のみ（farmland_snapshots に確実に存在するカラムのみ）
     rows.push({
       feature_id:fid,
       snapshot_date:today,
@@ -1948,9 +2088,6 @@ async function saveToSnapshotsB(){
       address:addr+(tiban?(' '+tiban):''),
       city:city,
       intent:'売りたい',
-      area_sqm:area,
-      land_category:chimoku,
-      noshin_section:noshin,
       source_type:'emaff_navi'
     });
   });
@@ -1964,31 +2101,35 @@ async function saveToSnapshotsB(){
   // バッチupsert（500件ずつ）
   var saved=0,failed=0,errors=[];
   var BATCH=500;
-  // 先に拡張カラムがDBになければ落とすため、最小構成と拡張構成の2段階で試す
-  // → まず最小構成（feature_id, snapshot_date, lat, lng, address, city, intent, source_type）で実行
-  //   area_sqm/land_category/noshin_section が無いカラムだとエラーになるため、まず full で試して、
-  //   失敗したら最小構成にフォールバック
-  function buildMin(r){
-    return{feature_id:r.feature_id,snapshot_date:r.snapshot_date,lat:r.lat,lng:r.lng,address:r.address,city:r.city,intent:r.intent,source_type:r.source_type};
-  }
-
   showLoading('投入中... (0/'+rows.length+')');
-  var fallbackToMin=false;
   for(var i=0;i<rows.length;i+=BATCH){
     var batch=rows.slice(i,i+BATCH);
-    var payload=fallbackToMin?batch.map(buildMin):batch;
     try{
-      var r=await db.from('farmland_snapshots').upsert(payload,{onConflict:'feature_id,snapshot_date'});
+      var r=await db.from('farmland_snapshots').upsert(batch,{onConflict:'feature_id,snapshot_date'});
       if(r.error){
-        // 拡張カラム不在エラー → 最小構成に切替
-        if(!fallbackToMin&&/column .* does not exist/i.test(r.error.message||'')){
-          fallbackToMin=true;
-          console.warn('拡張カラム不在 → 最小構成にフォールバック');
-          // 同バッチを最小構成で再試行
-          var rm=await db.from('farmland_snapshots').upsert(batch.map(buildMin),{onConflict:'feature_id,snapshot_date'});
-          if(rm.error){
-            failed+=batch.length;
-            errors.push(rm.error.message);
+        // city カラムが無い等のエラー → さらに最小化して再試行
+        if(/column|schema cache/i.test(r.error.message||'')){
+          var coreOnly=batch.map(function(b){
+            return{feature_id:b.feature_id,snapshot_date:b.snapshot_date,lat:b.lat,lng:b.lng,address:b.address,intent:b.intent,source_type:b.source_type};
+          });
+          var r2=await db.from('farmland_snapshots').upsert(coreOnly,{onConflict:'feature_id,snapshot_date'});
+          if(r2.error){
+            // source_type すら無い場合の最終フォールバック
+            if(/source_type|column|schema cache/i.test(r2.error.message||'')){
+              var bareMin=batch.map(function(b){
+                return{feature_id:b.feature_id,snapshot_date:b.snapshot_date,lat:b.lat,lng:b.lng,address:b.address,intent:b.intent};
+              });
+              var r3=await db.from('farmland_snapshots').upsert(bareMin,{onConflict:'feature_id,snapshot_date'});
+              if(r3.error){
+                failed+=batch.length;
+                errors.push(r3.error.message);
+              }else{
+                saved+=batch.length;
+              }
+            }else{
+              failed+=batch.length;
+              errors.push(r2.error.message);
+            }
           }else{
             saved+=batch.length;
           }
@@ -2009,7 +2150,6 @@ async function saveToSnapshotsB(){
   hideLoading();
 
   var msg='完了：投入 '+saved+'件 / 失敗 '+failed+'件';
-  if(fallbackToMin)msg+='（※拡張カラム不在のため最小構成で投入）';
   showToast(msg,failed>0?'warning':'success');
 
   document.getElementById('saveResultB').innerHTML=
