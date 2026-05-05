@@ -506,9 +506,9 @@ var baseLayer=null;
 var currentGIS='map';
 var BASE_TILES={map:'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',satellite:'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',esri:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'};
 var BASE_TILE_OPTS={
-  map:{attribution:'\u00a9 \u56fd\u571f\u5730\u7406\u9662',maxZoom:18,opacity:0.9},
-  satellite:{attribution:'\u00a9 \u56fd\u571f\u5730\u7406\u9662',maxZoom:18,opacity:0.9},
-  esri:{attribution:'Tiles \u00a9 Esri \u2014 Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',maxZoom:19,opacity:0.95}
+  map:{attribution:'\u00a9 \u56fd\u571f\u5730\u7406\u9662',maxZoom:19,maxNativeZoom:18,opacity:0.9},
+  satellite:{attribution:'\u00a9 \u56fd\u571f\u5730\u7406\u9662',maxZoom:19,maxNativeZoom:18,opacity:0.9},
+  esri:{attribution:'Tiles \u00a9 Esri \u2014 Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',maxZoom:19,maxNativeZoom:19,opacity:0.95}
 };
 // === NG\u5224\u5b9a\u7ba1\u7406\u7528\u30b0\u30ed\u30fc\u30d0\u30eb\u5909\u6570 ===
 var ngFeatureIds={};
@@ -522,7 +522,7 @@ function switchGIS(mode){
   if(currentGIS===mode)return;
   currentGIS=mode;
   if(baseLayer){map.removeLayer(baseLayer);}
-  var opts=BASE_TILE_OPTS[mode]||{attribution:'',maxZoom:18,opacity:0.9};
+  var opts=BASE_TILE_OPTS[mode]||{attribution:'',maxZoom:19,maxNativeZoom:18,opacity:0.9};
   baseLayer=L.tileLayer(BASE_TILES[mode],opts);
   baseLayer.addTo(map);
   baseLayer.bringToBack();
@@ -607,7 +607,7 @@ function toggleForest5jou(){
   if(legend)legend.classList.add('show');
   showToast('\u68ee\u6797\u8a08\u753b\u5bfe\u8c61\u68ee\u6797 \u8868\u793a\u4e2d\uff08\u30ba\u30fc\u30e012\u4ee5\u4e0a\u3067\u30af\u30ea\u30c3\u30af\u3057\u3066\u9762\u7a4d\u8868\u793a\uff09','success');
 }
-function toggleHazard(type){var btnId='hz'+type.charAt(0).toUpperCase()+type.slice(1);var btn=document.getElementById(btnId);if(hazardLayers[type]){map.removeLayer(hazardLayers[type]);delete hazardLayers[type];btn.classList.remove('active');}else{var layer=L.tileLayer(HAZARD_URLS[type],{opacity:0.7,maxZoom:18,attribution:'\u56fd\u571f\u4ea4\u901a\u7701'});layer.addTo(map);layer.bringToFront();hazardLayers[type]=layer;btn.classList.add('active');if(markersLayer)markersLayer.bringToFront();}}
+function toggleHazard(type){var btnId='hz'+type.charAt(0).toUpperCase()+type.slice(1);var btn=document.getElementById(btnId);if(hazardLayers[type]){map.removeLayer(hazardLayers[type]);delete hazardLayers[type];btn.classList.remove('active');}else{var layer=L.tileLayer(HAZARD_URLS[type],{opacity:0.7,maxZoom:19,maxNativeZoom:17,attribution:'\u56fd\u571f\u4ea4\u901a\u7701'});layer.addTo(map);layer.bringToFront();hazardLayers[type]=layer;btn.classList.add('active');if(markersLayer)markersLayer.bringToFront();}}
 // 土砂災害警戒ポリゴン
 var dosyaLayer=null;var dosyaEnabled=false;var dosyaRenderTimer=null;
 function getDosyaStyle(phenomenon,areaType){var isSpecial=areaType==='\u7279\u5225\u8b66\u6212\u533a\u57df';var colorMap={'\u571f\u77f3\u6d41':isSpecial?'#dc2626':'#f59e0b','\u6025\u50be\u659c\u5730\u306e\u5d29\u58ca':isSpecial?'#9f1239':'#f97316','\u5730\u3059\u3079\u308a':isSpecial?'#7c3aed':'#84cc16'};var color=colorMap[phenomenon]||(isSpecial?'#dc2626':'#f59e0b');return{fillColor:color,fillOpacity:isSpecial?0.35:0.2,color:color,weight:isSpecial?2:1.5,opacity:0.9};}
@@ -882,7 +882,7 @@ function readVTFeature(tag,f,pbf){if(tag===1)f.id=pbf.readVarint();else if(tag==
 function readVTValue(tag,v,pbf){if(tag===1)v.v=pbf.readString();else if(tag===2)v.v=pbf.readFloat();else if(tag===3)v.v=pbf.readDouble();else if(tag===4)v.v=pbf.readVarint(true);else if(tag===5)v.v=pbf.readVarint();else if(tag===6)v.v=pbf.readSVarint();else if(tag===7)v.v=pbf.readBoolean();}
 function getVTProperties(feature,layer){var props={};for(var i=0;i+1<feature.tags.length;i+=2){var ki=feature.tags[i],vi=feature.tags[i+1];if(ki<layer.keys.length&&vi<layer.values.length)props[layer.keys[ki]]=layer.values[vi].v;}return props;}
 function getPolygonCentroid(geometry,tileX,tileY,tileZ,extent){var x=0,y=0,sumX=0,sumY=0,count=0,i=0;while(i<geometry.length){var cmdInt=geometry[i++],cmd=cmdInt&7,len=cmdInt>>3;if(cmd===1||cmd===2){for(var j=0;j<len;j++){x+=(geometry[i]>>1)^-(geometry[i]&1);i++;y+=(geometry[i]>>1)^-(geometry[i]&1);i++;sumX+=x;sumY+=y;count++;}}else if(cmd===7){break;}else{i++;}}if(!count)return null;var tx=sumX/count,ty=sumY/count;var z2=Math.pow(2,tileZ);var lng=((tileX+tx/extent)/z2)*360-180;var n=Math.PI*(1-2*(tileY+ty/extent)/z2);var lat=180/Math.PI*Math.atan(Math.sinh(n));if(lat<30||lat>38||lng<130||lng>142)return null;return{lat:lat,lng:lng};}
-function initMap(){map=L.map('map',{zoomControl:false}).setView([36.5,138],5);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();});}
+function initMap(){map=L.map('map',{zoomControl:false,maxZoom:19}).setView([36.5,138],5);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();});}
 // === NG\u4e00\u89a7\u3092\u8d77\u52d5\u6642\u306b\u53d6\u5f97 ===
 async function loadNgList(){
   try{
