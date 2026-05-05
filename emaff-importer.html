@@ -2194,38 +2194,39 @@ async function saveToSnapshotsB(){
     return;
   }
 
-  // バッチupsert（500件ずつ）
+  // ① 事前に同日のemaffN_データを削除（再投入時の重複回避）
+  showLoading('既存emaffN_データをクリーンアップ中...');
+  try{
+    var delRes=await db.from('farmland_snapshots').delete().eq('snapshot_date',today).like('feature_id','emaffN_%');
+    if(delRes.error){
+      console.warn('事前削除失敗（無視して続行）:',delRes.error);
+    }
+  }catch(e){
+    console.warn('事前削除例外（無視）:',e);
+  }
+
+  // ② バッチINSERT（100件ずつ。upsertは使わない＝farmland-tracker.htmlと同じ方式）
   var saved=0,failed=0,errors=[];
-  var BATCH=500;
+  var BATCH=100;
   showLoading('投入中... (0/'+rows.length+')');
+  // フォールバック用フラグ：途中でカラム不在エラーが出たら以後は最小構成で投入
+  var minMode=false;
+  function buildMinRow(r){
+    return{feature_id:r.feature_id,snapshot_date:r.snapshot_date,lat:r.lat,lng:r.lng,address:r.address,intent:r.intent};
+  }
   for(var i=0;i<rows.length;i+=BATCH){
     var batch=rows.slice(i,i+BATCH);
+    var payload=minMode?batch.map(buildMinRow):batch;
     try{
-      var r=await db.from('farmland_snapshots').upsert(batch,{onConflict:'feature_id,snapshot_date'});
+      var r=await db.from('farmland_snapshots').insert(payload);
       if(r.error){
-        // city カラムが無い等のエラー → さらに最小化して再試行
-        if(/column|schema cache/i.test(r.error.message||'')){
-          var coreOnly=batch.map(function(b){
-            return{feature_id:b.feature_id,snapshot_date:b.snapshot_date,lat:b.lat,lng:b.lng,address:b.address,intent:b.intent,source_type:b.source_type};
-          });
-          var r2=await db.from('farmland_snapshots').upsert(coreOnly,{onConflict:'feature_id,snapshot_date'});
+        // カラム不在エラー → 最小構成にフォールバックして再試行
+        if(!minMode&&/column|schema cache|source_type|city/i.test(r.error.message||'')){
+          minMode=true;
+          var r2=await db.from('farmland_snapshots').insert(batch.map(buildMinRow));
           if(r2.error){
-            // source_type すら無い場合の最終フォールバック
-            if(/source_type|column|schema cache/i.test(r2.error.message||'')){
-              var bareMin=batch.map(function(b){
-                return{feature_id:b.feature_id,snapshot_date:b.snapshot_date,lat:b.lat,lng:b.lng,address:b.address,intent:b.intent};
-              });
-              var r3=await db.from('farmland_snapshots').upsert(bareMin,{onConflict:'feature_id,snapshot_date'});
-              if(r3.error){
-                failed+=batch.length;
-                errors.push(r3.error.message);
-              }else{
-                saved+=batch.length;
-              }
-            }else{
-              failed+=batch.length;
-              errors.push(r2.error.message);
-            }
+            failed+=batch.length;
+            errors.push(r2.error.message);
           }else{
             saved+=batch.length;
           }
@@ -2246,6 +2247,7 @@ async function saveToSnapshotsB(){
   hideLoading();
 
   var msg='完了：投入 '+saved+'件 / 失敗 '+failed+'件';
+  if(minMode)msg+='（拡張カラム不在のため最小構成で投入）';
   showToast(msg,failed>0?'warning':'success');
 
   document.getElementById('saveResultB').innerHTML=
