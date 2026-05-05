@@ -881,7 +881,7 @@ async function loadNgList(){
 // === \u55b6\u696d\u30b9\u30c6\u30fc\u30bf\u30b9\u4e00\u89a7\u3092\u8d77\u52d5\u6642\u306b\u53d6\u5f97 ===
 async function loadFarmlandStatuses(){
   try{
-    var res=await db.from('farmland_status').select('feature_id,status').limit(10000);
+    var res=await _fetchAllPaged(function(){return db.from('farmland_status').select('feature_id,status');});
     if(res.error){console.warn('Status load error:',res.error);return;}
     farmlandStatuses={};
     (res.data||[]).forEach(function(d){farmlandStatuses[d.feature_id]=d.status;});
@@ -890,7 +890,7 @@ async function loadFarmlandStatuses(){
 // === \u30b3\u30e1\u30f3\u30c8\u4e00\u89a7\u3092\u8d77\u52d5\u6642\u306b\u53d6\u5f97 ===
 async function loadFarmlandComments(){
   try{
-    var res=await db.from('farmland_comments').select('feature_id,comment').limit(10000);
+    var res=await _fetchAllPaged(function(){return db.from('farmland_comments').select('feature_id,comment');});
     if(res.error){console.warn('Comments load error:',res.error);return;}
     farmlandComments={};
     (res.data||[]).forEach(function(d){if(d.comment)farmlandComments[d.feature_id]=d.comment;});
@@ -1148,7 +1148,8 @@ async function runAutoNgJudgment(){
     var dateRes=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1);
     if(!dateRes.data||!dateRes.data.length){throw new Error('\u30b9\u30ca\u30c3\u30d7\u30b7\u30e7\u30c3\u30c8\u304c\u3042\u308a\u307e\u305b\u3093');}
     var latestDate=dateRes.data[0].snapshot_date;
-    var fRes=await db.from('farmland_snapshots').select('feature_id,lat,lng').eq('snapshot_date',latestDate).limit(10000);
+    // Supabase max-rows=1000 制限を回避するため _fetchAllPaged を使用
+    var fRes=await _fetchAllPaged(function(){return db.from('farmland_snapshots').select('feature_id,lat,lng').eq('snapshot_date',latestDate);});
     if(fRes.error){throw new Error('\u8fb2\u5730\u53d6\u5f97\u5931\u6557: '+fRes.error.message);}
     var farmlands=(fRes.data||[]).filter(function(f){return f.lat&&f.lng;});
     // 県別にグルーピング
@@ -1317,8 +1318,8 @@ async function runCaseMasterSync(){
     var allCaseIds=approachCaseIds.concat(ngCaseIds);
     if(!allCaseIds.length){hideLoading();showToast('\u540c\u671f\u5bfe\u8c61\u306e\u6848\u4ef6\u304c\u3042\u308a\u307e\u305b\u3093','success');return;}
     document.getElementById('loadingText').textContent='\u571f\u5730\u30fb\u5730\u6a29\u8005\u60c5\u5831\u3092\u53d6\u5f97\u4e2d...';
-    var landRes=await db.from('land_info').select('case_id,lat,lng,location').in('case_id',allCaseIds).limit(10000);
-    var ownerRes=await db.from('landowner_info').select('case_id,lat,lng,address').in('case_id',allCaseIds).limit(10000);
+    var landRes=await _fetchAllPaged(function(){return db.from('land_info').select('case_id,lat,lng,location').in('case_id',allCaseIds);});
+    var ownerRes=await _fetchAllPaged(function(){return db.from('landowner_info').select('case_id,lat,lng,address').in('case_id',allCaseIds);});
     var positionsByCase={};
     (landRes.data||[]).forEach(function(r){if(r.lat&&r.lng){if(!positionsByCase[r.case_id])positionsByCase[r.case_id]=[];positionsByCase[r.case_id].push({lat:r.lat,lng:r.lng,src:'land',loc:r.location||''});}});
     (ownerRes.data||[]).forEach(function(r){if(r.lat&&r.lng){if(!positionsByCase[r.case_id])positionsByCase[r.case_id]=[];positionsByCase[r.case_id].push({lat:r.lat,lng:r.lng,src:'owner',loc:r.address||''});}});
@@ -1334,7 +1335,7 @@ async function runCaseMasterSync(){
     var dateRes=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1);
     if(!dateRes.data||!dateRes.data.length)throw new Error('\u30b9\u30ca\u30c3\u30d7\u30b7\u30e7\u30c3\u30c8\u304c\u3042\u308a\u307e\u305b\u3093');
     var latestDate=dateRes.data[0].snapshot_date;
-    var fRes=await db.from('farmland_snapshots').select('feature_id,lat,lng,address').eq('snapshot_date',latestDate).limit(10000);
+    var fRes=await _fetchAllPaged(function(){return db.from('farmland_snapshots').select('feature_id,lat,lng,address').eq('snapshot_date',latestDate);});
     if(fRes.error)throw new Error('\u8fb2\u5730\u53d6\u5f97\u5931\u6557: '+fRes.error.message);
     var farmlands=(fRes.data||[]).filter(function(f){return f.lat&&f.lng;});
     document.getElementById('loadingText').textContent='\u7167\u5408\u4e2d (0/'+cases.length+')...';
@@ -1371,7 +1372,7 @@ async function runCaseMasterSync(){
       }
     }
     document.getElementById('loadingText').textContent='\u30b9\u30c6\u30fc\u30bf\u30b9\u3092\u66f4\u65b0\u4e2d...';
-    var statusRes=await db.from('farmland_status').select('feature_id,status').limit(10000);
+    var statusRes=await _fetchAllPaged(function(){return db.from('farmland_status').select('feature_id,status');});
     var existingStatuses={};
     (statusRes.data||[]).forEach(function(d){existingStatuses[d.feature_id]=d.status;});
     var approachRecords=[];
