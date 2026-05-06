@@ -2899,20 +2899,61 @@ function modeCUpdateProgress(){
 
 // 集計プレビュー
 function modeCPreview(){
-  var total=0,wantSell=0,aochi=0;
+  var total=0;
+  var wantSell=0;          // 売りたい（白地）= 投入対象
+  var wantSellAochi=0;     // 売りたい（青地）= 除外
+  var others=0;            // 売りたい以外
+  var noCoord=0;           // 座標欠損
+  var byIntent={};         // 意向別内訳
   modeC.cells.forEach(function(c){
     if(!c.done)return;
     c.features.forEach(function(f){
       total++;
       var p=f.properties||{};
-      if(isAochi(p)){aochi++;return;}
-      // 売りたい判定（OwnerFarmIntentionCodeName を最優先で見る）
+      // 座標チェック
+      var co=f.geometry&&f.geometry.coordinates;
+      if(!co||co.length<2||isNaN(parseFloat(co[0]))||isNaN(parseFloat(co[1]))){noCoord++;return;}
+      // 意向判定（売りたい/貸したい・売りたい）
       var v=String(p.OwnerFarmIntentionCodeName||'').trim();
-      if(v==='売りたい'||v==='貸したい・売りたい'||v==='売りたい・貸したい'){wantSell++;}
+      // 内訳カウント
+      var label=v||'(空)';
+      if(!v){
+        var code=String(p.OwnerFarmIntention||'').trim();
+        if(code==='1')label='売りたい';
+        else if(code==='2')label='貸したい';
+        else if(code==='3'||code==='4')label='貸したい・売りたい';
+        else if(code==='5')label='自ら耕作したい';
+        else if(code==='999')label='非公表';
+        else if(code)label='(コード:'+code+')';
+      }
+      byIntent[label]=(byIntent[label]||0)+1;
+      // 売りたい判定
+      var isSell=(v==='売りたい'||v==='貸したい・売りたい'||v==='売りたい・貸したい');
+      if(!isSell){
+        var c2=String(p.OwnerFarmIntention||'').trim();
+        isSell=(c2==='1'||c2==='3'||c2==='4');
+      }
+      if(!isSell){others++;return;}
+      // 青地除外
+      if(isAochi(p)){wantSellAochi++;return;}
+      wantSell++;
     });
   });
-  document.getElementById('modeCSubmitResult').innerHTML='<div style="padding:10px 12px;background:rgba(14,165,233,0.10);border:1px solid rgba(14,165,233,0.4);border-radius:6px;font-size:13px;">'+
-    '📊 取込済セル合計：<strong>'+total+'件</strong> / 売りたい：<strong style="color:#0ea5e9;">'+wantSell+'件</strong> / 青地除外：<strong>'+aochi+'件</strong>'+
+  // 内訳の文字列化（多い順）
+  var intentList=Object.keys(byIntent).map(function(k){return{k:k,n:byIntent[k]};}).sort(function(a,b){return b.n-a.n;});
+  var intentTxt=intentList.map(function(o){return o.k+': '+o.n+'件';}).join(' / ');
+  document.getElementById('modeCSubmitResult').innerHTML=
+    '<div style="padding:12px 14px;background:rgba(14,165,233,0.12);border:1px solid rgba(14,165,233,0.5);border-radius:6px;font-size:14px;margin-bottom:8px;">'+
+      '✅ 投入対象（白地の「売りたい」のみ）：<strong style="color:#0ea5e9;font-size:18px;">'+wantSell+'件</strong>'+
+    '</div>'+
+    '<div style="padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text-muted);line-height:1.7;">'+
+      '<div>📊 <strong>取込済セルの内訳</strong></div>'+
+      '<div>　・取込済feature総数：<strong>'+total+'件</strong></div>'+
+      '<div>　・座標欠損：<strong>'+noCoord+'件</strong>（除外）</div>'+
+      '<div>　・売りたい以外（貸したい/自ら耕作 等）：<strong>'+others+'件</strong>（投入対象外）</div>'+
+      '<div>　・売りたい × 青地（農用地）：<strong>'+wantSellAochi+'件</strong>（青地ルールで除外）</div>'+
+      '<div>　・<span style="color:#0ea5e9;font-weight:600;">売りたい × 白地 → 投入対象：'+wantSell+'件</span></div>'+
+      '<div style="margin-top:6px;color:var(--text-muted);font-size:11px;">意向の内訳：'+intentTxt+'</div>'+
     '</div>';
 }
 
@@ -2925,7 +2966,26 @@ async function modeCSubmit(){
     showToast('取込済セルがありません','warning');
     return;
   }
-  if(!confirm('取込済セルから '+allFeats.length+'件のfeatureを処理し、「売りたい」のみ farmland_snapshots に投入します。よろしいですか？'))return;
+
+  // 事前カウント：実際の投入対象（売りたい × 白地）を算出
+  var preWantSell=0,preAochi=0,preOthers=0;
+  allFeats.forEach(function(f){
+    var p=f.properties||{};
+    var v=String(p.OwnerFarmIntentionCodeName||'').trim();
+    var isSell=(v==='売りたい'||v==='貸したい・売りたい'||v==='売りたい・貸したい');
+    if(!isSell){
+      var c2=String(p.OwnerFarmIntention||'').trim();
+      isSell=(c2==='1'||c2==='3'||c2==='4');
+    }
+    if(!isSell){preOthers++;return;}
+    if(isAochi(p)){preAochi++;return;}
+    preWantSell++;
+  });
+  if(preWantSell===0){
+    showToast('投入対象（売りたい×白地）が0件です','warning');
+    return;
+  }
+  if(!confirm('取込済 '+allFeats.length+'件のうち、白地の「売りたい」'+preWantSell+'件のみを farmland_snapshots に投入します。\n（売りたい以外 '+preOthers+'件 / 青地の売りたい '+preAochi+'件 は除外）\nよろしいですか？'))return;
 
   showLoading('投入準備中...');
   var today=new Date().toISOString().substring(0,10);
