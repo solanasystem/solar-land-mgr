@@ -391,10 +391,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   </div>
 </header>
 <div class="toolbar">
-  <span class="toolbar-label">比較日付</span>
-  <select class="date-select" id="dateFrom" onchange="loadDiff()"><option value="">基準日（前）</option></select>
-  <span style="color:var(--text-muted);font-size:12px;">&#8594;</span>
-  <select class="date-select" id="dateTo" onchange="loadDiff()"><option value="">比較日（後）</option></select>
+  <span class="toolbar-label">新規ハイライト基準日</span>
+  <select class="date-select" id="dateFrom" onchange="loadDiff()"><option value="">なし（全件「既存」表示）</option></select>
+  <select class="date-select" id="dateTo" style="display:none;" onchange="loadDiff()"><option value=""></option></select>
   <button class="btn btn-primary" onclick="triggerManualCollection()" style="font-size:12px;padding:5px 12px;">&#128229; 今日のデータ取得</button>
   <button class="btn btn-ghost active" id="btnNgFilter" onclick="toggleNgFilter()" style="font-size:12px;padding:5px 12px;">&#128683; NG非表示</button>
   <button class="btn btn-ghost" id="btnAutoJudge" onclick="runAutoNgJudgment()" style="font-size:12px;padding:5px 12px;">&#129302; AI自動判定</button>
@@ -1535,32 +1534,39 @@ function showCaseSyncReport(d){
 }
 // === paging fetch helper（Supabase max-rows=1000 制限を回避）===
 async function _fetchAllPaged(buildQuery){var all=[];for(var page=0;page<30;page++){var from=page*1000,to=from+999;var res=await buildQuery().range(from,to);if(res.error)return{data:null,error:res.error};var rows=res.data||[];if(!rows.length)break;all=all.concat(rows);if(rows.length<1000)break;}return{data:all,error:null};}
-async function loadDates(){var res=await db.rpc('get_snapshot_dates');if(res.error){showToast('DB\u63a5\u7d9a\u30a8\u30e9\u30fc: '+res.error.message,'error');return;}if(!res.data||res.data.length===0){return;}var dates=[];res.data.forEach(function(d){if(d.snapshot_date)dates.push(d.snapshot_date);});dates.sort().reverse();var fe=document.getElementById('dateFrom'),te=document.getElementById('dateTo');fe.innerHTML='<option value="">\u57fa\u6e96\u65e5\uff08\u524d\uff09</option>';te.innerHTML='<option value="">\u6bd4\u8f03\u65e5\uff08\u5f8c\uff09</option>';dates.forEach(function(d){fe.innerHTML+='<option value="'+d+'">'+d+'</option>';te.innerHTML+='<option value="'+d+'">'+d+'</option>';});if(dates.length>=2){fe.value=dates[1];te.value=dates[0];loadDiff();}else if(dates.length===1){te.value=dates[0];loadDiff();}}
+async function loadDates(){var res=await db.rpc('get_snapshot_dates');if(res.error){showToast('DB\u63a5\u7d9a\u30a8\u30e9\u30fc: '+res.error.message,'error');return;}if(!res.data||res.data.length===0){loadDiff();return;}var dates=[];res.data.forEach(function(d){if(d.snapshot_date)dates.push(d.snapshot_date);});dates.sort().reverse();var fe=document.getElementById('dateFrom');fe.innerHTML='<option value="">\u306a\u3057\uff08\u5168\u4ef6\u300c\u65e2\u5b58\u300d\u8868\u793a\uff09</option>';dates.forEach(function(d){fe.innerHTML+='<option value="'+d+'">'+d+' \u4ee5\u964d\u3092\u65b0\u898f\u30cf\u30a4\u30e9\u30a4\u30c8</option>';});loadDiff();}
 async function loadDiff(){
   var dateFrom=document.getElementById('dateFrom').value;
-  var dateTo=document.getElementById('dateTo').value;
-  if(!dateTo)return;
-  showLoading('差分データを取得中...');
+  // ★仕様変更: dateToは廃止（最新スナップショット表示が標準）。dateFromは「以降の新規ハイライト基準日」
+  showLoading('最新データを取得中...');
   if(markersLayer){map.removeLayer(markersLayer);markersLayer=null;}
   document.getElementById('emptyState').style.display='none';
   try{
-    var toRes=await _fetchAllPaged(function(){return db.from('farmland_snapshots').select('*').eq('snapshot_date',dateTo);});
-    var toData=(toRes.data||[]).filter(function(d){return d.intent!=='\u8cb8\u3057\u305f\u3044';});
-    var fromIds={};
-    if(dateFrom){
-      var fRes=await _fetchAllPaged(function(){return db.from('farmland_snapshots').select('feature_id').eq('snapshot_date',dateFrom);});
-      (fRes.data||[]).forEach(function(d){fromIds[d.feature_id]=true;});
-    }
-    if(!toData.length){hideLoading();document.getElementById('emptyState').style.display='flex';return;}
+    // 全 farmland_snapshots を取得し、feature_id ごとに最新の snapshot_date のレコードを抽出
+    var allRes=await _fetchAllPaged(function(){return db.from('farmland_snapshots').select('*').order('snapshot_date',{ascending:false});});
+    var allData=(allRes.data||[]).filter(function(d){return d.intent!=='貸したい';});
+    var latestByFeature={};
+    var firstSeenDate={};
+    allData.forEach(function(d){
+      if(!d.feature_id)return;
+      if(!latestByFeature[d.feature_id]||d.snapshot_date>latestByFeature[d.feature_id].snapshot_date){
+        latestByFeature[d.feature_id]=d;
+      }
+      if(!firstSeenDate[d.feature_id]||d.snapshot_date<firstSeenDate[d.feature_id]){
+        firstSeenDate[d.feature_id]=d.snapshot_date;
+      }
+    });
+    var latestData=Object.keys(latestByFeature).map(function(k){return latestByFeature[k];});
+    if(!latestData.length){hideLoading();document.getElementById('emptyState').style.display='flex';return;}
     var newCount=0,existingCount=0,excludedCount=0,markers=[];
-    // 「dateTo にあるもの」だけを表示。新規（dateFromになかったもの）と既存（あったもの）に分類
-    // ★案件マスターに昇格済みの位置（cases に紐づく land_info/landowner_info の lat/lng の100m圏内）は除外
-    toData.forEach(function(item){
+    latestData.forEach(function(item){
       if(!item.lat||!item.lng)return;
       if(ngFilterEnabled&&ngFeatureIds[item.feature_id])return;
       // 案件マスター昇格済み除外（ワークフロー: 案件昇格後は地権者訪問・現地調査画面で管理）
       if(_isExcludedByCase(item.lat,item.lng)){excludedCount++;return;}
-      if(dateFrom&&!fromIds[item.feature_id]){
+      var firstDate=firstSeenDate[item.feature_id];
+      var isNew=(dateFrom&&firstDate>dateFrom);
+      if(isNew){
         newCount++;
         markers.push({item:item,changeType:'new'});
       }else{
@@ -1569,8 +1575,7 @@ async function loadDiff(){
       }
     });
     document.getElementById('statNew').textContent=newCount;
-    var toDataVisible=ngFilterEnabled?toData.filter(function(d){return !ngFeatureIds[d.feature_id];}):toData;
-    document.getElementById('statExisting').textContent=dateFrom?existingCount:(toDataVisible.length-excludedCount);
+    document.getElementById('statExisting').textContent=existingCount;
     rebuildOwnerColorMap(markers.map(function(m){return m.item;}));
     var lm=markers.map(function(m){
       var hasComment=!!farmlandComments[m.item.feature_id];
@@ -1586,9 +1591,8 @@ async function loadDiff(){
       mk._featureId=m.item.feature_id;
       mk._changeType=m.changeType;
       mk._item=m.item;
-      var lbl;
-      lbl=m.changeType==='new'?'\u65b0\u898f':'\u65e2\u5b58';
-      var commentMark=hasComment?'\ud83d\udcac ':'';
+      var lbl=m.changeType==='new'?'新規':'既存';
+      var commentMark=hasComment?'💬 ':'';
       mk.bindTooltip(commentMark+'<b>'+lbl+'</b> '+(m.item.city||''),{direction:'top',permanent:false,opacity:0.95,className:'farmland-tooltip'});
       mk.on('click',function(){showDetail(m.item,m.changeType);});
       return mk;
@@ -1599,16 +1603,15 @@ async function loadDiff(){
     if(imp.length){
       var b=L.latLngBounds(imp.map(function(m){return[m.item.lat,m.item.lng];}));
       map.fitBounds(b,{padding:[40,40]});
-    }else if(markers.length){
-      var b2=L.latLngBounds(markers.map(function(m){return[m.item.lat,m.item.lng];}));
-      map.fitBounds(b2,{padding:[40,40]});
     }
     hideLoading();
-    if(newCount===0&&dateFrom)showToast('\u65b0\u898f\u8ffd\u52a0\u306f\u3042\u308a\u307e\u305b\u3093\u3067\u3057\u305f','success');
-    else if(newCount>0)showToast('\u65b0\u898f '+newCount+'\u4ef6 \u3092\u691c\u51fa\u3057\u307e\u3057\u305f','success');
+    var msg='表示 '+markers.length+'件';
+    if(newCount>0)msg+='（うち新規 '+newCount+'件）';
+    if(excludedCount>0)msg+=' / 案件マスター除外 '+excludedCount+'件';
+    showToast(msg,'success');
   }catch(e){
     hideLoading();
-    showToast('\u30a8\u30e9\u30fc: '+e.message,'error');
+    showToast('エラー: '+e.message,'error');
   }
 }
 function showDetail(item,changeType){currentDetailItem=item;currentDetailChangeType=changeType;var lbl=changeType==='new'?'\u2705 \u65b0\u898f\u8ffd\u52a0':'\u26aa \u5909\u66f4\u306a\u3057';var bc=changeType==='new'?'new':'existing';var extras=(item.registered_date||'').split('|');var chimoku=extras[0]||'-';var kousa=extras[1]||'-';var chintai=extras[3]||'';var priceStr=item.price?item.price+'\u5186':'-';var chintaiStr=chintai?chintai+'\u5186':'-';var isNg=!!ngFeatureIds[item.feature_id];
