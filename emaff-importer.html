@@ -1026,11 +1026,11 @@ body{
       <div class="step-body">
         <p style="margin-top:0;color:var(--text-muted);font-size:12px;">
           このセルをeMAFF農地ナビで開き、「売りたい」絞り込みでGeoJSONをDLしてください。<br>
-          📋 セル中心座標を <strong>クリップボード</strong> にコピー → eMAFFの「住所から探す」検索ボックスに貼り付けてください。
+          📋 ボタンを押すとセル中心の<strong style="color:var(--text);">住所</strong>を取得→クリップボードへコピー → eMAFFの「住所から探す」検索ボックスに貼り付け（Ctrl+V）。
         </p>
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
-          <button id="modeCBtnCopy" style="padding:9px 16px;background:rgba(168,85,247,0.15);color:#a855f7;border:1px solid rgba(168,85,247,0.4);border-radius:5px;font-size:13px;font-weight:600;cursor:pointer;">📋 セル中心座標をコピー</button>
-          <a id="modeCBtnOpen" href="https://aichi.farm.cloudgis.jp/matching/aic/" target="_blank" style="padding:9px 16px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.4);border-radius:5px;font-size:13px;font-weight:600;text-decoration:none;cursor:pointer;">↗ eMAFF農地ナビを開く</a>
+          <button id="modeCBtnCopy" style="padding:9px 16px;background:rgba(168,85,247,0.15);color:#a855f7;border:1px solid rgba(168,85,247,0.4);border-radius:5px;font-size:13px;font-weight:600;cursor:pointer;">📋 セル中心の住所をコピー</button>
+          <a id="modeCBtnOpen" href="https://map.maff.go.jp/" target="_blank" style="padding:9px 16px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.4);border-radius:5px;font-size:13px;font-weight:600;text-decoration:none;cursor:pointer;">↗ eMAFF農地ナビを開く</a>
           <button id="modeCBtnSkip" style="padding:9px 16px;background:rgba(139,148,158,0.15);color:var(--text-muted);border:1px solid var(--border);border-radius:5px;font-size:13px;cursor:pointer;">↷ このセルをスキップ</button>
         </div>
         <div id="modeCDropZone" style="margin-top:14px;border:2px dashed rgba(168,85,247,0.5);border-radius:8px;padding:30px;text-align:center;cursor:pointer;background:rgba(168,85,247,0.04);transition:background 0.15s;">
@@ -2739,20 +2739,60 @@ function modeCSelectCell(idx){
   modeCRenderCellList();
 }
 
-// セル中心座標をクリップボードコピー
+// セル中心の住所を逆ジオコーディング取得→クリップボードコピー
 async function modeCCopyCenter(){
   if(modeC.activeCellIdx<0)return;
   var c=modeC.cells[modeC.activeCellIdx].center;
-  var txt=c.lat.toFixed(6)+', '+c.lng.toFixed(6);
+  var btn=document.getElementById('modeCBtnCopy');
+  var origLabel=btn.textContent;
+  btn.disabled=true;
+  btn.textContent='⏳ 住所取得中...';
   try{
-    await navigator.clipboard.writeText(txt);
-    showToast('コピー：'+txt+' （eMAFFの検索ボックスに貼り付けてください）','success');
+    // Nominatim Reverse Geocoding（Cloudflare Worker プロキシ経由）
+    var url='https://nominatim-proxy.takumi-kurimoto.workers.dev/nominatim/reverse?lat='+c.lat.toFixed(6)+'&lon='+c.lng.toFixed(6)+'&format=json&accept-language=ja&zoom=18';
+    var res=await fetch(url);
+    var data=await res.json();
+    var addr=null;
+    if(data&&data.address){
+      // 住所組み立て：県＋市区町村＋大字＋字＋丁目（番地は信頼性低いため除外）
+      var a=data.address;
+      var parts=[];
+      if(a.province)parts.push(a.province);
+      else if(a.state)parts.push(a.state);
+      if(a.city)parts.push(a.city);
+      else if(a.town)parts.push(a.town);
+      else if(a.county)parts.push(a.county);
+      if(a.suburb)parts.push(a.suburb);
+      else if(a.village)parts.push(a.village);
+      else if(a.hamlet)parts.push(a.hamlet);
+      else if(a.neighbourhood)parts.push(a.neighbourhood);
+      else if(a.quarter)parts.push(a.quarter);
+      addr=parts.join('');
+      // フォールバック：display_name の先頭部分
+      if(!addr&&data.display_name){
+        addr=data.display_name.split(',').slice(0,3).reverse().join('').replace(/\s+/g,'');
+      }
+    }
+    if(!addr){
+      // フォールバック：座標
+      addr=c.lat.toFixed(6)+', '+c.lng.toFixed(6);
+      var fallbackMsg=' （住所取得失敗のため座標）';
+    }
+    // クリップボードコピー
+    try{
+      await navigator.clipboard.writeText(addr);
+      showToast('📋 コピー：「'+addr+'」 → eMAFFの「住所から探す」に貼り付けてください'+(fallbackMsg||''),'success');
+    }catch(_){
+      var ta=document.createElement('textarea');
+      ta.value=addr;document.body.appendChild(ta);ta.select();
+      try{document.execCommand('copy');showToast('コピー：'+addr,'success');}catch(_2){showToast('コピー失敗。手動で：'+addr,'warning');}
+      document.body.removeChild(ta);
+    }
   }catch(e){
-    // フォールバック
-    var ta=document.createElement('textarea');
-    ta.value=txt;document.body.appendChild(ta);ta.select();
-    try{document.execCommand('copy');showToast('コピー：'+txt,'success');}catch(_){showToast('コピー失敗。手動で：'+txt,'warning');}
-    document.body.removeChild(ta);
+    showToast('住所取得失敗: '+e.message,'error');
+  }finally{
+    btn.disabled=false;
+    btn.textContent=origLabel;
   }
 }
 
