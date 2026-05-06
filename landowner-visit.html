@@ -346,6 +346,20 @@
     0% { transform: scale(0.5); opacity: 1; }
     100% { transform: scale(2.4); opacity: 0; }
   }
+
+  /* ===== 地番検索ヒット時の赤丸点滅マーカー ===== */
+  .sf-blink-icon { position: relative; }
+  .sf-blink-icon::after {
+    content: '';
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 48px; height: 48px;
+    margin-left: -24px; margin-top: -24px;
+    border-radius: 50%;
+    background: rgba(248,81,73,0.45);
+    animation: sf-pulse 1.4s infinite ease-out;
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
@@ -1506,20 +1520,76 @@ async function _searchChiban(q, res) {
       });
     } catch(e) {}
   }
-  /* ===== 3) chiban_index検索（DB側の地番データ） ===== */
-  const tokens = q.split(/[\s\u3000]+/).filter(Boolean);
-  const chibanToken = tokens.find(t => /^[0-9\uff0d\-]+$/.test(t));
-  const nameTokens = tokens.filter(t => !/^[0-9\uff0d\-]+$/.test(t));
-  let query = db.from('chiban_index').select('city_name,oaza,koaza,chiban,lat,lng');
-  if (chibanToken) query = query.eq('chiban', chibanToken);
-  nameTokens.forEach(t => { query = query.or(`city_name.ilike.%${t}%,oaza.ilike.%${t}%,koaza.ilike.%${t}%`); });
-  const { data } = await query.limit(8);
-  if (data) {
-    data.forEach(r => {
-      const label = [r.city_name, r.oaza, r.koaza, r.chiban].filter(Boolean).join(' ');
-      html += `<div class="chiban-result-item" onmousedown="event.stopPropagation();jumpToChiban(${r.lat},${r.lng},'${label.replace(/'/g,"\\'")}')">&#128205; ${label}</div>`;
-    });
-  }
+  /* ===== 3) AMX全国地番検索 (chiban_index廃止、PMTilesから直接取得) ===== */
+  try {
+    const tokens = q.split(/[\s\u3000]+/).filter(Boolean);
+    const chibanToken = tokens.find(t => /^[0-9\uff0d\-]+$/.test(t));
+    const nameTokens = tokens.filter(t => !/^[0-9\uff0d\-]+$/.test(t));
+    if (chibanToken && nameTokens.length > 0 && window.__PMT && window.__VT && window.__Pbf) {
+      // ステップ1: 地名部分(市区町村+大字)を国土地理院ジオコーディングAPIで緯度経度に変換
+      const geocodeQuery = nameTokens.join(' ');
+      const gsiUrl = 'https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(geocodeQuery);
+      const gsiRes = await fetch(gsiUrl);
+      const gsiData = await gsiRes.json();
+      if (gsiData && gsiData.length > 0) {
+        const foundChiban = [];
+        for (let gi = 0; gi < Math.min(3, gsiData.length); gi++) {
+          const coords = gsiData[gi].geometry.coordinates;
+          const lng = coords[0], lat = coords[1];
+          const z = 16;
+          const n = Math.pow(2, z);
+          const latR = lat * Math.PI / 180;
+          const tx = Math.floor((lng + 180) / 360 * n);
+          const ty = Math.floor((1 - Math.log(Math.tan(latR) + 1/Math.cos(latR))/Math.PI)/2 * n);
+          for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+              try {
+                const resp = await window.__PMT.getZxy(z, tx + dx, ty + dy);
+                if (!resp) continue;
+                const tile = new window.__VT(new window.__Pbf(resp.data));
+                const layerNames = Object.keys(tile.layers);
+                if (!layerNames.length) continue;
+                const lyr = tile.layers[layerNames[0]];
+                for (let i = 0; i < lyr.length && foundChiban.length < 8; i++) {
+                  const feat = lyr.feature(i);
+                  if (feat.type !== 3) continue;
+                  const props = feat.properties || {};
+                  if (props['\u5730\u756a'] !== chibanToken) continue;
+                  const rawArea = props['\u5730\u756a\u533a\u57df'] || '';
+                  const allMatch = nameTokens.every(t => rawArea.indexOf(t) !== -1);
+                  if (!allMatch) continue;
+                  const dupKey = rawArea + '|' + props['\u5730\u756a'];
+                  if (foundChiban.some(x => x.dupKey === dupKey)) continue;
+                  const geom = feat.loadGeometry();
+                  let cx = 0, cy = 0, cn = 0;
+                  for (let rk = 0; rk < geom.length; rk++) {
+                    for (let pk = 0; pk < geom[rk].length; pk++) { cx += geom[rk][pk].x; cy += geom[rk][pk].y; cn++; }
+                  }
+                  if (cn === 0) continue;
+                  cx /= cn; cy /= cn;
+                  const extent = lyr.extent;
+                  const lngOut = (((tx + dx) + cx/extent) / n) * 360 - 180;
+                  const nLat = Math.PI * (1 - 2 * ((ty + dy) + cy/extent) / n);
+                  const latOut = 180/Math.PI * Math.atan(0.5 * (Math.exp(nLat) - Math.exp(-nLat)));
+                  const areaParts = rawArea.split('_');
+                  const label = areaParts.filter(t => t && t.trim()).join(' ') + ' ' + props['\u5730\u756a'];
+                  foundChiban.push({ lat: latOut, lng: lngOut, label: label, dupKey: dupKey, props: props });
+                }
+              } catch (_) {}
+              if (foundChiban.length >= 8) break;
+            }
+            if (foundChiban.length >= 8) break;
+          }
+          if (foundChiban.length >= 8) break;
+        }
+        foundChiban.forEach(r => {
+          const safeLabel = r.label.replace(/'/g, "\\'");
+          const propsJson = encodeURIComponent(JSON.stringify(r.props));
+          html += `<div class="chiban-result-item" onmousedown="event.stopPropagation();jumpToChibanAMX(${r.lat},${r.lng},'${safeLabel}','${propsJson}')">&#128205; ${r.label}</div>`;
+        });
+      }
+    }
+  } catch (e) { console.warn('[search] AMX chiban error:', e); }
   if (!html) { res.style.display = 'none'; return; }
   res.innerHTML = html;
   res.style.display = 'block';
@@ -1565,6 +1635,33 @@ function jumpToChiban(lat, lng, label) {
   L.popup({ maxWidth: 260 }).setLatLng([lat, lng])
     .setContent(`<div style="padding:10px;font-size:12px">&#128205; ${label}</div>`)
     .openOn(map);
+  document.getElementById('chibanResults').style.display = 'none';
+  document.getElementById('chibanInput').value = label;
+}
+// AMX地番検索ヒット時の赤丸点滅マーカー＋地番情報ポップアップ
+let _searchHitMarker = null;
+function jumpToChibanAMX(lat, lng, label, propsJsonEncoded) {
+  map.setView([lat, lng], 17);
+  if (_searchHitMarker) { try { map.removeLayer(_searchHitMarker); } catch(_) {} }
+  const divIcon = L.divIcon({
+    className: 'sf-blink-icon',
+    html: '<div style="position:absolute;left:0;top:0;width:14px;height:14px;margin-left:-7px;margin-top:-7px;border-radius:50%;background:#f85149;border:3px solid #fff;box-shadow:0 0 12px rgba(248,81,73,0.9);pointer-events:none"></div>',
+    iconSize: [0, 0]
+  });
+  _searchHitMarker = L.marker([lat, lng], { icon: divIcon, interactive: false, zIndexOffset: 1000 }).addTo(map);
+  setTimeout(() => {
+    if (_searchHitMarker) { try { map.removeLayer(_searchHitMarker); _searchHitMarker = null; } catch(_) {} }
+  }, 30000);
+  try {
+    const props = JSON.parse(decodeURIComponent(propsJsonEncoded));
+    if (typeof buildParcelPopup === 'function') {
+      L.popup({ maxWidth: 340, minWidth: 240 }).setLatLng([lat, lng]).setContent(buildParcelPopup(props)).openOn(map);
+    } else {
+      L.popup({ maxWidth: 260 }).setLatLng([lat, lng]).setContent(`<div style="padding:10px;font-size:12px">&#128205; ${label}</div>`).openOn(map);
+    }
+  } catch (e) {
+    L.popup({ maxWidth: 260 }).setLatLng([lat, lng]).setContent(`<div style="padding:10px;font-size:12px">&#128205; ${label}</div>`).openOn(map);
+  }
   document.getElementById('chibanResults').style.display = 'none';
   document.getElementById('chibanInput').value = label;
 }
