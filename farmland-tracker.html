@@ -50,7 +50,7 @@
   import * as pmtilesModule from 'https://esm.sh/pmtiles@3.0.6';
   const vtModule = await import('https://esm.sh/@mapbox/vector-tile@1.3.1');
   const pbfModule = await import('https://esm.sh/pbf@3.2.1');
-  window.__PMT = new pmtilesModule.PMTiles('https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/aichi.pmtiles');
+  window.__PMT = new pmtilesModule.PMTiles('https://data.source.coop/smartmaps/amx-2024-04/MojMap_amx_2024.pmtiles');
   window.__VT = vtModule.VectorTile;
   window.__Pbf = pbfModule.default;
   window.dispatchEvent(new Event('pmtReady'));
@@ -367,6 +367,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     0% { transform: scale(0.5); opacity: 1; }
     100% { transform: scale(2.4); opacity: 0; }
   }
+
+  /* ===== Leaflet ポップアップ暗色テーマ（landowner-visit.html と同一） =====
+     地番境界クリック時のポップアップで、白背景に同化していた文字色を
+     視認可能にするため、ポップアップ全体を暗色テーマに統一する。 */
+  .leaflet-popup-content-wrapper { background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: 10px !important; color: var(--text) !important; box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important; }
+  .leaflet-popup-tip { background: var(--surface) !important; }
+  .leaflet-popup-close-button { color: var(--text-muted) !important; }
+  .leaflet-popup-close-button:hover { color: var(--text) !important; }
 </style>
 </head>
 <body>
@@ -2420,13 +2428,16 @@ initDraggablePanels('farmlandTracker', [
 
 /* ============================================================================
  * 地番境界（筆ポリゴン）PMTiles表示機能
- * Cloudflare R2配信のaichi.pmtiles（557,514筆）を地図に重ねる
- * クリックで地番情報ポップアップ表示（市区町村名/大字名/小字名/地番/面積）
+ * AMX (Adopt Map XML) Project の全国版PMTiles（47都道府県カバー）を地図に重ねる
+ * ソース: 法務省登記所備付地図XML（オープンデータ）/ MITライセンス
+ * クリックで地番情報ポップアップ表示（市区町村名/大字名/地番/縮尺分母/精度区分）
  * 実装は landowner-visit.html と同等（protomaps-leaflet@5.1.0 + ESMデコーダ）
+ * バックアップ: aichi.pmtiles をR2に残置（AMX到達不可時の予備）
  * ============================================================================ */
 (function(){
   'use strict';
-  var FUDE_PMTILES_URL='https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/aichi.pmtiles';
+  var FUDE_PMTILES_URL='https://data.source.coop/smartmaps/amx-2024-04/MojMap_amx_2024.pmtiles';
+  var FUDE_PMTILES_URL_FALLBACK='https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/aichi.pmtiles';
   var FUDE_MIN_ZOOM=14;
   var fudeLayer=null;
   var fudeEnabled=true; // デフォルトON
@@ -2456,17 +2467,15 @@ initDraggablePanels('farmlandTracker', [
     return inside;
   }
 
-  // ポップアップHTML生成（landowner-visit.htmlのbuildParcelPopupと同一）
+  // ポップアップHTML生成（AMX仕様: 市区町村名/大字名/地番 + 縮尺分母/精度区分）
   function buildParcelPopup(p){
     function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-    var area=p['\u9762\u7a4d'];
-    var areaText=area?(Number(area).toLocaleString('ja-JP',{maximumFractionDigits:1})+' m\u00b2'):null;
     var rows=[
       ['\u5e02\u533a\u753a\u6751\u540d',p['\u5e02\u533a\u753a\u6751\u540d']],
       ['\u5927\u5b57\u540d',p['\u5927\u5b57\u540d']],
-      ['\u5c0f\u5b57\u540d',p['\u5c0f\u5b57\u540d']],
       ['\u5730\u756a',p['\u5730\u756a']],
-      ['\u9762\u7a4d',areaText]
+      ['\u7e2e\u5c3a\u5206\u6bcd',p['\u7e2e\u5c3a\u5206\u6bcd']],
+      ['\u7cbe\u5ea6\u533a\u5206',p['\u7cbe\u5ea6\u533a\u5206']]
     ].filter(function(r){return r[1];})
      .map(function(r){return '<tr><td style="color:var(--text-muted);padding:5px 14px 5px 0;font-size:11px;white-space:nowrap;vertical-align:top;font-weight:500">'+r[0]+'</td><td style="padding:5px 0;font-size:13px;word-break:break-all;font-weight:600;color:var(--text)">'+esc(r[1])+'</td></tr>';})
      .join('');
@@ -2487,14 +2496,14 @@ initDraggablePanels('farmlandTracker', [
       fudeLayer=null;
     }
     try{
-      // landowner-visit.html と同じスタイル：透明塗り＋赤線（width 1.2）
+      // AMX 仕様: dataLayer 'fude' (zoom14-16のポリゴン), 'daihyo'(zoom2-13代表点)は今回未使用
       fudeLayer=ns.leafletLayer({
         url:FUDE_PMTILES_URL,
         paintRules:[{
-          dataLayer:'parcels',
+          dataLayer:'fude',
           symbolizer:new ns.PolygonSymbolizer({fill:'transparent',stroke:'#f85149',width:1.2})
         }],
-        attribution:'\u5730\u756a: \u6cd5\u52d9\u7701 \u767b\u8a18\u6240\u5099\u4ed8\u5730\u56f3\u30c7\u30fc\u30bf'
+        attribution:'\u5730\u756a: AMX Project / \u6cd5\u52d9\u7701\u767b\u8a18\u6240\u5099\u4ed8\u5730\u56f3XML'
       });
       fudeLayer.addTo(m);
       console.log('[fude] レイヤ追加成功');
