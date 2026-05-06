@@ -936,43 +936,65 @@ async function loadNgList(){
   }catch(e){console.warn('NG list exception:',e);}
 }
 // === \u55b6\u696d\u30b9\u30c6\u30fc\u30bf\u30b9\u4e00\u89a7\u3092\u8d77\u52d5\u6642\u306b\u53d6\u5f97 ===
-// === 案件マスター登録済み案件の位置情報を取得（トラッカー上で除外するため） ===
+// === 案件マスター登録済み案件の住所を取得（トラッカー上で除外するため） ===
 // ワークフロー: 案件マスター昇格後は地権者訪問・現地調査側で管理。トラッカー上では非表示にする
-var casePositions=[]; // [{lat,lng}] 案件マスターに紐づく全位置
-var CASE_EXCLUSION_RADIUS_M=100; // この距離以内のマーカーは除外
+// ★方式: 距離ではなく「正規化済み住所文字列の完全一致」で判定
+//   理由: 距離判定は田原市など案件密集エリアで誤除外を多発させた（57件のcases × 100m圏内 = 田原市456件中ほぼ全滅）
+var caseAddressSet={}; // {正規化住所: true} 案件マスター登録済み住所
 async function loadFarmlandStatuses(){
   // 旧 farmland_status のロードは廃止（ご指示の正しいワークフローに沿って撤去）
-  // 案件マスターに昇格した案件位置を取得し、トラッカー上で除外するための情報を構築
   farmlandStatuses={};
-  casePositions=[];
+  caseAddressSet={};
   try{
     var casesRes=await db.from('cases').select('id');
     if(casesRes.error){console.warn('cases load error:',casesRes.error);return;}
     var caseIds=(casesRes.data||[]).map(function(c){return c.id;});
     if(!caseIds.length)return;
-    // 位置情報を land_info と landowner_info から取得
-    var posLand=await _fetchAllPaged(function(){return db.from('land_info').select('lat,lng').in('case_id',caseIds);});
-    var posOwn=await _fetchAllPaged(function(){return db.from('landowner_info').select('lat,lng').in('case_id',caseIds);});
-    (posLand.data||[]).forEach(function(r){if(r.lat&&r.lng)casePositions.push({lat:r.lat,lng:r.lng});});
-    (posOwn.data||[]).forEach(function(r){if(r.lat&&r.lng)casePositions.push({lat:r.lat,lng:r.lng});});
-    console.log('[case exclusion] '+casePositions.length+' 位置をトラッカー上で除外対象として登録');
-  }catch(e){console.warn('case position load exception:',e);}
+    // 住所情報を land_info（location）と landowner_info（address）から取得
+    var landRes=await _fetchAllPaged(function(){return db.from('land_info').select('location').in('case_id',caseIds);});
+    var ownRes=await _fetchAllPaged(function(){return db.from('landowner_info').select('address').in('case_id',caseIds);});
+    var addCount=0;
+    (landRes.data||[]).forEach(function(r){
+      var n=_normalizeAddress(r.location);
+      if(n){caseAddressSet[n]=true;addCount++;}
+    });
+    (ownRes.data||[]).forEach(function(r){
+      var n=_normalizeAddress(r.address);
+      if(n){caseAddressSet[n]=true;addCount++;}
+    });
+    console.log('[case exclusion] 案件マスター住所 '+Object.keys(caseAddressSet).length+'件をトラッカー上で除外対象として登録（重複排除前 '+addCount+'件）');
+  }catch(e){console.warn('case address load exception:',e);}
 }
-// 2点間の距離（メートル）を計算（Haversine）
-function _haversineMeters(lat1,lng1,lat2,lng2){
-  var R=6371000;
-  var toRad=function(d){return d*Math.PI/180;};
-  var dLat=toRad(lat2-lat1),dLng=toRad(lng2-lng1);
-  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)*Math.sin(dLng/2);
-  var c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-  return R*c;
+// 住所文字列の正規化（全角/半角統一、空白除去、地番末尾の枝番揺れを吸収）
+function _normalizeAddress(s){
+  if(!s)return '';
+  s=String(s);
+  // 全角→半角
+  s=s.replace(/[０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);});
+  s=s.replace(/[Ａ-Ｚａ-ｚ]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);});
+  s=s.replace(/[\u3000\u00A0]/g,'');
+  // 空白・カンマ・括弧除去
+  s=s.replace(/[\s,，、（）()\[\]【】「」『』]/g,'');
+  // ハイフン統一
+  s=s.replace(/[‐－―ー−–—]/g,'-');
+  // 末尾「番地」「番」「号」削除
+  s=s.replace(/(番地|番|号)$/,'');
+  return s.trim();
 }
-// あるマーカー位置が案件マスター登録済み案件と近接しているか判定（true=除外すべき）
-function _isExcludedByCase(lat,lng){
-  if(!casePositions.length)return false;
-  for(var i=0;i<casePositions.length;i++){
-    var p=casePositions[i];
-    if(_haversineMeters(lat,lng,p.lat,p.lng)<=CASE_EXCLUSION_RADIUS_M)return true;
+// あるマーカーの住所が案件マスター登録済みと一致するか判定（true=除外すべき）
+function _isExcludedByCase(lat,lng,address){
+  if(!Object.keys(caseAddressSet).length)return false;
+  if(!address)return false;
+  var n=_normalizeAddress(address);
+  if(!n)return false;
+  // 完全一致
+  if(caseAddressSet[n])return true;
+  // 前方一致（地番の枝番揺れ吸収。例：「田原市赤羽根町1-2-3」と「田原市赤羽根町1-2」の場合）
+  // ※安全のため住所が10文字以上の場合のみ前方一致を試みる
+  if(n.length>=10){
+    for(var addr in caseAddressSet){
+      if(addr.length>=10 && (n.indexOf(addr)===0 || addr.indexOf(n)===0))return true;
+    }
   }
   return false;
 }
@@ -1072,7 +1094,7 @@ function toggleContactedFilter(){
 function _addMarkerFromItem(item,changeType){
   if(!markersLayer||!item||!item.lat||!item.lng)return;
   // 案件マスター昇格済みは除外
-  if(_isExcludedByCase(item.lat,item.lng))return;
+  if(_isExcludedByCase(item.lat,item.lng,item.address))return;
   var hasComment=!!farmlandComments[item.feature_id];
   var isEmaffN=String(item.feature_id||'').indexOf('emaffN_')===0;
   var c=changeType==='new'?'#3fb950':'#a855f7';
@@ -1563,7 +1585,7 @@ async function loadDiff(){
       if(!item.lat||!item.lng)return;
       if(ngFilterEnabled&&ngFeatureIds[item.feature_id])return;
       // 案件マスター昇格済み除外（ワークフロー: 案件昇格後は地権者訪問・現地調査画面で管理）
-      if(_isExcludedByCase(item.lat,item.lng)){excludedCount++;return;}
+      if(_isExcludedByCase(item.lat,item.lng,item.address)){excludedCount++;return;}
       var firstDate=firstSeenDate[item.feature_id];
       var isNew=(dateFrom&&firstDate>dateFrom);
       if(isNew){
