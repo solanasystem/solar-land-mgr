@@ -2505,7 +2505,34 @@ function initModeC(){
     attribution:'© 国土地理院',maxZoom:18,maxNativeZoom:18
   });
   satLayer.addTo(modeC.map); // デフォルトで衛星
-  L.control.layers({'🛰 衛星':satLayer,'🗾 地図':gsiLayer},null,{position:'topright',collapsed:false}).addTo(modeC.map);
+
+  // ハザード5種類（国土交通省・国土地理院 重ねるハザードマップ準拠）
+  var HZ={
+    flood:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
+    inner:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_kuni_data/{z}/{x}/{y}.png',
+    sediment:'https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki_data/{z}/{x}/{y}.png',
+    tide:'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
+    tsunami:'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png'
+  };
+  var hzOpts={opacity:0.55,maxZoom:18,maxNativeZoom:17,attribution:'国土交通省'};
+  var hazFlood=L.tileLayer(HZ.flood,hzOpts);
+  var hazInner=L.tileLayer(HZ.inner,hzOpts);
+  var hazSediment=L.tileLayer(HZ.sediment,hzOpts);
+  var hazTide=L.tileLayer(HZ.tide,hzOpts);
+  var hazTsunami=L.tileLayer(HZ.tsunami,hzOpts);
+
+  // レイヤコントロール：ベース1枚＋オーバーレイ複数
+  L.control.layers(
+    {'🛰 衛星':satLayer,'🗾 地図':gsiLayer},
+    {
+      '💧 浸水':hazFlood,
+      '🌧 内水':hazInner,
+      '⛰ 土砂':hazSediment,
+      '🌊 高潮':hazTide,
+      '🌀 津波':hazTsunami
+    },
+    {position:'topright',collapsed:false}
+  ).addTo(modeC.map);
 
   // ボタン類のイベント
   document.getElementById('modeCBtnGenerate').addEventListener('click',modeCGenerateGrid);
