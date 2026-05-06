@@ -1536,17 +1536,28 @@ function jumpToBoundary(idx, label) {
 }
 function buildParcelPopup(p) {
   const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  // AMX 仕様: 市区町村名/大字名/地番 + 縮尺分母/精度区分（小字名と面積はAMXに存在しないため非表示）
+  p = p || {};
+  // 地番区域は "市区町村_大字_小字_丁目" 形式（欠損項目はアンダースコアで埋まる）
+  const rawArea = p['\u5730\u756a\u533a\u57df'] || '';
+  const areaParts = rawArea.split('_');
+  const city  = (areaParts[0] || '').trim();
+  const oaza  = (areaParts[1] || '').trim();
+  const koaza = (areaParts[2] || '').trim();
+  const chome = (areaParts[3] || '').trim();
+
   const rows = [
-    ['\u5e02\u533a\u753a\u6751\u540d', p['\u5e02\u533a\u753a\u6751\u540d']],
-    ['\u5927\u5b57\u540d',           p['\u5927\u5b57\u540d']],
-    ['\u5730\u756a',                 p['\u5730\u756a']],
-    ['\u7e2e\u5c3a\u5206\u6bcd',     p['\u7e2e\u5c3a\u5206\u6bcd']],
-    ['\u7cbe\u5ea6\u533a\u5206',     p['\u7cbe\u5ea6\u533a\u5206']]
+    ['\u5e02\u533a\u753a\u6751',    city],
+    ['\u5927\u5b57',                oaza],
+    ['\u5c0f\u5b57',                koaza],
+    ['\u4e01\u76ee',                chome],
+    ['\u5730\u756a',                p['\u5730\u756a']],
+    ['\u7e2e\u5c3a\u5206\u6bcd',    p['\u7e2e\u5c3a\u5206\u6bcd']],
+    ['\u5ea7\u6a19\u5024\u7a2e\u5225', p['\u5ea7\u6a19\u5024\u7a2e\u5225']],
+    ['\u7cbe\u5ea6\u533a\u5206',    p['\u7cbe\u5ea6\u533a\u5206']]
   ].filter(r => r[1])
    .map(r => `<tr><td style="color:var(--text-muted);padding:5px 14px 5px 0;font-size:11px;white-space:nowrap;vertical-align:top;font-weight:500">${r[0]}</td><td style="padding:5px 0;font-size:13px;word-break:break-all;font-weight:600;color:var(--text)">${esc(r[1])}</td></tr>`)
    .join('');
-  return `<div style="padding:12px;min-width:220px"><div style="font-family:'Share Tech Mono',monospace;color:var(--accent);font-size:11px;margin-bottom:10px;letter-spacing:1px;border-bottom:1px solid var(--border);padding-bottom:7px">\u{1F4D0} \u5730\u756a\u60c5\u5831</div><table style="border-collapse:collapse;width:100%">${rows}</table></div>`;
+  return `<div style="padding:12px;min-width:240px"><div style="font-family:'Share Tech Mono',monospace;color:var(--accent);font-size:11px;margin-bottom:10px;letter-spacing:1px;border-bottom:1px solid var(--border);padding-bottom:7px">\u{1F4D0} \u5730\u756a\u60c5\u5831</div><table style="border-collapse:collapse;width:100%">${rows}</table></div>`;
 }
 function jumpToChiban(lat, lng, label) {
   map.setView([lat, lng], 17);
