@@ -1151,7 +1151,11 @@ function selectMode(mode){
     document.getElementById('modeBContent').style.display='block';
   }else if(mode==='C'){
     document.getElementById('modeCContent').style.display='block';
-    setTimeout(initModeC,100); // map初期化はDOM表示後
+    setTimeout(function(){
+      initModeC();
+      // map初期化後・サイズ確定後の追加invalidate
+      setTimeout(function(){if(modeC.map)try{modeC.map.invalidateSize();}catch(_){}},250);
+    },100);
   }
   window.scrollTo({top:0,behavior:'smooth'});
 }
@@ -2489,11 +2493,19 @@ var MODEC_LS_PREFIX='emaff_modec_';
 function initModeC(){
   if(modeC.initialized)return;
   modeC.initialized=true;
-  // map初期化
-  modeC.map=L.map('modeCMap',{zoomControl:true}).setView([35.7,139.5],10);
-  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{
-    attribution:'© 国土地理院',maxZoom:18
-  }).addTo(modeC.map);
+  // map初期化（衛星写真をデフォルト）
+  modeC.map=L.map('modeCMap',{zoomControl:true,maxZoom:18}).setView([35.7,139.5],10);
+
+  // タイルレイヤ：衛星（Esri World Imagery）と地図（GSI標準）を切替可能
+  var satLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
+    attribution:'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics',
+    maxZoom:18,maxNativeZoom:18
+  });
+  var gsiLayer=L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{
+    attribution:'© 国土地理院',maxZoom:18,maxNativeZoom:18
+  });
+  satLayer.addTo(modeC.map); // デフォルトで衛星
+  L.control.layers({'🛰 衛星':satLayer,'🗾 地図':gsiLayer},null,{position:'topright',collapsed:false}).addTo(modeC.map);
 
   // ボタン類のイベント
   document.getElementById('modeCBtnGenerate').addEventListener('click',modeCGenerateGrid);
@@ -2649,20 +2661,28 @@ function modeCRenderMap(){
   modeC.cellLayer=L.featureGroup();
   // 境界
   L.geoJSON(modeC.boundary,{
-    style:{color:'#a855f7',weight:2,fillColor:'#a855f7',fillOpacity:0.05,dashArray:'8,4'}
+    style:{color:'#a855f7',weight:2.5,fillColor:'#a855f7',fillOpacity:0.05,dashArray:'8,4'}
   }).addTo(modeC.cellLayer);
   // セル
   modeC.cells.forEach(function(cell,idx){
-    var color=cell.done?'#22c55e':(idx===modeC.activeCellIdx?'#f0b429':'#9ca3af');
+    var color=cell.done?'#22c55e':(idx===modeC.activeCellIdx?'#f0b429':'#fbbf24');
+    var fillOp=cell.done?0.35:(idx===modeC.activeCellIdx?0.30:0.10);
     var rect=L.rectangle([[cell.bounds[0],cell.bounds[1]],[cell.bounds[2],cell.bounds[3]]],{
-      color:color,weight:1.5,fillColor:color,fillOpacity:cell.done?0.30:0.10
+      color:color,weight:1.8,fillColor:color,fillOpacity:fillOp
     });
     rect.bindTooltip('セル '+(idx+1)+(cell.done?' ✅取込済':' 未取込'),{direction:'top',opacity:0.9});
     rect.on('click',function(){modeCSelectCell(idx);});
     rect.addTo(modeC.cellLayer);
   });
   modeC.cellLayer.addTo(modeC.map);
-  modeC.map.fitBounds(modeC.cellLayer.getBounds(),{padding:[20,20]});
+  // 地図サイズを再計算してから fitBounds
+  setTimeout(function(){
+    try{
+      modeC.map.invalidateSize();
+      var b=modeC.cellLayer.getBounds();
+      if(b.isValid())modeC.map.fitBounds(b,{padding:[20,20]});
+    }catch(e){console.warn('fitBounds error:',e);}
+  },150);
 }
 
 // セル一覧描画
