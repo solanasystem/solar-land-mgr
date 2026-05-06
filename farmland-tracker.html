@@ -43,8 +43,18 @@
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
 <script src="https://unpkg.com/pbf@3.2.1/dist/pbf.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.0.0/turf.min.js"></script>
-<!-- 筆ポリゴンPMTiles表示用（v3系の実績版） -->
-<script src="https://unpkg.com/protomaps-leaflet@3.0.1/dist/protomaps-leaflet.min.js"></script>
+<!-- 地番境界PMTiles表示用（landowner-visit.html と同じ v5.1.0 + ESMデコーダ） -->
+<script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
+<script type="module">
+  // pmtiles と ベクタータイルデコーダを読み込み、グローバルにエクスポート
+  import * as pmtilesModule from 'https://esm.sh/pmtiles@3.0.6';
+  const vtModule = await import('https://esm.sh/@mapbox/vector-tile@1.3.1');
+  const pbfModule = await import('https://esm.sh/pbf@3.2.1');
+  window.__PMT = new pmtilesModule.PMTiles('https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/aichi.pmtiles');
+  window.__VT = vtModule.VectorTile;
+  window.__Pbf = pbfModule.default;
+  window.dispatchEvent(new Event('pmtReady'));
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;--accent:#f0b429;--green:#3fb950;--red:#f85149;--text:#e6edf3;--text-muted:#8b949e;--font-main:'Zen Kaku Gothic New',sans-serif;--font-mono:'Share Tech Mono',monospace;}
@@ -474,7 +484,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
       </div>
     </div>
     <div class="hazard-divider"></div>
-    <button class="hazard-btn active" id="hzFude" onclick="toggleFudePolygon()">&#127809; 筆ポリゴン</button>
+    <button class="hazard-btn active" id="hzFude" onclick="toggleFudePolygon()">&#128208; 地番境界</button>
     <button class="hazard-btn" id="hzNoshin" onclick="toggleNoshin()">&#127806; 農振農用地</button>
     <button class="hazard-btn" id="hzForest5jou" onclick="toggleForest5jou()">&#127795; 5条森林</button>
     <div id="forestLegend" class="forest-legend">
@@ -2409,8 +2419,10 @@ initDraggablePanels('farmlandTracker', [
 })();
 
 /* ============================================================================
- * 筆ポリゴンPMTiles表示機能
+ * 地番境界（筆ポリゴン）PMTiles表示機能
  * Cloudflare R2配信のaichi.pmtiles（557,514筆）を地図に重ねる
+ * クリックで地番情報ポップアップ表示（市区町村名/大字名/小字名/地番/面積）
+ * 実装は landowner-visit.html と同等（protomaps-leaflet@5.1.0 + ESMデコーダ）
  * ============================================================================ */
 (function(){
   'use strict';
@@ -2419,24 +2431,55 @@ initDraggablePanels('farmlandTracker', [
   var fudeLayer=null;
   var fudeEnabled=true; // デフォルトON
   var fudePopup=null;
+  var fudeClickHandler=null;
 
   function getMap(){return (typeof map!=='undefined'&&map)?map:null;}
-  // ライブラリ取得（v3 は protomapsL、v4 は protomaps_leaflet または protomapsL）
   function getProtomapsNS(){
     if(typeof protomapsL!=='undefined')return protomapsL;
     if(typeof window.protomapsL!=='undefined')return window.protomapsL;
     if(typeof window.protomaps_leaflet!=='undefined')return window.protomaps_leaflet;
-    if(typeof window.pmtiles!=='undefined'&&window.pmtiles.leafletLayer)return window.pmtiles;
     return null;
+  }
+
+  // ポイント・イン・ポリゴン判定（landowner-visit.htmlと同一）
+  function pointInPolygon(x,y,rings){
+    var inside=false;
+    for(var r=0;r<rings.length;r++){
+      var ring=rings[r];
+      for(var i=0,j=ring.length-1;i<ring.length;j=i++){
+        var xi=ring[i].x,yi=ring[i].y;
+        var xj=ring[j].x,yj=ring[j].y;
+        var hit=((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi);
+        if(hit)inside=!inside;
+      }
+    }
+    return inside;
+  }
+
+  // ポップアップHTML生成（landowner-visit.htmlのbuildParcelPopupと同一）
+  function buildParcelPopup(p){
+    function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+    var area=p['\u9762\u7a4d'];
+    var areaText=area?(Number(area).toLocaleString('ja-JP',{maximumFractionDigits:1})+' m\u00b2'):null;
+    var rows=[
+      ['\u5e02\u533a\u753a\u6751\u540d',p['\u5e02\u533a\u753a\u6751\u540d']],
+      ['\u5927\u5b57\u540d',p['\u5927\u5b57\u540d']],
+      ['\u5c0f\u5b57\u540d',p['\u5c0f\u5b57\u540d']],
+      ['\u5730\u756a',p['\u5730\u756a']],
+      ['\u9762\u7a4d',areaText]
+    ].filter(function(r){return r[1];})
+     .map(function(r){return '<tr><td style="color:var(--text-muted);padding:5px 14px 5px 0;font-size:11px;white-space:nowrap;vertical-align:top;font-weight:500">'+r[0]+'</td><td style="padding:5px 0;font-size:13px;word-break:break-all;font-weight:600;color:var(--text)">'+esc(r[1])+'</td></tr>';})
+     .join('');
+    return '<div style="padding:12px;min-width:220px"><div style="font-family:\'Share Tech Mono\',monospace;color:var(--accent);font-size:11px;margin-bottom:10px;letter-spacing:1px;border-bottom:1px solid var(--border);padding-bottom:7px">\ud83d\udcd0 \u5730\u756a\u60c5\u5831</div><table style="border-collapse:collapse;width:100%">'+rows+'</table></div>';
   }
 
   function showFude(){
     var m=getMap();
-    if(!m){console.warn('[fude] map未初期化');return;}
+    if(!m){console.warn('[fude] map\u672a\u521d\u671f\u5316');return;}
     var ns=getProtomapsNS();
     if(!ns){
-      console.error('[fude] protomaps-leaflet ライブラリが読み込めていません');
-      if(typeof showToast==='function')showToast('筆ポリゴンライブラリ未読込：F5で再読み込みしてください','error');
+      console.error('[fude] protomaps-leaflet \u30e9\u30a4\u30d6\u30e9\u30ea\u304c\u8aad\u307f\u8fbc\u3081\u3066\u3044\u307e\u305b\u3093');
+      if(typeof showToast==='function')showToast('\u5730\u756a\u5883\u754c\u30e9\u30a4\u30d6\u30e9\u30ea\u672a\u8aad\u8fbc\uff1aF5\u3067\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044','error');
       return;
     }
     if(fudeLayer){
@@ -2444,43 +2487,27 @@ initDraggablePanels('farmlandTracker', [
       fudeLayer=null;
     }
     try{
-      // v3 系の標準的な呼び出し方
-      var layerOpts={
+      // landowner-visit.html と同じスタイル：透明塗り＋赤線（width 1.2）
+      fudeLayer=ns.leafletLayer({
         url:FUDE_PMTILES_URL,
-        maxDataZoom:14,
-        attribution:'\u7b46\u30dd\u30ea\u30b4\u30f3 \u00a9 \u6cd5\u52d9\u7701/\u8fb2\u6797\u6c34\u7523\u7701'
-      };
-      // PaintRules（描画スタイル）：細い赤線で筆界を描画
-      if(ns.PolygonSymbolizer){
-        layerOpts.paintRules=[{
+        paintRules:[{
           dataLayer:'parcels',
-          symbolizer:new ns.PolygonSymbolizer({
-            fill:'rgba(255,140,0,0.04)',
-            stroke:'#f85149',
-            width:1.0,
-            opacity:0.85
-          })
-        }];
-        layerOpts.labelRules=[];
-      }
-      // protomapsL.leafletLayer または ns.leafletLayer
-      var factoryFn=ns.leafletLayer||ns.LeafletLayer;
-      if(typeof factoryFn!=='function'){
-        console.error('[fude] leafletLayer ファクトリが見つかりません。利用可能なメンバー:',Object.keys(ns));
-        if(typeof showToast==='function')showToast('protomaps API変更を検出。コンソールを確認','error');
-        return;
-      }
-      fudeLayer=factoryFn(layerOpts);
+          symbolizer:new ns.PolygonSymbolizer({fill:'transparent',stroke:'#f85149',width:1.2})
+        }],
+        attribution:'\u5730\u756a: \u6cd5\u52d9\u7701 \u767b\u8a18\u6240\u5099\u4ed8\u5730\u56f3\u30c7\u30fc\u30bf'
+      });
       fudeLayer.addTo(m);
       console.log('[fude] レイヤ追加成功');
       // ズーム14未満は自動非表示
       updateFudeVisibility();
       m.on('zoomend',updateFudeVisibility);
-      // クリック検出
-      m.on('click',onMapClickForFude);
+      // クリック検出ハンドラ登録（重複登録防止のため一旦off）
+      if(fudeClickHandler){m.off('click',fudeClickHandler);}
+      fudeClickHandler=onMapClickForFude;
+      m.on('click',fudeClickHandler);
     }catch(e){
       console.error('[fude] レイヤ作成失敗:',e);
-      if(typeof showToast==='function')showToast('筆ポリゴン読込失敗: '+e.message,'error');
+      if(typeof showToast==='function')showToast('\u5730\u756a\u5883\u754c\u8aad\u8fbc\u5931\u6557: '+e.message,'error');
     }
   }
 
@@ -2492,7 +2519,7 @@ initDraggablePanels('farmlandTracker', [
       fudeLayer=null;
     }
     m.off('zoomend',updateFudeVisibility);
-    m.off('click',onMapClickForFude);
+    if(fudeClickHandler){m.off('click',fudeClickHandler);fudeClickHandler=null;}
     if(fudePopup){
       try{m.closePopup(fudePopup);}catch(_){}
       fudePopup=null;
@@ -2507,11 +2534,6 @@ initDraggablePanels('farmlandTracker', [
     try{
       if(fudeLayer.getContainer)container=fudeLayer.getContainer();
       if(!container&&fudeLayer._container)container=fudeLayer._container;
-      if(!container){
-        // canvas要素を地図内から探す
-        var mapContainer=m.getContainer();
-        if(mapContainer)container=mapContainer.querySelector('canvas.leaflet-tile-container,canvas.leaflet-zoom-animated');
-      }
     }catch(_){}
     if(container){
       container.style.opacity=(z<FUDE_MIN_ZOOM)?'0':'1';
@@ -2519,12 +2541,18 @@ initDraggablePanels('farmlandTracker', [
     }
   }
 
-  // 筆ポリゴンクリック時：マーカーが上にある場合は何もしない（マーカー優先）
+  // クリック時：手動PBFデコード方式（landowner-visit.htmlと同一実装）
   async function onMapClickForFude(ev){
     if(!fudeEnabled)return;
     var m=getMap();
     if(!m||m.getZoom()<FUDE_MIN_ZOOM)return;
-    // マーカーが直近にあればスキップ
+    if(!window.__PMT||!window.__VT||!window.__Pbf)return;
+
+    // ポップアップ/マーカー要素の上のクリックは無視
+    var t=ev.originalEvent&&ev.originalEvent.target;
+    if(t&&(t.closest('.leaflet-marker-icon')||t.closest('.leaflet-popup')))return;
+
+    // マーカーが直近にあればスキップ（マーカー優先）
     if(typeof markersLayer!=='undefined'&&markersLayer){
       var clicked=ev.containerPoint;
       var hitMarker=false;
@@ -2538,36 +2566,39 @@ initDraggablePanels('farmlandTracker', [
       });
       if(hitMarker)return;
     }
-    if(!fudeLayer||!fudeLayer.queryFeatures)return;
+
+    var lng=ev.latlng.lng,lat=ev.latlng.lat;
+    var z=Math.min(Math.max(Math.floor(m.getZoom()),14),18);
+    var n=Math.pow(2,z);
+    var latR=lat*Math.PI/180;
+    var tx=Math.floor((lng+180)/360*n);
+    var ty=Math.floor((1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*n);
     try{
-      var features=await fudeLayer.queryFeatures(ev.latlng.lng,ev.latlng.lat);
-      if(!features||features.length===0)return;
-      var f=null;
-      for(var i=0;i<features.length;i++){
-        if(features[i].layerName==='parcels'){f=features[i];break;}
+      var resp=await window.__PMT.getZxy(z,tx,ty);
+      if(!resp)return;
+      var tile=new window.__VT(new window.__Pbf(resp.data));
+      var layerNames=Object.keys(tile.layers);
+      if(!layerNames.length)return;
+      var layer=tile.layers[layerNames[0]];
+      var extent=layer.extent;
+      var pxFull=(lng+180)/360*n*extent;
+      var pyFull=(1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*n*extent;
+      var px=pxFull-tx*extent;
+      var py=pyFull-ty*extent;
+      var foundProps=null;
+      for(var i=0;i<layer.length;i++){
+        var feat=layer.feature(i);
+        if(feat.type!==3)continue;
+        var geom=feat.loadGeometry();
+        if(pointInPolygon(px,py,geom)){foundProps=feat.properties;break;}
       }
-      if(!f)f=features[0];
-      var p=f.props||f.properties||{};
-      var html='<div style="font-family:var(--font-main,sans-serif);font-size:12px;line-height:1.6;min-width:180px;">'+
-        '<div style="font-weight:700;color:#f85149;margin-bottom:6px;border-bottom:1px solid rgba(248,81,73,0.3);padding-bottom:4px;">\ud83d\udfe7 \u7b46\u30dd\u30ea\u30b4\u30f3</div>'+
-        (p['\u5e02\u533a\u753a\u6751\u540d']?'<div><b>\u5e02\u533a\u753a\u6751:</b> '+escFude(p['\u5e02\u533a\u753a\u6751\u540d'])+'</div>':'')+
-        (p['\u5927\u5b57\u540d']?'<div><b>\u5927\u5b57:</b> '+escFude(p['\u5927\u5b57\u540d'])+'</div>':'')+
-        (p['\u5c0f\u5b57\u540d']?'<div><b>\u5c0f\u5b57:</b> '+escFude(p['\u5c0f\u5b57\u540d'])+'</div>':'')+
-        (p['\u4e01\u76ee\u540d']?'<div><b>\u4e01\u76ee:</b> '+escFude(p['\u4e01\u76ee\u540d'])+'</div>':'')+
-        (p['\u5730\u756a']?'<div><b>\u5730\u756a:</b> '+escFude(p['\u5730\u756a'])+'</div>':'')+
-        (p.ID?'<div style="color:#7d8590;font-size:10px;margin-top:4px;">ID: '+escFude(p.ID)+'</div>':'')+
-      '</div>';
+      if(!foundProps)return;
       if(fudePopup){try{m.closePopup(fudePopup);}catch(_){}}
-      fudePopup=L.popup({maxWidth:280,className:'fude-popup'})
-        .setLatLng(ev.latlng)
-        .setContent(html)
-        .openOn(m);
+      fudePopup=L.popup({maxWidth:320,minWidth:240}).setLatLng(ev.latlng).setContent(buildParcelPopup(foundProps)).openOn(m);
     }catch(e){
-      console.warn('[fude] queryFeatures失敗:',e);
+      console.warn('[fude] \u30af\u30ea\u30c3\u30af\u30c7\u30b3\u30fc\u30c9\u5931\u6557:',e);
     }
   }
-
-  function escFude(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
   // ヘッダーボタンonclick
   window.toggleFudePolygon=function(){
@@ -2596,8 +2627,8 @@ initDraggablePanels('farmlandTracker', [
       }else{
         console.error('[fude] ライブラリ読込タイムアウト');
         var btn=document.getElementById('hzFude');
-        if(btn){btn.classList.remove('active');btn.title='筆ポリゴンライブラリ読込失敗';}
-        if(typeof showToast==='function')showToast('筆ポリゴンライブラリ読込失敗（CDN到達不可？）','warning');
+        if(btn){btn.classList.remove('active');btn.title='\u5730\u756a\u5883\u754c\u30e9\u30a4\u30d6\u30e9\u30ea\u8aad\u8fbc\u5931\u6557';}
+        if(typeof showToast==='function')showToast('\u5730\u756a\u5883\u754c\u30e9\u30a4\u30d6\u30e9\u30ea\u8aad\u8fbc\u5931\u6557\uff08CDN\u5230\u9054\u4e0d\u53ef\uff1f\uff09','warning');
       }
       return;
     }
