@@ -473,6 +473,19 @@
         <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#CCF0FF;border:1px solid #aaa;flex-shrink:0"></div>工業専用</div>
       </div>
     </div>
+    <button class="hazard-toggle-btn" id="btnCityPlan" onclick="toggleCityPlan()">
+      <span class="hazard-toggle-dot"></span>&#128506; 都市計画区域
+    </button>
+    <div id="cityPlanLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);">
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">区域区分</div>
+      <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FF8C5A;opacity:0.5;border:1px solid #c5532e;flex-shrink:0"></div>市街化区域</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#4CAF50;opacity:0.5;border:1px solid #2e7d32;flex-shrink:0"></div>市街化調整区域</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:transparent;border:1.5px dashed #2196F3;flex-shrink:0"></div>都市計画区域(外周)</div>
+        <div style="display:flex;align-items:center;gap:5px;color:#888"><div style="width:10px;height:10px;background:transparent;border:1px solid #ccc;flex-shrink:0"></div>無色＝区域外</div>
+      </div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.4;">※外周(青破線)内で無色＝<b>非線引き</b><br>※外周自体が無い＝<b>都市計画区域外</b></div>
+    </div>
     <div class="hazard-divider"></div>
     <button class="hazard-btn" id="hzNoshin" onclick="toggleNoshin()">&#127806; 農振農用地</button>
     <button class="hazard-btn" id="hzForest5jou" onclick="toggleForest5jou()">&#127795; 5条森林</button>
@@ -824,6 +837,78 @@ async function _fetchAndRenderUrban(){
     }
   }).addTo(map);
   urbanLayer.bringToFront();
+}
+/* ==== \u90fd\u5e02\u8a08\u753b\u533a\u57df / \u533a\u57df\u533a\u5206 (XKT001) ==== */
+/* XKT001\u306f\u5404\u30dd\u30ea\u30b4\u30f3\u306b area_classification_ja \u5c5e\u6027\u3092\u4ed8\u3057\u3066\u8fd4\u3059\u3002
+   \u4ee3\u8868\u5024: "\u90fd\u5e02\u8a08\u753b\u533a\u57df" / "\u5e02\u8857\u5316\u533a\u57df" / "\u5e02\u8857\u5316\u8abf\u6574\u533a\u57df" \u7b49\u3002
+   \u5b89\u5168\u306b\u5224\u5b9a\u3059\u308b\u305f\u3081\u90e8\u5206\u4e00\u81f4(includes)\u3067\u30de\u30c3\u30c1\u3055\u305b\u308b\u3002 */
+let cityPlanLayer=null, cityPlanEnabled=false, cityPlanRenderTimer=null;
+function _classifyCityPlan(name){
+  var s=String(name||'');
+  if(s.indexOf('\u5e02\u8857\u5316\u8abf\u6574')>=0) return 'chosei';   /* \u5e02\u8857\u5316\u8abf\u6574\u533a\u57df */
+  if(s.indexOf('\u5e02\u8857\u5316\u533a\u57df')>=0) return 'shigai';    /* \u5e02\u8857\u5316\u533a\u57df */
+  if(s.indexOf('\u90fd\u5e02\u8a08\u753b\u533a\u57df')>=0) return 'tokei';/* \u90fd\u5e02\u8a08\u753b\u533a\u57df(\u89aa) */
+  return 'other';
+}
+function _styleCityPlan(feature){
+  var p=feature.properties||{}; var cls=_classifyCityPlan(p.area_classification_ja);
+  if(cls==='shigai') return {fillColor:'#FF8C5A',fillOpacity:0.32,color:'#c5532e',weight:0.6,opacity:0.7};
+  if(cls==='chosei') return {fillColor:'#4CAF50',fillOpacity:0.28,color:'#2e7d32',weight:0.6,opacity:0.7};
+  if(cls==='tokei')  return {fillColor:'transparent',fillOpacity:0,color:'#2196F3',weight:1.8,opacity:0.85,dashArray:'6,4'};
+  return {fillColor:'#CCCCCC',fillOpacity:0.18,color:'#888888',weight:0.4,opacity:0.5};
+}
+function toggleCityPlan(){
+  var btn=document.getElementById('btnCityPlan'); var legend=document.getElementById('cityPlanLegend');
+  cityPlanEnabled=!cityPlanEnabled;
+  if(cityPlanEnabled){ btn.classList.add('active'); if(legend)legend.style.display='block'; loadCityPlan(); showToast('\ud83d\uddfa \u90fd\u5e02\u8a08\u753b\u533a\u57df\u3092ON\u306b\u3057\u307e\u3057\u305f','success'); }
+  else { btn.classList.remove('active'); if(legend)legend.style.display='none'; if(cityPlanLayer){map.removeLayer(cityPlanLayer);cityPlanLayer=null;} map.off('moveend',renderCityPlanInView); map.off('zoomend',renderCityPlanInView); showToast('\ud83d\uddfa \u90fd\u5e02\u8a08\u753b\u533a\u57df\u3092OFF\u306b\u3057\u307e\u3057\u305f','success'); }
+}
+function loadCityPlan(){ map.on('moveend',renderCityPlanInView); map.on('zoomend',renderCityPlanInView); renderCityPlanInView(); }
+function renderCityPlanInView(){ if(cityPlanRenderTimer)clearTimeout(cityPlanRenderTimer); cityPlanRenderTimer=setTimeout(_doRenderCityPlan,400); }
+function _doRenderCityPlan(){
+  if(!cityPlanEnabled)return;
+  if(map.getZoom()<11){ if(cityPlanLayer){map.removeLayer(cityPlanLayer);cityPlanLayer=null;} showToast('\u30ba\u30fc\u30e011\u4ee5\u4e0a\u3067\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error'); return; }
+  _fetchAndRenderCityPlan();
+}
+async function _fetchAndRenderCityPlan(){
+  var bounds=map.getBounds();
+  var tileZoom=Math.min(Math.max(Math.floor(map.getZoom()),11),14);
+  var tiles=getTilesForBounds(bounds,tileZoom);
+  if(tiles.length>36){ if(cityPlanLayer){map.removeLayer(cityPlanLayer);cityPlanLayer=null;} showToast('\u3082\u3046\u5c11\u3057\u30ba\u30fc\u30e0\u30a4\u30f3\u3059\u308b\u3068\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error'); return; }
+  var allFeatures=[];
+  await Promise.all(tiles.map(async function(t){
+    try { var res=await fetch(URBAN_API_BASE+'/XKT001?response_format=geojson&z='+t.z+'&x='+t.x+'&y='+t.y); if(!res.ok)return; var data=await res.json(); if(data.features)allFeatures.push.apply(allFeatures,data.features); } catch(e){}
+  }));
+  if(!cityPlanEnabled)return;
+  if(cityPlanLayer){map.removeLayer(cityPlanLayer);cityPlanLayer=null;}
+  if(!allFeatures.length)return;
+  var seen=new Set();
+  var uniqueFeatures=allFeatures.filter(function(f){
+    var firstCoord=(f.geometry&&f.geometry.coordinates&&f.geometry.coordinates[0]&&f.geometry.coordinates[0][0])||Math.random();
+    var key=(f.properties&&f.properties.area_classification_ja||'')+'_'+JSON.stringify(firstCoord);
+    if(seen.has(key))return false; seen.add(key); return true;
+  });
+  /* \u63cf\u753b\u9806: \u90fd\u5e02\u8a08\u753b\u533a\u57df(\u89aa)\u2192\u5e02\u8857\u5316\u8abf\u6574\u2192\u5e02\u8857\u5316\u533a\u57df\u3001\u3068\u3044\u3046\u9806\u5e8f\u3067\u6700\u4e0a\u90e8\u306b\u5e02\u8857\u5316\u533a\u57df\u304c\u898b\u3048\u308b\u3088\u3046\u306b\u3059\u308b */
+  var orderRank={tokei:0, chosei:1, shigai:2, other:0};
+  uniqueFeatures.sort(function(a,b){
+    return (orderRank[_classifyCityPlan(a.properties&&a.properties.area_classification_ja)]||0)
+         - (orderRank[_classifyCityPlan(b.properties&&b.properties.area_classification_ja)]||0);
+  });
+  cityPlanLayer=L.geoJSON({type:'FeatureCollection',features:uniqueFeatures},{
+    style:_styleCityPlan,
+    onEachFeature:function(feature,layer){
+      var p=feature.properties||{};
+      var cls=p.area_classification_ja||'\u4e0d\u660e';
+      var pref=p.prefecture||''; var city=p.city_name||'';
+      var dd=p.decision_date||'\u2014';
+      layer.on('click',function(e){
+        L.popup({maxWidth:300,minWidth:240}).setLatLng(e.latlng).setContent('<div style="padding:12px;font-family:sans-serif;"><div style="color:#2196F3;font-size:13px;margin-bottom:10px;font-weight:700">\ud83d\uddfa \u90fd\u5e02\u8a08\u753b\u30fb\u533a\u57df\u533a\u5206</div><div style="font-size:12px;line-height:1.8"><div><span style="color:#8b949e;display:inline-block;min-width:70px">\u533a\u57df\u533a\u5206</span><span style="font-weight:600">'+cls+'</span></div>'+(city?'<div><span style="color:#8b949e;display:inline-block;min-width:70px">\u5e02\u533a\u753a\u6751</span><span>'+pref+' '+city+'</span></div>':'')+'<div><span style="color:#8b949e;display:inline-block;min-width:70px">\u8a2d\u5b9a\u5e74\u6708\u65e5</span><span>'+dd+'</span></div></div><hr style="border:none;border-top:1px solid #30363d;margin:8px 0"><div style="font-size:11px;color:#aaa">\u56fd\u571f\u4ea4\u901a\u7701 \u4e0d\u52d5\u7523\u60c5\u5831\u30e9\u30a4\u30d6\u30e9\u30ea\uff08XKT001 / \u4ee4\u548c6\u5e74\u5ea6\uff09</div></div>').openOn(map);
+      });
+      layer.on('mouseover',function(){ var s=_styleCityPlan(feature); layer.setStyle({fillOpacity:Math.min(0.7,(s.fillOpacity||0)+0.3)}); });
+      layer.on('mouseout',function(){if(cityPlanLayer)cityPlanLayer.resetStyle(layer);});
+    }
+  }).addTo(map);
+  cityPlanLayer.bringToBack();
 }
 function initMap() {
   map = L.map('map', { zoomControl: false }).setView([36.5, 138], 5);

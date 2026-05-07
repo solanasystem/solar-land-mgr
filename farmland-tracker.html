@@ -505,6 +505,20 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
         <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#CCF0FF;border:1px solid #aaa;flex-shrink:0"></div>工業専用</div>
       </div>
     </div>
+    <!-- 都市計画区域・区域区分 -->
+    <button class="hazard-toggle-btn" id="btnCityPlan" onclick="toggleCityPlan()">
+      <span class="hazard-toggle-dot"></span>🗺 都市計画区域
+    </button>
+    <div id="cityPlanLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);">
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">区域区分</div>
+      <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FF8C5A;opacity:0.5;border:1px solid #c5532e;flex-shrink:0"></div>市街化区域</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#4CAF50;opacity:0.5;border:1px solid #2e7d32;flex-shrink:0"></div>市街化調整区域</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:transparent;border:1.5px dashed #2196F3;flex-shrink:0"></div>都市計画区域(外周)</div>
+        <div style="display:flex;align-items:center;gap:5px;color:#888"><div style="width:10px;height:10px;background:transparent;border:1px solid #ccc;flex-shrink:0"></div>無色＝区域外</div>
+      </div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.4;">※外周(青破線)内で無色＝<b>非線引き</b><br>※外周自体が無い＝<b>都市計画区域外</b></div>
+    </div>
     <div class="hazard-divider"></div>
     <button class="hazard-btn active" id="hzFude" onclick="toggleFudePolygon()">&#128208; 地番境界</button>
     <button class="hazard-btn" id="hzNoshin" onclick="toggleNoshin()">&#127806; 農振農用地</button>
@@ -1924,6 +1938,142 @@ async function _fetchAndRenderUrban() {
   }).addTo(map);
   urbanLayer.bringToFront();
   if(markersLayer)markersLayer.bringToFront();
+}
+
+// ======== 都市計画区域／区域区分 (XKT001) ========
+// XKT001は area_classification_ja で "都市計画区域" / "市街化区域" / "市街化調整区域" 等を返す。
+// 表記ゆれに強いよう includes による部分一致で判定する。
+var cityPlanLayer = null;
+var cityPlanEnabled = false;
+var cityPlanRenderTimer = null;
+
+function _classifyCityPlan(name) {
+  var s = String(name || '');
+  if (s.indexOf('\u5e02\u8857\u5316\u8abf\u6574') >= 0) return 'chosei';
+  if (s.indexOf('\u5e02\u8857\u5316\u533a\u57df') >= 0) return 'shigai';
+  if (s.indexOf('\u90fd\u5e02\u8a08\u753b\u533a\u57df') >= 0) return 'tokei';
+  return 'other';
+}
+
+function _styleCityPlan(feature) {
+  var cls = _classifyCityPlan((feature.properties || {}).area_classification_ja);
+  if (cls === 'shigai') return { fillColor: '#FF8C5A', fillOpacity: 0.32, color: '#c5532e', weight: 0.6, opacity: 0.7 };
+  if (cls === 'chosei') return { fillColor: '#4CAF50', fillOpacity: 0.28, color: '#2e7d32', weight: 0.6, opacity: 0.7 };
+  if (cls === 'tokei')  return { fillColor: 'transparent', fillOpacity: 0, color: '#2196F3', weight: 1.8, opacity: 0.85, dashArray: '6,4' };
+  return { fillColor: '#CCCCCC', fillOpacity: 0.18, color: '#888888', weight: 0.4, opacity: 0.5 };
+}
+
+function toggleCityPlan() {
+  var btn = document.getElementById('btnCityPlan');
+  var legend = document.getElementById('cityPlanLegend');
+  cityPlanEnabled = !cityPlanEnabled;
+  if (cityPlanEnabled) {
+    btn.classList.add('active');
+    if (legend) legend.style.display = 'block';
+    loadCityPlan();
+    showToast('\ud83d\uddfa \u90fd\u5e02\u8a08\u753b\u533a\u57df\u3092ON\u306b\u3057\u307e\u3057\u305f', 'success');
+  } else {
+    btn.classList.remove('active');
+    if (legend) legend.style.display = 'none';
+    if (cityPlanLayer) { map.removeLayer(cityPlanLayer); cityPlanLayer = null; }
+    map.off('moveend', renderCityPlanInView);
+    map.off('zoomend', renderCityPlanInView);
+    showToast('\ud83d\uddfa \u90fd\u5e02\u8a08\u753b\u533a\u57df\u3092OFF\u306b\u3057\u307e\u3057\u305f', 'success');
+  }
+}
+
+function loadCityPlan() {
+  map.on('moveend', renderCityPlanInView);
+  map.on('zoomend', renderCityPlanInView);
+  renderCityPlanInView();
+}
+
+function renderCityPlanInView() {
+  if (cityPlanRenderTimer) clearTimeout(cityPlanRenderTimer);
+  cityPlanRenderTimer = setTimeout(_doRenderCityPlan, 400);
+}
+
+function _doRenderCityPlan() {
+  if (!cityPlanEnabled) return;
+  if (map.getZoom() < 11) {
+    if (cityPlanLayer) { map.removeLayer(cityPlanLayer); cityPlanLayer = null; }
+    showToast('\u30ba\u30fc\u30e011\u4ee5\u4e0a\u3067\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059', 'error');
+    return;
+  }
+  _fetchAndRenderCityPlan();
+}
+
+async function _fetchAndRenderCityPlan() {
+  var bounds = map.getBounds();
+  var tileZoom = Math.min(Math.max(Math.floor(map.getZoom()), 11), 14);
+  var tiles = getTilesForBounds(bounds, tileZoom);
+
+  if (tiles.length > 36) {
+    if (cityPlanLayer) { map.removeLayer(cityPlanLayer); cityPlanLayer = null; }
+    showToast('\u3082\u3046\u5c11\u3057\u30ba\u30fc\u30e0\u30a4\u30f3\u3059\u308b\u3068\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059', 'error');
+    return;
+  }
+
+  var allFeatures = [];
+  await Promise.all(tiles.map(async function(t) {
+    try {
+      var res = await fetch(URBAN_API_BASE + "/XKT001?response_format=geojson&z=" + t.z + "&x=" + t.x + "&y=" + t.y);
+      if (!res.ok) return;
+      var data = await res.json();
+      if (data.features) allFeatures.push.apply(allFeatures, data.features);
+    } catch (e) { console.warn('cityplan fetch error', e); }
+  }));
+
+  if (!cityPlanEnabled) return;
+  if (cityPlanLayer) { map.removeLayer(cityPlanLayer); cityPlanLayer = null; }
+  if (!allFeatures.length) return;
+
+  var seen = new Set();
+  var uniqueFeatures = allFeatures.filter(function(f) {
+    var firstCoord = (f.geometry && f.geometry.coordinates && f.geometry.coordinates[0] && f.geometry.coordinates[0][0]) || Math.random();
+    var key = ((f.properties && f.properties.area_classification_ja) || '') + '_' + JSON.stringify(firstCoord);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // 描画順: 都市計画区域(親) → 市街化調整区域 → 市街化区域 の順で上に重ねる
+  var orderRank = { tokei: 0, chosei: 1, shigai: 2, other: 0 };
+  uniqueFeatures.sort(function(a, b) {
+    return (orderRank[_classifyCityPlan((a.properties || {}).area_classification_ja)] || 0)
+         - (orderRank[_classifyCityPlan((b.properties || {}).area_classification_ja)] || 0);
+  });
+
+  cityPlanLayer = L.geoJSON({ type: 'FeatureCollection', features: uniqueFeatures }, {
+    style: _styleCityPlan,
+    onEachFeature: function(feature, layer) {
+      var p = feature.properties || {};
+      var cls = p.area_classification_ja || '不明';
+      var pref = p.prefecture || '';
+      var city = p.city_name || '';
+      var dd = p.decision_date || '—';
+      layer.on('click', function(e) {
+        L.popup({ maxWidth: 300, minWidth: 240 }).setLatLng(e.latlng).setContent(`
+          <div class="popup-body">
+            <div class="popup-case-no" style="color:#2196F3;font-size:13px;margin-bottom:10px">🗺 都市計画・区域区分</div>
+            <div class="popup-info">
+              <div class="popup-row"><span class="popup-label">区域区分</span><span class="popup-value" style="font-weight:600">${cls}</span></div>
+              ${city ? `<div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">${pref} ${city}</span></div>` : ''}
+              <div class="popup-row"><span class="popup-label">設定年月日</span><span class="popup-value">${dd}</span></div>
+            </div>
+            <hr class="popup-divider">
+            <div style="font-size:11px;color:#aaa;line-height:1.5">国土交通省 不動産情報ライブラリ（XKT001 / 令和6年度）</div>
+          </div>
+        `).openOn(map);
+      });
+      layer.on('mouseover', function() {
+        var s = _styleCityPlan(feature);
+        layer.setStyle({ fillOpacity: Math.min(0.7, (s.fillOpacity || 0) + 0.3) });
+      });
+      layer.on('mouseout', function() { if (cityPlanLayer) cityPlanLayer.resetStyle(layer); });
+    },
+  }).addTo(map);
+  cityPlanLayer.bringToBack();
 }
 
 // 地番・住所検索
