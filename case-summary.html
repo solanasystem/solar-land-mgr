@@ -1834,6 +1834,9 @@ function render(c, land, owner, snowDepth) {
   const lng = c.lng ?? land.lng ?? owner.lng;
   const coords = formatCoords(lat, lng);
 
+  // 「🗺地図で見る」ボタンの有効化（cases/land_info/landowner_info のフォールバック後の値を使用）
+  try { updateMapViewButton(lat, lng, c.case_no); } catch(e) { console.warn('[map-btn] update例外:', e); }
+
   // Google Map URL
   const gmap = c.google_map || land.google_map || owner.google_map;
 
@@ -3840,26 +3843,30 @@ function renderSellabilityBanner(caseData, intros) {
   detailEl.innerHTML = detail;
   banner.style.display = 'flex';
 
-  // 「🗺地図で見る」ボタンの有効化判定（緯度経度が両方ある場合のみ）
+  // 注: 「🗺地図で見る」ボタンの有効化は render() 内で実施する
+  // （cases テーブルだけでなく land_info/landowner_info からの
+  // フォールバック取得結果を反映する必要があるため）
+}
+
+// 「🗺地図で見る」ボタンの有効化と緯度経度の保持
+// render() 関数内で呼ぶ。lat/lng は既存のフォールバック解決済みの値を渡す。
+function updateMapViewButton(lat, lng, caseNo) {
   const mapBtn = document.getElementById('sellabilityMapViewBtn');
-  if (mapBtn) {
-    const lat = caseData?.lat;
-    const lng = caseData?.lng;
-    const hasCoords = (lat !== null && lat !== undefined && !isNaN(parseFloat(lat))) &&
-                      (lng !== null && lng !== undefined && !isNaN(parseFloat(lng)));
-    if (hasCoords) {
-      mapBtn.disabled = false;
-      mapBtn.dataset.lat = String(lat);
-      mapBtn.dataset.lng = String(lng);
-      mapBtn.dataset.caseNo = caseData?.case_no || '';
-      mapBtn.title = '農地変化トラッカーで位置を確認 (' + parseFloat(lat).toFixed(5) + ', ' + parseFloat(lng).toFixed(5) + ')';
-    } else {
-      mapBtn.disabled = true;
-      mapBtn.dataset.lat = '';
-      mapBtn.dataset.lng = '';
-      mapBtn.dataset.caseNo = '';
-      mapBtn.title = '緯度経度未登録のため地図に飛べません';
-    }
+  if (!mapBtn) return;
+  const hasCoords = (lat !== null && lat !== undefined && !isNaN(parseFloat(lat))) &&
+                    (lng !== null && lng !== undefined && !isNaN(parseFloat(lng)));
+  if (hasCoords) {
+    mapBtn.disabled = false;
+    mapBtn.dataset.lat = String(lat);
+    mapBtn.dataset.lng = String(lng);
+    mapBtn.dataset.caseNo = caseNo || '';
+    mapBtn.title = '農地変化トラッカーで位置を確認 (' + parseFloat(lat).toFixed(5) + ', ' + parseFloat(lng).toFixed(5) + ')';
+  } else {
+    mapBtn.disabled = true;
+    mapBtn.dataset.lat = '';
+    mapBtn.dataset.lng = '';
+    mapBtn.dataset.caseNo = '';
+    mapBtn.title = '緯度経度未登録のため地図に飛べません';
   }
 }
 
