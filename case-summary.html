@@ -958,6 +958,33 @@ window.addEventListener('load', function() {
     transform: scale(1.05);
   }
 
+  /* 地図で見るボタン（2026-05-07追加） */
+  .sellability-mapview-btn {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    border: 1.5px solid rgba(255,255,255,0.6);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: inherit;
+    white-space: nowrap;
+    transition: background 0.15s, transform 0.15s;
+  }
+  .sellability-mapview-btn:hover:not(:disabled) {
+    background: rgba(255,255,255,0.35);
+    transform: translateY(-1px);
+  }
+  .sellability-mapview-btn:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  .sellability-mapview-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
   /* 帯内の GEN/RTL バッジ */
   .gen-rtl-badge {
     display: inline-block;
@@ -983,9 +1010,10 @@ window.addEventListener('load', function() {
     .sellability-banner-headline { font-size: 13px; }
     .sellability-banner-detail { font-size: 11px; }
     .sellability-info-icon { width: 26px; height: 26px; font-size: 13px; }
+    .sellability-mapview-btn { padding: 5px 9px; font-size: 11px; }
   }
 
-  /* 印刷時：帯本体は出す、ⓘアイコンは隠す */
+  /* 印刷時：帯本体は出す、ⓘアイコンと地図ボタンは隠す */
   @media print {
     .sellability-banner {
       box-shadow: none;
@@ -993,7 +1021,8 @@ window.addEventListener('load', function() {
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
-    .sellability-info-icon { display: none !important; }
+    .sellability-info-icon,
+    .sellability-mapview-btn { display: none !important; }
   }
 
   /* ============================================================
@@ -1135,6 +1164,10 @@ window.addEventListener('load', function() {
       <div class="sellability-banner-headline" id="sellabilityBannerHeadline">判定待ち</div>
       <div class="sellability-banner-detail" id="sellabilityBannerDetail">都市計画区域：未確認</div>
     </div>
+    <button type="button" class="sellability-mapview-btn" id="sellabilityMapViewBtn"
+            onclick="openOnFarmlandTracker()"
+            title="農地変化トラッカーで位置を確認"
+            disabled>🗺 地図で見る</button>
     <button type="button" class="sellability-info-icon" id="sellabilityInfoIcon"
             onclick="openGlossaryModal()" title="電気事業区分の用語解説を開く">ⓘ</button>
   </div>
@@ -3806,6 +3839,46 @@ function renderSellabilityBanner(caseData, intros) {
   headEl.textContent = headline;
   detailEl.innerHTML = detail;
   banner.style.display = 'flex';
+
+  // 「🗺地図で見る」ボタンの有効化判定（緯度経度が両方ある場合のみ）
+  const mapBtn = document.getElementById('sellabilityMapViewBtn');
+  if (mapBtn) {
+    const lat = caseData?.lat;
+    const lng = caseData?.lng;
+    const hasCoords = (lat !== null && lat !== undefined && !isNaN(parseFloat(lat))) &&
+                      (lng !== null && lng !== undefined && !isNaN(parseFloat(lng)));
+    if (hasCoords) {
+      mapBtn.disabled = false;
+      mapBtn.dataset.lat = String(lat);
+      mapBtn.dataset.lng = String(lng);
+      mapBtn.dataset.caseNo = caseData?.case_no || '';
+      mapBtn.title = '農地変化トラッカーで位置を確認 (' + parseFloat(lat).toFixed(5) + ', ' + parseFloat(lng).toFixed(5) + ')';
+    } else {
+      mapBtn.disabled = true;
+      mapBtn.dataset.lat = '';
+      mapBtn.dataset.lng = '';
+      mapBtn.dataset.caseNo = '';
+      mapBtn.title = '緯度経度未登録のため地図に飛べません';
+    }
+  }
+}
+
+// 「🗺地図で見る」ボタン → 農地変化トラッカーを新タブで開く
+function openOnFarmlandTracker() {
+  const btn = document.getElementById('sellabilityMapViewBtn');
+  if (!btn || btn.disabled) return;
+  const lat = btn.dataset.lat;
+  const lng = btn.dataset.lng;
+  if (!lat || !lng) {
+    alert('緯度経度が未登録のため地図を開けません');
+    return;
+  }
+  // farmland-tracker.html の既存URLパラメータ機能を利用
+  // lat/lng = 中心座標、zoom=16（現地確認に適切な精細度）、highlight=1（脈動マーカー）
+  const url = 'farmland-tracker.html?lat=' + encodeURIComponent(lat)
+            + '&lng=' + encodeURIComponent(lng)
+            + '&zoom=16&highlight=1';
+  window.open(url, '_blank');
 }
 
 // モーダル開閉
