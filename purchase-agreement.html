@@ -475,7 +475,20 @@ async function downloadDocx(){
       docXml = docXml.substring(0, tblStart) + tblXml + docXml.substring(tblEnd);
     }
 
-    // 4. 書き戻し
+    // -- 5. A4 1枚に収めるための圧縮処理 --
+    // 空段落（テキストを含まない<w:p>）の行間を 280 twips → 80 twips に圧縮
+    docXml = docXml.replace(/<w:p[^>]*>[\s\S]*?<\/w:p>/g, function(pBlock){
+      if(!/<w:t[ >]/.test(pBlock)){
+        // 空段落 → line spacing を圧縮
+        return pBlock.replace(/w:line="280"/, 'w:line="80"');
+      }
+      return pBlock;
+    });
+    // 上下マージンを少し圧縮（1ページに収まるよう）
+    docXml = docXml.replace(/w:top="567"/, 'w:top="340"');
+    docXml = docXml.replace(/w:bottom="817"/, 'w:bottom="340"');
+
+    // 6. 書き戻し
     zip.file('word/document.xml', docXml);
 
     // 5. Blob 生成 → ダウンロード
