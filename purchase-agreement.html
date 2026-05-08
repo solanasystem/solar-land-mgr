@@ -143,20 +143,20 @@ body{font-family:var(--font-main);background:var(--bg);color:var(--text);font-si
       </div>
       <div class="form-group">
         <label class="form-label">ステータスで絞込</label>
-        <div class="status-tabs" id="statusTabs">
-          <button class="st-tab active" data-st="ALL" onclick="setStatusFilter('ALL')">すべて<span class="st-count" id="cntALL"></span></button>
-          <button class="st-tab" data-st="NOT VISITED" onclick="setStatusFilter('NOT VISITED')">NOT VISITED<span class="st-count" id="cntNOT VISITED"></span></button>
-          <button class="st-tab" data-st="THINKING↑" onclick="setStatusFilter('THINKING↑')">THINKING↑<span class="st-count" id="cntTHINKING↑"></span></button>
-          <button class="st-tab" data-st="THINKING→" onclick="setStatusFilter('THINKING→')">THINKING→<span class="st-count" id="cntTHINKING→"></span></button>
-          <button class="st-tab" data-st="THINKING↓" onclick="setStatusFilter('THINKING↓')">THINKING↓<span class="st-count" id="cntTHINKING↓"></span></button>
-          <button class="st-tab" data-st="OK" onclick="setStatusFilter('OK')">OK<span class="st-count" id="cntOK"></span></button>
-          <button class="st-tab" data-st="SUCCESS" onclick="setStatusFilter('SUCCESS')">SUCCESS<span class="st-count" id="cntSUCCESS"></span></button>
-          <button class="st-tab" data-st="NON MEET" onclick="setStatusFilter('NON MEET')">NON MEET<span class="st-count" id="cntNON MEET"></span></button>
-          <button class="st-tab" data-st="NG" onclick="setStatusFilter('NG')">NG<span class="st-count" id="cntNG"></span></button>
-          <button class="st-tab" data-st="UNKNOWN" onclick="setStatusFilter('UNKNOWN')">UNKNOWN<span class="st-count" id="cntUNKNOWN"></span></button>
-          <button class="st-tab" data-st="LETTER" onclick="setStatusFilter('LETTER')">LETTER<span class="st-count" id="cntLETTER"></span></button>
-          <button class="st-tab" data-st="LTR済" onclick="setStatusFilter('LTR済')">LTR済<span class="st-count" id="cntLTR済"></span></button>
-        </div>
+        <select class="form-select" id="filterStatus" onchange="setStatusFilter(this.value)">
+          <option value="ALL">すべてのステータス</option>
+          <option value="NOT VISITED">NOT VISITED</option>
+          <option value="THINKING↑">THINKING↑</option>
+          <option value="THINKING→">THINKING→</option>
+          <option value="THINKING↓">THINKING↓</option>
+          <option value="OK">OK</option>
+          <option value="SUCCESS">SUCCESS</option>
+          <option value="NON MEET">NON MEET</option>
+          <option value="NG">NG</option>
+          <option value="UNKNOWN">UNKNOWN</option>
+          <option value="LETTER">LETTER</option>
+          <option value="LTR済">LTR済</option>
+        </select>
       </div>
       <div class="form-group">
         <button id="ngBlindBtn" class="ng-blind-btn on" onclick="toggleNgBlind()" style="width:100%">NGブラインド ON</button>
@@ -220,7 +220,6 @@ let ngBlind=true; // NGブラインド初期ON
 
 function setStatusFilter(st){
   statusFilter=st;
-  document.querySelectorAll('.st-tab').forEach(b=>b.classList.toggle('active', b.dataset.st===st));
   renderCaseSelect();
 }
 
@@ -309,15 +308,16 @@ function updateStatusCounts(){
   });
   // NG件数は ngBlind に関係なく表示
   counts['NG']=base.filter(c=>c.status==='NG').length;
-  ['ALL','NOT VISITED','THINKING↑','THINKING→','THINKING↓','OK','SUCCESS','NON MEET','NG','UNKNOWN','LETTER','LTR済'].forEach(st=>{
-    const el=document.getElementById('cnt'+st);
-    if(el){
+  // selectのoptionテキストに件数を表示
+  const labels={'ALL':'すべてのステータス','NOT VISITED':'NOT VISITED','THINKING↑':'THINKING↑','THINKING→':'THINKING→','THINKING↓':'THINKING↓','OK':'OK','SUCCESS':'SUCCESS','NON MEET':'NON MEET','NG':'NG','UNKNOWN':'UNKNOWN','LETTER':'LETTER','LTR済':'LTR済'};
+  const sel=document.getElementById('filterStatus');
+  if(sel){
+    Array.from(sel.options).forEach(opt=>{
+      const st=opt.value;
       const n=counts[st]||0;
-      el.textContent=n>0?` ${n}`:'';
-      const tab=document.querySelector(`.st-tab[data-st="${st}"]`);
-      if(tab)tab.classList.toggle('empty', n===0);
-    }
-  });
+      opt.textContent=labels[st]+(n>0?` (${n})`:'');
+    });
+  }
 }
 
 function renderCaseSelect(){
