@@ -985,6 +985,33 @@ window.addEventListener('load', function() {
     cursor: not-allowed;
   }
 
+  /* 都市計画区域 自動判定ボタン（2026-05-09追加・Phase B-2 Step A） */
+  .sellability-judge-btn {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.28);
+    color: white;
+    border: 1.5px solid rgba(255,255,255,0.85);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: inherit;
+    white-space: nowrap;
+    transition: background 0.15s, transform 0.15s;
+  }
+  .sellability-judge-btn:hover:not(:disabled) {
+    background: rgba(255,255,255,0.45);
+    transform: translateY(-1px);
+  }
+  .sellability-judge-btn:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  .sellability-judge-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
   /* 帯内の GEN/RTL バッジ */
   .gen-rtl-badge {
     display: inline-block;
@@ -1011,6 +1038,7 @@ window.addEventListener('load', function() {
     .sellability-banner-detail { font-size: 11px; }
     .sellability-info-icon { width: 26px; height: 26px; font-size: 13px; }
     .sellability-mapview-btn { padding: 5px 9px; font-size: 11px; }
+    .sellability-judge-btn { padding: 5px 9px; font-size: 11px; }
   }
 
   /* 印刷時：帯本体は出す、ⓘアイコンと地図ボタンは隠す */
@@ -1022,7 +1050,8 @@ window.addEventListener('load', function() {
       print-color-adjust: exact;
     }
     .sellability-info-icon,
-    .sellability-mapview-btn { display: none !important; }
+    .sellability-mapview-btn,
+    .sellability-judge-btn { display: none !important; }
   }
 
   /* ============================================================
@@ -1168,6 +1197,10 @@ window.addEventListener('load', function() {
             onclick="openOnFarmlandTracker()"
             title="農地変化トラッカーで位置を確認"
             disabled>🗺 地図で見る</button>
+    <button type="button" class="sellability-judge-btn" id="sellabilityJudgeBtn"
+            onclick="runCityPlanningJudge()"
+            title="都市計画区域を自動判定"
+            style="display:none;">⚖ 自動判定</button>
     <button type="button" class="sellability-info-icon" id="sellabilityInfoIcon"
             onclick="openGlossaryModal()" title="電気事業区分の用語解説を開く">ⓘ</button>
   </div>
@@ -1865,6 +1898,9 @@ function render(c, land, owner, snowDepth) {
 
   // 「🗺地図で見る」ボタンの有効化（cases/land_info/landowner_info のフォールバック後の値を使用）
   try { updateMapViewButton(lat, lng, c.case_no); } catch(e) { console.warn('[map-btn] update例外:', e); }
+
+  // 「⚖ 自動判定」ボタンの表示制御（city_planning_zone IS NULL かつ lat/lng あり の時のみ表示）
+  try { updateJudgeButton(lat, lng, c.city_planning_zone); } catch(e) { console.warn('[judge-btn] update例外:', e); }
 
   // Google Map URL
   const gmap = c.google_map || land.google_map || owner.google_map;
@@ -3901,6 +3937,39 @@ function updateMapViewButton(lat, lng, caseNo) {
     mapBtn.dataset.caseNo = '';
     mapBtn.title = '緯度経度未登録のため地図に飛べません';
   }
+}
+
+// ============================================================
+// 都市計画区域 自動判定ボタン（Phase B-2 Step A） — 2026-05-09 追加
+// ============================================================
+// 表示・非表示制御: city_planning_zone IS NULL かつ lat/lng あり の時のみ表示
+function updateJudgeButton(lat, lng, cityPlanningZone) {
+  const btn = document.getElementById('sellabilityJudgeBtn');
+  if (!btn) return;
+  const hasCoords = (lat !== null && lat !== undefined && !isNaN(parseFloat(lat))) &&
+                    (lng !== null && lng !== undefined && !isNaN(parseFloat(lng)));
+  const isUnjudged = (cityPlanningZone === null || cityPlanningZone === undefined || cityPlanningZone === '');
+  if (isUnjudged && hasCoords) {
+    btn.style.display = '';
+    btn.disabled = false;
+    btn.dataset.lat = String(lat);
+    btn.dataset.lng = String(lng);
+    btn.title = '都市計画区域を自動判定 (' + parseFloat(lat).toFixed(5) + ', ' + parseFloat(lng).toFixed(5) + ')';
+  } else {
+    btn.style.display = 'none';
+    btn.disabled = true;
+    btn.dataset.lat = '';
+    btn.dataset.lng = '';
+  }
+}
+
+// ボタンクリック時のメイン処理（ブロック1: 仮実装。ブロック2でAPI呼び出し実装に置き換え）
+function runCityPlanningJudge() {
+  const btn = document.getElementById('sellabilityJudgeBtn');
+  if (!btn) return;
+  const lat = btn.dataset.lat;
+  const lng = btn.dataset.lng;
+  alert('【ブロック1: 見た目確認用の仮実装】\n\n判定対象座標:\n  緯度: ' + lat + '\n  経度: ' + lng + '\n\nブロック2でXKT001 API呼び出しを実装します。');
 }
 
 // 「🗺地図で見る」ボタン → 農地変化トラッカーを新タブで開く
