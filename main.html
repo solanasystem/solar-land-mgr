@@ -3432,21 +3432,32 @@ async function previewDocument(id){
   }
 }
 
-// ダウンロード：署名付きURLからダウンロード
+// ダウンロード：署名付きURL→fetch→Blob→a.download で元のファイル名（日本語含む）を確実に保持
 async function downloadDocument(id){
   try{
     const{data,error}=await db.from('case_documents').select('file_path,file_name').eq('id',id).single();
     if(error||!data)throw error||new Error('書類が見つかりません');
-    const{data:urlData,error:urlErr}=await db.storage.from('registry-docs').createSignedUrl(data.file_path,3600,{download:data.file_name});
+    // 署名付きURL生成（downloadオプションは使わない：Supabase側でURLエンコードされた名前になる問題回避）
+    const{data:urlData,error:urlErr}=await db.storage.from('registry-docs').createSignedUrl(data.file_path,3600);
     if(urlErr)throw urlErr;
     if(!urlData?.signedUrl)throw new Error('URL生成失敗');
-    // ダウンロードリンクをクリック
+    // ファイル名：DB側がURLエンコード済みの場合に備えて decodeURIComponent
+    let dlName=data.file_name||'document.pdf';
+    if(/%[0-9A-Fa-f]{2}/.test(dlName)){
+      try{const decoded=decodeURIComponent(dlName);if(decoded&&decoded!==dlName)dlName=decoded;}catch(e){}
+    }
+    // fetchしてBlob化、a.downloadで元のファイル名を直接指定
+    const res=await fetch(urlData.signedUrl);
+    if(!res.ok)throw new Error('ファイル取得失敗: '+res.status);
+    const blob=await res.blob();
+    const blobUrl=URL.createObjectURL(blob);
     const a=document.createElement('a');
-    a.href=urlData.signedUrl;
-    a.download=data.file_name||'document.pdf';
+    a.href=blobUrl;
+    a.download=dlName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    URL.revokeObjectURL(blobUrl);
     showToast('⬇ ダウンロード開始','success');
   }catch(e){
     console.error('ダウンロードエラー:',e);
