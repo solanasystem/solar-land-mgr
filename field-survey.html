@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: field-survey v20260509i / 業務番号(display_case_no) 対応 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -795,6 +796,20 @@ const SUPABASE_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+/* ===== 業務用案件番号 (display_case_no) 対応：main.htmlと共通の表示ヘルパー ===== */
+var caseNoDisplayMode=(function(){try{return localStorage.getItem('caseNoDisplayMode')||'case_no';}catch(e){return 'case_no';}})();
+function caseDisplayNo(c){
+  if(!c)return '—';
+  if(caseNoDisplayMode==='business_no' && c.display_case_no)return c.display_case_no;
+  if(c.parent_case_no)return c.parent_case_no;
+  return c.case_no || '—';
+}
+/* localStorageが他タブで変更されたとき、自動で再読込（ベストエフォート） */
+window.addEventListener('storage',function(e){
+  if(e.key==='caseNoDisplayMode'){caseNoDisplayMode=e.newValue||'case_no';}
+});
+/* ===== ===== */
+
 
 let map, gsiLayer, esriLayer, baseTileRef;
 
@@ -1399,7 +1414,7 @@ function loadFude() {
 }
 
 async function loadData() {
-  const { data: cases } = await db.from('cases').select('id, case_no, kubun, status, area_name');
+  const { data: cases } = await db.from('cases').select('id, case_no, display_case_no, kubun, status, area_name');
   const { data: lands } = await db.from('land_info').select('*');
   const { data: surveys } = await db.from('field_survey_status').select('*');
   const { data: landowners } = await db.from('landowner_info').select('id, case_id, name');
@@ -1478,7 +1493,7 @@ function buildPopup(c, land, survey, landowner) {
   return `
     <div class="popup-body">
       <div class="popup-case-no">
-        <span>${c.case_no}</span>
+        <span>${caseDisplayNo(c)}</span>
         ${statusHtml}
       </div>
       <div class="popup-info">
@@ -1498,7 +1513,7 @@ function buildPopup(c, land, survey, landowner) {
           ${land?.lat && land?.lng ? `<button class="popup-btn" onclick="window.open('https://map.maff.go.jp/?zoom=17&lat=${land.lat}&lng=${land.lng}','_blank')" style="border-color:var(--green);color:var(--green)">\ud83c\udf3e \u8fb2\u5730\u30ca\u30d3</button>` : ''}
           ${confirmed
             ? `<button class="popup-btn confirmed-label" style="flex:1">\u2713 \u78ba\u8a8d\u6e08\u307f</button><button class="popup-btn" style="flex:1;border-color:var(--red);color:var(--red)" onclick="unConfirm('${c.id}')">\ud83d\udd04 \u89e3\u9664</button>`
-            : `<button class="popup-btn confirm" onclick="openConfirmModal('${c.id}','${c.case_no}')">\u78ba\u8a8d\u7d42\u4e86</button>`}
+            : `<button class="popup-btn confirm" onclick="openConfirmModal('${c.id}','${(caseDisplayNo(c)||'').replace(/'/g,"\\'")}')">\u78ba\u8a8d\u7d42\u4e86</button>`}
         </div>
         ${planBtnHtml ? `<div>${planBtnHtml}</div>` : ''}
       </div>
@@ -1763,7 +1778,7 @@ function renderSurveyTable() {
 
   const rows = [...planSet].map((caseId, idx) => {
     const d = markers[caseId];
-    const caseNo = d?.case?.case_no || '\u2014';
+    const caseNo = caseDisplayNo(d?.case) || '\u2014';
     const conf = d?.confirmed ? 'confirmed' : '';
     const fs = _calcMobileFontSize(caseNo, 11);
     return `<tr class="${conf}"><td>${idx + 1}</td><td style="font-family:var(--font-mono);font-size:${fs}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${caseNo}</td></tr>`;

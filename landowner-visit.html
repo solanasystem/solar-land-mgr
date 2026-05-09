@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: landowner-visit v20260509i / 業務番号(display_case_no) 対応 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -534,6 +535,20 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const WORKER_BASE = 'https://reinfolib-proxy.takumi-29b.workers.dev';
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+/* ===== 業務用案件番号 (display_case_no) 対応：main.htmlと共通の表示ヘルパー ===== */
+var caseNoDisplayMode=(function(){try{return localStorage.getItem('caseNoDisplayMode')||'case_no';}catch(e){return 'case_no';}})();
+function caseDisplayNo(c){
+  if(!c)return '—';
+  if(caseNoDisplayMode==='business_no' && c.display_case_no)return c.display_case_no;
+  if(c.parent_case_no)return c.parent_case_no;
+  return c.case_no || '—';
+}
+/* localStorageが他タブで変更されたとき、自動で再読込（ベストエフォート） */
+window.addEventListener('storage',function(e){
+  if(e.key==='caseNoDisplayMode'){caseNoDisplayMode=e.newValue||'case_no';}
+});
+/* ===== ===== */
+
 let map, gsiLayer, esriLayer, parcelLayer;
 let markers = {};
 let planSet = new Set();
@@ -1117,7 +1132,7 @@ function toggleLayer(type, enabled) {
   else if (type === 'parcel') { enabled ? parcelLayer.addTo(map) : map.removeLayer(parcelLayer); }
 }
 async function loadData() {
-  const { data: los } = await db.from('landowner_info').select('*, cases(id, case_no, status, area_name)');
+  const { data: los } = await db.from('landowner_info').select('*, cases(id, case_no, display_case_no, status, area_name)');
   const { data: visits } = await db.from('visit_status').select('*');
   if (!los) return;
   allLandowners = los.map(lo => {
@@ -1155,7 +1170,7 @@ function renderMarkersForCurrentPower(){
     const marker = L.marker([lo.lat, lo.lng], { icon });
     marker.bindPopup(buildPopup(lo, caseId, isVisited, planSet.has(caseId)), { maxWidth: 280, minWidth: 260 });
     marker.bindTooltip(
-      `<span style="font-family:'Share Tech Mono',monospace;color:#f0b429;font-size:11px">${lo.cases?.case_no || ''}</span>\u3000${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}\u3000<span style="color:#94a3b8;font-size:10px;">[${st}]</span>`,
+      `<span style="font-family:'Share Tech Mono',monospace;color:#f0b429;font-size:11px">${caseDisplayNo(lo.cases) || ''}</span>\u3000${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}\u3000<span style="color:#94a3b8;font-size:10px;">[${st}]</span>`,
       { direction: 'top', offset: [0, -22], opacity: 1 }
     );
     marker.addTo(map);
@@ -1308,7 +1323,7 @@ function buildPopup(lo, caseId, isVisited, isPlanned) {
       actionHtml = `<button class="popup-btn select-btn" onclick="addPlan('${caseId}')">\uff0b \u8a2a\u554f\u4e88\u5b9a\u306b\u8ffd\u52a0</button>`;
     }
   }
-  return `<div class="popup-body"><div class="popup-name"><span>${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}</span><span class="popup-case-no">${lo.cases?.case_no || ''}</span></div><div class="popup-info"><div class="popup-row"><span class="popup-label">\u4f4f\u6240</span><span class="popup-value">${lo.address || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u96fb\u8a71</span><span class="popup-value">${lo.tel || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u4fa1\u683c</span><span class="popup-value">${lo.price ? Number(lo.price).toLocaleString() + ' \u4e07\u5186' : '\u2014'}</span></div></div><hr class="popup-divider"><div class="popup-actions">${actionHtml}</div></div>`;
+  return `<div class="popup-body"><div class="popup-name"><span>${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}</span><span class="popup-case-no">${caseDisplayNo(lo.cases) || ''}</span></div><div class="popup-info"><div class="popup-row"><span class="popup-label">\u4f4f\u6240</span><span class="popup-value">${lo.address || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u96fb\u8a71</span><span class="popup-value">${lo.tel || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u4fa1\u683c</span><span class="popup-value">${lo.price ? Number(lo.price).toLocaleString() + ' \u4e07\u5186' : '\u2014'}</span></div></div><hr class="popup-divider"><div class="popup-actions">${actionHtml}</div></div>`;
 }
 async function unVisit(caseId) {
   if (!confirm('\u8a2a\u554f\u6e08\u307f\u3092\u89e3\u9664\u3057\u307e\u3059\u304b\uff1f')) return;
@@ -1423,7 +1438,7 @@ function renderPlanList() {
   if (planSet.size === 0) { el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:10px">\u8a2a\u554f\u4e88\u5b9a\u304c\u3042\u308a\u307e\u305b\u3093</div>'; return; }
   el.innerHTML = [...planSet].map(caseId => {
     const d = markers[caseId]; const lo = d?.lo;
-    return `<div class="plan-item ${d?.isVisited ? 'visited' : ''}"><div class="plan-item-name">${lo?.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'} ${d?.isVisited ? '\u2713' : ''}</div><div class="plan-item-case">${lo?.cases?.case_no || ''}</div><div class="plan-item-address">${lo?.address || ''}</div></div>`;
+    return `<div class="plan-item ${d?.isVisited ? 'visited' : ''}"><div class="plan-item-name">${lo?.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'} ${d?.isVisited ? '\u2713' : ''}</div><div class="plan-item-case">${caseDisplayNo(lo?.cases) || ''}</div><div class="plan-item-address">${lo?.address || ''}</div></div>`;
   }).join('');
 }
 function startVisitMode() {
@@ -1451,7 +1466,7 @@ function startNav(caseId) {
 async function openVisitModal(caseId) {
   currentVisitCaseId = caseId;
   const d = markers[caseId]; const lo = d?.lo;
-  document.getElementById('visitModalInfo').textContent = `${lo?.cases?.case_no || ''} ${lo?.name || ''}`;
+  document.getElementById('visitModalInfo').textContent = `${caseDisplayNo(lo?.cases) || ''} ${lo?.name || ''}`;
   document.getElementById('visitDate').value = new Date().toISOString().split('T')[0];
   document.getElementById('visitContent').value = '';
   currentLandownerId = lo?.id || null;
