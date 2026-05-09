@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260509j / Phase B-2 Block 2: city_planning_zone 自動判定 (XKT001 API本実装) -->
+<!-- BUILD: case-summary v20260509k / Phase B-2 Block 2 + caseDisplayNo スコープ修正 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -1697,6 +1697,24 @@ function saveConfig() {
 // SDK は window.supabase 経由でアクセス（グローバル変数名の衝突回避）
 let sbClient = null;
 
+/* ===== 業務用案件番号 (display_case_no) 対応：main.htmlと共通の表示ヘルパー ===== */
+/* 配置: グローバルスコープ（initSupabase の try 内に書かれていたバグを修正・2026-05-09） */
+var caseNoDisplayMode = (function(){
+  try { return localStorage.getItem('caseNoDisplayMode') || 'case_no'; }
+  catch(e) { return 'case_no'; }
+})();
+function caseDisplayNo(c){
+  if(!c) return '—';
+  if(caseNoDisplayMode === 'business_no' && c.display_case_no) return c.display_case_no;
+  if(c.parent_case_no) return c.parent_case_no;
+  return c.case_no || '—';
+}
+/* localStorageが他タブで変更されたとき、自動で再読込（ベストエフォート） */
+window.addEventListener('storage', function(e){
+  if(e.key === 'caseNoDisplayMode') { caseNoDisplayMode = e.newValue || 'case_no'; }
+});
+/* ===== ===== */
+
 function initSupabase() {
   // 1. SDKが読み込めているか確認
   if (typeof window.supabase === 'undefined' || !window.supabase.createClient) {
@@ -1724,19 +1742,6 @@ function initSupabase() {
   // 3. クライアント生成（例外時は画面表示）
   try {
     sbClient = window.supabase.createClient(url, key);
-/* ===== 業務用案件番号 (display_case_no) 対応：main.htmlと共通の表示ヘルパー ===== */
-var caseNoDisplayMode=(function(){try{return localStorage.getItem('caseNoDisplayMode')||'case_no';}catch(e){return 'case_no';}})();
-function caseDisplayNo(c){
-  if(!c)return '—';
-  if(caseNoDisplayMode==='business_no' && c.display_case_no)return c.display_case_no;
-  if(c.parent_case_no)return c.parent_case_no;
-  return c.case_no || '—';
-}
-/* localStorageが他タブで変更されたとき、自動で再読込（ベストエフォート） */
-window.addEventListener('storage',function(e){
-  if(e.key==='caseNoDisplayMode'){caseNoDisplayMode=e.newValue||'case_no';}
-});
-/* ===== ===== */
 
     setStatus('Supabase接続OK / 案件番号を入力してください');
     return true;
