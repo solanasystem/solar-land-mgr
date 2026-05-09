@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260509i / 業務番号(display_case_no) 対応 -->
+<!-- BUILD: case-summary v20260509j / Phase B-2 Block 2: city_planning_zone 自動判定 (XKT001 API本実装) -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -1148,6 +1148,131 @@ window.addEventListener('load', function() {
   @media print {
     .glossary-modal { display: none !important; }
   }
+
+  /* ======== 都市計画区域 自動判定 結果確認モーダル - Phase B-2 Block 2 ======== */
+  .judge-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 10001;
+    align-items: center;
+    justify-content: center;
+  }
+  .judge-modal.show { display: flex; }
+  .judge-modal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+  }
+  .judge-modal-content {
+    position: relative;
+    width: 92vw;
+    max-width: 460px;
+    max-height: 88vh;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .judge-modal-header {
+    padding: 14px 20px;
+    background: #f3f4f6;
+    border-bottom: 1px solid #d1d5db;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .judge-modal-header .close-btn {
+    border: none;
+    background: transparent;
+    font-size: 22px;
+    cursor: pointer;
+    padding: 2px 12px;
+    color: #6b7280;
+  }
+  .judge-modal-header .close-btn:hover { background: #e5e7eb; border-radius: 4px; }
+  .judge-modal-body {
+    padding: 20px 22px;
+    overflow-y: auto;
+    flex: 1;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #1f2937;
+  }
+  .judge-result-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+  }
+  .judge-result-row .label { color: #6b7280; font-size: 12px; }
+  .judge-result-row .value { font-weight: 700; font-size: 14px; }
+  .judge-result-zone {
+    text-align: center;
+    padding: 16px;
+    border-radius: 8px;
+    margin: 12px 0;
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .judge-result-zone.urbanization { background: #fef3c7; color: #92400e; border: 2px solid #f59e0b; }
+  .judge-result-zone.control      { background: #d1fae5; color: #065f46; border: 2px solid #10b981; }
+  .judge-result-zone.non_zoned    { background: #dbeafe; color: #1e40af; border: 2px solid #3b82f6; }
+  .judge-result-zone.outside      { background: #f3f4f6; color: #374151; border: 2px solid #9ca3af; }
+  .judge-result-note {
+    font-size: 11.5px;
+    color: #6b7280;
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    border-radius: 4px;
+    line-height: 1.5;
+  }
+  .judge-modal-footer {
+    padding: 12px 20px;
+    background: #f9fafb;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+  .judge-modal-btn-cancel,
+  .judge-modal-btn-ok {
+    padding: 8px 18px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .judge-modal-btn-cancel {
+    background: white;
+    color: #374151;
+    border-color: #d1d5db;
+  }
+  .judge-modal-btn-cancel:hover { background: #f3f4f6; }
+  .judge-modal-btn-ok {
+    background: #2563eb;
+    color: white;
+  }
+  .judge-modal-btn-ok:hover { background: #1d4ed8; }
+  .judge-modal-btn-ok:disabled { background: #9ca3af; cursor: not-allowed; }
+  @media (max-width: 768px) {
+    .judge-modal-content { width: 96vw; max-height: 92vh; }
+    .judge-modal-body { padding: 14px 16px; font-size: 12.5px; }
+  }
+  @media print {
+    .judge-modal { display: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -1900,7 +2025,7 @@ function render(c, land, owner, snowDepth) {
   try { updateMapViewButton(lat, lng, c.case_no); } catch(e) { console.warn('[map-btn] update例外:', e); }
 
   // 「⚖ 自動判定」ボタンの表示制御（city_planning_zone IS NULL かつ lat/lng あり の時のみ表示）
-  try { updateJudgeButton(lat, lng, c.city_planning_zone); } catch(e) { console.warn('[judge-btn] update例外:', e); }
+  try { updateJudgeButton(lat, lng, c.city_planning_zone, c.id); } catch(e) { console.warn('[judge-btn] update例外:', e); }
 
   // Google Map URL
   const gmap = c.google_map || land.google_map || owner.google_map;
@@ -3943,7 +4068,7 @@ function updateMapViewButton(lat, lng, caseNo) {
 // 都市計画区域 自動判定ボタン（Phase B-2 Step A） — 2026-05-09 追加
 // ============================================================
 // 表示・非表示制御: city_planning_zone IS NULL かつ lat/lng あり の時のみ表示
-function updateJudgeButton(lat, lng, cityPlanningZone) {
+function updateJudgeButton(lat, lng, cityPlanningZone, caseId) {
   const btn = document.getElementById('sellabilityJudgeBtn');
   if (!btn) return;
   const hasCoords = (lat !== null && lat !== undefined && !isNaN(parseFloat(lat))) &&
@@ -3954,22 +4079,262 @@ function updateJudgeButton(lat, lng, cityPlanningZone) {
     btn.disabled = false;
     btn.dataset.lat = String(lat);
     btn.dataset.lng = String(lng);
+    btn.dataset.caseId = caseId ? String(caseId) : '';
     btn.title = '都市計画区域を自動判定 (' + parseFloat(lat).toFixed(5) + ', ' + parseFloat(lng).toFixed(5) + ')';
   } else {
     btn.style.display = 'none';
     btn.disabled = true;
     btn.dataset.lat = '';
     btn.dataset.lng = '';
+    btn.dataset.caseId = '';
   }
 }
 
-// ボタンクリック時のメイン処理（ブロック1: 仮実装。ブロック2でAPI呼び出し実装に置き換え）
-function runCityPlanningJudge() {
+// ============================================================
+// Phase B-2 Block 2: 都市計画区域 自動判定（XKT001 API呼び出し本実装）
+// XKT001 ロジックは farmland-tracker.html の _classifyCityPlan / _fetchAndRenderCityPlan を踏襲
+// 3マップへの逆流変更なし（コピー再利用）
+// ============================================================
+
+// XKT001 API ベースURL（reinfolib-proxy 経由）
+const _JUDGE_XKT001_API = 'https://reinfolib-proxy.takumi-29b.workers.dev/api/XKT001';
+const _JUDGE_TILE_ZOOM  = 11;  // XKT001 推奨ズーム
+
+// 緯度経度 → タイル座標 変換（farmland-tracker.html latLngToTileXY と同一実装）
+function _judgeLatLngToTileXY(lat, lng, zoom) {
+  const x = Math.floor((lng + 180) / 360 * Math.pow(2, zoom));
+  const sinLat = Math.sin(lat * Math.PI / 180);
+  const y = Math.floor((0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * Math.pow(2, zoom));
+  return { x, y };
+}
+
+// Ray-casting法による点-多角形包含判定（純JS・依存なし）
+// ring: [[lng,lat], [lng,lat], ...] の配列
+function _judgePointInRing(point, ring) {
+  // point: [lng, lat]
+  const x = point[0], y = point[1];
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1];
+    const xj = ring[j][0], yj = ring[j][1];
+    const intersect = ((yi > y) !== (yj > y)) &&
+      (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-12) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Polygon / MultiPolygon に対する包含判定（穴も考慮）
+function _judgePointInGeometry(point, geometry) {
+  if (!geometry) return false;
+  if (geometry.type === 'Polygon') {
+    const rings = geometry.coordinates;
+    if (!rings || !rings.length) return false;
+    if (!_judgePointInRing(point, rings[0])) return false;     // 外周に含まれない
+    for (let i = 1; i < rings.length; i++) {                    // 穴に含まれる場合は除外
+      if (_judgePointInRing(point, rings[i])) return false;
+    }
+    return true;
+  }
+  if (geometry.type === 'MultiPolygon') {
+    const polys = geometry.coordinates;
+    for (let p = 0; p < polys.length; p++) {
+      const rings = polys[p];
+      if (!rings || !rings.length) continue;
+      if (!_judgePointInRing(point, rings[0])) continue;
+      let inHole = false;
+      for (let i = 1; i < rings.length; i++) {
+        if (_judgePointInRing(point, rings[i])) { inHole = true; break; }
+      }
+      if (!inHole) return true;
+    }
+    return false;
+  }
+  return false;
+}
+
+// area_classification_ja → 内部分類記号（farmland-tracker._classifyCityPlan と同一）
+// 表記ゆれに強いよう includes による部分一致で判定
+function _judgeClassifyName(name) {
+  const s = String(name || '');
+  // 順序重要: '\u5e02\u8857\u5316\u8abf\u6574' (市街化調整) を '\u5e02\u8857\u5316\u533a\u57df' (市街化区域) より先に判定
+  if (s.indexOf('\u5e02\u8857\u5316\u8abf\u6574') >= 0) return 'chosei';   // 市街化調整 → control
+  if (s.indexOf('\u5e02\u8857\u5316\u533a\u57df') >= 0) return 'shigai';   // 市街化区域 → urbanization
+  if (s.indexOf('\u90fd\u5e02\u8a08\u753b\u533a\u57df') >= 0) return 'tokei'; // 都市計画区域(親) → non_zoned
+  return 'other';
+}
+
+// GeoJSON features の中で point を含むものを抽出 → 優先度順に分類
+// 戻り値: { dbValue: 'urbanization'|'control'|'non_zoned'|'outside', label: '...', matchedName: '...' }
+function _judgeClassifyFromFeatures(features, lat, lng) {
+  const point = [parseFloat(lng), parseFloat(lat)];   // GeoJSON は [lng, lat] 順
+  let hitShigai = null, hitChosei = null, hitTokei = null;
+  for (let i = 0; i < (features || []).length; i++) {
+    const f = features[i];
+    if (!f || !f.geometry) continue;
+    if (!_judgePointInGeometry(point, f.geometry)) continue;
+    const name = (f.properties || {}).area_classification_ja || '';
+    const cls = _judgeClassifyName(name);
+    if (cls === 'shigai' && !hitShigai) hitShigai = name;
+    else if (cls === 'chosei' && !hitChosei) hitChosei = name;
+    else if (cls === 'tokei' && !hitTokei) hitTokei = name;
+  }
+  // 優先度: shigai > chosei > tokei > outside
+  if (hitShigai) return { dbValue: 'urbanization', label: '市街化区域',     matchedName: hitShigai };
+  if (hitChosei) return { dbValue: 'control',      label: '市街化調整区域', matchedName: hitChosei };
+  if (hitTokei)  return { dbValue: 'non_zoned',    label: '非線引き区域',   matchedName: hitTokei };
+  return            { dbValue: 'outside',     label: '都市計画区域外', matchedName: '' };
+}
+
+// XKT001 を中心タイル＋周辺3x3グリッドで取得（境界ケース対策）
+async function _judgeFetchXKT001(lat, lng) {
+  const center = _judgeLatLngToTileXY(parseFloat(lat), parseFloat(lng), _JUDGE_TILE_ZOOM);
+  const tiles = [];
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      tiles.push({ x: center.x + dx, y: center.y + dy, z: _JUDGE_TILE_ZOOM });
+    }
+  }
+  const allFeatures = [];
+  let anySuccess = false;
+  let anyError = null;
+  await Promise.all(tiles.map(async t => {
+    try {
+      const url = _JUDGE_XKT001_API + '?response_format=geojson&z=' + t.z + '&x=' + t.x + '&y=' + t.y;
+      const res = await fetch(url);
+      if (!res.ok) {
+        if (res.status !== 204 && res.status !== 404) anyError = 'HTTP ' + res.status;
+        return;
+      }
+      anySuccess = true;
+      const data = await res.json();
+      if (data && data.features && data.features.length) {
+        allFeatures.push.apply(allFeatures, data.features);
+      }
+    } catch (e) {
+      anyError = e.message || String(e);
+      console.warn('[judge] XKT001 fetch error:', e);
+    }
+  }));
+  if (!anySuccess && anyError) {
+    throw new Error('XKT001 API取得失敗: ' + anyError);
+  }
+  return allFeatures;
+}
+
+// 判定結果モーダルを開く
+function _judgeOpenResultModal(result, lat, lng, caseId) {
+  const modal = document.getElementById('judgeResultModal');
+  const body  = document.getElementById('judgeModalBody');
+  const okBtn = document.getElementById('judgeModalBtnOk');
+  if (!modal || !body || !okBtn) return;
+  const zoneCls = result.dbValue;  // 'urbanization' | 'control' | 'non_zoned' | 'outside'
+  const matchedHtml = result.matchedName
+    ? '<div class="judge-result-row"><span class="label">API応答区分名</span><span class="value" style="font-size:12px;">' + _escapeHTML(result.matchedName) + '</span></div>'
+    : '';
+  body.innerHTML =
+    '<div class="judge-result-row">' +
+      '<span class="label">判定対象座標</span>' +
+      '<span class="value" style="font-size:12px;font-family:monospace;">' +
+        parseFloat(lat).toFixed(5) + ', ' + parseFloat(lng).toFixed(5) +
+      '</span>' +
+    '</div>' +
+    matchedHtml +
+    '<div class="judge-result-zone ' + zoneCls + '">' +
+      '判定結果: ' + _escapeHTML(result.label) +
+    '</div>' +
+    '<div class="judge-result-note">' +
+      '※この内容で <code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;">cases.city_planning_zone</code> を更新します。<br>' +
+      '※更新後、警告帯のステータスは自動再計算されます（DBトリガー）。<br>' +
+      '※判定が想定と異なる場合は「キャンセル」を押してください。' +
+    '</div>';
+  // OKボタンに更新パラメータを保持
+  okBtn.dataset.dbValue = result.dbValue;
+  okBtn.dataset.caseId  = caseId || '';
+  okBtn.disabled = false;
+  okBtn.textContent = 'この内容で更新';
+  modal.classList.add('show');
+}
+
+function closeJudgeModal() {
+  const modal = document.getElementById('judgeResultModal');
+  if (modal) modal.classList.remove('show');
+}
+
+// HTML特殊文字エスケープ（モーダル内表示用・既存の同名関数があれば衝突しないようprefix付）
+function _escapeHTML(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// 確認モーダルOKクリック → DB UPDATE 実行
+async function _judgeConfirmAndUpdate() {
+  const okBtn = document.getElementById('judgeModalBtnOk');
+  if (!okBtn) return;
+  const dbValue = okBtn.dataset.dbValue;
+  const caseId  = okBtn.dataset.caseId;
+  if (!dbValue || !caseId) {
+    alert('判定情報が失われています。再度判定してください。');
+    closeJudgeModal();
+    return;
+  }
+  if (!sbClient) {
+    alert('Supabase接続が初期化されていません。');
+    return;
+  }
+  okBtn.disabled = true;
+  okBtn.textContent = '更新中...';
+  try {
+    // city_planning_zone のみ UPDATE → sellability_status は DBトリガーで自動再計算
+    const { error } = await sbClient
+      .from('cases')
+      .update({ city_planning_zone: dbValue })
+      .eq('id', caseId);
+    if (error) throw error;
+    closeJudgeModal();
+    setStatus('都市計画区域を更新しました: ' + dbValue + ' → 警告帯を再描画');
+    // 案件を再読込して警告帯を再描画
+    await loadByInput();
+  } catch (e) {
+    console.error('[judge] DB UPDATE失敗:', e);
+    alert('DB更新に失敗しました:\n' + (e.message || e));
+    okBtn.disabled = false;
+    okBtn.textContent = 'この内容で更新';
+  }
+}
+
+// ボタンクリック時のメイン処理（ブロック2: API呼び出し本実装）
+async function runCityPlanningJudge() {
   const btn = document.getElementById('sellabilityJudgeBtn');
   if (!btn) return;
   const lat = btn.dataset.lat;
   const lng = btn.dataset.lng;
-  alert('【ブロック1: 見た目確認用の仮実装】\n\n判定対象座標:\n  緯度: ' + lat + '\n  経度: ' + lng + '\n\nブロック2でXKT001 API呼び出しを実装します。');
+  const caseId = btn.dataset.caseId;
+  if (!lat || !lng) {
+    alert('緯度経度が未登録のため判定できません');
+    return;
+  }
+  if (!caseId) {
+    alert('案件IDが取得できません。再読込してください。');
+    return;
+  }
+  // ローディング状態
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ 判定中...';
+  try {
+    const features = await _judgeFetchXKT001(lat, lng);
+    const result = _judgeClassifyFromFeatures(features, lat, lng);
+    // 確認モーダルを開く（実DB更新はモーダルOKでのみ実行）
+    _judgeOpenResultModal(result, lat, lng, caseId);
+  } catch (e) {
+    console.error('[judge] 判定処理エラー:', e);
+    alert('XKT001 API呼び出しに失敗しました。\nNULL状態を維持します。\n\n' + (e.message || e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
 }
 
 // 「🗺地図で見る」ボタン → 農地変化トラッカーを新タブで開く
@@ -4001,7 +4366,10 @@ function closeGlossaryModal() {
 }
 // ESCキーでモーダルを閉じる
 document.addEventListener('keydown', function(ev) {
-  if (ev.key === 'Escape') closeGlossaryModal();
+  if (ev.key === 'Escape') {
+    closeGlossaryModal();
+    closeJudgeModal();
+  }
 });
 
 // 警告バッジ更新（NG / 中部外）
@@ -4061,6 +4429,24 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 </script>
+
+<!-- ======== Phase B-2 Block 2: 都市計画区域 自動判定 結果確認モーダル ======== -->
+<div id="judgeResultModal" class="judge-modal" onclick="if(event.target===this||event.target.classList.contains('judge-modal-overlay'))closeJudgeModal()">
+  <div class="judge-modal-overlay"></div>
+  <div class="judge-modal-content">
+    <div class="judge-modal-header">
+      <span>⚖ 都市計画区域 自動判定 結果</span>
+      <button type="button" class="close-btn" onclick="closeJudgeModal()" aria-label="閉じる">✕</button>
+    </div>
+    <div class="judge-modal-body" id="judgeModalBody">
+      <!-- 動的に挿入 -->
+    </div>
+    <div class="judge-modal-footer">
+      <button type="button" class="judge-modal-btn-cancel" onclick="closeJudgeModal()">キャンセル</button>
+      <button type="button" class="judge-modal-btn-ok" id="judgeModalBtnOk" onclick="_judgeConfirmAndUpdate()">この内容で更新</button>
+    </div>
+  </div>
+</div>
 
 <!-- ======== 電気事業区分 用語解説モーダル - 2026-05-07 追加 ======== -->
 <div id="glossaryModal" class="glossary-modal" onclick="if(event.target===this||event.target.classList.contains('glossary-modal-overlay'))closeGlossaryModal()">
