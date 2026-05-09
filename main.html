@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: main v20260509d / 所在の {} 除去 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -2053,6 +2054,10 @@ function autoSetArticle5Date(){
 
 async function loadLandDetail(caseId){
   const{data}=await db.from('land_info').select('*').eq('case_id',caseId).single();
+  // 所在の前後に {} が混入している場合を除去（AI転記やDB側で付与されたケースに対応）
+  if(data&&typeof data.location==='string'){
+    data.location=data.location.replace(/^\{|\}$/g,'').trim();
+  }
   const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">用途地域・地目</div><div class="info-value">${data.chiban||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">法令上の制限</div><div class="info-value">${data.horeijo_seigen||'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}${data.article5_checked_at?` <span style="color:var(--text-muted);font-size:11px">（${data.article5_checked_at} 確認）</span>`:''}${data.article5_notes?`<div style="font-size:11px;color:var(--text-muted);margin-top:4px">${data.article5_notes}</div>`:''}</div></div><div class="info-item"><div class="info-label">森林計画図</div><div class="info-value forest-gis-link">読込中...</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
@@ -2260,7 +2265,7 @@ function renderLands(lands){
   if(!lands||!lands.length){el.innerHTML='<div class="empty-state"><div class="empty-state-icon">🏔️</div><div class="empty-state-text">土地情報が登録されていません</div></div>';return;}
   const q=(document.getElementById('ldSearchInput')?.value||'').trim();
   el.innerHTML=lands.map((land,i)=>{
-    const locVal=land.location?String(land.location).trim():'';
+    const locVal=land.location?String(land.location).replace(/^\{|\}$/g,'').trim():'';
     const locIsNum=locVal&&!isNaN(parseFloat(locVal))&&parseFloat(locVal)>0&&locVal.length<12;
     const soZai=locIsNum?(land.chiban||'—'):(locVal||land.chiban||'—');
     const menseki=locIsNum?formatArea(locVal):formatArea(land.area_sqm);
@@ -3458,7 +3463,7 @@ async function downloadDocument(id){
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(blobUrl);
-    showToast('⬇ ダウンロード開始','success');
+    showToast('⬇ ダウンロード開始 ['+dlName+']','success');
   }catch(e){
     console.error('ダウンロードエラー:',e);
     showToast('ダウンロード失敗: '+(e.message||e),'error');
