@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260509f / 業務番号 切替UI(▽) + 全マスター反映 -->
+<!-- BUILD: main v20260509h / 業務番号未設定をクリックで編集モーダル直結 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -407,8 +407,8 @@
     </div>
     <div class="cases-table-header" style="grid-template-columns:50px 120px 40px 140px 140px 140px 150px 80px 1fr 160px">
       <div style="text-align:center">No</div><div><select id="caseNoDisplayModeSelect" onchange="setCaseNoDisplayMode(this.value)" title="案件番号 ⇔ 業務番号 表示切替" style="background:transparent;border:1px solid var(--border);color:var(--text);font-size:12px;padding:2px 6px;border-radius:4px;cursor:pointer;font-weight:600">
-<option value="case_no">案件番号 ▽</option>
-<option value="business_no">業務番号 ▽</option>
+<option value="case_no">案件番号</option>
+<option value="business_no">業務番号</option>
 </select></div><div style="text-align:center">枝</div><div style="text-align:center">発電区分</div><div style="text-align:center">ステータス</div><div>地権者名</div>
       <div style="text-align:right">金額（円）</div><div style="text-align:center">エリア</div><div style="text-align:center">登録日</div><div style="text-align:center">操作</div>
     </div>
@@ -1465,9 +1465,25 @@ function caseDisplayNoHtml(c,q){
   const useBusiness=(caseNoDisplayMode==='business_no' && c.display_case_no);
   const baseText=useBusiness?c.display_case_no:(c.parent_case_no||c.case_no||'—');
   const branchTag=c.parent_case_no?`<span style="color:var(--accent);font-size:10px;margin-left:4px;font-weight:700">(枝${_escHtml(c.branch_no||'')})</span>`:'';
-  /* 業務番号モードかつ業務番号未設定の場合は案件番号で表示しつつ「(案件番号)」マーク */
-  const fallbackTag=(caseNoDisplayMode==='business_no' && !c.display_case_no)?`<span style="color:var(--text-muted);font-size:9px;margin-left:4px;font-style:italic">(業務番号未設定)</span>`:'';
+  /* 業務番号モードかつ未設定 → クリックで編集モーダルが開いて業務番号入力欄にフォーカス */
+  let fallbackTag='';
+  if(caseNoDisplayMode==='business_no' && !c.display_case_no){
+    if(c.id){
+      fallbackTag=`<span class="biz-no-set-link" style="color:var(--accent);font-size:9px;margin-left:6px;font-style:italic;cursor:pointer;text-decoration:underline" onclick="event.stopPropagation();event.preventDefault();openCaseEditFromInline('${c.id}')" title="クリックして業務番号を入力">＋業務番号を設定</span>`;
+    }else{
+      fallbackTag=`<span style="color:var(--text-muted);font-size:9px;margin-left:4px;font-style:italic">(業務番号未設定)</span>`;
+    }
+  }
   return (q?highlightText(baseText,q):_escHtml(baseText))+branchTag+fallbackTag;
+}
+/* インラインの「＋業務番号を設定」クリック用：編集モーダルを開いて業務番号フィールドにフォーカス */
+function openCaseEditFromInline(caseId){
+  if(typeof openCaseEditModal!=='function')return;
+  openCaseEditModal(caseId);
+  setTimeout(()=>{
+    const el=document.getElementById('ec_display_case_no');
+    if(el){el.focus();el.select();}
+  },150);
 }
 /* 案件番号モード切替 */
 function setCaseNoDisplayMode(mode){
@@ -1593,7 +1609,7 @@ function renderCases(cases){
     const isChild=!!c.parent_case_no;
     const useBusiness=(caseNoDisplayMode==='business_no' && c.display_case_no);
     const displayNo=useBusiness?c.display_case_no:(isChild?c.parent_case_no:(c.case_no||'—'));
-    const fallbackTag=(caseNoDisplayMode==='business_no' && !c.display_case_no)?`<span style="color:var(--text-muted);font-size:9px;margin-left:4px;font-style:italic">(業務番号未設定)</span>`:'';
+    const fallbackTag=(caseNoDisplayMode==='business_no' && !c.display_case_no)?`<span class="biz-no-set-link" style="color:var(--accent);font-size:9px;margin-left:6px;font-style:italic;cursor:pointer;text-decoration:underline" onclick="event.stopPropagation();event.preventDefault();openCaseEditFromInline('${c.id}')" title="クリックして業務番号を入力">＋業務番号を設定</span>`:'';
     const caseNoHtml=(isChild?`<span style="color:var(--text-muted);margin-right:4px">└</span>${highlightText(displayNo,q)}`:highlightText(displayNo,q))+fallbackTag;
     const branchHtml=isChild?`<span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700">${_escHtml(c.branch_no||'')}</span>`:'<span style="color:var(--text-muted);font-size:11px">—</span>';
     const escapedCaseNo=(c.case_no||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
@@ -2177,7 +2193,7 @@ function switchNav(btn,section){
 
 let allLandowners=[];
 async function loadLandownersMaster(){
-  const{data}=await db.from('landowner_info').select('*,cases(case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no)').order('case_id');
+  const{data}=await db.from('landowner_info').select('*,cases(id,case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no)').order('case_id');
   allLandowners=(data||[]).sort((a,b)=>{
     const pa=a.cases?.parent_case_no||a.cases?.case_no||'';
     const pb=b.cases?.parent_case_no||b.cases?.case_no||'';
@@ -2289,7 +2305,7 @@ function renderLandowners(los){
 let allLands=[];
 async function loadLandMaster(){
   const[ldRes,loRes]=await Promise.all([
-    db.from('land_info').select('*,cases(case_no,display_case_no,status,area_name,price,parent_case_no,branch_no)'),
+    db.from('land_info').select('*,cases(id,case_no,display_case_no,status,area_name,price,parent_case_no,branch_no)'),
     db.from('landowner_info').select('case_id,name')
   ]);
   const loMap={};
@@ -2391,7 +2407,7 @@ function renderRealestate(data){
   }).join('');
 }
 async function loadRealestateMaster(){
-  const{data}=await db.from('realestate_info').select('*,cases(case_no,display_case_no,status,area_name,parent_case_no,branch_no)');
+  const{data}=await db.from('realestate_info').select('*,cases(id,case_no,display_case_no,status,area_name,parent_case_no,branch_no)');
   allRealestate=(data||[]).sort((a,b)=>{
     const pa=a.cases?.parent_case_no||a.cases?.case_no||'';
     const pb=b.cases?.parent_case_no||b.cases?.case_no||'';
@@ -3627,9 +3643,9 @@ function openCaseEditModal(caseId){
 }
 async function refreshAll(){
   const{data}=await db.from('cases').select('*').order('created_at',{ascending:false});
-  const{data:loData}=await db.from('landowner_info').select('*,cases(case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no)').order('case_id');
-  const{data:ldData}=await db.from('land_info').select('*,cases(case_no,display_case_no,status,area_name,price,parent_case_no,branch_no)');
-  const{data:reData}=await db.from('realestate_info').select('*,cases(case_no,display_case_no,area_name,parent_case_no,branch_no)');
+  const{data:loData}=await db.from('landowner_info').select('*,cases(id,case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no)').order('case_id');
+  const{data:ldData}=await db.from('land_info').select('*,cases(id,case_no,display_case_no,status,area_name,price,parent_case_no,branch_no)');
+  const{data:reData}=await db.from('realestate_info').select('*,cases(id,case_no,display_case_no,area_name,parent_case_no,branch_no)');
   const loMap={};
   (loData||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
   allCases=sortCasesByParentChild((data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''})));
