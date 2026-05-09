@@ -2093,7 +2093,10 @@ function setupKozUploadHandler() {
 
       // Supabase Storage にアップロード
       setStatus('公図をアップロード中...');
-      const fileName = `${_kozCurrentCaseId}_${Date.now()}.${extension}`;
+      // 元のファイル名（拡張子除く）を取得し、ファイル名として使用可能な形にサニタイズ
+      // 「案件ID/元ファイル名.拡張子」とすることで、右クリック保存時に元のファイル名で保存される
+      const origName = (file.name || '').replace(/\.[^.]+$/, '').replace(/[\/\\?%*:|"<>]/g, '_').slice(0, 80) || 'cadastral';
+      const fileName = `${_kozCurrentCaseId}/${origName}.${extension}`;
       const { data: upData, error: upError } = await sbClient.storage
         .from('cadastral-maps')
         .upload(fileName, imageBlob, {
@@ -2564,7 +2567,8 @@ async function deleteCadastralMap() {
       try {
         const urlParts = img.src.split('/cadastral-maps/');
         if (urlParts.length === 2) {
-          const fileName = urlParts[1].split('?')[0];
+          // URLエンコードされている可能性があるのでデコード（フォルダ形式 "案件ID/ファイル名" 対応）
+          const fileName = decodeURIComponent(urlParts[1].split('?')[0]);
           if (fileName) {
             await sbClient.storage.from('cadastral-maps').remove([fileName]);
           }
