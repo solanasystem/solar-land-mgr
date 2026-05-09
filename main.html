@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260509d / 所在の {} 除去 -->
+<!-- BUILD: main v20260509f / 業務番号 切替UI(▽) + 全マスター反映 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -406,7 +406,10 @@
       <button class="btn btn-primary" onclick="openBulkImportModal()" style="background:#10b981;border-color:#059669;margin-left:8px;">📁 書類一括取込</button>
     </div>
     <div class="cases-table-header" style="grid-template-columns:50px 120px 40px 140px 140px 140px 150px 80px 1fr 160px">
-      <div style="text-align:center">No</div><div>案件番号</div><div style="text-align:center">枝</div><div style="text-align:center">発電区分</div><div style="text-align:center">ステータス</div><div>地権者名</div>
+      <div style="text-align:center">No</div><div><select id="caseNoDisplayModeSelect" onchange="setCaseNoDisplayMode(this.value)" title="案件番号 ⇔ 業務番号 表示切替" style="background:transparent;border:1px solid var(--border);color:var(--text);font-size:12px;padding:2px 6px;border-radius:4px;cursor:pointer;font-weight:600">
+<option value="case_no">案件番号 ▽</option>
+<option value="business_no">業務番号 ▽</option>
+</select></div><div style="text-align:center">枝</div><div style="text-align:center">発電区分</div><div style="text-align:center">ステータス</div><div>地権者名</div>
       <div style="text-align:right">金額（円）</div><div style="text-align:center">エリア</div><div style="text-align:center">登録日</div><div style="text-align:center">操作</div>
     </div>
   </div>
@@ -740,6 +743,8 @@
     </div>
     <div class="modal-body">
       <div class="form-grid">
+        <div class="form-group full"><label class="form-label">業務用案件番号 <span style="font-size:10px;color:var(--text-muted)">（任意。設定すると一覧・詳細でこの番号が優先表示されます）</span></label>
+          <input class="form-input" type="text" id="ec_display_case_no" placeholder="例：PV-2026-001 / A123-蒲郡 など"></div>
         <div class="form-group"><label class="form-label">発電区分</label>
           <select class="form-select" id="ec_kubun"><option value="">選択してください</option>
             <option>低圧太陽光</option><option>高圧太陽光</option><option>低圧蓄電池</option>
@@ -1287,6 +1292,8 @@ const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSI
 const{createClient}=supabase;
 const db=createClient(SUPABASE_URL,SUPABASE_KEY);
 let allCases=[],currentCaseId=null,currentLandownerId=null;
+/* 案件番号表示モード：'case_no'=システム案件番号 / 'business_no'=業務用案件番号 */
+let caseNoDisplayMode = (typeof localStorage!=='undefined' && localStorage.getItem('caseNoDisplayMode')) || 'case_no';
 let ngBlind=true;
 
 /* ========== 管轄電力会社 マッピング ==========
@@ -1359,6 +1366,7 @@ function syncNewPcToArea(){
 /* ========== /管轄電力会社 マッピング ========== */
 
 document.addEventListener('DOMContentLoaded',()=>{
+  _initCaseNoDisplayMode();
   loadCases();
   document.getElementById('logDate').value=new Date().toISOString().split('T')[0];
   document.querySelector('.nav-btn.active').style.borderBottomColor='#a371f7';
@@ -1441,6 +1449,53 @@ function searchScore(obj,query,fields){
     n+=c;
   });
   return n;
+}
+/* 案件番号の表示用：caseNoDisplayMode に応じて
+   - 'business_no': 業務用案件番号(display_case_no) を優先、未設定なら親案件番号(parent_case_no)→案件番号(case_no)
+   - 'case_no'    : 親案件番号(parent_case_no) → 案件番号(case_no) （デフォルト） */
+function caseDisplayNo(c){
+  if(!c)return '—';
+  if(caseNoDisplayMode==='business_no' && c.display_case_no)return c.display_case_no;
+  if(c.parent_case_no)return c.parent_case_no;
+  return c.case_no || '—';
+}
+/* 一覧・詳細用：枝番タグ付きHTML（ハイライト対応）。q を渡すと検索ハイライト */
+function caseDisplayNoHtml(c,q){
+  if(!c)return '—';
+  const useBusiness=(caseNoDisplayMode==='business_no' && c.display_case_no);
+  const baseText=useBusiness?c.display_case_no:(c.parent_case_no||c.case_no||'—');
+  const branchTag=c.parent_case_no?`<span style="color:var(--accent);font-size:10px;margin-left:4px;font-weight:700">(枝${_escHtml(c.branch_no||'')})</span>`:'';
+  /* 業務番号モードかつ業務番号未設定の場合は案件番号で表示しつつ「(案件番号)」マーク */
+  const fallbackTag=(caseNoDisplayMode==='business_no' && !c.display_case_no)?`<span style="color:var(--text-muted);font-size:9px;margin-left:4px;font-style:italic">(業務番号未設定)</span>`:'';
+  return (q?highlightText(baseText,q):_escHtml(baseText))+branchTag+fallbackTag;
+}
+/* 案件番号モード切替 */
+function setCaseNoDisplayMode(mode){
+  caseNoDisplayMode = (mode==='business_no')?'business_no':'case_no';
+  try{ localStorage.setItem('caseNoDisplayMode', caseNoDisplayMode); }catch(e){}
+  /* 全マスター画面を再描画 */
+  if(typeof renderCases==='function' && typeof allCases!=='undefined') renderCases(allCases);
+  if(typeof renderLandowners==='function' && typeof allLandowners!=='undefined') renderLandowners(allLandowners);
+  if(typeof renderLands==='function' && typeof allLands!=='undefined') renderLands(allLands);
+  if(typeof renderRealestate==='function' && typeof allRealestate!=='undefined') renderRealestate(allRealestate);
+  /* 詳細モーダル開いていれば再描画 */
+  if(currentCaseId){
+    const c=(allCases||[]).find(x=>String(x.id)===String(currentCaseId));
+    if(c){
+      const det=document.getElementById('detailCaseInfo');
+      if(det){
+        const useBusiness=(caseNoDisplayMode==='business_no' && c.display_case_no);
+        const baseText=useBusiness?c.display_case_no:(c.parent_case_no||c.case_no||'—');
+        const branchTag=c.parent_case_no?`<span style="color:var(--accent);font-size:12px;margin-left:6px;font-weight:700">(枝${_escHtml(c.branch_no||'')})</span>`:'';
+        det.innerHTML=`<span class="detail-case-no">${_escHtml(baseText)}${branchTag}</span>${kubunBadge(c.kubun)}${statusBadge(c.status)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
+      }
+    }
+  }
+}
+/* 初期化時に select 要素にも localStorage の値を反映 */
+function _initCaseNoDisplayMode(){
+  const sel=document.getElementById('caseNoDisplayModeSelect');
+  if(sel)sel.value=caseNoDisplayMode;
 }
 /* 現在の検索クエリ取得（マスターごと） */
 function getActiveSearchQuery(){
@@ -1525,7 +1580,7 @@ function filterCases(){
   });
   if(q){
     /* ヒット件数で並び替え：ヒット行→非ヒット行の順、ヒット行内では件数の多い順 */
-    list=list.slice().sort((a,b)=>searchScore(b,q,['case_no','area_name','landowner_name'])-searchScore(a,q,['case_no','area_name','landowner_name']));
+    list=list.slice().sort((a,b)=>searchScore(b,q,['case_no','display_case_no','area_name','landowner_name'])-searchScore(a,q,['case_no','display_case_no','area_name','landowner_name']));
   }
   renderCases(list);
 }
@@ -1536,8 +1591,10 @@ function renderCases(cases){
   const q=(document.getElementById('searchInput')?.value||'').trim();
   el.innerHTML=cases.map((c,i)=>{
     const isChild=!!c.parent_case_no;
-    const displayNo=isChild?c.parent_case_no:(c.case_no||'—');
-    const caseNoHtml=isChild?`<span style="color:var(--text-muted);margin-right:4px">└</span>${highlightText(displayNo,q)}`:highlightText(displayNo,q);
+    const useBusiness=(caseNoDisplayMode==='business_no' && c.display_case_no);
+    const displayNo=useBusiness?c.display_case_no:(isChild?c.parent_case_no:(c.case_no||'—'));
+    const fallbackTag=(caseNoDisplayMode==='business_no' && !c.display_case_no)?`<span style="color:var(--text-muted);font-size:9px;margin-left:4px;font-style:italic">(業務番号未設定)</span>`:'';
+    const caseNoHtml=(isChild?`<span style="color:var(--text-muted);margin-right:4px">└</span>${highlightText(displayNo,q)}`:highlightText(displayNo,q))+fallbackTag;
     const branchHtml=isChild?`<span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700">${_escHtml(c.branch_no||'')}</span>`:'<span style="color:var(--text-muted);font-size:11px">—</span>';
     const escapedCaseNo=(c.case_no||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
     return `<div class="case-row" style="grid-template-columns:50px 120px 40px 140px 140px 140px 150px 80px 1fr 160px;animation-delay:${i*.03}s">
@@ -1570,11 +1627,8 @@ function sortCasesByParentChild(arr){
   });
 }
 function displayCaseNoForMaster(cases){
-  if(!cases)return '—';
-  if(cases.parent_case_no){
-    return `${cases.parent_case_no}<span style="color:var(--accent);font-size:10px;margin-left:4px;font-weight:700">(枝${cases.branch_no||''})</span>`;
-  }
-  return cases.case_no||'—';
+  /* 案件番号表示用：display_case_no を優先 */
+  return caseDisplayNoHtml(cases);
 }
 
 const KUBUN_LIST=['低圧太陽光','高圧太陽光','低圧蓄電池','高圧蓄電池','営農型太陽光'];
@@ -1767,7 +1821,7 @@ async function openSurveyPhotos(caseId){
   try {
     // case情報とfield_survey_statusを並列取得
     const [caseRes, surveyRes] = await Promise.all([
-      db.from('cases').select('case_no,parent_case_no,branch_no,kubun').eq('id',caseId).single(),
+      db.from('cases').select('case_no,display_case_no,parent_case_no,branch_no,kubun').eq('id',caseId).single(),
       db.from('field_survey_status').select('*').eq('case_id',caseId).maybeSingle()
     ]);
     const c = caseRes.data;
@@ -1777,7 +1831,9 @@ async function openSurveyPhotos(caseId){
       return;
     }
     // タイトル構築
-    const caseNoText = c.parent_case_no ? `${c.parent_case_no}（枝${c.branch_no||''}）` : (c.case_no||'—');
+    const _useB2=(caseNoDisplayMode==='business_no' && c.display_case_no);
+    const _bt=_useB2?c.display_case_no:(c.parent_case_no||c.case_no||'—');
+    const caseNoText=_bt+(c.parent_case_no?`（枝${c.branch_no||''}）`:'');
     const kubunHtml = c.kubun ? `<span class="badge badge-${kubunClass(c.kubun)}">${c.kubun}</span>` : '';
     const dateText  = s?.confirmed_at ? `撮影日時: ${new Date(s.confirmed_at).toLocaleString('ja-JP')}` : '';
     title.innerHTML = `<span style="font-family:var(--font-mono)">${caseNoText}</span>${kubunHtml}<span class="photo-modal-meta">${dateText}</span>`;
@@ -1914,7 +1970,9 @@ async function createCase(){
 async function openDetail(caseId,mode){
   currentCaseId=caseId;
   const c=allCases.find(x=>String(x.id)===String(caseId));if(!c)return;
-  const displayNo=c.parent_case_no?`${c.parent_case_no}<span style="color:var(--accent);font-size:12px;margin-left:6px;font-weight:700">(枝${c.branch_no||''})</span>`:c.case_no;
+  const _useB=(caseNoDisplayMode==='business_no' && c.display_case_no);
+  const _baseTxt=_useB?c.display_case_no:(c.parent_case_no||c.case_no||'—');
+  const displayNo=_escHtml(_baseTxt)+(c.parent_case_no?`<span style="color:var(--accent);font-size:12px;margin-left:6px;font-weight:700">(枝${_escHtml(c.branch_no||'')})</span>`:'');
   document.getElementById('detailCaseInfo').innerHTML=`<span class="detail-case-no">${displayNo}</span>${kubunBadge(c.kubun)}${statusBadge(c.status)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
   // 📄 概要書生成ボタン（中部電力管内・非NGなら通常表示、それ以外は警告色）
   const slot=document.getElementById('detailSummaryBtnSlot');
@@ -2119,7 +2177,7 @@ function switchNav(btn,section){
 
 let allLandowners=[];
 async function loadLandownersMaster(){
-  const{data}=await db.from('landowner_info').select('*,cases(case_no,status,kubun,area_name,parent_case_no,branch_no)').order('case_id');
+  const{data}=await db.from('landowner_info').select('*,cases(case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no)').order('case_id');
   allLandowners=(data||[]).sort((a,b)=>{
     const pa=a.cases?.parent_case_no||a.cases?.case_no||'';
     const pb=b.cases?.parent_case_no||b.cases?.case_no||'';
@@ -2200,7 +2258,7 @@ function filterLandowners(){
     return true;
   });
   if(q){
-    filtered=filtered.slice().sort((a,b)=>searchScore(b,q,['cases.case_no','name','address','tel','memo'])-searchScore(a,q,['cases.case_no','name','address','tel','memo']));
+    filtered=filtered.slice().sort((a,b)=>searchScore(b,q,['cases.case_no','cases.display_case_no','name','address','tel','memo'])-searchScore(a,q,['cases.case_no','cases.display_case_no','name','address','tel','memo']));
   }
   /* ダッシュボードは filtered ではなく内部で全体集計（ステータスフィルタの影響を受けない） */
   renderLandownerStatusDashboard();
@@ -2211,10 +2269,9 @@ function renderLandowners(los){
   if(!los||!los.length){el.innerHTML='<div class="empty-state"><div class="empty-state-icon">🧑</div><div class="empty-state-text">地権者情報が登録されていません</div></div>';return;}
   const q=(document.getElementById('loSearchInput')?.value||'').trim();
   el.innerHTML=los.map((lo,i)=>{
-    const caseNoDisp=lo.cases?(lo.cases.parent_case_no?`${lo.cases.parent_case_no}<span style="color:var(--accent);font-size:10px;margin-left:4px;font-weight:700">(枝${lo.cases.branch_no||''})</span>`:(lo.cases.case_no||'—')):'—';
+    const caseNoDisp=caseDisplayNoHtml(lo.cases);
     /* parent_case_noの場合はハイライト対象に枝情報も含めるため、案件番号テキストを生成してハイライト */
-    const rawCaseNo=lo.cases?(lo.cases.parent_case_no||lo.cases.case_no||'—'):'—';
-    const caseNoHl=highlightText(rawCaseNo,q)+(lo.cases?.parent_case_no?`<span style="color:var(--accent);font-size:10px;margin-left:4px;font-weight:700">(枝${_escHtml(lo.cases.branch_no||'')})</span>`:'');
+    const caseNoHl=caseDisplayNoHtml(lo.cases,q);
     const postalHtml=lo.postal_code?`<span style="color:#58a6ff;font-family:var(--font-mono)">〒${_escHtml(lo.postal_code)}</span> `:'';
     return `<div class="case-row" style="grid-template-columns:50px 120px 160px 1fr 120px 140px 1fr 160px;animation-delay:${i*.03}s">
     <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">${i+1}</div>
@@ -2232,7 +2289,7 @@ function renderLandowners(los){
 let allLands=[];
 async function loadLandMaster(){
   const[ldRes,loRes]=await Promise.all([
-    db.from('land_info').select('*,cases(case_no,status,area_name,price,parent_case_no,branch_no)'),
+    db.from('land_info').select('*,cases(case_no,display_case_no,status,area_name,price,parent_case_no,branch_no)'),
     db.from('landowner_info').select('case_id,name')
   ]);
   const loMap={};
@@ -2256,7 +2313,7 @@ function filterLandMaster(){
     return true;
   });
   if(q){
-    filtered=filtered.slice().sort((a,b)=>searchScore(b,q,['cases.case_no','location','chiban','horeijo_seigen','biko','hazard','landowner_name'])-searchScore(a,q,['cases.case_no','location','chiban','horeijo_seigen','biko','hazard','landowner_name']));
+    filtered=filtered.slice().sort((a,b)=>searchScore(b,q,['cases.case_no','cases.display_case_no','location','chiban','horeijo_seigen','biko','hazard','landowner_name'])-searchScore(a,q,['cases.case_no','cases.display_case_no','location','chiban','horeijo_seigen','biko','hazard','landowner_name']));
   }
   renderLands(filtered);
 }
@@ -2274,8 +2331,7 @@ function renderLands(lands){
     const hazText=hazRaw.includes('http')?hazRaw.split(/https?:\/\//)[0].replace(/\/\s*$/,'').trim():hazRaw;
     const mapUrl=land.google_map?safeUrl(land.google_map):(land.hazard&&land.hazard.includes('http')?land.hazard.match(/https?:\/\/\S+/)?.[0]:null);
     /* 案件番号 */
-    const rawCaseNo=land.cases?(land.cases.parent_case_no||land.cases.case_no||'—'):'—';
-    const caseNoHl=highlightText(rawCaseNo,q)+(land.cases?.parent_case_no?`<span style="color:var(--accent);font-size:10px;margin-left:4px;font-weight:700">(枝${_escHtml(land.cases.branch_no||'')})</span>`:'');
+    const caseNoHl=caseDisplayNoHtml(land.cases,q);
     return `<div class="case-row" style="grid-template-columns:50px 120px 110px 140px 1fr 120px 100px 150px 150px 60px 80px;animation-delay:${i*.03}s">
       <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">${i+1}</div>
       <div class="case-no" style="cursor:pointer;text-decoration:underline;text-decoration-color:rgba(163,113,247,.4);" onclick="openDetail('${land.case_id}','land')">${caseNoHl}</div>
@@ -2307,7 +2363,7 @@ function filterRealestate(){
     return true;
   });
   if(q){
-    list=list.slice().sort((a,b)=>searchScore(b,q,['cases.case_no','company_name','address','staff_name','tel'])-searchScore(a,q,['cases.case_no','company_name','address','staff_name','tel']));
+    list=list.slice().sort((a,b)=>searchScore(b,q,['cases.case_no','cases.display_case_no','company_name','address','staff_name','tel'])-searchScore(a,q,['cases.case_no','cases.display_case_no','company_name','address','staff_name','tel']));
   }
   renderRealestate(list);
 }
@@ -2320,8 +2376,7 @@ function renderRealestate(data){
   const q=(document.getElementById('reSearchInput')?.value||'').trim();
   el.innerHTML=list.map((r,i)=>{
     const compIsAddr=r.company_name&&(r.company_name.includes('県')||r.company_name.includes('府')||r.company_name.includes('都')||r.company_name.includes('道')||r.company_name.includes('市')||r.company_name.includes('町'))&&r.company_name.length>10;
-    const rawCaseNo=r.cases?(r.cases.parent_case_no||r.cases.case_no||'—'):'—';
-    const caseNoHl=highlightText(rawCaseNo,q)+(r.cases?.parent_case_no?`<span style="color:var(--accent);font-size:10px;margin-left:4px;font-weight:700">(枝${_escHtml(r.cases.branch_no||'')})</span>`:'');
+    const caseNoHl=caseDisplayNoHtml(r.cases,q);
     const compTextRaw=compIsAddr?(r.contract_status||r.staff_name||'—'):(r.company_name||'—');
     const compTextHl=compTextRaw==='—'?'—':highlightText(compTextRaw,q);
     return `<div class="case-row" style="grid-template-columns:50px 120px 220px 140px 120px 1fr 80px;animation-delay:${i*.03}s">
@@ -2336,7 +2391,7 @@ function renderRealestate(data){
   }).join('');
 }
 async function loadRealestateMaster(){
-  const{data}=await db.from('realestate_info').select('*,cases(case_no,status,area_name,parent_case_no,branch_no)');
+  const{data}=await db.from('realestate_info').select('*,cases(case_no,display_case_no,status,area_name,parent_case_no,branch_no)');
   allRealestate=(data||[]).sort((a,b)=>{
     const pa=a.cases?.parent_case_no||a.cases?.case_no||'';
     const pb=b.cases?.parent_case_no||b.cases?.case_no||'';
@@ -2800,7 +2855,7 @@ function _bulkMatchFile(parsed,pdfTextParsed,candidates){
 // マッチング候補を全件取得（非NG案件 × land_infoあり）
 async function _bulkLoadCandidates(){
   // 1. 全案件を取得（NG含む）
-  const{data:cs,error:e1}=await db.from('cases').select('id,case_no,status,area_name,parent_case_no,branch_no');
+  const{data:cs,error:e1}=await db.from('cases').select('id,case_no,display_case_no,status,area_name,parent_case_no,branch_no');
   if(e1)throw e1;
   // 2. land_info を全件取得
   const{data:lis,error:e2}=await db.from('land_info').select('case_id,location').not('location','is',null);
@@ -3556,8 +3611,11 @@ function autoExtractLatLng(){
 function openCaseEditModal(caseId){
   const c=allCases.find(x=>String(x.id)===String(caseId));if(!c)return;
   currentCaseId=caseId;
-  const displayNo=c.parent_case_no?`${c.parent_case_no}（枝${c.branch_no||''}）`:c.case_no;
-  document.getElementById('editCaseNo').textContent=displayNo;
+  // モーダルサブタイトル：システム番号(+枝番)＋業務用番号を併記
+  const sysNo=c.parent_case_no?`${c.parent_case_no}（枝${c.branch_no||''}）`:c.case_no;
+  const subtitle=c.display_case_no?`案件番号：${sysNo}　／　業務番号：${c.display_case_no}`:`案件番号：${sysNo}　／　業務番号：（未設定）`;
+  document.getElementById('editCaseNo').textContent=subtitle;
+  const dn=document.getElementById('ec_display_case_no'); if(dn) dn.value=c.display_case_no||'';
   document.getElementById('ec_kubun').value=c.kubun||'';
   document.getElementById('ec_status').value=c.status||'UNKNOWN';
   document.getElementById('ec_price').value=c.price||'';
@@ -3569,9 +3627,9 @@ function openCaseEditModal(caseId){
 }
 async function refreshAll(){
   const{data}=await db.from('cases').select('*').order('created_at',{ascending:false});
-  const{data:loData}=await db.from('landowner_info').select('*,cases(case_no,status,kubun,area_name,parent_case_no,branch_no)').order('case_id');
-  const{data:ldData}=await db.from('land_info').select('*,cases(case_no,status,area_name,price,parent_case_no,branch_no)');
-  const{data:reData}=await db.from('realestate_info').select('*,cases(case_no,area_name,parent_case_no,branch_no)');
+  const{data:loData}=await db.from('landowner_info').select('*,cases(case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no)').order('case_id');
+  const{data:ldData}=await db.from('land_info').select('*,cases(case_no,display_case_no,status,area_name,price,parent_case_no,branch_no)');
+  const{data:reData}=await db.from('realestate_info').select('*,cases(case_no,display_case_no,area_name,parent_case_no,branch_no)');
   const loMap={};
   (loData||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
   allCases=sortCasesByParentChild((data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''})));
@@ -3607,7 +3665,9 @@ async function refreshAll(){
   if(currentCaseId){
     const c=allCases.find(x=>String(x.id)===String(currentCaseId));
     if(c){
-      const displayNo=c.parent_case_no?`${c.parent_case_no}<span style="color:var(--accent);font-size:12px;margin-left:6px;font-weight:700">(枝${c.branch_no||''})</span>`:c.case_no;
+      const _useB=(caseNoDisplayMode==='business_no' && c.display_case_no);
+  const _baseTxt=_useB?c.display_case_no:(c.parent_case_no||c.case_no||'—');
+  const displayNo=_escHtml(_baseTxt)+(c.parent_case_no?`<span style="color:var(--accent);font-size:12px;margin-left:6px;font-weight:700">(枝${_escHtml(c.branch_no||'')})</span>`:'');
       document.getElementById('detailCaseInfo').innerHTML=`<span class="detail-case-no">${displayNo}</span>${kubunBadge(c.kubun)}${statusBadge(c.status)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
     }
   }
@@ -3616,7 +3676,9 @@ async function saveCase(){
   const g=id=>document.getElementById(id);
   const acVal=g('ec_ac_kw')?.value;
   const dcVal=g('ec_dc_kw')?.value;
+  const dnRaw=(g('ec_display_case_no')?.value||'').trim();
   const payload={
+    display_case_no:dnRaw||null,
     kubun:g('ec_kubun').value,
     status:g('ec_status').value,
     price:g('ec_price').value?Number(g('ec_price').value):null,

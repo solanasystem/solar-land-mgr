@@ -139,7 +139,7 @@ body{font-family:var(--font-main);background:var(--bg);color:var(--text);font-si
       </div>
       <div class="form-group">
         <label class="form-label">案件番号・地権者名で検索</label>
-        <input class="form-input" type="text" id="searchQ" placeholder="例：中部-002、鈴木" oninput="renderCaseSelect()">
+        <input class="form-input" type="text" id="searchQ" placeholder="例：中部-002、業務番号、鈴木" oninput="renderCaseSelect()">
       </div>
       <div class="form-group">
         <label class="form-label">ステータスで絞込</label>
@@ -252,7 +252,7 @@ document.addEventListener('DOMContentLoaded',async()=>{await loadData();});
 async function loadData(){
   document.getElementById('loadStatus').textContent='読込中...';
   const[caseRes,loRes,ldRes]=await Promise.all([
-    db.from('cases').select('id,case_no,area_name,status,kubun,price').order('case_no'),
+    db.from('cases').select('id,case_no,display_case_no,area_name,status,kubun,price').order('case_no'),
     db.from('landowner_info').select('case_id,name,address,tel,postal_code,price,memo,created_at').order('created_at'),
     db.from('land_info').select('case_id,location,chiban,chimoku,area_sqm')
   ]);
@@ -279,8 +279,9 @@ function getFilteredCases(){
     if(area){const pc=getPowerCompanyFromArea(c.area_name);if(pc!==area)return false;}
     if(q){
       const caseNo=(c.case_no||'').toLowerCase();
+      const bizNo=(c.display_case_no||'').toLowerCase();
       const ownerNames=(landownersByCase[c.id]||[]).map(lo=>(lo.name||'').toLowerCase()).join(' ');
-      if(!caseNo.includes(q)&&!ownerNames.includes(q))return false;
+      if(!caseNo.includes(q)&&!bizNo.includes(q)&&!ownerNames.includes(q))return false;
     }
     return true;
   });
@@ -294,8 +295,9 @@ function updateStatusCounts(){
     if(area){const pc=getPowerCompanyFromArea(c.area_name);if(pc!==area)return false;}
     if(q){
       const caseNo=(c.case_no||'').toLowerCase();
+      const bizNo=(c.display_case_no||'').toLowerCase();
       const ownerNames=(landownersByCase[c.id]||[]).map(lo=>(lo.name||'').toLowerCase()).join(' ');
-      if(!caseNo.includes(q)&&!ownerNames.includes(q))return false;
+      if(!caseNo.includes(q)&&!bizNo.includes(q)&&!ownerNames.includes(q))return false;
     }
     return true;
   };
@@ -329,7 +331,8 @@ function renderCaseSelect(){
     const owners=landownersByCase[c.id]||[];
     const ownerName=owners[0]?.name||'(地権者未登録)';
     const dup=owners.length>1?` ⚠×${owners.length}`:'';
-    return `<option value="${c.id}">${c.case_no} / ${ownerName}${dup}</option>`;
+    const bizLabel=c.display_case_no?` 〔${c.display_case_no}〕`:'';
+    return `<option value="${c.id}">${c.case_no}${bizLabel} / ${ownerName}${dup}</option>`;
   }).join('');
   if(currentCaseId&&list.some(c=>c.id===currentCaseId))sel.value=currentCaseId;
 }
@@ -360,6 +363,9 @@ function renderCaseInfo(caseId){
   const box=document.getElementById('caseInfoBox');
   let html='<div class="case-info-card">';
   html+=`<div class="row"><span class="lab">案件番号</span><span class="val">${c?.case_no||'-'}</span></div>`;
+  if(c?.display_case_no){
+    html+=`<div class="row"><span class="lab">業務番号</span><span class="val" style="color:#56d364;font-weight:600">${c.display_case_no}</span></div>`;
+  }
   html+=`<div class="row"><span class="lab">エリア</span><span class="val">${c?.area_name||'-'}</span></div>`;
   html+=`<div class="row"><span class="lab">区分</span><span class="val">${c?.kubun||'-'}</span></div>`;
   html+=`<div class="row"><span class="lab">ステータス</span><span class="val">${c?.status||'-'}</span></div>`;
@@ -398,7 +404,7 @@ function renderPreview(caseId){
       <div style="color:var(--text-muted);font-size:13px;margin-bottom:8px;">上のボタンをクリックして Wordファイル(.docx) をダウンロードします。</div>
       <div class="case-summary">
         <table>
-          <tr><td>管理No.（案件番号）</td><td>${escapeHtml(c?.case_no||'')}</td></tr>
+          <tr><td>管理No.（案件番号）</td><td>${escapeHtml(c?.case_no||'')}${c?.display_case_no?' / 業務番号: '+escapeHtml(c.display_case_no):''}</td></tr>
           <tr><td>地権者名</td><td>${escapeHtml(owner.name||'(未登録)')}</td></tr>
           <tr><td>金額（売渡・買付）</td><td>${priceText} 円</td></tr>
           <tr><td>買付日（今日）</td><td>令和${today.year}年 ${today.month}月 ${today.day}日</td></tr>
@@ -509,7 +515,8 @@ async function downloadDocx(){
         const pprEnd = docXml.indexOf('</w:pPr>', valTcStart);
         if(pprEnd > 0 && pprEnd < valTcEnd){
           const insertPos = pprEnd + '</w:pPr>'.length;
-          const adminNo = xmlEscape(c?.case_no||'');
+          // 業務番号が設定されていれば優先、なければ案件番号を管理No.に印字
+          const adminNo = xmlEscape(c?.display_case_no || c?.case_no || '');
           docXml = docXml.substring(0, insertPos) +
             '<w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>' + adminNo + '</w:t></w:r>' +
             docXml.substring(insertPos);
@@ -600,7 +607,8 @@ async function downloadDocx(){
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `買付証明書_${c.case_no||'案件'}_${owner.name||'地権者'}.docx`;
+    const fileNameNo = c.display_case_no || c.case_no || '案件';
+    a.download = `買付証明書_${fileNameNo}_${owner.name||'地権者'}.docx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
