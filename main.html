@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260509o / 地権者削除＋フィルタ状態の永続化（NGブラインド・電力会社・検索/区分/ステータス） -->
+<!-- BUILD: main v20260509p / 電力会社選択を10タブ→1ボタン+ドロップダウンに集約 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -76,6 +76,21 @@
   .pc-tab.active{background:rgba(240,180,41,.15);border-color:var(--accent);color:var(--accent);font-weight:700;}
   .pc-tab.empty{opacity:.4;}
   .pc-tab .pc-count{font-family:var(--font-mono);font-size:10px;margin-left:4px;opacity:.7;}
+  /* ===== 電力会社選択ドロップダウン 2026-05-09 追加（10タブを1ボタン+メニューに集約） ===== */
+  .pc-dropdown{position:relative;display:inline-block;}
+  .pc-dropdown-btn{padding:6px 14px;background:rgba(240,180,41,.15);border:1px solid var(--accent);border-radius:5px;color:var(--accent);font-family:var(--font-main);font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;}
+  .pc-dropdown-btn:hover{background:rgba(240,180,41,.25);}
+  .pc-dropdown-btn .pc-count{font-family:var(--font-mono);font-size:10px;opacity:.7;margin-left:2px;}
+  .pc-dropdown-btn .pc-arrow{font-size:9px;opacity:.7;transition:transform .15s;margin-left:2px;}
+  .pc-dropdown.open .pc-dropdown-btn .pc-arrow{transform:rotate(180deg);}
+  .pc-dropdown-menu{position:absolute;top:calc(100% + 4px);left:0;z-index:50;display:none;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.4);padding:4px;min-width:200px;max-height:400px;overflow-y:auto;}
+  .pc-dropdown.open .pc-dropdown-menu{display:flex;}
+  .pc-dropdown-item{padding:6px 12px;background:transparent;border:none;border-radius:4px;color:var(--text-muted);font-family:var(--font-main);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+  .pc-dropdown-item:hover{background:var(--surface2);color:var(--text);}
+  .pc-dropdown-item.active{background:rgba(240,180,41,.15);color:var(--accent);font-weight:700;}
+  .pc-dropdown-item.empty{opacity:.4;}
+  .pc-dropdown-item .pc-count{font-family:var(--font-mono);font-size:10px;opacity:.7;}
+  /* ===== ===== */
   /* ======= ステータスダッシュボード（地権者マスター） ======= */
   .status-dashboard{padding:10px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:#0d1117;border-bottom:1px solid var(--border);}
   .sd-donut-wrap{display:flex;align-items:center;gap:10px;}
@@ -1377,13 +1392,43 @@ function renderPowerCompanyTabs(){
   (allCases||[]).forEach(c=>{const pc=getPowerCompanyFromArea(c.area_name);if(counts[pc]!==undefined)counts[pc]++;});
   const bar=document.getElementById('powerCompanyBar');
   if(!bar)return;
-  bar.innerHTML=POWER_COMPANIES.map(pc=>{
+  /* 2026-05-09 変更: 10タブ横並びを1ボタン+ドロップダウンメニューに集約 */
+  const currentCount=counts[currentPowerCompany]||0;
+  const itemsHtml=POWER_COMPANIES.map(pc=>{
     const n=counts[pc]||0;
     const active=pc===currentPowerCompany?' active':'';
     const empty=n===0?' empty':'';
-    return `<button class="pc-tab${active}${empty}" onclick="setPowerCompany('${pc}')">${pc}<span class="pc-count">(${n})</span></button>`;
+    return `<button type="button" class="pc-dropdown-item${active}${empty}" onclick="setPowerCompany('${pc}');closePcDropdown();">${pc}<span class="pc-count">(${n})</span></button>`;
   }).join('');
+  bar.innerHTML=`
+    <div class="pc-dropdown" id="pcDropdown">
+      <button type="button" class="pc-dropdown-btn" onclick="togglePcDropdown(event)">
+        🔌 ${currentPowerCompany}<span class="pc-count">(${currentCount})</span><span class="pc-arrow">▼</span>
+      </button>
+      <div class="pc-dropdown-menu">${itemsHtml}</div>
+    </div>
+  `;
 }
+/* 2026-05-09 追加: 電力会社選択ドロップダウンの開閉制御 */
+function togglePcDropdown(ev){
+  if(ev) ev.stopPropagation();
+  const dd=document.getElementById('pcDropdown');
+  if(dd) dd.classList.toggle('open');
+}
+function closePcDropdown(){
+  const dd=document.getElementById('pcDropdown');
+  if(dd) dd.classList.remove('open');
+}
+/* 外側クリック・Escapeキーで閉じる */
+document.addEventListener('click', function(e){
+  const dd=document.getElementById('pcDropdown');
+  if(!dd||!dd.classList.contains('open'))return;
+  if(!dd.contains(e.target)) dd.classList.remove('open');
+});
+document.addEventListener('keydown', function(e){
+  if(e.key==='Escape') closePcDropdown();
+});
+
 function setPowerCompany(pc){
   currentPowerCompany=pc;
   _filterStateSet('currentPowerCompany', pc);  /* 永続化 2026-05-09 */
