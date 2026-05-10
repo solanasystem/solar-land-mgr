@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0,user-scalable=yes">
+<!-- ===== 権限管理ガード v1.0 (2026-05-10) - 必ず他スクリプトより前に配置 ===== -->
+<script src="common-auth.js"></script>
+<!-- ===== admin のみ許可 ===== -->
+<script>
+  if (!window.__auth || !window.__auth.canManageUsers()) {
+    alert('この画面は管理者(admin)専用です');
+    location.replace('index.html');
+    throw new Error('User management requires admin role');
+  }
+</script>
+<title>ユーザー管理 - SOLAR LAND MGR</title>
+<link rel="icon" href="data:,">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-1: #0a1628;
+    --bg-2: #0f2042;
+    --bg-3: #1a3a5c;
+    --surface: rgba(255, 255, 255, 0.04);
+    --surface-2: rgba(255, 255, 255, 0.06);
+    --accent: #00d4ff;
+    --accent-2: #4ade80;
+    --text-1: #e2e8f0;
+    --text-2: #94a3b8;
+    --text-3: #64748b;
+    --border: rgba(0, 212, 255, 0.2);
+    --border-soft: rgba(255, 255, 255, 0.08);
+    --error: #ff5252;
+    --warning: #fbbf24;
+    --success: #4ade80;
+  }
+
+  body {
+    font-family: 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'Meiryo', sans-serif;
+    background: linear-gradient(135deg, var(--bg-1) 0%, var(--bg-2) 50%, var(--bg-3) 100%) fixed;
+    color: var(--text-1);
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+
+  /* ===== Header ===== */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 28px;
+    background: rgba(10, 22, 40, 0.6);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .brand-icon { font-size: 24px; }
+  .brand h1 {
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.5px;
+  }
+  .user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+  }
+  .user-info .who {
+    color: var(--text-2);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .user-info .who strong {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .btn {
+    padding: 7px 14px;
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    color: var(--text-1);
+    background: rgba(255, 255, 255, 0.04);
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover { background: rgba(255, 255, 255, 0.08); }
+  .btn-secondary { color: var(--text-2); }
+  .btn-danger {
+    color: var(--error);
+    border-color: rgba(255, 82, 82, 0.3);
+  }
+  .btn-danger:hover { background: rgba(255, 82, 82, 0.1); }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #0a1628;
+    border-color: transparent;
+    font-weight: 700;
+  }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 212, 255, 0.3); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  /* ===== Main ===== */
+  main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px 28px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .section-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-1);
+  }
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(0, 212, 255, 0.12);
+    color: var(--accent);
+    border: 1px solid rgba(0, 212, 255, 0.25);
+  }
+
+  .message {
+    padding: 11px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 14px;
+    display: none;
+    line-height: 1.5;
+  }
+  .message.error    { background: rgba(255, 82, 82, 0.1);  border: 1px solid rgba(255, 82, 82, 0.3);  color: var(--error); }
+  .message.success  { background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.3); color: var(--success); }
+  .message.info     { background: rgba(0, 212, 255, 0.08); border: 1px solid rgba(0, 212, 255, 0.25); color: var(--accent); }
+
+  /* ===== User Table ===== */
+  .user-list-section {
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 28px;
+  }
+
+  .user-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .user-table th {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 2px solid var(--border-soft);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-2);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .user-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border-soft);
+    vertical-align: middle;
+  }
+  .user-table tr:last-child td { border-bottom: none; }
+  .user-table tr.self {
+    background: rgba(0, 212, 255, 0.04);
+  }
+  .user-table .mono {
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .user-table .loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-3);
+  }
+  .badge-self {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 8px;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 600;
+    background: rgba(0, 212, 255, 0.18);
+    color: var(--accent);
+  }
+  .role-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .role-badge.admin   { background: rgba(255, 82, 82, 0.15);  color: var(--error); }
+  .role-badge.manager { background: rgba(251, 191, 36, 0.15); color: var(--warning); }
+  .role-badge.viewer  { background: rgba(148, 163, 184, 0.15); color: var(--text-2); }
+
+  .role-select {
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    color: var(--text-1);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .role-select:focus { outline: none; border-color: var(--accent); }
+  .role-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .muted { color: var(--text-3); font-size: 11px; }
+
+  /* ===== Add User Guide ===== */
+  .add-user-guide {
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 20px 24px;
+  }
+  .add-user-guide h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    color: var(--text-1);
+  }
+  .add-user-guide > p {
+    color: var(--text-2);
+    font-size: 13px;
+    margin-bottom: 14px;
+    line-height: 1.6;
+  }
+  .add-user-guide ol {
+    list-style: none;
+    counter-reset: step;
+  }
+  .add-user-guide ol > li {
+    counter-increment: step;
+    padding: 14px 16px 14px 50px;
+    margin-bottom: 12px;
+    background: rgba(0, 212, 255, 0.04);
+    border-left: 2px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    position: relative;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .add-user-guide ol > li::before {
+    content: counter(step);
+    position: absolute;
+    left: 14px;
+    top: 14px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--bg-1);
+    text-align: center;
+    line-height: 24px;
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .add-user-guide strong {
+    color: var(--text-1);
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .add-user-guide a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .add-user-guide a:hover { text-decoration: underline; }
+  .add-user-guide code {
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: var(--accent);
+  }
+  .add-user-guide pre {
+    background: rgba(0, 0, 0, 0.4);
+    padding: 12px 14px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin-top: 10px;
+    border: 1px solid var(--border-soft);
+  }
+  .add-user-guide pre code {
+    background: transparent;
+    padding: 0;
+    color: var(--text-1);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre;
+  }
+  .add-user-guide pre code .var {
+    color: var(--warning);
+    font-weight: 600;
+  }
+  .add-user-guide .note {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: rgba(251, 191, 36, 0.08);
+    border-left: 2px solid var(--warning);
+    color: var(--text-2);
+    font-size: 12px;
+    line-height: 1.6;
+    border-radius: 0 6px 6px 0;
+  }
+  .add-user-guide .copy-btn {
+    float: right;
+    margin-top: -2px;
+    padding: 3px 10px;
+    background: rgba(0, 212, 255, 0.15);
+    border: 1px solid var(--border);
+    color: var(--accent);
+    font-size: 11px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .add-user-guide .copy-btn:hover { background: rgba(0, 212, 255, 0.25); }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 700px) {
+    .topbar { padding: 10px 14px; flex-wrap: wrap; gap: 8px; }
+    main { padding: 16px 14px; }
+    .user-table { font-size: 11px; }
+    .user-table th, .user-table td { padding: 8px 6px; }
+    .user-table th:nth-child(4), .user-table td:nth-child(4),
+    .user-table th:nth-child(5), .user-table td:nth-child(5) { display: none; }
+    .add-user-guide { padding: 14px 16px; }
+    .add-user-guide ol > li { padding-left: 44px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-icon">👥</span>
+    <h1>USER MANAGEMENT</h1>
+  </div>
+  <div class="user-info">
+    <span class="who">ログイン中: <strong id="currentUserDisplay">読込中...</strong></span>
+    <button class="btn btn-secondary" onclick="location.href='index.html'">← システムへ戻る</button>
+    <button class="btn btn-danger" onclick="window.__auth.logout()">ログアウト</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ===== USER LIST ===== -->
+  <section class="user-list-section">
+    <div class="section-header">
+      <h2>登録ユーザー一覧</h2>
+      <span class="badge" id="userCount">— 名</span>
+    </div>
+
+    <div class="message" id="message"></div>
+
+    <table class="user-table">
+      <thead>
+        <tr>
+          <th>表示名</th>
+          <th>メールアドレス</th>
+          <th>ロール</th>
+          <th>登録日</th>
+          <th>最終更新</th>
+          <th>ロール変更</th>
+        </tr>
+      </thead>
+      <tbody id="userTableBody">
+        <tr><td colspan="6" class="loading">読込中...</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ===== ADD USER GUIDE ===== -->
+  <section class="add-user-guide">
+    <h2>📝 新規ユーザー追加方法</h2>
+    <p>新規ユーザーの追加には2ステップ必要です（service_role権限が必要なためブラウザから直接登録できません）。Supabase Dashboardで操作してください。</p>
+
+    <ol>
+      <li>
+        <strong>Step 1: Supabase Auth でユーザーを作成</strong>
+        <a href="https://supabase.com/dashboard/project/fygnrjjifoasozbhkxlk/auth/users" target="_blank">Authentication → Users</a>
+        を開き、右上の <code>Add user → Create new user</code> をクリック。<br>
+        メールアドレスと初期パスワードを入力 → <code>Auto Confirm User</code> をONに → <code>Create user</code>。
+      </li>
+      <li>
+        <strong>Step 2: profiles テーブルにロール情報を登録</strong>
+        <button class="copy-btn" onclick="copyTemplate()" id="copyBtn">📋 SQLをコピー</button>
+        <a href="https://supabase.com/dashboard/project/fygnrjjifoasozbhkxlk/editor" target="_blank">SQL Editor</a>
+        で以下のSQLを実行（メールアドレス・ロール・表示名を変更）：
+<pre><code id="sqlTemplate">-- 新規ユーザーを profiles に登録
+-- 下記3箇所の &lt;...&gt; を実際の値に置き換えてください
+INSERT INTO public.profiles (id, organization_id, role, display_name, email)
+SELECT
+  u.id,
+  '00000000-0000-0000-0000-000000000001'::uuid,
+  '<span class="var">&lt;ROLE&gt;</span>',                    -- admin / manager / viewer
+  '<span class="var">&lt;DISPLAY_NAME&gt;</span>',            -- 表示名（例: 田中）
+  u.email
+FROM auth.users u
+WHERE u.email = '<span class="var">&lt;EMAIL&gt;</span>'      -- 追加するメールアドレス
+ON CONFLICT (id) DO UPDATE SET
+  role = EXCLUDED.role,
+  display_name = COALESCE(public.profiles.display_name, EXCLUDED.display_name),
+  email = EXCLUDED.email,
+  updated_at = NOW();</code></pre>
+      </li>
+    </ol>
+
+    <div class="note">
+      <strong>📌 補足:</strong> Step 2 完了後、本ページをリロード（F5不可なら更新ボタン）すると新ユーザーが一覧に表示されます。新規ユーザーはStep 1で設定した初期パスワードで <code>login.html</code> からログイン可能になります。
+    </div>
+  </section>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+  const SUPABASE_URL      = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+
+  if (typeof supabase === 'undefined') {
+    document.getElementById('message').textContent = '⚠ Supabase JS SDK の読み込みに失敗しました';
+    document.getElementById('message').className = 'message error';
+    document.getElementById('message').style.display = 'block';
+  }
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let allUsers = [];
+  const myId = window.__auth.profile.id;
+
+  // 現在のユーザー表示
+  document.getElementById('currentUserDisplay').textContent =
+    `${window.__auth.profile.display_name || window.__auth.profile.email} (${window.__auth.role})`;
+
+  // ===== UI ヘルパー =====
+  function showMessage(text, type, persistMs) {
+    const m = document.getElementById('message');
+    m.textContent = text;
+    m.className = 'message ' + type;
+    m.style.display = 'block';
+    if (persistMs !== 0) {
+      setTimeout(() => { m.style.display = 'none'; }, persistMs || 4000);
+    }
+  }
+
+  function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    } catch (e) { return '—'; }
+  }
+
+  // ===== ユーザー一覧読込 =====
+  async function loadUsers() {
+    document.getElementById('userTableBody').innerHTML =
+      '<tr><td colspan="6" class="loading">読込中...</td></tr>';
+
+    const { data, error } = await sb
+      .from('profiles')
+      .select('id, role, display_name, email, organization_id, created_at, updated_at')
+      .order('role', { ascending: true })
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      showMessage('ユーザー一覧の読込に失敗: ' + error.message, 'error', 0);
+      document.getElementById('userTableBody').innerHTML =
+        '<tr><td colspan="6" class="loading">エラー</td></tr>';
+      return;
+    }
+
+    allUsers = data || [];
+    renderUserTable(allUsers);
+  }
+
+  // ===== テーブル描画 =====
+  function renderUserTable(users) {
+    const tbody = document.getElementById('userTableBody');
+    document.getElementById('userCount').textContent = users.length + ' 名';
+
+    if (users.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="loading">ユーザーがいません</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = users.map(u => {
+      const isSelf = u.id === myId;
+      return `
+        <tr class="${isSelf ? 'self' : ''}">
+          <td>
+            ${escapeHtml(u.display_name || '—')}
+            ${isSelf ? '<span class="badge-self">自分</span>' : ''}
+          </td>
+          <td class="mono">${escapeHtml(u.email || '—')}</td>
+          <td><span class="role-badge ${u.role}">${u.role}</span></td>
+          <td class="mono">${fmtDate(u.created_at)}</td>
+          <td class="mono">${fmtDate(u.updated_at)}</td>
+          <td>
+            ${isSelf
+              ? '<span class="muted">自分は変更不可</span>'
+              : `
+                <select class="role-select" data-id="${u.id}" data-orig="${u.role}">
+                  <option value="admin"   ${u.role === 'admin'   ? 'selected' : ''}>admin</option>
+                  <option value="manager" ${u.role === 'manager' ? 'selected' : ''}>manager</option>
+                  <option value="viewer"  ${u.role === 'viewer'  ? 'selected' : ''}>viewer</option>
+                </select>
+                <button class="btn btn-primary btn-save" data-id="${u.id}" style="margin-left:6px;padding:5px 10px;font-size:11px">保存</button>
+              `}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    // 保存ハンドラ装着
+    document.querySelectorAll('.btn-save').forEach(btn => {
+      btn.addEventListener('click', handleSaveRole);
+    });
+  }
+
+  // ===== ロール保存 =====
+  async function handleSaveRole(e) {
+    const btn = e.currentTarget;
+    const userId = btn.dataset.id;
+    const select = document.querySelector(`select.role-select[data-id="${userId}"]`);
+    if (!select) return;
+
+    const origRole = select.dataset.orig;
+    const newRole  = select.value;
+    const user     = allUsers.find(u => u.id === userId);
+    if (!user) return;
+
+    if (newRole === origRole) {
+      showMessage('変更されていません', 'info');
+      return;
+    }
+
+    const userLabel = user.display_name || user.email;
+    if (!confirm(`${userLabel} のロールを「${origRole}」→「${newRole}」に変更します。よろしいですか？`)) {
+      select.value = origRole;
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+
+    try {
+      const { error } = await sb
+        .from('profiles')
+        .update({ role: newRole, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+
+      if (error) {
+        showMessage(`保存失敗: ${error.message}`, 'error', 0);
+        select.value = origRole;
+        btn.disabled = false;
+        btn.textContent = '保存';
+        return;
+      }
+
+      showMessage(`✓ ${userLabel} のロールを ${newRole} に変更しました`, 'success');
+      await loadUsers();
+
+    } catch (err) {
+      showMessage('予期しないエラー: ' + err.message, 'error', 0);
+      select.value = origRole;
+      btn.disabled = false;
+      btn.textContent = '保存';
+    }
+  }
+
+  // ===== SQLテンプレートをクリップボードへ =====
+  function copyTemplate() {
+    const sql = `-- 新規ユーザーを profiles に登録
+-- 下記3箇所の <...> を実際の値に置き換えてください
+INSERT INTO public.profiles (id, organization_id, role, display_name, email)
+SELECT
+  u.id,
+  '00000000-0000-0000-0000-000000000001'::uuid,
+  '<ROLE>',                    -- admin / manager / viewer
+  '<DISPLAY_NAME>',            -- 表示名（例: 田中）
+  u.email
+FROM auth.users u
+WHERE u.email = '<EMAIL>'      -- 追加するメールアドレス
+ON CONFLICT (id) DO UPDATE SET
+  role = EXCLUDED.role,
+  display_name = COALESCE(public.profiles.display_name, EXCLUDED.display_name),
+  email = EXCLUDED.email,
+  updated_at = NOW();`;
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(sql).then(() => {
+        const btn = document.getElementById('copyBtn');
+        const orig = btn.textContent;
+        btn.textContent = '✓ コピー済み';
+        setTimeout(() => { btn.textContent = orig; }, 2000);
+      });
+    } else {
+      // Fallback
+      const ta = document.createElement('textarea');
+      ta.value = sql;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch(e){}
+      document.body.removeChild(ta);
+      alert('SQLをクリップボードにコピーしました');
+    }
+  }
+
+  // ===== 初回読込 =====
+  loadUsers();
+</script>
+
+</body>
+</html>
