@@ -472,7 +472,7 @@
     </div>
     <div class="cases-table-header" style="grid-template-columns:50px 120px 110px 140px 1fr 120px 100px 150px 150px 60px 80px">
       <div style="text-align:center">No</div><div>案件番号</div><div style="text-align:center">ステータス</div><div>地権者名</div><div>所在</div><div style="text-align:right">価格（円）</div><div style="text-align:right">面積</div>
-      <div style="text-align:center">用途地域・地目</div><div style="text-align:center">ハザード</div><div style="text-align:center">地図</div><div style="text-align:center">操作</div>
+      <div style="text-align:center">地目</div><div style="text-align:center">ハザード</div><div style="text-align:center">地図</div><div style="text-align:center">操作</div>
     </div>
   </div>
   <div id="farmlandStickyBlock" style="display:none"></div>
@@ -857,9 +857,9 @@
     <div class="modal-body">
       <div class="form-grid">
         <div class="form-group"><label class="form-label">登記面積（㎡）</label><input class="form-input" type="number" id="eld_area_sqm" placeholder="例：3000"></div>
-        <div class="form-group"><label class="form-label">用途地域・地目</label><input class="form-input" type="text" id="eld_chiban" placeholder="例：農地・田"></div>
+        <div class="form-group"><label class="form-label">地目 <span style="font-size:10px;color:var(--text-muted)">登記簿表示</span></label><input class="form-input" type="text" id="eld_chimoku" placeholder="例：田、畑、山林、雑種地、宅地"></div>
         <div class="form-group full"><label class="form-label">所在</label><input class="form-input" type="text" id="eld_location" placeholder="例：埼玉県大里郡寄居町大字西ノ入402-71"></div>
-        <div class="form-group full"><label class="form-label">法令上の制限</label><input class="form-input" type="text" id="eld_horeijo_seigen" placeholder="例：農地法・自然保護区域外"></div>
+        <div class="form-group full"><label class="form-label">都市計画法 <span style="font-size:10px;color:var(--text-muted)">（座標から自動判定）</span></label><input class="form-input" type="text" id="eld_city_planning_zone_display" readonly style="background:rgba(255,255,255,0.04);cursor:default" placeholder="未判定"></div>
         <div class="form-group full"><label class="form-label">Googleマップ URL</label>
           <div style="display:flex;gap:8px;align-items:center">
             <input class="form-input" type="text" id="eld_google_map" placeholder="https://www.google.com/maps/@36.1234,139.1234,17z" style="flex:1" oninput="autoExtractLatLng()">
@@ -884,9 +884,7 @@
           </div>
           <div id="summarySection" style="display:none;margin-top:12px">
             <div class="form-grid">
-              <!-- ===== 基本3項目: 地目 / 土地権利 / 賃料 ===== -->
-              <div class="form-group"><label class="form-label">地目 <span style="font-size:10px;color:var(--text-muted)">登記簿表示</span></label>
-                <input class="form-input" type="text" id="eld_chimoku" placeholder="例：田、畑、山林、雑種地、宅地"></div>
+              <!-- ===== 基本3項目: 土地権利 / 賃料 (※地目は基本部に移動) ===== -->
               <div class="form-group"><label class="form-label">土地権利</label>
                 <select class="form-input" id="eld_land_rights">
                   <option value="">未選択</option>
@@ -2247,12 +2245,15 @@ function autoSetArticle5Date(){
 }
 
 async function loadLandDetail(caseId){
-  const{data}=await db.from('land_info').select('*').eq('case_id',caseId).single();
+  const{data}=await db.from('land_info').select('*,cases(city_planning_zone)').eq('case_id',caseId).single();
   // 所在の前後に {} が混入している場合を除去（AI転記やDB側で付与されたケースに対応）
   if(data&&typeof data.location==='string'){
     data.location=data.location.replace(/^\{|\}$/g,'').trim();
   }
-  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">用途地域・地目</div><div class="info-value">${data.chiban||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">法令上の制限</div><div class="info-value">${data.horeijo_seigen||'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}${data.article5_checked_at?` <span style="color:var(--text-muted);font-size:11px">（${data.article5_checked_at} 確認）</span>`:''}${data.article5_notes?`<div style="font-size:11px;color:var(--text-muted);margin-top:4px">${data.article5_notes}</div>`:''}</div></div><div class="info-item"><div class="info-label">森林計画図</div><div class="info-value forest-gis-link">読込中...</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
+  const CPZ_LABELS_DETAIL = {urbanization:'市街化区域',control:'市街化調整区域',control_outer:'市街化調整区域（外周）',non_zoned:'非線引き区域',outside:'都市計画区域外',UNKNOWN:'未確認'};
+  const cpzVal = data?.cases?.city_planning_zone || null;
+  const cpzText = cpzVal ? (CPZ_LABELS_DETAIL[cpzVal] || cpzVal) : '未判定';
+  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">地目</div><div class="info-value">${data.chimoku||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">都市計画法 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（座標から自動判定）</span></div><div class="info-value">${cpzText}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}${data.article5_checked_at?` <span style="color:var(--text-muted);font-size:11px">（${data.article5_checked_at} 確認）</span>`:''}${data.article5_notes?`<div style="font-size:11px;color:var(--text-muted);margin-top:4px">${data.article5_notes}</div>`:''}</div></div><div class="info-item"><div class="info-label">森林計画図</div><div class="info-value forest-gis-link">読込中...</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
   if(data&&data.location){
@@ -2462,7 +2463,7 @@ function renderLands(lands){
     const locIsNum=locVal&&!isNaN(parseFloat(locVal))&&parseFloat(locVal)>0&&locVal.length<12;
     const soZai=locIsNum?(land.chiban||'—'):(locVal||land.chiban||'—');
     const menseki=locIsNum?formatArea(locVal):formatArea(land.area_sqm);
-    const yoto=land.horeijo_seigen||'—';
+    const yoto=land.chimoku||'—';
     const hazRaw=land.hazard||land.biko||'';
     const hazText=hazRaw.includes('http')?hazRaw.split(/https?:\/\//)[0].replace(/\/\s*$/,'').trim():hazRaw;
     const mapUrl=land.google_map?safeUrl(land.google_map):(land.hazard&&land.hazard.includes('http')?land.hazard.match(/https?:\/\/\S+/)?.[0]:null);
@@ -4175,9 +4176,14 @@ async function bulkFetchPostalCodes(){
 }
 
 async function openLandEditModal(){
-  const{data}=await db.from('land_info').select('*').eq('case_id',currentCaseId).single();
-  ['area_sqm','location','chiban','horeijo_seigen','google_map','hazard','biko','article5_forest','article5_checked_at','article5_notes'].forEach(f=>document.getElementById('eld_'+f).value=data?.[f]||'');
+  const{data}=await db.from('land_info').select('*,cases(city_planning_zone)').eq('case_id',currentCaseId).single();
+  ['area_sqm','location','google_map','hazard','biko','article5_forest','article5_checked_at','article5_notes'].forEach(f=>document.getElementById('eld_'+f).value=data?.[f]||'');
   document.getElementById('eld_lat').value=data?.lat||'';document.getElementById('eld_lng').value=data?.lng||'';
+  // ===== 都市計画法（読み取り専用、cases.city_planning_zone 由来） =====
+  const _CPZ_EDIT_LABELS={urbanization:'市街化区域',control:'市街化調整区域',control_outer:'市街化調整区域（外周）',non_zoned:'非線引き区域',outside:'都市計画区域外',UNKNOWN:'未確認'};
+  const _cpzv=data?.cases?.city_planning_zone||null;
+  const _cpzEl=document.getElementById('eld_city_planning_zone_display');
+  if(_cpzEl) _cpzEl.value=_cpzv?(_CPZ_EDIT_LABELS[_cpzv]||_cpzv):'';
   // ===== 概要書項目: テキスト14項目 + 新3項目(chimoku/land_rights/rental_fee) =====
   ['chimoku','land_rights','rental_fee','otsu_rights','road_width','road_pavement','logging_permit','noushinhou_kubun','youto_chiiki','jourei','guideline','pole_left','pole_center','pole_right','buried_culture_details','application_details','notification_details'].forEach(f=>{
     const el=document.getElementById('eld_'+f); if(el) el.value=data?.[f]||'';
@@ -4212,8 +4218,6 @@ async function saveLand(){
     case_id:currentCaseId,
     area_sqm:g('eld_area_sqm')?Number(g('eld_area_sqm')):null,
     location:g('eld_location'),
-    chiban:g('eld_chiban'),
-    horeijo_seigen:g('eld_horeijo_seigen'),
     google_map:g('eld_google_map'),
     hazard:g('eld_hazard'),
     biko:g('eld_biko'),
