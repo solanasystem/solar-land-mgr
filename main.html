@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260509i / 業務番号(display_case_no) 全ページ対応 -->
+<!-- BUILD: main v20260509n / 地権者の個別削除機能を追加 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -819,6 +819,7 @@
       </div>
     </div>
     <div class="modal-footer">
+      <button class="btn btn-ghost" id="elo_delete_btn" style="color:var(--red);border-color:var(--red);margin-right:auto;display:none" onclick="deleteLandowner()">🗑 この所有者を削除</button>
       <button class="btn btn-ghost" onclick="closeModal('editLandownerModal')">キャンセル</button>
       <button class="btn btn-primary" onclick="saveLandowner()">保存する</button>
     </div>
@@ -3764,6 +3765,9 @@ function fillLandownerEditForm(d){
   document.getElementById('elo_lat').value=d?.lat||'';
   document.getElementById('elo_lng').value=d?.lng||'';
   document.getElementById('elo_postal_hint').textContent='';
+  // 削除ボタン表示制御：既存データを編集中のみ表示（新規追加モードでは非表示）
+  const delBtn=document.getElementById('elo_delete_btn');
+  if(delBtn) delBtn.style.display=(d?.id)?'':'none';
 }
 function switchLandownerEdit(id){
   const d=_editLandownerList.find(x=>String(x.id)===String(id));
@@ -3811,6 +3815,40 @@ async function saveLandowner(){
   await loadLandownerDetail(currentCaseId);
   await refreshAll();
   showToast('地権者情報を保存しました');
+}
+
+// 2026-05-09 追加: 地権者の個別削除（重複データ整理用）
+async function deleteLandowner(){
+  const editingId=document.getElementById('elo_current_id').value;
+  if(!editingId){showToast('削除対象が選択されていません','error');return;}
+  // 該当地権者の情報取得（確認メッセージ用）
+  const target=_editLandownerList.find(x=>String(x.id)===String(editingId));
+  const targetName=target?.name||'(氏名未登録)';
+  // 関連する商談記録の件数を確認（FK CASCADEに依存せず明示的に処理）
+  let logCount=0;
+  try{
+    const{count,error:cntErr}=await db.from('negotiation_logs').select('*',{count:'exact',head:true}).eq('landowner_id',editingId);
+    if(!cntErr) logCount=count||0;
+  }catch(e){console.warn('[deleteLandowner] negotiation_logs count error:',e);}
+  // 確認メッセージ（最後の1件削除時は警告強化）
+  let msg=`地権者「${targetName}」を削除しますか？\n\n関連する商談記録（${logCount}件）もすべて削除されます。\n\nこの操作は取り消せません。`;
+  if(_editLandownerList.length===1){
+    msg=`⚠ 最後の地権者「${targetName}」を削除します。\n\nこの案件には地権者情報がなくなります。\n関連する商談記録（${logCount}件）もすべて削除されます。\n\n本当に削除しますか？`;
+  }
+  if(!confirm(msg))return;
+  // ① 関連する商談記録を先に削除（FK制約対策）
+  if(logCount>0){
+    const{error:logErr}=await db.from('negotiation_logs').delete().eq('landowner_id',editingId);
+    if(logErr){showToast('商談記録の削除エラー: '+logErr.message,'error');return;}
+  }
+  // ② 地権者本体を削除
+  const{error}=await db.from('landowner_info').delete().eq('id',editingId);
+  if(error){showToast('削除エラー: '+error.message,'error');return;}
+  // 削除後の処理：モーダルを閉じて再読込（cases.priceの自動同期は次回保存時の既存ロジックに委ねる）
+  closeModal('editLandownerModal');
+  await loadLandownerDetail(currentCaseId);
+  await refreshAll();
+  showToast(`地権者「${targetName}」を削除しました`);
 }
 
 // 郵便番号検索機能は省略せず、元のコードそのまま保持
