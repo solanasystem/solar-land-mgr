@@ -859,6 +859,57 @@
       <button class="modal-close" onclick="closeModal('batchJudgeModal')">✕</button>
     </div>
     <div class="modal-body">
+      <!-- ============================================================
+           ダッシュボード (常時表示) - Phase B-2 Step B+1 / 2026-05-10
+           ============================================================ -->
+      <div id="batchJudgeDashboard" style="margin-bottom:18px;padding:14px 16px;background:rgba(168,85,247,.05);border:1px solid rgba(168,85,247,.2);border-radius:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <span style="font-size:13px;font-weight:600;color:#a855f7">📊 都市計画区域 ダッシュボード</span>
+          <span id="bjDashTotal" style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">— 件</span>
+        </div>
+
+        <!-- 進捗バー：判定済 vs 未判定 -->
+        <div style="position:relative;background:rgba(255,255,255,.06);height:26px;border-radius:13px;overflow:hidden;margin-bottom:14px;border:1px solid rgba(255,255,255,.06)">
+          <div id="bjDashProgressBar" style="background:linear-gradient(90deg,#4ade80,#22c55e);height:100%;width:0%;transition:width .4s ease"></div>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:11px;font-weight:600;text-shadow:0 1px 2px rgba(0,0,0,.4)">
+            <span id="bjDashJudgedLabel" style="color:#fff">✓ 判定済 0件</span>
+            <span id="bjDashPendingLabel" style="color:rgba(255,255,255,.85)">⏳ 未判定 0件</span>
+          </div>
+        </div>
+
+        <!-- ドーナツチャート + 内訳テーブル -->
+        <div style="display:grid;grid-template-columns:130px 1fr;gap:14px;align-items:center;background:rgba(255,255,255,.03);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.05)">
+          <div style="position:relative;width:130px;height:130px">
+            <svg id="bjDashDonut" width="130" height="130" viewBox="0 0 42 42" style="display:block"></svg>
+            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none">
+              <div id="bjDashDonutTotal" style="font-size:22px;font-weight:700;color:var(--text);line-height:1">0</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:2px">判定済</div>
+            </div>
+          </div>
+          <div id="bjDashLegend" style="font-size:12px;line-height:1.7"></div>
+        </div>
+
+        <!-- GEN/RTL 業務観点 -->
+        <div style="margin-top:12px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">📋 業務観点：電気事業区分別 販売可否（電気事業法 GEN/RTL分類）</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px">
+            <div style="background:rgba(74,222,128,.08);padding:9px 12px;border-radius:6px;border-left:3px solid #4ade80">
+              <div style="font-size:10px;color:#4ade80;font-weight:600">✅ GEN群 全エリア販売可</div>
+              <div id="bjDashGenCount" style="font-size:18px;font-weight:700;margin-top:2px;color:var(--text)">0 件</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:3px;line-height:1.4">発電・蓄電所・送配電事業者</div>
+            </div>
+            <div style="background:rgba(255,82,82,.08);padding:9px 12px;border-radius:6px;border-left:3px solid #ff5252">
+              <div style="font-size:10px;color:#ff5252;font-weight:600">⚠ RTL群 販売不可</div>
+              <div id="bjDashRtlCount" style="font-size:18px;font-weight:700;margin-top:2px;color:var(--text)">0 件</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:3px;line-height:1.4">市街化調整区域は小売・アグリゲーター不可</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- ============================================================
+           ダッシュボードここまで
+           ============================================================ -->
+
       <!-- Phase 1: 確認 -->
       <div id="batchJudgePhase1">
         <p style="margin-bottom:14px;color:var(--text);font-size:13px;line-height:1.7">
@@ -3903,6 +3954,69 @@ async function _batchJudgeOne(caseRow) {
   return result;
 }
 
+// ダッシュボード描画（メモリ上の集計値から SVG ドーナツ + 凡例 + GEN/RTLパネル を更新）
+const _BJ_ZONE_ORDER = [
+  { k:'urbanization',  label:'🟧 市街化区域',         color:'#FF8C5A' },
+  { k:'control',       label:'🟢 市街化調整区域',     color:'#4CAF50' },
+  { k:'control_outer', label:'🟢 市街化調整区域(外周)', color:'#388E3C' },
+  { k:'non_zoned',     label:'⬜ 非線引き区域',        color:'#90caf9' },
+  { k:'outside',       label:'⬜ 都市計画区域外',      color:'#bdbdbd' }
+];
+function _renderBatchJudgeDashboard(stats) {
+  // stats: { total, judged, pending, zones:{urbanization,control,control_outer,non_zoned,outside} }
+  const total = stats.total || 0;
+  const judged = stats.judged || 0;
+  const pending = stats.pending || 0;
+  const zones = stats.zones || {};
+
+  document.getElementById('bjDashTotal').textContent = '全 ' + total + ' 件';
+
+  // 進捗バー
+  const judgedPct = total > 0 ? (judged / total * 100) : 0;
+  document.getElementById('bjDashProgressBar').style.width = judgedPct + '%';
+  document.getElementById('bjDashJudgedLabel').textContent = '✓ 判定済 ' + judged + '件';
+  document.getElementById('bjDashPendingLabel').textContent = '⏳ 未判定 ' + pending + '件';
+
+  // ドーナツ
+  const judgedTotal = _BJ_ZONE_ORDER.reduce(function(s,o){ return s + (zones[o.k]||0); }, 0);
+  document.getElementById('bjDashDonutTotal').textContent = judgedTotal;
+  const cx = 21, cy = 21, r = 15.9155;
+  let segs = '';
+  if (judgedTotal === 0) {
+    segs = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="transparent" stroke="rgba(255,255,255,.08)" stroke-width="6"/>';
+  } else {
+    let offset = 25;
+    _BJ_ZONE_ORDER.forEach(function(o) {
+      const n = zones[o.k] || 0;
+      if (n === 0) return;
+      const pct = (n / judgedTotal) * 100;
+      segs += '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="transparent" stroke="'+o.color+'" stroke-width="6" stroke-dasharray="'+pct.toFixed(2)+' '+(100-pct).toFixed(2)+'" stroke-dashoffset="'+(-offset+25).toFixed(2)+'" transform="rotate(-90 '+cx+' '+cy+')"/>';
+      offset += pct;
+    });
+  }
+  document.getElementById('bjDashDonut').innerHTML = segs;
+
+  // 凡例
+  let legendHtml = '';
+  _BJ_ZONE_ORDER.forEach(function(o) {
+    const n = zones[o.k] || 0;
+    const pct = judgedTotal > 0 ? Math.round(n / judgedTotal * 100) : 0;
+    legendHtml += '<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0">'
+      + '<span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:11px;height:11px;background:'+o.color+';border-radius:2px"></span>'+o.label+'</span>'
+      + '<span style="font-family:var(--font-mono);color:'+(n>0?'var(--text)':'var(--text-muted)')+';font-size:11px">'+n+'件 '+(n>0?'('+pct+'%)':'')+'</span>'
+      + '</div>';
+  });
+  document.getElementById('bjDashLegend').innerHTML = legendHtml;
+
+  // GEN/RTL パネル
+  // GEN群（発電・蓄電所・送配電）：全エリアで販売可 → 判定済全件
+  // RTL群（小売・アグリゲーター）：市街化調整区域(外周含む)では販売不可
+  const genCount = judgedTotal;
+  const rtlNgCount = (zones.control || 0) + (zones.control_outer || 0);
+  document.getElementById('bjDashGenCount').textContent = genCount + ' 件';
+  document.getElementById('bjDashRtlCount').textContent = rtlNgCount + ' 件';
+}
+
 // 一括判定モーダル制御
 async function openBatchJudgeModal() {
   if (!window.__auth || !window.__auth.isAdmin()) {
@@ -3911,19 +4025,49 @@ async function openBatchJudgeModal() {
   }
   const modal = document.getElementById('batchJudgeModal');
   if (!modal) return;
-  // 対象件数集計
-  const { data, error } = await db.from('land_info').select('case_id, lat, lng, cases(case_no, display_case_no, city_planning_zone)');
-  if (error) { showToast('案件一覧の取得失敗: ' + error.message, 'error'); return; }
-  const all = data || [];
-  const pending  = all.filter(r => r.cases && r.cases.city_planning_zone == null && r.lat != null && r.lng != null);
-  const judged   = all.filter(r => r.cases && r.cases.city_planning_zone != null);
-  const noCoords = all.filter(r => r.cases && r.cases.city_planning_zone == null && (r.lat == null || r.lng == null));
-  _batchJudgePending = pending.map(r => ({
-    case_id: r.case_id,
-    lat:     r.lat,
-    lng:     r.lng,
-    case_no: (r.cases && (r.cases.display_case_no || r.cases.case_no)) || '(unknown)'
-  }));
+  // 対象件数集計（land_info 経由 + cases も別途取得して total を正確に）
+  const [casesResp, liResp] = await Promise.all([
+    db.from('cases').select('id, city_planning_zone'),
+    db.from('land_info').select('case_id, lat, lng, cases(case_no, display_case_no, city_planning_zone)')
+  ]);
+  if (casesResp.error || liResp.error) {
+    showToast('案件一覧の取得失敗: ' + ((casesResp.error||liResp.error).message), 'error');
+    return;
+  }
+  const allCases = casesResp.data || [];
+  const all = liResp.data || [];
+  // ダッシュボード集計
+  const zones = { urbanization:0, control:0, control_outer:0, non_zoned:0, outside:0 };
+  let judgedCount = 0;
+  allCases.forEach(function(c){
+    const z = c.city_planning_zone;
+    if (z) {
+      judgedCount++;
+      if (zones[z] !== undefined) zones[z]++;
+    }
+  });
+  const dashStats = {
+    total:   allCases.length,
+    judged:  judgedCount,
+    pending: allCases.length - judgedCount,
+    zones:   zones
+  };
+  // グローバルに保持（判定中の即時更新で再利用）
+  window._bjDashStats = dashStats;
+  _renderBatchJudgeDashboard(dashStats);
+
+  // 一括判定対象（lat/lng あり かつ city_planning_zone NULL）
+  const pending  = all.filter(function(r){ return r.cases && r.cases.city_planning_zone == null && r.lat != null && r.lng != null; });
+  const judged   = all.filter(function(r){ return r.cases && r.cases.city_planning_zone != null; });
+  const noCoords = all.filter(function(r){ return r.cases && r.cases.city_planning_zone == null && (r.lat == null || r.lng == null); });
+  _batchJudgePending = pending.map(function(r){
+    return {
+      case_id: r.case_id,
+      lat:     r.lat,
+      lng:     r.lng,
+      case_no: (r.cases && (r.cases.display_case_no || r.cases.case_no)) || '(unknown)'
+    };
+  });
   document.getElementById('batchJudgeTargetCount').textContent  = pending.length;
   document.getElementById('batchJudgeAlreadyJudged').textContent = judged.length + ' 件';
   document.getElementById('batchJudgeNoCoords').textContent      = noCoords.length + ' 件';
@@ -3965,6 +4109,15 @@ async function startBatchJudge() {
       const result = await _batchJudgeOne(c);
       counters.ok++;
       if (distribution[result.dbValue] !== undefined) distribution[result.dbValue]++;
+      // ダッシュボード即時更新（c-option）
+      if (window._bjDashStats) {
+        window._bjDashStats.judged++;
+        window._bjDashStats.pending = Math.max(0, window._bjDashStats.pending - 1);
+        if (window._bjDashStats.zones[result.dbValue] !== undefined) {
+          window._bjDashStats.zones[result.dbValue]++;
+        }
+        _renderBatchJudgeDashboard(window._bjDashStats);
+      }
     } catch (e) {
       counters.failed++;
       console.warn('[batch-judge] failed for', c.case_no, e);
