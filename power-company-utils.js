@@ -2,7 +2,7 @@
    power-company-utils.js
    電力会社判定の共通ユーティリティ
    - 全国1,736市区町村→都道府県→電力会社のマッピング
-   - SOLAR LAND MGR / GRID LAND MGR で共有
+   - GRID LAND MGR で共有
    ========================================================= */
 (function(global){
 'use strict';
