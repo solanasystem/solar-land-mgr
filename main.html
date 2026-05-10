@@ -4187,8 +4187,34 @@ function openEditModal(){
   else if(t.includes('不動産'))openRealestateEditModal();
 }
 
+// ============================================================
+// Google Maps 短縮URL 展開ヘルパー (2026-05-10)
+// 短縮URL（maps.app.goo.gl 等）→ Cloudflare Worker 経由で長URLに展開
+// ============================================================
+const _SHORT_URL_REGEX = /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl|g\.co|g\.page)\//;
+const _URL_EXPANDER_API = 'https://url-exapnder.takumi-kurimoto.workers.dev';
+
+async function _expandShortUrlIfNeeded(url) {
+  if (!_SHORT_URL_REGEX.test(url)) return url;
+  const proxyUrl = _URL_EXPANDER_API + '/?url=' + encodeURIComponent(url);
+  const res = await fetch(proxyUrl);
+  if (!res.ok) throw new Error('URL展開API HTTP ' + res.status);
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || '展開失敗');
+  return data.finalUrl;
+}
+
 function autoExtractLoLatLng(){
-  const url=document.getElementById('elo_google_map').value.trim();if(!url)return;
+  return _autoExtractLoLatLngAsync();
+}
+async function _autoExtractLoLatLngAsync(){
+  const inputEl=document.getElementById('elo_google_map');
+  let url=inputEl.value.trim();if(!url)return;
+  if(_SHORT_URL_REGEX.test(url)){
+    showToast('🔄 短縮URLを展開中...');
+    try{ url=await _expandShortUrlIfNeeded(url); inputEl.value=url; }
+    catch(e){ showToast('短縮URL展開失敗: '+e.message,'error'); return; }
+  }
   let lat=null,lng=null;
   const p1=url.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);if(p1){lat=parseFloat(p1[1]);lng=parseFloat(p1[2]);}
   if(!lat){const p=url.match(/!3d(-?\d+\.?\d*)/),q=url.match(/!4d(-?\d+\.?\d*)/);if(p&&q){lat=parseFloat(p[1]);lng=parseFloat(q[1]);}}
@@ -4203,7 +4229,16 @@ function autoExtractLoLatLng(){
   else showToast('座標を自動取得できませんでした','error');
 }
 function autoExtractLatLng(){
-  const url=document.getElementById('eld_google_map').value.trim();if(!url)return;
+  return _autoExtractLatLngAsync();
+}
+async function _autoExtractLatLngAsync(){
+  const inputEl=document.getElementById('eld_google_map');
+  let url=inputEl.value.trim();if(!url)return;
+  if(_SHORT_URL_REGEX.test(url)){
+    showToast('🔄 短縮URLを展開中...');
+    try{ url=await _expandShortUrlIfNeeded(url); inputEl.value=url; }
+    catch(e){ showToast('短縮URL展開失敗: '+e.message,'error'); return; }
+  }
   let lat=null,lng=null;
   const p1=url.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);if(p1){lat=parseFloat(p1[1]);lng=parseFloat(p1[2]);}
   if(!lat){const p=url.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/);if(p){lat=parseFloat(p[1]);lng=parseFloat(p[2]);}}
