@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0,user-scalable=yes">
+<title>ログイン - SOLAR LAND MGR</title>
+<link rel="icon" href="data:,">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-1: #0a1628;
+    --bg-2: #0f2042;
+    --bg-3: #1a3a5c;
+    --accent: #00d4ff;
+    --accent-hover: #4dd9f5;
+    --text-1: #e2e8f0;
+    --text-2: #94a3b8;
+    --text-3: #64748b;
+    --border: rgba(0, 212, 255, 0.2);
+    --error: #ff5252;
+    --success: #4ade80;
+  }
+
+  html, body { height: 100%; }
+  body {
+    font-family: 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'Meiryo', sans-serif;
+    background: linear-gradient(135deg, var(--bg-1) 0%, var(--bg-2) 50%, var(--bg-3) 100%);
+    color: var(--text-1);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 20% 30%, rgba(0, 212, 255, 0.10) 0%, transparent 50%),
+      radial-gradient(circle at 80% 70%, rgba(99, 102, 241, 0.08) 0%, transparent 50%);
+    pointer-events: none;
+  }
+
+  .login-card {
+    position: relative;
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px 36px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    z-index: 1;
+  }
+
+  .brand { text-align: center; margin-bottom: 28px; }
+  .brand-icon { font-size: 40px; line-height: 1; margin-bottom: 10px; }
+  .brand h1 {
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 18px; font-weight: 700;
+    color: var(--accent); letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+  .brand .subtitle { font-size: 12px; color: var(--text-2); }
+
+  .form-group { margin-bottom: 16px; }
+  label {
+    display: block; font-size: 11px; font-weight: 600;
+    color: var(--text-2); margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  input[type="email"], input[type="password"] {
+    width: 100%; padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: var(--text-1); font-size: 14px;
+    font-family: inherit; transition: all 0.2s;
+  }
+  input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: rgba(0, 212, 255, 0.05);
+    box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.12);
+  }
+
+  .password-wrap { position: relative; }
+  .password-toggle {
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: var(--text-3);
+    cursor: pointer; font-size: 16px; padding: 4px 8px;
+  }
+  .password-toggle:hover { color: var(--accent); }
+
+  .login-btn {
+    width: 100%; padding: 13px;
+    background: linear-gradient(135deg, var(--accent), #4ade80);
+    border: none; border-radius: 8px;
+    color: #0a1628; font-size: 14px; font-weight: 700;
+    font-family: inherit; cursor: pointer;
+    transition: all 0.2s; margin-top: 8px;
+    letter-spacing: 0.5px;
+  }
+  .login-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 16px rgba(0, 212, 255, 0.3);
+  }
+  .login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .message {
+    padding: 11px 14px; border-radius: 8px;
+    font-size: 13px; margin-bottom: 14px;
+    display: none; line-height: 1.5;
+  }
+  .message.error {
+    background: rgba(255, 82, 82, 0.1);
+    border: 1px solid rgba(255, 82, 82, 0.3);
+    color: var(--error);
+  }
+  .message.success {
+    background: rgba(74, 222, 128, 0.1);
+    border: 1px solid rgba(74, 222, 128, 0.3);
+    color: var(--success);
+  }
+  .message.info {
+    background: rgba(0, 212, 255, 0.08);
+    border: 1px solid rgba(0, 212, 255, 0.25);
+    color: var(--accent);
+  }
+
+  .footer {
+    text-align: center; margin-top: 22px;
+    font-size: 11px; color: var(--text-3);
+    line-height: 1.6;
+  }
+  .footer .session-info {
+    margin-bottom: 4px;
+    color: var(--text-2);
+  }
+
+  .loading-overlay {
+    position: absolute; inset: 0;
+    background: rgba(10, 22, 40, 0.75);
+    backdrop-filter: blur(4px);
+    display: none; align-items: center; justify-content: center;
+    border-radius: 16px; z-index: 10;
+  }
+  .loading-overlay.show { display: flex; }
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid rgba(0, 212, 255, 0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 480px) {
+    .login-card { padding: 32px 24px; }
+    .brand-icon { font-size: 32px; }
+    .brand h1 { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="login-card">
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+  </div>
+
+  <div class="brand">
+    <div class="brand-icon">☀</div>
+    <h1>SOLAR LAND MGR</h1>
+    <div class="subtitle">用地調査管理システム</div>
+  </div>
+
+  <div class="message" id="message"></div>
+
+  <form id="loginForm" onsubmit="return doLogin(event)">
+    <div class="form-group">
+      <label for="email">メールアドレス</label>
+      <input type="email" id="email" name="email" autocomplete="username" required>
+    </div>
+
+    <div class="form-group">
+      <label for="password">パスワード</label>
+      <div class="password-wrap">
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+        <button type="button" class="password-toggle" id="pwToggle" onclick="togglePassword()" title="表示/非表示">👁</button>
+      </div>
+    </div>
+
+    <button type="submit" class="login-btn" id="loginBtn">ログイン</button>
+  </form>
+
+  <div class="footer">
+    <div class="session-info">セッション有効期限：7日間</div>
+    <div>株式会社XAMAX ／ © 2026 SOLAR LAND MGR</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+  // ==========================================================
+  // 設定
+  // ==========================================================
+  const SUPABASE_URL      = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+  const SESSION_MAX_MS    = 7 * 24 * 60 * 60 * 1000; // 7日
+
+  // 起動チェック
+  if (typeof supabase === 'undefined') {
+    document.getElementById('message').innerHTML = '⚠ Supabase JS SDK の読み込みに失敗しました。ネットワーク接続を確認してください。';
+    document.getElementById('message').className = 'message error';
+    document.getElementById('message').style.display = 'block';
+    document.getElementById('loginBtn').disabled = true;
+  }
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // ==========================================================
+  // 既存セッション自動リダイレクト
+  // ==========================================================
+  (async () => {
+    try {
+      const loginAt = parseInt(localStorage.getItem('loginAt') || '0', 10);
+      const expired = !loginAt || (Date.now() - loginAt > SESSION_MAX_MS);
+
+      const { data: { session } } = await sb.auth.getSession();
+
+      if (session && !expired) {
+        // プロファイル取得 → ロール別リダイレクト
+        const { data: profile } = await sb
+          .from('profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .single();
+
+        if (profile) {
+          showMessage('既にログイン済みです。リダイレクト中…', 'info');
+          setTimeout(() => redirectByRole(profile.role), 300);
+          return;
+        }
+      }
+
+      // 期限切れ または セッション無し → 念のためクリーンアップ
+      if (session && expired) {
+        await sb.auth.signOut();
+        clearLocalSession();
+        showMessage('セッションの有効期限が切れました。再度ログインしてください。', 'info');
+      }
+    } catch (e) {
+      // 起動時エラーは静かに無視（ログインフォームは表示）
+      console.warn('Session pre-check failed:', e);
+    }
+  })();
+
+  // ==========================================================
+  // UI ヘルパー
+  // ==========================================================
+  function showMessage(text, type) {
+    const m = document.getElementById('message');
+    m.textContent = text;
+    m.className = 'message ' + type;
+    m.style.display = 'block';
+  }
+
+  function hideMessage() {
+    document.getElementById('message').style.display = 'none';
+  }
+
+  function showLoading(show) {
+    const overlay = document.getElementById('loadingOverlay');
+    const btn = document.getElementById('loginBtn');
+    if (show) {
+      overlay.classList.add('show');
+      btn.disabled = true;
+    } else {
+      overlay.classList.remove('show');
+      btn.disabled = false;
+    }
+  }
+
+  function togglePassword() {
+    const pw = document.getElementById('password');
+    const btn = document.getElementById('pwToggle');
+    if (pw.type === 'password') {
+      pw.type = 'text';
+      btn.textContent = '🙈';
+    } else {
+      pw.type = 'password';
+      btn.textContent = '👁';
+    }
+  }
+
+  function clearLocalSession() {
+    localStorage.removeItem('loginAt');
+    localStorage.removeItem('userProfile');
+  }
+
+  function redirectByRole(role) {
+    if (role === 'admin' || role === 'manager') {
+      location.href = 'index.html';
+    } else if (role === 'viewer') {
+      location.href = 'main.html';
+    } else {
+      showMessage('不明なロールです: ' + role + '。管理者に連絡してください。', 'error');
+      sb.auth.signOut();
+      clearLocalSession();
+    }
+  }
+
+  // ==========================================================
+  // ログイン処理
+  // ==========================================================
+  async function doLogin(e) {
+    e.preventDefault();
+    hideMessage();
+
+    const email    = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+
+    if (!email || !password) {
+      showMessage('メールアドレスとパスワードを入力してください', 'error');
+      return false;
+    }
+
+    showLoading(true);
+
+    try {
+      // ① Supabase Auth でログイン
+      const { data: authData, error: authError } = await sb.auth.signInWithPassword({
+        email, password
+      });
+
+      if (authError) {
+        const msg = mapAuthError(authError.message);
+        showMessage(msg, 'error');
+        showLoading(false);
+        return false;
+      }
+
+      // ② profiles テーブルからロール・組織取得
+      const { data: profile, error: profileError } = await sb
+        .from('profiles')
+        .select('id, role, organization_id, display_name, email')
+        .eq('id', authData.user.id)
+        .single();
+
+      if (profileError || !profile) {
+        showMessage('プロファイル情報が登録されていません。管理者にユーザー追加を依頼してください。', 'error');
+        await sb.auth.signOut();
+        clearLocalSession();
+        showLoading(false);
+        return false;
+      }
+
+      // ③ LocalStorage にセッション情報保存
+      localStorage.setItem('loginAt', Date.now().toString());
+      localStorage.setItem('userProfile', JSON.stringify({
+        id:              profile.id,
+        role:            profile.role,
+        organization_id: profile.organization_id,
+        display_name:    profile.display_name,
+        email:           profile.email
+      }));
+
+      // ④ ロール別リダイレクト
+      const roleLabel = profile.role === 'admin' ? '管理者' : (profile.role === 'manager' ? 'マネージャー' : '閲覧者');
+      const dispName = profile.display_name || profile.email;
+      showMessage(`${dispName}（${roleLabel}）としてログインしました。リダイレクト中…`, 'success');
+      setTimeout(() => redirectByRole(profile.role), 600);
+
+    } catch (err) {
+      console.error(err);
+      showMessage('予期しないエラーが発生しました: ' + (err.message || err), 'error');
+      showLoading(false);
+    }
+
+    return false;
+  }
+
+  function mapAuthError(msg) {
+    if (!msg) return 'ログインに失敗しました';
+    if (msg.includes('Invalid login credentials'))  return 'メールアドレスまたはパスワードが正しくありません';
+    if (msg.includes('Email not confirmed'))        return 'メールアドレスの確認が完了していません。管理者にお問い合わせください。';
+    if (msg.includes('Too many requests'))          return 'ログイン試行回数が多すぎます。しばらく待ってから再試行してください。';
+    if (msg.includes('signups not allowed'))        return 'このプロジェクトは新規登録を受け付けていません。管理者にユーザー追加を依頼してください。';
+    return 'ログインエラー: ' + msg;
+  }
+</script>
+
+</body>
+</html>
