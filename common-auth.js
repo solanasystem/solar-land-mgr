@@ -1,0 +1,160 @@
+/* ===================================================================
+   common-auth.js - 権限管理共通スニペット v1.0 (2026-05-10)
+   ===================================================================
+   配置: 各HTMLの <head> 内、他のスクリプトより先に
+         <script src="common-auth.js"></script>
+   役割:
+     1. 同期チェック: localStorage.loginAt + userProfile の有効性確認
+        無効/期限切れなら login.html へ即リダイレクト
+     2. window.__auth グローバル: profile / role / 権限ヘルパー提供
+     3. 非同期再検証: ページ完全読込後、Supabase でセッション再確認
+   注: login.html では本スクリプトを読み込まない
+   =================================================================== */
+(function() {
+  'use strict';
+
+  // login.html ではガードしない（無限リダイレクト防止）
+  var path = (location.pathname || '') + (location.hash || '');
+  if (path.indexOf('login.html') !== -1) return;
+
+  // ============================================================
+  // 設定
+  // ============================================================
+  var SESSION_MAX_MS    = 7 * 24 * 60 * 60 * 1000; // 7日
+  var SUPABASE_URL      = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+
+  // ============================================================
+  // ヘルパー
+  // ============================================================
+  function bailToLogin(reason) {
+    try {
+      localStorage.removeItem('loginAt');
+      localStorage.removeItem('userProfile');
+    } catch (e) {}
+    if (console && console.warn) console.warn('[common-auth]', reason || 'redirect to login.html');
+    location.replace('login.html');
+  }
+
+  // ============================================================
+  // Step 1: 同期チェック（localStorage キャッシュ）
+  // ============================================================
+  var loginAt    = parseInt(localStorage.getItem('loginAt') || '0', 10);
+  var profileStr = localStorage.getItem('userProfile');
+  var now        = Date.now();
+
+  if (!loginAt || !profileStr || (now - loginAt > SESSION_MAX_MS)) {
+    bailToLogin('Session missing or expired');
+    throw new Error('SOLAR LAND MGR: Authentication required');
+  }
+
+  var profile;
+  try {
+    profile = JSON.parse(profileStr);
+  } catch (e) {
+    bailToLogin('Profile JSON parse failed');
+    throw new Error('SOLAR LAND MGR: Profile parse failed');
+  }
+
+  if (!profile || !profile.role || !profile.id || !profile.organization_id) {
+    bailToLogin('Profile invalid');
+    throw new Error('SOLAR LAND MGR: Profile invalid');
+  }
+
+  if (profile.role !== 'admin' && profile.role !== 'manager' && profile.role !== 'viewer') {
+    bailToLogin('Unknown role: ' + profile.role);
+    throw new Error('SOLAR LAND MGR: Unknown role');
+  }
+
+  // ============================================================
+  // Step 2: window.__auth グローバル
+  // ============================================================
+  window.__auth = {
+    profile:        profile,
+    role:           profile.role,
+    organizationId: profile.organization_id,
+    isAdmin:        function() { return profile.role === 'admin'; },
+    isManager:      function() { return profile.role === 'manager'; },
+    isViewer:       function() { return profile.role === 'viewer'; },
+    canEdit:        function() { return profile.role !== 'viewer'; },
+    canDelete:      function() { return profile.role === 'admin' || profile.role === 'manager'; },
+    canManageUsers: function() { return profile.role === 'admin'; },
+    logout: function() {
+      try {
+        if (window.supabase && window.supabase.createClient) {
+          var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+          sb.auth.signOut();
+        }
+      } catch (e) {}
+      try {
+        localStorage.removeItem('loginAt');
+        localStorage.removeItem('userProfile');
+      } catch (e) {}
+      location.replace('login.html');
+    }
+  };
+
+  // ============================================================
+  // Step 3: 非同期再検証（ページ完全読込後）
+  // ============================================================
+  function asyncVerify(retries) {
+    if (typeof retries === 'undefined') retries = 0;
+    if (retries > 30) return; // ~6秒待ってもSDKロードしない場合は諦める
+
+    if (typeof window.supabase === 'undefined' || !window.supabase.createClient) {
+      setTimeout(function() { asyncVerify(retries + 1); }, 200);
+      return;
+    }
+
+    try {
+      var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      sb.auth.getSession().then(function(res) {
+        var session = res && res.data && res.data.session;
+        if (!session) {
+          window.__auth.logout();
+          return;
+        }
+        // セッションIDがプロファイルと一致するか
+        if (session.user.id !== profile.id) {
+          window.__auth.logout();
+          return;
+        }
+        // プロファイルを再取得
+        sb.from('profiles')
+          .select('id, role, organization_id, display_name, email')
+          .eq('id', session.user.id)
+          .single()
+          .then(function(res2) {
+            var newProfile = res2 && res2.data;
+            if (!newProfile) {
+              window.__auth.logout();
+              return;
+            }
+            // ロール変更検出
+            if (newProfile.role !== profile.role) {
+              localStorage.setItem('userProfile', JSON.stringify(newProfile));
+              location.reload();
+              return;
+            }
+            // 差分更新
+            localStorage.setItem('userProfile', JSON.stringify(newProfile));
+            window.__auth.profile = newProfile;
+          })
+          .catch(function(e) {
+            if (console && console.warn) console.warn('[common-auth] profile fetch failed:', e);
+          });
+      }).catch(function(e) {
+        if (console && console.warn) console.warn('[common-auth] session fetch failed:', e);
+      });
+    } catch (e) {
+      if (console && console.warn) console.warn('[common-auth] verify init failed:', e);
+    }
+  }
+
+  if (document.readyState === 'complete') {
+    asyncVerify();
+  } else {
+    window.addEventListener('load', function() { asyncVerify(); });
+  }
+
+})();
