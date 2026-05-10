@@ -422,6 +422,7 @@
       </div>
       <button class="btn btn-primary" onclick="openNewCaseModal()">＋ 新規案件登録</button>
       <button class="btn btn-primary" onclick="openBulkImportModal()" style="background:#10b981;border-color:#059669;margin-left:8px;">📁 書類一括取込</button>
+      <button id="batchJudgeBtn" class="btn btn-primary" onclick="openBatchJudgeModal()" style="display:none;background:#a855f7;border-color:#9333ea;margin-left:8px;" title="cases.city_planning_zone が NULL かつ lat/lng 登録済みの案件を一括自動判定（admin 限定）">⚖ 都市計画区域 一括判定<span id="batchJudgePendingCount" style="font-size:11px;opacity:.85;margin-left:6px"></span></button>
     </div>
     <div class="cases-table-header" style="grid-template-columns:50px 120px 40px 140px 140px 140px 150px 80px 1fr 160px">
       <div style="text-align:center">No</div><div><select id="caseNoDisplayModeSelect" onchange="setCaseNoDisplayMode(this.value)" title="案件番号 ⇔ 業務番号 表示切替" style="background:transparent;border:1px solid var(--border);color:var(--text);font-size:12px;padding:2px 6px;border-radius:4px;cursor:pointer;font-weight:600">
@@ -848,6 +849,84 @@
     </div>
   </div>
 </div>
+<!-- ============================================================
+     都市計画区域 一括判定モーダル (Phase B-2 Step B / 2026-05-10)
+     ============================================================ -->
+<div class="modal-overlay" id="batchJudgeModal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <div><div class="modal-title">⚖ 都市計画区域 一括判定</div><div class="modal-subtitle">国土交通省 XKT001 API による自動判定（admin 限定）</div></div>
+      <button class="modal-close" onclick="closeModal('batchJudgeModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- Phase 1: 確認 -->
+      <div id="batchJudgePhase1">
+        <p style="margin-bottom:14px;color:var(--text);font-size:13px;line-height:1.7">
+          <code style="background:rgba(0,0,0,.3);padding:1px 6px;border-radius:3px;font-family:var(--font-mono);font-size:12px">city_planning_zone</code> が未判定（NULL）かつ <code style="background:rgba(0,0,0,.3);padding:1px 6px;border-radius:3px;font-family:var(--font-mono);font-size:12px">lat/lng</code> が登録済みの案件を、国土交通省 XKT001 API で自動判定します。
+        </p>
+        <div style="background:rgba(255,255,255,0.04);padding:14px 16px;border-radius:8px;margin-bottom:14px;border:1px solid rgba(255,255,255,.06)">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px">
+            <span style="color:var(--text-muted)">⏳ 判定対象（lat/lngあり）</span>
+            <span><strong id="batchJudgeTargetCount" style="color:#a855f7;font-size:18px">—</strong> 件</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;color:var(--text-muted)">
+            <span>✓ 判定済み</span><span id="batchJudgeAlreadyJudged">— 件</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:8px;color:var(--text-muted)">
+            <span>🚫 判定不能（座標なし）</span><span id="batchJudgeNoCoords">— 件</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);color:var(--text-muted)">
+            <span>所要時間（推定）</span><span id="batchJudgeEstimate">—</span>
+          </div>
+        </div>
+        <div style="background:rgba(251,191,36,0.06);border-left:2px solid #fbbf24;padding:8px 12px;border-radius:0 4px 4px 0;font-size:11px;color:var(--text-muted);line-height:1.6">
+          <strong style="color:#fbbf24">📌 注意</strong>: 判定中はブラウザを閉じないでください。途中停止可能、API失敗案件は PENDING のまま残ります。
+        </div>
+      </div>
+      <!-- Phase 2: 実行中 -->
+      <div id="batchJudgePhase2" style="display:none">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">処理中...</div>
+        <div style="background:rgba(255,255,255,0.06);height:22px;border-radius:11px;overflow:hidden;margin-bottom:10px">
+          <div id="batchJudgeProgressBar" style="background:linear-gradient(90deg,#a855f7,#ec4899);height:100%;width:0%;transition:width .3s ease"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:14px;color:var(--text-muted)">
+          <span id="batchJudgeProgressText">0 / 0</span>
+          <span id="batchJudgeProgressPct">0%</span>
+        </div>
+        <div style="background:rgba(255,255,255,0.04);padding:8px 12px;border-radius:6px;font-family:var(--font-mono);font-size:12px;margin-bottom:14px;border:1px solid rgba(255,255,255,.06)">
+          現在処理中: <span id="batchJudgeCurrentCase" style="color:#a855f7;font-weight:600">—</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:11px">
+          <div style="background:rgba(74,222,128,0.08);padding:8px 10px;border-radius:6px;text-align:center;border:1px solid rgba(74,222,128,.15)">
+            <div style="color:#4ade80;font-weight:700;font-size:18px" id="batchJudgeOk">0</div>
+            <div style="color:var(--text-muted);margin-top:2px">✓ 成功</div>
+          </div>
+          <div style="background:rgba(255,82,82,0.08);padding:8px 10px;border-radius:6px;text-align:center;border:1px solid rgba(255,82,82,.15)">
+            <div style="color:#ff5252;font-weight:700;font-size:18px" id="batchJudgeFailed">0</div>
+            <div style="color:var(--text-muted);margin-top:2px">✗ 失敗</div>
+          </div>
+          <div style="background:rgba(148,163,184,0.08);padding:8px 10px;border-radius:6px;text-align:center;border:1px solid rgba(148,163,184,.15)">
+            <div style="color:var(--text-muted);font-weight:700;font-size:18px" id="batchJudgeSkipped">0</div>
+            <div style="color:var(--text-muted);margin-top:2px">→ スキップ</div>
+          </div>
+        </div>
+      </div>
+      <!-- Phase 3: 結果 -->
+      <div id="batchJudgePhase3" style="display:none">
+        <div style="text-align:center;font-size:40px;margin:8px 0">✅</div>
+        <div style="text-align:center;font-size:16px;margin-bottom:18px;color:var(--text)">一括判定が完了しました</div>
+        <div id="batchJudgeResultSummary" style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 4px;border:1px solid rgba(255,255,255,.06)"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="batchJudgeCancelBtn" onclick="closeModal('batchJudgeModal')">キャンセル</button>
+      <button class="btn btn-primary" id="batchJudgeStartBtn" onclick="startBatchJudge()" style="background:#a855f7;border-color:#9333ea">⚖ 一括判定を開始</button>
+      <button class="btn" id="batchJudgeAbortBtn" style="display:none;background:rgba(255,82,82,.15);color:#ff5252;border-color:rgba(255,82,82,.3)" onclick="abortBatchJudge()">⏸ 中止</button>
+      <button class="btn btn-primary" id="batchJudgeDoneBtn" style="display:none" onclick="closeModal('batchJudgeModal');refreshAll();">完了</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="editLandModal">
   <div class="modal modal-lg">
     <div class="modal-header">
@@ -3718,6 +3797,226 @@ async function permanentDeleteDocument(id,fileName){
 function toggleAddLog(){const f=document.getElementById('addLogForm');f.style.display=f.style.display==='none'?'block':'none';}
 function toggleCollapse(header){const body=header.nextElementSibling,arrow=header.querySelector('.collapse-arrow');body.classList.toggle('open');arrow.classList.toggle('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
+
+// ============================================================
+// Phase B-2 Step B: 都市計画区域 一括判定 (2026-05-10)
+// 判定ロジックは case-summary.html の _judge* 系を踏襲
+// XKT001 中心+3x3グリッドで境界ケース対策
+// ============================================================
+const _BATCH_XKT001_API = 'https://reinfolib-proxy.takumi-29b.workers.dev/api/XKT001';
+const _BATCH_TILE_ZOOM  = 11;
+const _BATCH_INTER_DELAY_MS = 200;
+let _batchJudgeAbortFlag = false;
+let _batchJudgePending = [];
+
+function _batchLatLngToTile(lat, lng, zoom) {
+  const x = Math.floor((lng + 180) / 360 * Math.pow(2, zoom));
+  const sinLat = Math.sin(lat * Math.PI / 180);
+  const y = Math.floor((0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * Math.pow(2, zoom));
+  return { x, y };
+}
+function _batchPointInRing(point, ring) {
+  const x = point[0], y = point[1];
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-12) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+function _batchPointInGeom(point, geometry) {
+  if (!geometry) return false;
+  if (geometry.type === 'Polygon') {
+    const rings = geometry.coordinates;
+    if (!rings || !rings.length) return false;
+    if (!_batchPointInRing(point, rings[0])) return false;
+    for (let i = 1; i < rings.length; i++) if (_batchPointInRing(point, rings[i])) return false;
+    return true;
+  }
+  if (geometry.type === 'MultiPolygon') {
+    const polys = geometry.coordinates;
+    for (let p = 0; p < polys.length; p++) {
+      const rings = polys[p];
+      if (!rings || !rings.length) continue;
+      if (!_batchPointInRing(point, rings[0])) continue;
+      let inHole = false;
+      for (let i = 1; i < rings.length; i++) if (_batchPointInRing(point, rings[i])) { inHole = true; break; }
+      if (!inHole) return true;
+    }
+    return false;
+  }
+  return false;
+}
+function _batchClassifyName(name) {
+  const s = String(name || '');
+  if (s.indexOf('市街化調整') >= 0) return 'chosei';
+  if (s.indexOf('市街化区域') >= 0) return 'shigai';
+  if (s.indexOf('都市計画区域') >= 0) return 'tokei';
+  return 'other';
+}
+function _batchClassifyFromFeatures(features, lat, lng) {
+  const point = [parseFloat(lng), parseFloat(lat)];
+  let hitShigai = null, hitChosei = null, hitTokei = null;
+  for (let i = 0; i < (features || []).length; i++) {
+    const f = features[i];
+    if (!f || !f.geometry) continue;
+    if (!_batchPointInGeom(point, f.geometry)) continue;
+    const name = (f.properties || {}).area_classification_ja || '';
+    const cls = _batchClassifyName(name);
+    if (cls === 'shigai' && !hitShigai) hitShigai = name;
+    else if (cls === 'chosei' && !hitChosei) hitChosei = name;
+    else if (cls === 'tokei' && !hitTokei) hitTokei = name;
+  }
+  if (hitShigai) return { dbValue: 'urbanization', label: '市街化区域' };
+  if (hitChosei) return { dbValue: 'control',      label: '市街化調整区域' };
+  if (hitTokei)  return { dbValue: 'non_zoned',    label: '非線引き区域' };
+  return            { dbValue: 'outside',     label: '都市計画区域外' };
+}
+async function _batchFetchXKT001(lat, lng) {
+  const center = _batchLatLngToTile(parseFloat(lat), parseFloat(lng), _BATCH_TILE_ZOOM);
+  const tiles = [];
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) tiles.push({ x: center.x + dx, y: center.y + dy, z: _BATCH_TILE_ZOOM });
+  const allFeatures = [];
+  let anySuccess = false, anyError = null;
+  await Promise.all(tiles.map(async t => {
+    try {
+      const url = _BATCH_XKT001_API + '?response_format=geojson&z=' + t.z + '&x=' + t.x + '&y=' + t.y;
+      const res = await fetch(url);
+      if (!res.ok) {
+        if (res.status !== 204 && res.status !== 404) anyError = 'HTTP ' + res.status;
+        return;
+      }
+      anySuccess = true;
+      const data = await res.json();
+      if (data && data.features && data.features.length) allFeatures.push.apply(allFeatures, data.features);
+    } catch (e) { anyError = e.message || String(e); }
+  }));
+  if (!anySuccess && anyError) throw new Error('XKT001 API失敗: ' + anyError);
+  return allFeatures;
+}
+async function _batchJudgeOne(caseRow) {
+  const features = await _batchFetchXKT001(caseRow.lat, caseRow.lng);
+  const result = _batchClassifyFromFeatures(features, caseRow.lat, caseRow.lng);
+  const { error } = await db.from('cases').update({ city_planning_zone: result.dbValue }).eq('id', caseRow.case_id);
+  if (error) throw new Error('DB更新失敗: ' + error.message);
+  return result;
+}
+
+// 一括判定モーダル制御
+async function openBatchJudgeModal() {
+  if (!window.__auth || !window.__auth.isAdmin()) {
+    showToast('admin 権限が必要です', 'error');
+    return;
+  }
+  const modal = document.getElementById('batchJudgeModal');
+  if (!modal) return;
+  // 対象件数集計
+  const { data, error } = await db.from('land_info').select('case_id, lat, lng, cases(case_no, display_case_no, city_planning_zone)');
+  if (error) { showToast('案件一覧の取得失敗: ' + error.message, 'error'); return; }
+  const all = data || [];
+  const pending  = all.filter(r => r.cases && r.cases.city_planning_zone == null && r.lat != null && r.lng != null);
+  const judged   = all.filter(r => r.cases && r.cases.city_planning_zone != null);
+  const noCoords = all.filter(r => r.cases && r.cases.city_planning_zone == null && (r.lat == null || r.lng == null));
+  _batchJudgePending = pending.map(r => ({
+    case_id: r.case_id,
+    lat:     r.lat,
+    lng:     r.lng,
+    case_no: (r.cases && (r.cases.display_case_no || r.cases.case_no)) || '(unknown)'
+  }));
+  document.getElementById('batchJudgeTargetCount').textContent  = pending.length;
+  document.getElementById('batchJudgeAlreadyJudged').textContent = judged.length + ' 件';
+  document.getElementById('batchJudgeNoCoords').textContent      = noCoords.length + ' 件';
+  const estSec = Math.max(60, pending.length * (_BATCH_INTER_DELAY_MS / 1000 + 0.8));
+  document.getElementById('batchJudgeEstimate').textContent = '約 ' + Math.ceil(estSec / 60) + ' 分';
+  // Phase 1 リセット
+  document.getElementById('batchJudgePhase1').style.display = '';
+  document.getElementById('batchJudgePhase2').style.display = 'none';
+  document.getElementById('batchJudgePhase3').style.display = 'none';
+  document.getElementById('batchJudgeStartBtn').style.display  = '';
+  document.getElementById('batchJudgeAbortBtn').style.display  = 'none';
+  document.getElementById('batchJudgeDoneBtn').style.display   = 'none';
+  document.getElementById('batchJudgeCancelBtn').style.display = '';
+  document.getElementById('batchJudgeStartBtn').disabled = (pending.length === 0);
+  modal.classList.add('open');
+}
+function abortBatchJudge() { _batchJudgeAbortFlag = true; }
+async function startBatchJudge() {
+  if (!_batchJudgePending || _batchJudgePending.length === 0) { closeModal('batchJudgeModal'); return; }
+  // Phase 2 へ
+  document.getElementById('batchJudgePhase1').style.display = 'none';
+  document.getElementById('batchJudgePhase2').style.display = '';
+  document.getElementById('batchJudgeStartBtn').style.display  = 'none';
+  document.getElementById('batchJudgeCancelBtn').style.display = 'none';
+  document.getElementById('batchJudgeAbortBtn').style.display  = '';
+  const total = _batchJudgePending.length;
+  const counters = { ok: 0, failed: 0, skipped: 0 };
+  const distribution = { urbanization: 0, control: 0, non_zoned: 0, outside: 0 };
+  _batchJudgeAbortFlag = false;
+  for (let i = 0; i < total; i++) {
+    if (_batchJudgeAbortFlag) break;
+    const c = _batchJudgePending[i];
+    document.getElementById('batchJudgeCurrentCase').textContent = c.case_no;
+    document.getElementById('batchJudgeProgressText').textContent = (i + 1) + ' / ' + total;
+    const pct = Math.round((i / total) * 100);
+    document.getElementById('batchJudgeProgressPct').textContent = pct + '%';
+    document.getElementById('batchJudgeProgressBar').style.width = pct + '%';
+    try {
+      const result = await _batchJudgeOne(c);
+      counters.ok++;
+      if (distribution[result.dbValue] !== undefined) distribution[result.dbValue]++;
+    } catch (e) {
+      counters.failed++;
+      console.warn('[batch-judge] failed for', c.case_no, e);
+    }
+    document.getElementById('batchJudgeOk').textContent     = counters.ok;
+    document.getElementById('batchJudgeFailed').textContent = counters.failed;
+    if (i < total - 1) await new Promise(r => setTimeout(r, _BATCH_INTER_DELAY_MS));
+  }
+  const finalProcessed = counters.ok + counters.failed;
+  counters.skipped = total - finalProcessed;
+  document.getElementById('batchJudgeSkipped').textContent = counters.skipped;
+  const finalPct = Math.round((finalProcessed / total) * 100);
+  document.getElementById('batchJudgeProgressPct').textContent = finalPct + '%';
+  document.getElementById('batchJudgeProgressBar').style.width = finalPct + '%';
+  // Phase 3 へ
+  setTimeout(function() {
+    document.getElementById('batchJudgePhase2').style.display = 'none';
+    document.getElementById('batchJudgePhase3').style.display = '';
+    document.getElementById('batchJudgeAbortBtn').style.display = 'none';
+    document.getElementById('batchJudgeDoneBtn').style.display  = '';
+    document.getElementById('batchJudgeResultSummary').innerHTML =
+      '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+      '<tr><td style="padding:6px 14px;color:var(--text-muted)">✓ 判定成功</td><td style="padding:6px 14px;text-align:right;font-weight:600;color:#4ade80">' + counters.ok + ' 件</td></tr>' +
+      '<tr><td style="padding:6px 14px;color:var(--text-muted)">✗ 失敗（PENDING維持）</td><td style="padding:6px 14px;text-align:right;color:#ff5252">' + counters.failed + ' 件</td></tr>' +
+      (counters.skipped > 0 ? '<tr><td style="padding:6px 14px;color:var(--text-muted)">→ 中止スキップ</td><td style="padding:6px 14px;text-align:right">' + counters.skipped + ' 件</td></tr>' : '') +
+      '<tr><td colspan="2" style="border-top:1px solid rgba(255,255,255,.08);padding-top:6px"></td></tr>' +
+      '<tr><td style="padding:5px 14px;color:#ff8c5a;font-size:12px">🟧 市街化区域</td><td style="padding:5px 14px;text-align:right;font-size:12px">' + distribution.urbanization + ' 件</td></tr>' +
+      '<tr><td style="padding:5px 14px;color:#4ade80;font-size:12px">🟢 市街化調整区域</td><td style="padding:5px 14px;text-align:right;font-size:12px">' + distribution.control + ' 件</td></tr>' +
+      '<tr><td style="padding:5px 14px;color:var(--text-muted);font-size:12px">⬜ 非線引き区域</td><td style="padding:5px 14px;text-align:right;font-size:12px">' + distribution.non_zoned + ' 件</td></tr>' +
+      '<tr><td style="padding:5px 14px;color:var(--text-muted);font-size:12px">⬜ 都市計画区域外</td><td style="padding:5px 14px;text-align:right;font-size:12px">' + distribution.outside + ' 件</td></tr>' +
+      '</table>';
+  }, 400);
+}
+
+// 起動時：admin かつ pending あり の時のみボタン表示
+async function _initBatchJudgeButton() {
+  if (!window.__auth || !window.__auth.isAdmin()) return;
+  try {
+    const { count, error } = await db.from('cases').select('id', { count: 'exact', head: true }).is('city_planning_zone', null);
+    if (error) return;
+    const btn = document.getElementById('batchJudgeBtn');
+    if (!btn) return;
+    if (count && count > 0) {
+      btn.style.display = '';
+      const cnt = document.getElementById('batchJudgePendingCount');
+      if (cnt) cnt.textContent = '(' + count + '件)';
+    }
+  } catch (e) { console.warn('[batch-judge-init]', e); }
+}
+if (document.readyState === 'complete') _initBatchJudgeButton();
+else window.addEventListener('load', _initBatchJudgeButton);
+
 function openEditModal(){
   const t=document.querySelector('.detail-tab.active')?.textContent||'';
   if(t.includes('地権者'))openLandownerEditModal();
