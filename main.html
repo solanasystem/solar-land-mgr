@@ -4033,16 +4033,18 @@ async function openBatchJudgeModal() {
   const modal = document.getElementById('batchJudgeModal');
   if (!modal) return;
   // 対象件数集計（land_info 経由 + cases も別途取得して total を正確に）
+  // 重要: NG案件は全機能で除外（メモリルール準拠）
   const [casesResp, liResp] = await Promise.all([
-    db.from('cases').select('id, city_planning_zone'),
-    db.from('land_info').select('case_id, lat, lng, cases(case_no, display_case_no, city_planning_zone)')
+    db.from('cases').select('id, city_planning_zone, status'),
+    db.from('land_info').select('case_id, lat, lng, cases(case_no, display_case_no, city_planning_zone, status)')
   ]);
   if (casesResp.error || liResp.error) {
     showToast('案件一覧の取得失敗: ' + ((casesResp.error||liResp.error).message), 'error');
     return;
   }
-  const allCases = casesResp.data || [];
-  const all = liResp.data || [];
+  // NG案件をフィルタ（status='NG' を除外）
+  const allCases = (casesResp.data || []).filter(function(c){ return c.status !== 'NG'; });
+  const all      = (liResp.data    || []).filter(function(r){ return r.cases && r.cases.status !== 'NG'; });
   // ダッシュボード集計
   const zones = { urbanization:0, control:0, control_outer:0, non_zoned:0, outside:0 };
   let judgedCount = 0;
@@ -4159,12 +4161,12 @@ async function startBatchJudge() {
   }, 400);
 }
 
-// 起動時：admin かつ pending あり の時のみボタン表示
+// 起動時：admin かつ pending あり の時のみボタン表示（NG除外）
 async function _initBatchJudgeButton() {
   if (!window.__auth || !window.__auth.isAdmin()) return;
   try {
-    const totalResp   = await db.from('cases').select('id', { count: 'exact', head: true });
-    const pendingResp = await db.from('cases').select('id', { count: 'exact', head: true }).is('city_planning_zone', null);
+    const totalResp   = await db.from('cases').select('id', { count: 'exact', head: true }).or('status.is.null,status.neq.NG');
+    const pendingResp = await db.from('cases').select('id', { count: 'exact', head: true }).is('city_planning_zone', null).or('status.is.null,status.neq.NG');
     if (totalResp.error || pendingResp.error) return;
     const total   = totalResp.count   || 0;
     const pending = pendingResp.count || 0;
