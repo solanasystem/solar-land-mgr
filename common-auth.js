@@ -45,7 +45,7 @@
 
   if (!loginAt || !profileStr || (now - loginAt > SESSION_MAX_MS)) {
     bailToLogin('Session missing or expired');
-    throw new Error('SOLAR LAND MGR: Authentication required');
+    throw new Error('GRID LAND MGR: Authentication required');
   }
 
   var profile;
@@ -53,17 +53,17 @@
     profile = JSON.parse(profileStr);
   } catch (e) {
     bailToLogin('Profile JSON parse failed');
-    throw new Error('SOLAR LAND MGR: Profile parse failed');
+    throw new Error('GRID LAND MGR: Profile parse failed');
   }
 
   if (!profile || !profile.role || !profile.id || !profile.organization_id) {
     bailToLogin('Profile invalid');
-    throw new Error('SOLAR LAND MGR: Profile invalid');
+    throw new Error('GRID LAND MGR: Profile invalid');
   }
 
   if (profile.role !== 'admin' && profile.role !== 'manager' && profile.role !== 'viewer') {
     bailToLogin('Unknown role: ' + profile.role);
-    throw new Error('SOLAR LAND MGR: Unknown role');
+    throw new Error('GRID LAND MGR: Unknown role');
   }
 
   // ============================================================
