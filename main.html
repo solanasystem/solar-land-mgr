@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260509p / 電力会社選択を10タブ→1ボタン+ドロップダウンに集約 -->
+<!-- BUILD: main v20260509q / 電力会社選択ドロップダウンを各マスターのツールバーに統合（縦スペース1行節約） -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -83,7 +83,7 @@
   .pc-dropdown-btn .pc-count{font-family:var(--font-mono);font-size:10px;opacity:.7;margin-left:2px;}
   .pc-dropdown-btn .pc-arrow{font-size:9px;opacity:.7;transition:transform .15s;margin-left:2px;}
   .pc-dropdown.open .pc-dropdown-btn .pc-arrow{transform:rotate(180deg);}
-  .pc-dropdown-menu{position:absolute;top:calc(100% + 4px);left:0;z-index:50;display:none;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.4);padding:4px;min-width:200px;max-height:400px;overflow-y:auto;}
+  .pc-dropdown-menu{position:absolute;top:calc(100% + 4px);left:0;z-index:200;display:none;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.4);padding:4px;min-width:200px;max-height:400px;overflow-y:auto;}
   .pc-dropdown.open .pc-dropdown-menu{display:flex;}
   .pc-dropdown-item{padding:6px 12px;background:transparent;border:none;border-radius:4px;color:var(--text-muted);font-family:var(--font-main);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:12px;}
   .pc-dropdown-item:hover{background:var(--surface2);color:var(--text);}
@@ -362,7 +362,6 @@
   </details>
 </div>
 <div id="stickyZone">
-  <div id="powerCompanyBar" class="power-company-bar"></div>
   <div id="mobileFilterBar" class="mobile-filter-bar">
     <select id="mobilePcSelect" class="mobile-filter-select" onchange="setPowerCompany(this.value)">
       <option value="北海道電力">北海道電力</option>
@@ -403,6 +402,7 @@
   <div id="casesStickyBlock">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="案件番号・地権者・地名で検索..." id="searchInput" oninput="filterCases()">
         <select class="filter-select" id="filterKubun" onchange="filterCases()">
           <option value="">すべての区分</option>
@@ -442,6 +442,7 @@
     </div>
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="案件番号・氏名・住所・電話・メモで検索..." id="loSearchInput" oninput="filterLandowners()">
         <select class="filter-select" id="filterLoStatus" onchange="filterLandowners()">
           <option value="">すべてのステータス</option>
@@ -461,6 +462,7 @@
   <div id="landStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="案件番号・所在・地番・地目・備考で検索..." id="ldSearchInput" oninput="filterLandMaster()">
         <button id="ngBlindBtnLd" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
@@ -474,6 +476,7 @@
   <div id="realestateStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="案件番号・会社名・住所・担当者・電話で検索..." id="reSearchInput" oninput="filterRealestate()">
         <button id="ngBlindBtnRe" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
@@ -488,6 +491,7 @@
   <div id="introcompanyStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="会社名・担当者・住所・電話・携帯で検索..." id="icSearchInput" oninput="filterIntroductionCompanies()">
         <select class="filter-select" id="icFilterPriority" onchange="filterIntroductionCompanies()">
           <option value="">全ての優先度</option>
@@ -515,6 +519,7 @@
   <div id="salesStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="案件No・案件名・紹介先企業で検索..." id="siSearchInput" oninput="filterSalesIntroductions()">
         <select class="filter-select" id="siFilterStatus" onchange="filterSalesIntroductions()">
           <option value="">全ての紹介ステータス</option>
@@ -1390,9 +1395,9 @@ let currentPowerCompany=_filterStateGet('currentPowerCompany', '中部電力'); 
 function renderPowerCompanyTabs(){
   const counts={};POWER_COMPANIES.forEach(pc=>counts[pc]=0);
   (allCases||[]).forEach(c=>{const pc=getPowerCompanyFromArea(c.area_name);if(counts[pc]!==undefined)counts[pc]++;});
-  const bar=document.getElementById('powerCompanyBar');
-  if(!bar)return;
-  /* 2026-05-09 変更: 10タブ横並びを1ボタン+ドロップダウンメニューに集約 */
+  /* 2026-05-09 変更: 各マスター(.sticky-toolbar内)の .pc-dropdown-slot に書き出す */
+  const slots=document.querySelectorAll('.pc-dropdown-slot');
+  if(!slots.length)return;
   const currentCount=counts[currentPowerCompany]||0;
   const itemsHtml=POWER_COMPANIES.map(pc=>{
     const n=counts[pc]||0;
@@ -1400,30 +1405,28 @@ function renderPowerCompanyTabs(){
     const empty=n===0?' empty':'';
     return `<button type="button" class="pc-dropdown-item${active}${empty}" onclick="setPowerCompany('${pc}');closePcDropdown();">${pc}<span class="pc-count">(${n})</span></button>`;
   }).join('');
-  bar.innerHTML=`
-    <div class="pc-dropdown" id="pcDropdown">
-      <button type="button" class="pc-dropdown-btn" onclick="togglePcDropdown(event)">
-        🔌 ${currentPowerCompany}<span class="pc-count">(${currentCount})</span><span class="pc-arrow">▼</span>
-      </button>
-      <div class="pc-dropdown-menu">${itemsHtml}</div>
-    </div>
-  `;
+  const html=`<div class="pc-dropdown"><button type="button" class="pc-dropdown-btn" onclick="togglePcDropdown(event)">🔌 ${currentPowerCompany}<span class="pc-count">(${currentCount})</span><span class="pc-arrow">▼</span></button><div class="pc-dropdown-menu">${itemsHtml}</div></div>`;
+  slots.forEach(slot=>{slot.innerHTML=html;});
 }
-/* 2026-05-09 追加: 電力会社選択ドロップダウンの開閉制御 */
+/* 2026-05-09 追加・更新: 電力会社選択ドロップダウンの開閉制御
+   複数の .pc-dropdown インスタンス（各マスターのsticky-toolbarに1個ずつ）に対応 */
 function togglePcDropdown(ev){
   if(ev) ev.stopPropagation();
-  const dd=document.getElementById('pcDropdown');
-  if(dd) dd.classList.toggle('open');
+  const target=ev?.currentTarget?.closest('.pc-dropdown');
+  if(!target)return;
+  const wasOpen=target.classList.contains('open');
+  /* 開く前に他の全インスタンスを閉じる */
+  document.querySelectorAll('.pc-dropdown.open').forEach(d=>d.classList.remove('open'));
+  if(!wasOpen)target.classList.add('open');
 }
 function closePcDropdown(){
-  const dd=document.getElementById('pcDropdown');
-  if(dd) dd.classList.remove('open');
+  document.querySelectorAll('.pc-dropdown.open').forEach(d=>d.classList.remove('open'));
 }
 /* 外側クリック・Escapeキーで閉じる */
 document.addEventListener('click', function(e){
-  const dd=document.getElementById('pcDropdown');
-  if(!dd||!dd.classList.contains('open'))return;
-  if(!dd.contains(e.target)) dd.classList.remove('open');
+  document.querySelectorAll('.pc-dropdown.open').forEach(dd=>{
+    if(!dd.contains(e.target)) dd.classList.remove('open');
+  });
 });
 document.addEventListener('keydown', function(e){
   if(e.key==='Escape') closePcDropdown();
