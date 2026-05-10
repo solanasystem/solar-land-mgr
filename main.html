@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260509n / 地権者の個別削除機能を追加 -->
+<!-- BUILD: main v20260509o / 地権者削除＋フィルタ状態の永続化（NGブラインド・電力会社・検索/区分/ステータス） -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -1292,17 +1292,85 @@ const SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
 const{createClient}=supabase;
 const db=createClient(SUPABASE_URL,SUPABASE_KEY);
+/* ===== フィルタ状態の永続化（localStorage）2026-05-09 追加 =====
+   NGブラインド・電力会社タブ・各検索ボックス・区分・ステータスの選択を
+   localStorageに保存・復元する。リロードしても直前の表示状態が保持される。 */
+function _filterStateGet(key, defaultValue){
+  try{
+    const v=localStorage.getItem('gridLandMgr.'+key);
+    if(v===null)return defaultValue;
+    if(v==='true')return true;
+    if(v==='false')return false;
+    return v;
+  }catch(e){return defaultValue;}
+}
+function _filterStateSet(key, value){
+  try{localStorage.setItem('gridLandMgr.'+key, String(value));}catch(e){}
+}
+/* NGブラインドボタン4個（ngBlindBtn / ngBlindBtnLo / ngBlindBtnLd / ngBlindBtnRe）
+   の見た目を ngBlind 変数の値に合わせて同期する。toggleNgBlindと初期化の両方から呼び出す。 */
+function _syncNgBlindUI(){
+  const label=`NGブラインド ${ngBlind?'ON':'OFF'}`;
+  const style=ngBlind
+    ?'background:rgba(248,81,73,.4);color:#fff;border:1px solid rgba(248,81,73,.8);'
+    :'background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.4);';
+  ['ngBlindBtn','ngBlindBtnLo','ngBlindBtnLd','ngBlindBtnRe'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){
+      el.textContent=label;
+      el.style.cssText=el.style.cssText.replace(/background:[^;]+;color:[^;]+;border:[^;]+;/, style);
+    }
+  });
+}
+/* 起動時にlocalStorageから検索ボックス・区分・ステータスの値を復元 */
+function _restoreFilterInputs(){
+  const restoreEl=(id, key)=>{
+    const el=document.getElementById(id);
+    if(el){
+      const v=_filterStateGet(key,'');
+      if(v!=='')el.value=v;
+    }
+  };
+  restoreEl('searchInput','searchInput');
+  restoreEl('filterKubun','filterKubun');
+  restoreEl('filterStatus','filterStatus');
+  restoreEl('loSearchInput','loSearchInput');
+  restoreEl('ldSearchInput','ldSearchInput');
+  restoreEl('reSearchInput','reSearchInput');
+  /* モバイル版selectは案件マスター用のフィルタと同期 */
+  const mPc=document.getElementById('mobilePcSelect');     if(mPc)  mPc.value =_filterStateGet('currentPowerCompany','中部電力');
+  const mKb=document.getElementById('mobileKubunSelect');  if(mKb)  mKb.value =_filterStateGet('filterKubun','');
+  const mSt=document.getElementById('mobileStatusSelect'); if(mSt)  mSt.value =_filterStateGet('filterStatus','');
+}
+/* 検索ボックス・区分・ステータス変更時に localStorage に書き出すバインド */
+function _bindFilterPersistence(){
+  const bind=(id, key)=>{
+    const el=document.getElementById(id);
+    if(el){
+      el.addEventListener('input', ()=>_filterStateSet(key, el.value));
+      el.addEventListener('change', ()=>_filterStateSet(key, el.value));
+    }
+  };
+  bind('searchInput','searchInput');
+  bind('filterKubun','filterKubun');
+  bind('filterStatus','filterStatus');
+  bind('loSearchInput','loSearchInput');
+  bind('ldSearchInput','ldSearchInput');
+  bind('reSearchInput','reSearchInput');
+}
+/* ===== ===== */
+
 let allCases=[],currentCaseId=null,currentLandownerId=null;
 /* 案件番号表示モード：'case_no'=システム案件番号 / 'business_no'=業務用案件番号 */
 let caseNoDisplayMode = (typeof localStorage!=='undefined' && localStorage.getItem('caseNoDisplayMode')) || 'case_no';
-let ngBlind=true;
+let ngBlind=_filterStateGet('ngBlind', true);
 
 /* ========== 管轄電力会社 マッピング ==========
    定数・関数は power-company-utils.js から提供される（全国1,736市区町村対応）：
    POWER_COMPANIES / PREF_TO_POWER / AREA_TO_PREF / BROAD_REGION_TO_POWER /
    DEFAULT_POWER_COMPANY / normalizeAreaKey / getPowerCompanyFromArea /
    filterCasesByPowerCompany */
-let currentPowerCompany='中部電力'; /* 初期選択 */
+let currentPowerCompany=_filterStateGet('currentPowerCompany', '中部電力'); /* 初期選択（localStorage優先） */
 
 function renderPowerCompanyTabs(){
   const counts={};POWER_COMPANIES.forEach(pc=>counts[pc]=0);
@@ -1318,6 +1386,7 @@ function renderPowerCompanyTabs(){
 }
 function setPowerCompany(pc){
   currentPowerCompany=pc;
+  _filterStateSet('currentPowerCompany', pc);  /* 永続化 2026-05-09 */
   renderPowerCompanyTabs();
   populateAreaDropdowns();
   filterCases();filterLandowners();filterLandMaster();
@@ -1368,6 +1437,9 @@ function syncNewPcToArea(){
 
 document.addEventListener('DOMContentLoaded',()=>{
   _initCaseNoDisplayMode();
+  _restoreFilterInputs();      /* localStorage から検索ボックス・区分・ステータスを復元 2026-05-09 */
+  _syncNgBlindUI();            /* NGブラインドボタンUIを ngBlind 変数に合わせる 2026-05-09 */
+  _bindFilterPersistence();    /* 検索ボックス変更時の永続化バインド 2026-05-09 */
   loadCases();
   document.getElementById('logDate').value=new Date().toISOString().split('T')[0];
   document.querySelector('.nav-btn.active').style.borderBottomColor='#a371f7';
@@ -1387,7 +1459,7 @@ async function loadCases(){
     (losRes.data||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
     allCases=sortCasesByParentChild((casesRes.data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''})));
     renderPowerCompanyTabs();populateAreaDropdowns();
-    renderCases(allCases);updateStats(allCases);
+    filterCases();updateStats(allCases);  /* 初期描画でフィルタを適用 2026-05-09 修正 */
   }catch(e){showToast('接続エラー: '+e.message,'error');}
 }
 
@@ -1400,12 +1472,8 @@ function updateStats(cases){
 
 function toggleNgBlind(){
   ngBlind=!ngBlind;
-  const label=`NGブラインド ${ngBlind?'ON':'OFF'}`;
-  const style=ngBlind?'background:rgba(248,81,73,.4);color:#fff;border:1px solid rgba(248,81,73,.8);':'background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.4);';
-  ['ngBlindBtn','ngBlindBtnLo','ngBlindBtnLd','ngBlindBtnRe'].forEach(id=>{
-    const el=document.getElementById(id);
-    if(el){el.textContent=label;el.style.cssText=el.style.cssText.replace(/background:[^;]+;color:[^;]+;border:[^;]+;/,style);}
-  });
+  _filterStateSet('ngBlind', ngBlind);  /* 永続化 2026-05-09 */
+  _syncNgBlindUI();
   filterCases();
   filterLandowners();
   filterLandMaster();
