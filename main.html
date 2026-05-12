@@ -454,7 +454,7 @@
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <div class="pc-dropdown-slot"></div>
-        <input class="search-box" type="text" placeholder="案件番号・氏名・住所・電話・メモで検索..." id="loSearchInput" oninput="filterLandowners()">
+        <input class="search-box" type="text" placeholder="🔍 案件番号・氏名・住所・電話・メモで検索..." id="loSearchInput" oninput="filterLandowners()">
         <select class="filter-select" id="filterLoStatus" onchange="filterLandowners()">
           <option value="">すべてのステータス</option>
           <option>NOT VISITED</option><option>THINKING↑</option><option>THINKING→</option>
@@ -474,7 +474,7 @@
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <div class="pc-dropdown-slot"></div>
-        <input class="search-box" type="text" placeholder="案件番号・所在・地番・地目・備考で検索..." id="ldSearchInput" oninput="filterLandMaster()">
+        <input class="search-box" type="text" placeholder="🔍 案件番号・所在・地番・地目・備考で検索..." id="ldSearchInput" oninput="filterLandMaster()">
         <button id="ngBlindBtnLd" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
     </div>
@@ -488,7 +488,7 @@
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <div class="pc-dropdown-slot"></div>
-        <input class="search-box" type="text" placeholder="案件番号・会社名・住所・担当者・電話で検索..." id="reSearchInput" oninput="filterRealestate()">
+        <input class="search-box" type="text" placeholder="🔍 案件番号・会社名・住所・担当者・電話で検索..." id="reSearchInput" oninput="filterRealestate()">
         <button id="ngBlindBtnRe" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
     </div>
@@ -503,7 +503,7 @@
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <div class="pc-dropdown-slot"></div>
-        <input class="search-box" type="text" placeholder="会社名・担当者・住所・電話・携帯で検索..." id="icSearchInput" oninput="filterIntroductionCompanies()">
+        <input class="search-box" type="text" placeholder="🔍 会社名・担当者・住所・電話・携帯で検索..." id="icSearchInput" oninput="filterIntroductionCompanies()">
         <select class="filter-select" id="icFilterPriority" onchange="filterIntroductionCompanies()">
           <option value="">全ての優先度</option>
           <option>S</option><option>A</option><option>B</option><option>C</option>
@@ -531,7 +531,7 @@
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <div class="pc-dropdown-slot"></div>
-        <input class="search-box" type="text" placeholder="案件No・案件名・紹介先企業で検索..." id="siSearchInput" oninput="filterSalesIntroductions()">
+        <input class="search-box" type="text" placeholder="🔍 案件No・案件名・紹介先企業で検索..." id="siSearchInput" oninput="filterSalesIntroductions()">
         <select class="filter-select" id="siFilterStatus" onchange="filterSalesIntroductions()">
           <option value="">全ての紹介ステータス</option>
           <option>紹介中</option><option>契約済</option><option>失注</option>
@@ -1860,11 +1860,27 @@ document.addEventListener('DOMContentLoaded',()=>{
    ============================================================ */
 function _normalizePhone(s){
   if(s===null||s===undefined)return '';
-  return String(s).normalize('NFKC').replace(/[^\d]/g,'');
+  let str=String(s);
+  /* 全角数字→半角数字（NFKC に依存しない明示的変換） */
+  str=str.replace(/[０-９]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+  /* 数字以外を全て除去 */
+  return str.replace(/[^0-9]/g,'');
 }
 function _detectPhoneInQuery(q){
-  const digits=_normalizePhone(q);
-  return digits.length>=10?digits:null;
+  if(!q)return null;
+  const raw=String(q);
+  /* 全角数字を半角化した文字列（NFKC で全角ハイフン・全角空白・全角括弧も半角化） */
+  const s=raw.normalize('NFKC').replace(/[０-９]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+  const digits=s.replace(/[^0-9]/g,'');
+  if(digits.length<7)return null;
+  /* 入力が「数字＋電話番号区切り文字」のみで構成される場合：
+     7桁以上で電話番号として扱う（ハイフンなしの 09012345678 や局番のみ 0521234567 でも発動） */
+  const onlyPhoneLike=/^[\d\s\-‐ー－−.()+]+$/.test(s);
+  if(onlyPhoneLike)return digits;
+  /* 文字列混在の場合：連続10桁以上の数字を含む場合のみ発動（誤検出防止） */
+  const m=s.match(/\d{10,}/);
+  if(m)return m[0];
+  return null;
 }
 let _phoneSearchTimer=null;
 function _trySearchByPhone(rawQuery){
