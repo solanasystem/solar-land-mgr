@@ -319,6 +319,60 @@
   }
 
   // ============================================================================
+  // 項目差分の判定・警告表示（v20260512n 追加）
+  // DB値とAI値を NFKC 正規化＋空白除去＋小文字化で厳密比較し、
+  // 各項目ごとに警告HTMLブロックを生成する。
+  // ============================================================================
+  function _normalizeForCompare(v) {
+    if (v === null || v === undefined) return '';
+    return String(v).normalize('NFKC').replace(/[\s\u3000]/g, '').toLowerCase();
+  }
+  function _compareField(dbVal, aiVal) {
+    const dbN = _normalizeForCompare(dbVal);
+    const aiN = _normalizeForCompare(aiVal);
+    if (!dbN && !aiN) return 'both_empty';
+    if (!dbN && aiN) return 'db_empty';
+    if (dbN && !aiN) return 'ai_empty';
+    if (dbN === aiN) return 'same';
+    return 'diff';
+  }
+  // ラベル例: '所在', '地番', '地目', '面積', '氏名', '住所', '乙区の権利'
+  function _buildFieldWarning(label, dbVal, aiVal) {
+    const cmp = _compareField(dbVal, aiVal);
+    if (cmp === 'same' || cmp === 'both_empty') return '';
+    const dbDisp = (dbVal === null || dbVal === undefined || dbVal === '') ? '(空)' : escapeHtml(String(dbVal));
+    const aiDisp = (aiVal === null || aiVal === undefined || aiVal === '') ? '(空)' : escapeHtml(String(aiVal));
+    if (cmp === 'diff') {
+      return `<div class="toki-ai-warning-diff diff">
+        <div class="wd-icon">⚠️</div>
+        <div class="wd-body">
+          <div class="wd-title">${escapeHtml(label)}の入力値に違いがあります</div>
+          <div class="wd-detail">DB: <strong>${dbDisp}</strong> ／ AI: <strong>${aiDisp}</strong></div>
+        </div>
+      </div>`;
+    }
+    if (cmp === 'ai_empty') {
+      return `<div class="toki-ai-warning-diff ai-empty">
+        <div class="wd-icon">⚠️</div>
+        <div class="wd-body">
+          <div class="wd-title">${escapeHtml(label)}：AI読取失敗の可能性</div>
+          <div class="wd-detail">DB値: <strong>${dbDisp}</strong>（AIは取得失敗）</div>
+        </div>
+      </div>`;
+    }
+    if (cmp === 'db_empty') {
+      return `<div class="toki-ai-warning-diff db-empty">
+        <div class="wd-icon">ℹ️</div>
+        <div class="wd-body">
+          <div class="wd-title">${escapeHtml(label)}：DB未登録</div>
+          <div class="wd-detail">AIから新規取込される値: <strong>${aiDisp}</strong></div>
+        </div>
+      </div>`;
+    }
+    return '';
+  }
+
+  // ============================================================================
   // 突合：name + address 完全一致で既存landowner_infoを検索
   // ============================================================================
   function matchOwner(aiName, aiAddress, existingLandowners) {
@@ -632,6 +686,7 @@
               <label><input type="radio" name="hyo_${f.key}" value="ai" ${state.decisions.hyodaibu[f.key] === 'ai' ? 'checked' : ''}>AI採用</label>
             </div>
           </div>
+          ${_buildFieldWarning(f.label, f.dbVal, f.aiVal)}
         `).join('')}
       </div>
     `;
@@ -663,6 +718,20 @@
                      : '<span class="toki-ai-badge toki-ai-badge-new">🟢 新規作成</span>';
     const conf = owner.confidence !== null && owner.confidence !== undefined ? ` conf: ${(owner.confidence * 100).toFixed(0)}%` : '';
     const isPrimary = idx === 0;
+    // UPDATE（更新候補）の時のみ既存DB値と差分比較。INSERT時は意味なし。
+    const existing = decision.matchType === 'update' ? state.existingLandowners.find(l => l.id === decision.existingId) : null;
+    const nameWarning = existing ? _buildFieldWarning('地権者名', existing.name || '', owner.name || '') : '';
+    const addrWarning = existing ? _buildFieldWarning('住所', existing.address || '', owner.address || '') : '';
+    // 「同名あり要確認」(住所違いの同名者がDBにいる)時は、軽い注意喚起
+    const sameNameWarning = decision.matchType === 'new_with_warning' && decision.similarLandowners
+      ? `<div class="toki-ai-warning-diff ai-empty">
+          <div class="wd-icon">⚠️</div>
+          <div class="wd-body">
+            <div class="wd-title">同名の地権者がDBに存在します（住所違い・別人の可能性）</div>
+            <div class="wd-detail">DB既存: <strong>${escapeHtml(decision.similarLandowners.map(s => s.name + '（' + (s.address || '住所なし') + '）').join(' / '))}</strong></div>
+          </div>
+        </div>`
+      : '';
     return `
       <div class="toki-ai-owner-card ${isPrimary ? 'primary' : ''}" data-owner-idx="${idx}">
         <div class="toki-ai-owner-header">
@@ -679,18 +748,21 @@
             </div>
           </div>
         </div>
+        ${sameNameWarning}
         <div class="toki-ai-preview-grid">
           <div class="toki-ai-field-label">氏名</div>
           <div class="toki-ai-field-db ${decision.matchType === 'update' ? '' : 'empty'}">${decision.matchType === 'update' ? escapeHtml(state.existingLandowners.find(l => l.id === decision.existingId)?.name || '') : '(なし)'}</div>
           <div class="toki-ai-field-ai">${escapeHtml(owner.name || '')}</div>
           <div></div>
         </div>
+        ${nameWarning}
         <div class="toki-ai-preview-grid">
           <div class="toki-ai-field-label">住所</div>
           <div class="toki-ai-field-db ${decision.matchType === 'update' ? '' : 'empty'}">${decision.matchType === 'update' ? escapeHtml(state.existingLandowners.find(l => l.id === decision.existingId)?.address || '') : '(なし)'}</div>
           <div class="toki-ai-field-ai">${escapeHtml(owner.address || '')}</div>
           <div></div>
         </div>
+        ${addrWarning}
         ${owner.mochibun ? `
           <div class="toki-ai-preview-grid">
             <div class="toki-ai-field-label">持分</div>
@@ -732,6 +804,8 @@
         : `<strong>新規作成される筆頭所有者</strong>: ${escapeHtml(state.parsed.kouku?.owners?.[0]?.name || '')}`)
       : '<strong style="color:var(--red);">⚠ 所有者情報なし・乙区保存不可</strong>';
 
+    const memoWarning = _buildFieldWarning('乙区の権利（memo）', dbMemo, aiText);
+
     return `
       <div class="toki-ai-section">
         <div class="toki-ai-section-title">
@@ -749,6 +823,7 @@
             <label><input type="radio" name="otsuku_action" value="append" ${state.decisions.otsuku === 'append' ? 'checked' : ''}>追記</label>
           </div>
         </div>
+        ${memoWarning}
       </div>
     `;
   }
