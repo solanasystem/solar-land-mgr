@@ -1444,6 +1444,21 @@
     </div>
   </div>
 </div>
+
+<!-- 電話番号検索モーダル（v20260512g 追加）-->
+<div class="modal-overlay" id="phoneSearchModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div><div class="modal-title">📞 電話番号検索結果</div><div class="modal-subtitle" id="phoneSearchSubtitle"></div></div>
+      <button class="modal-close" onclick="closeModal('phoneSearchModal')">✕</button>
+    </div>
+    <div class="modal-body" id="phoneSearchBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal('phoneSearchModal')">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast-container" id="toastContainer"></div>
 <script>
 const SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
@@ -1837,8 +1852,154 @@ document.addEventListener('DOMContentLoaded',()=>{
   ['searchInput','loSearchInput','ldSearchInput','reSearchInput','icSearchInput','siSearchInput'].forEach(_attachSearchJump);
 });
 
+/* ============================================================
+   電話番号検索機能（v20260512g 追加）
+   全6マスターの検索欄に連続10桁以上の数字を入力すると、
+   500ms後にlandowner_info/realestate_info/introduction_companiesを
+   横断検索し、ヒットした案件情報をモーダル表示する。
+   ============================================================ */
+function _normalizePhone(s){
+  if(s===null||s===undefined)return '';
+  return String(s).normalize('NFKC').replace(/[^\d]/g,'');
+}
+function _detectPhoneInQuery(q){
+  const digits=_normalizePhone(q);
+  return digits.length>=10?digits:null;
+}
+let _phoneSearchTimer=null;
+function _trySearchByPhone(rawQuery){
+  if(_phoneSearchTimer){clearTimeout(_phoneSearchTimer);_phoneSearchTimer=null;}
+  const digits=_detectPhoneInQuery(rawQuery);
+  if(!digits)return;
+  _phoneSearchTimer=setTimeout(()=>{searchByPhone(digits);},500);
+}
+function searchByPhone(phoneDigits){
+  /* 案件ID集約 */
+  const caseIdSet=new Set();
+  const caseHits={}; /* caseId => {landowners:[], realestates:[]} */
+  (allLandowners||[]).forEach(lo=>{
+    const d=_normalizePhone(lo.tel);
+    if(d&&(d.includes(phoneDigits)||phoneDigits.includes(d))){
+      const cid=lo.case_id;if(!cid)return;
+      caseIdSet.add(cid);
+      (caseHits[cid]=caseHits[cid]||{landowners:[],realestates:[]}).landowners.push(lo);
+    }
+  });
+  (allRealestate||[]).forEach(r=>{
+    const d=_normalizePhone(r.tel);
+    if(d&&(d.includes(phoneDigits)||phoneDigits.includes(d))){
+      const cid=r.case_id;if(!cid)return;
+      caseIdSet.add(cid);
+      (caseHits[cid]=caseHits[cid]||{landowners:[],realestates:[]}).realestates.push(r);
+    }
+  });
+  /* 紹介先企業（案件と紐付かない） */
+  const icHits=[];
+  (allIntroductionCompanies||[]).forEach(ic=>{
+    const dt=_normalizePhone(ic.tel);
+    const dm=_normalizePhone(ic.mobile);
+    const matchT=dt&&(dt.includes(phoneDigits)||phoneDigits.includes(dt));
+    const matchM=dm&&(dm.includes(phoneDigits)||phoneDigits.includes(dm));
+    if(matchT||matchM)icHits.push(ic);
+  });
+  renderPhoneSearchResult(phoneDigits, Array.from(caseIdSet), caseHits, icHits);
+  document.getElementById('phoneSearchModal').classList.add('open');
+}
+function _formatPhoneDisplay(digits){
+  if(!digits)return '';
+  if(digits.length===11)return digits.slice(0,3)+'-'+digits.slice(3,7)+'-'+digits.slice(7);
+  if(digits.length===10)return digits.slice(0,2)+'-'+digits.slice(2,6)+'-'+digits.slice(6);
+  return digits;
+}
+function _gmapHrefByAddress(addr){
+  if(!addr)return null;
+  return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(addr);
+}
+function _gmapHrefByLatLng(lat,lng){
+  if(!lat||!lng)return null;
+  return 'https://www.google.com/maps/search/?api=1&query='+lat+','+lng;
+}
+function renderPhoneSearchResult(phoneDigits, caseIds, caseHits, icHits){
+  const sub=document.getElementById('phoneSearchSubtitle');
+  const body=document.getElementById('phoneSearchBody');
+  const totalHits=caseIds.length+icHits.length;
+  sub.textContent='検索電話番号: '+_formatPhoneDisplay(phoneDigits)+' / '+totalHits+'件ヒット';
+  if(totalHits===0){
+    body.innerHTML='<div style="padding:40px 20px;text-align:center;color:var(--text-muted);"><div style="font-size:48px;margin-bottom:12px;">📭</div>該当する電話番号は登録されていません</div>';
+    return;
+  }
+  let html='';
+  /* 案件単位の表示 */
+  caseIds.forEach(cid=>{
+    const c=(allCases||[]).find(x=>String(x.id)===String(cid));
+    const hit=caseHits[cid]||{landowners:[],realestates:[]};
+    const lands=(allLands||[]).filter(l=>String(l.case_id)===String(cid));
+    const ownersAll=(allLandowners||[]).filter(lo=>String(lo.case_id)===String(cid));
+    const caseNoDisp=c?(c.display_case_no||c.case_no||'—'):'(案件情報なし)';
+    const ownerNames=ownersAll.map(lo=>lo.name||'').filter(Boolean).join(' / ')||'—';
+    /* 電話番号（ヒットしたものを並べる） */
+    const telList=[];
+    hit.landowners.forEach(lo=>{if(lo.tel)telList.push('【地権者】'+_escHtml(lo.tel)+(lo.name?' ('+_escHtml(lo.name)+')':''));});
+    hit.realestates.forEach(r=>{if(r.tel)telList.push('【不動産会社】'+_escHtml(r.tel));});
+    const telHtml=telList.join('<br>')||'—';
+    /* 住所（地権者複数いる場合は改行で並べる） */
+    const addrItems=ownersAll.filter(lo=>lo.address).map(lo=>{
+      const href=_gmapHrefByAddress(lo.address);
+      const link=href?` <a href="${href}" target="_blank" style="color:var(--blue);font-size:11px;">🗺 GoogleMAP</a>`:'';
+      return _escHtml(lo.address)+link;
+    });
+    const addrHtml=addrItems.join('<br>')||'—';
+    /* 所在（全土地を改行で並べる） */
+    const locItems=lands.map(l=>{
+      const locVal=l.location?String(l.location).replace(/^\{|\}$/g,'').trim():'';
+      const soZai=locVal||l.chiban||'—';
+      let href=null;
+      if(l.google_map)href=safeUrl(l.google_map);
+      else if(l.latitude&&l.longitude)href=_gmapHrefByLatLng(l.latitude,l.longitude);
+      else if(soZai!=='—')href=_gmapHrefByAddress(soZai);
+      const link=href?` <a href="${href}" target="_blank" style="color:var(--blue);font-size:11px;">🗺 GoogleMAP</a>`:'';
+      return _escHtml(soZai)+link;
+    });
+    const locHtml=locItems.join('<br>')||'—';
+    html+=`<div style="margin-bottom:16px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border);">
+        <span style="font-family:var(--font-mono);font-size:14px;font-weight:700;color:var(--accent);">${_escHtml(caseNoDisp)}</span>
+        ${c?'<button class="btn" style="padding:4px 10px;font-size:11px;" onclick="closeModal(\'phoneSearchModal\');openDetail(\''+cid+'\',\'case\')">📂 案件を開く</button>':''}
+      </div>
+      <div style="display:grid;grid-template-columns:90px 1fr;gap:8px 12px;font-size:13px;">
+        <div style="color:var(--text-muted);font-weight:600;">地権者名</div><div>${_escHtml(ownerNames)}</div>
+        <div style="color:var(--text-muted);font-weight:600;">電話番号</div><div>${telHtml}</div>
+        <div style="color:var(--text-muted);font-weight:600;">住所</div><div>${addrHtml}</div>
+        <div style="color:var(--text-muted);font-weight:600;">所在</div><div>${locHtml}</div>
+      </div>
+    </div>`;
+  });
+  /* 紹介先企業（案件と紐付かないので別セクション） */
+  if(icHits.length>0){
+    html+='<div style="margin-top:8px;padding:8px 12px;background:rgba(163,113,247,.08);border-left:3px solid var(--accent);font-size:11px;font-weight:700;color:var(--accent);letter-spacing:.08em;">紹介先企業マスター ヒット</div>';
+    icHits.forEach(ic=>{
+      const telDisp=ic.tel?_escHtml(ic.tel):'';
+      const mobDisp=ic.mobile?_escHtml(ic.mobile):'';
+      const telLine=[telDisp&&'TEL: '+telDisp, mobDisp&&'携帯: '+mobDisp].filter(Boolean).join(' / ')||'—';
+      const addrHref=_gmapHrefByAddress(ic.address);
+      const addrLink=addrHref?` <a href="${addrHref}" target="_blank" style="color:var(--blue);font-size:11px;">🗺 GoogleMAP</a>`:'';
+      const addrHtml=ic.address?(_escHtml(ic.address)+addrLink):'—';
+      html+=`<div style="margin-top:10px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;">
+        <div style="font-size:14px;font-weight:700;color:var(--accent);margin-bottom:8px;">${_escHtml(ic.company_name||'(企業名なし)')}</div>
+        <div style="display:grid;grid-template-columns:90px 1fr;gap:8px 12px;font-size:13px;">
+          <div style="color:var(--text-muted);font-weight:600;">担当者</div><div>${_escHtml(ic.representative||'—')}</div>
+          <div style="color:var(--text-muted);font-weight:600;">電話番号</div><div>${telLine}</div>
+          <div style="color:var(--text-muted);font-weight:600;">住所</div><div>${addrHtml}</div>
+        </div>
+      </div>`;
+    });
+  }
+  body.innerHTML=html;
+}
+
 function filterCases(){
   const q=document.getElementById('searchInput').value.toLowerCase().trim();
+  _trySearchByPhone(q);
   const kubun=document.getElementById('filterKubun').value;
   const status=document.getElementById('filterStatus').value;
   /* 検索クエリは絞り込みではなくハイライト＆並び替えのみ。区分・ステータス・NGブラインド・電力会社タブのみで絞り込む */
@@ -2524,6 +2685,7 @@ function renderLandownerStatusDashboard(_unused){
 function filterLandowners(){
   const status=document.getElementById('filterLoStatus').value;
   const q=(document.getElementById('loSearchInput')?.value||'').toLowerCase().trim();
+  _trySearchByPhone(q);
   /* 検索クエリは絞り込みではなくハイライト＆並び替えのみ */
   let filtered=allLandowners.filter(lo=>{
     if(ngBlind&&lo.cases?.status==='NG')return false;
@@ -2580,6 +2742,7 @@ async function loadLandMaster(){
 }
 function filterLandMaster(){
   const q=(document.getElementById('ldSearchInput')?.value||'').toLowerCase().trim();
+  _trySearchByPhone(q);
   /* 検索クエリは絞り込みではなくハイライト＆並び替えのみ */
   let filtered=allLands.filter(l=>{
     if(ngBlind&&l.cases?.status==='NG')return false;
@@ -2630,6 +2793,7 @@ function sortRealestate(){
 }
 function filterRealestate(){
   const q=(document.getElementById('reSearchInput')?.value||'').toLowerCase().trim();
+  _trySearchByPhone(q);
   /* 検索クエリは絞り込みではなくハイライト＆並び替えのみ */
   let list=allRealestate.filter(r=>{
     if(ngBlind&&r.cases?.status==='NG')return false;
@@ -4801,6 +4965,7 @@ async function loadIntroductionCompanies(){
 
 function filterIntroductionCompanies(){
   const q=(document.getElementById('icSearchInput')?.value||'').toLowerCase().trim();
+  _trySearchByPhone(q);
   const priority=document.getElementById('icFilterPriority')?.value||'';
   const status=document.getElementById('icFilterStatus')?.value||'';
   const kubun=document.getElementById('icFilterKubun')?.value||'';
@@ -5024,6 +5189,7 @@ function getPaymentProgress(introId){
 
 function filterSalesIntroductions(){
   const q=(document.getElementById('siSearchInput')?.value||'').toLowerCase().trim();
+  _trySearchByPhone(q);
   const status=document.getElementById('siFilterStatus')?.value||'';
   const pstatus=document.getElementById('siFilterPaymentStatus')?.value||'';
   /* 検索クエリは絞り込みではなくハイライト＆並び替えのみ。ステータス・入金状況・電力会社タブ・ダッシュボード絞り込みで絞り込む */
