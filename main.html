@@ -1689,29 +1689,57 @@ function _escHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/
 function _escRe(s){return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
 /* 全角・半角スペース・タブ・改行をすべて除去 */
 function _stripSpaces(s){return String(s==null?'':s).replace(/[\s\u3000]/g,'');}
+/* 検索用統一正規化：NFKC（全角→半角・カタカナ合成形など）＋空白除去＋小文字化（v20260512m） */
+function _normalizeForSearch(s){
+  return String(s==null?'':s).normalize('NFKC').replace(/[\s\u3000]/g,'').toLowerCase();
+}
 /* 検索ハイライト：エスケープ済みHTML文字列を返す。
    クエリの各文字の間に任意の空白（半角・全角）を許容してマッチさせる。
-   例: クエリ「岡本」→ データ「岡　本」「岡本」「岡 本」のいずれにもマッチ */
+   v20260512m: NFKC正規化により「11」と「１１」を同等にマッチ。表示は原文維持。
+   例: クエリ「岡本」→ データ「岡　本」「岡本」「岡 本」のいずれにもマッチ
+   例: クエリ「11」→ データ「中部-11」「中部-１１」両方にマッチ */
 function highlightText(text,query){
-  const safe=_escHtml(text);
-  if(!query||!query.trim())return safe;
-  const q=query.trim();
-  /* クエリの各文字の間に [\s\u3000]* を挿入したパターン */
+  const original=String(text==null?'':text);
+  if(!query||!String(query).trim())return _escHtml(original);
+  const q=String(query).trim().normalize('NFKC');
+  if(!q)return _escHtml(original);
+  /* 文字単位で NFKC 正規化し、正規化後の各位置 → original 内の位置 を記録 */
+  let normalized='';
+  const startMap=[];
+  const endMap=[];
+  for(let i=0;i<original.length;i++){
+    const nc=original.charAt(i).normalize('NFKC');
+    for(let j=0;j<nc.length;j++){startMap.push(i);endMap.push(i+1);}
+    normalized+=nc;
+  }
   const pattern=q.split('').map(_escRe).join('[\\s\\u3000]*');
   const re=new RegExp(pattern,'gi');
-  return safe.replace(re,m=>`<mark class="search-hl">${m}</mark>`);
+  let result='';
+  let lastEnd=0;
+  let m;
+  while((m=re.exec(normalized))!==null){
+    if(m[0].length===0){re.lastIndex++;continue;}
+    const ns=m.index, ne=m.index+m[0].length;
+    const os=startMap[ns];
+    const oe=endMap[ne-1];
+    if(os<lastEnd)continue;
+    result+=_escHtml(original.substring(lastEnd,os))+'<mark class="search-hl">'+_escHtml(original.substring(os,oe))+'</mark>';
+    lastEnd=oe;
+  }
+  result+=_escHtml(original.substring(lastEnd));
+  return result;
 }
 /* 検索スコア：オブジェクトの指定フィールド群でクエリヒット件数を返す。
-   全角・半角スペースを除去してから部分一致を判定する */
+   v20260512m: NFKC正規化により全角/半角を同等扱い */
 function searchScore(obj,query,fields){
   if(!query)return 0;
-  const q=_stripSpaces(String(query)).toLowerCase();
+  const q=_normalizeForSearch(query);
   if(!q)return 0;
   let n=0;
   fields.forEach(f=>{
     const v=f.split('.').reduce((o,k)=>o?o[k]:null,obj);
     if(v==null)return;
-    const s=_stripSpaces(String(v)).toLowerCase();
+    const s=_normalizeForSearch(v);
     if(!s)return;
     /* 出現回数 */
     let i=0,c=0;
