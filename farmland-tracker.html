@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260512j / 農地フラグ+筆ポリゴン（field-survey互換）追加 -->
+<!-- BUILD: farmland-tracker v20260512k / 耕作者色分け クリック蓄積方式（10色＋リセット確認）-->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -612,12 +612,12 @@ var currentDetailItem=null;
 var currentDetailChangeType=null;
 var farmlandStatuses={};
 var farmlandComments={};
-// === 耕作者色分け機能 ===
+// === 耕作者色分け機能（クリック蓄積方式 v20260512k） ===
 var ownerColorEnabled=false;
-var ownerHashColorMap={}; // {ownerHash: '#color' or null（単独）}
-// 8色パレット（区別しやすい・eMAFF風）
-var OWNER_COLOR_PALETTE=['#a855f7','#3fb950','#ff8c00','#fbbf24','#ec4899','#14b8a6','#8b5cf6','#ef4444'];
-var OWNER_COLOR_FALLBACK='#9ca3af'; // 9個目以降のグループ用
+var ownerHashColorMap={}; // {ownerHash: '#color'} クリックで蓄積されるマップ
+// 10色パレット（判別しやすさを優先・eMAFF風）
+var OWNER_COLOR_PALETTE=['#a855f7','#3fb950','#ff8c00','#fbbf24','#ec4899','#14b8a6','#8b5cf6','#ef4444','#06b6d4','#84cc16'];
+var OWNER_COLOR_FALLBACK='#9ca3af'; // 旧互換用（クリック蓄積方式では使用しない）
 
 // remarks文字列から耕作者ID（FarmerIndicationNumberHash）を抽出
 function extractOwnerHash(remarks){
@@ -628,27 +628,15 @@ function extractOwnerHash(remarks){
   return null;
 }
 
-// 表示中マーカーから耕作者IDグループを構築し色を割当
+// クリック蓄積方式：マーカー描画時には何もしない（自動全件色分けは廃止）
+// ownerHashColorMap はマーカークリックで蓄積される
 function rebuildOwnerColorMap(items){
-  ownerHashColorMap={};
-  if(!ownerColorEnabled)return;
-  var hashCounts={};
-  items.forEach(function(it){
-    if(!it||!it.feature_id)return;
-    if(String(it.feature_id).indexOf('emaffN_')!==0)return;
-    var h=extractOwnerHash(it.remarks);
-    if(!h)return;
-    hashCounts[h]=(hashCounts[h]||0)+1;
-  });
-  // 件数が2以上のハッシュのみグループ化対象、件数降順で色割当
-  var groups=Object.keys(hashCounts).filter(function(h){return hashCounts[h]>=2;});
-  groups.sort(function(a,b){return hashCounts[b]-hashCounts[a];});
-  groups.forEach(function(h,i){
-    ownerHashColorMap[h]=OWNER_COLOR_PALETTE[i]||OWNER_COLOR_FALLBACK;
-  });
+  // 互換用に関数は残すが、クリック蓄積方式に変更したため意図的に空。
+  // 色割当はクリック時の assignNextColorForHash() で行う。
+  return;
 }
 
-// 個別emaffN_マーカーの色を返す（グループ色 or null=デフォルト水色）
+// 個別emaffN_マーカーの色を返す（クリック済み耕作者は割当色、未クリックは null=デフォルト水色）
 function getOwnerColorForItem(item){
   if(!ownerColorEnabled)return null;
   if(!item)return null;
@@ -656,6 +644,41 @@ function getOwnerColorForItem(item){
   var h=extractOwnerHash(item.remarks);
   if(!h)return null;
   return ownerHashColorMap[h]||null;
+}
+
+// クリック時に呼ばれる：未割当の耕作者IDなら次の色を割り当てる。
+// 10色到達後に新しい耕作者をクリックした場合は confirm でリセット確認。
+// 戻り値: 'assigned' | 'existing' | 'reset' | 'canceled'
+function assignNextColorForHash(hash){
+  if(!hash)return 'canceled';
+  if(ownerHashColorMap[hash])return 'existing'; // 既に割当済み
+  var usedCount=Object.keys(ownerHashColorMap).length;
+  if(usedCount>=OWNER_COLOR_PALETTE.length){
+    // 10色を使い切った状態で、新しい耕作者をクリック
+    var ok=window.confirm('10色の色分け限界に達しました。色分けをリセットしますか？\n\nOK: リセットして今クリックした耕作者を色1に割り当てます\nキャンセル: 現在の色分けを維持します');
+    if(!ok)return 'canceled';
+    ownerHashColorMap={};
+    ownerHashColorMap[hash]=OWNER_COLOR_PALETTE[0];
+    return 'reset';
+  }
+  ownerHashColorMap[hash]=OWNER_COLOR_PALETTE[usedCount];
+  return 'assigned';
+}
+
+// 表示中のemaffN_マーカーの色を一括更新（loadDiff全体を再実行せず軽量に再描画）
+function refreshOwnerColors(){
+  if(!markersLayer)return;
+  markersLayer.eachLayer(function(mk){
+    if(!mk._item)return;
+    var isEmaffN=String(mk._item.feature_id||'').indexOf('emaffN_')===0;
+    if(!isEmaffN)return;
+    // 既存ロジック互換: コメント付きはボーダー青、新規は白、既存はパープル
+    var hasComment=!!farmlandComments[mk._item.feature_id];
+    var c=getOwnerColorForItem(mk._item)||'#0ea5e9';
+    var bc=mk._changeType==='existing'?'#a855f7':'#fff';
+    if(hasComment)bc='#3b82f6';
+    mk.setStyle({fillColor:c,color:bc});
+  });
 }
 function switchGIS(mode){
   if(currentGIS===mode)return;
@@ -1944,7 +1967,27 @@ async function loadDiff(){
       var lbl=m.changeType==='new'?'新規':'既存';
       var commentMark=hasComment?'💬 ':'';
       mk.bindTooltip(commentMark+'<b>'+lbl+'</b> '+(m.item.city||''),{direction:'top',permanent:false,opacity:0.95,className:'farmland-tooltip'});
-      mk.on('click',function(){showDetail(m.item,m.changeType);});
+      mk.on('click',function(){
+        // 耕作者色分けモードON時は色を蓄積（emaffN_マーカーのみ対象）
+        if(ownerColorEnabled){
+          var fid=String(m.item.feature_id||'');
+          if(fid.indexOf('emaffN_')===0){
+            var h=extractOwnerHash(m.item.remarks);
+            if(h){
+              var result=assignNextColorForHash(h);
+              if(result==='assigned'||result==='reset'){
+                refreshOwnerColors();
+                var palette=ownerHashColorMap[h];
+                var idx=OWNER_COLOR_PALETTE.indexOf(palette)+1;
+                showToast('🎨 色'+idx+'を割当（耕作者ID '+h.substring(0,8)+'…）','success');
+              }
+            }else{
+              showToast('この農地には耕作者IDが登録されていません','error');
+            }
+          }
+        }
+        showDetail(m.item,m.changeType);
+      });
       return mk;
     });
     markersLayer=L.featureGroup(lm).addTo(map);
@@ -3202,20 +3245,28 @@ initDraggablePanels('farmlandTracker', [
 })();
 
 /* ============================================================================
- * 耕作者色分け機能（同一FarmerIndicationNumberHashを共有するemaffN_を同色化）
+ * 耕作者色分け機能（クリック蓄積方式 v20260512k）
+ * - ボタン押下でモードON、マップは空でスタート
+ * - emaffN_マーカーをクリックするたびに次の色（10色まで）を耕作者IDに割当
+ * - 同一耕作者の他マーカーも自動的に同色に更新
+ * - 11個目の耕作者クリックで confirm(リセットしますか?) を表示
  * ============================================================================ */
 window.toggleOwnerColorMode=function(){
   ownerColorEnabled=!ownerColorEnabled;
+  ownerHashColorMap={}; // ON/OFFどちらでも状態をリセット
   var btn=document.getElementById('btnOwnerColor');
   if(btn){
     if(ownerColorEnabled)btn.classList.add('active');
     else btn.classList.remove('active');
   }
-  // 地図再描画でマーカー色を更新
-  if(typeof loadDiff==='function')loadDiff();
+  // マーカーの色を即座にリセット（loadDiff全体は再実行せず軽量に）
+  if(typeof refreshOwnerColors==='function')refreshOwnerColors();
   // フィードバック
   if(typeof showToast==='function'){
-    showToast(ownerColorEnabled?'\ud83c\udfa8 \u8015\u4f5c\u8005\u8272\u5206\u3051ON\uff1a\u540c\u4e00\u8015\u4f5c\u8005\u8005ID\u3092\u540c\u8272\u3067\u8868\u793a':'\ud83c\udfa8 \u8015\u4f5c\u8005\u8272\u5206\u3051OFF\uff1a\u901a\u5e38\u8868\u793a\u306b\u623b\u3057\u307e\u3057\u305f','success');
+    showToast(ownerColorEnabled
+      ? '🎨 耕作者色分けON：農地マーカーをクリックすると同一耕作者を同色で表示（最大10色）'
+      : '🎨 耕作者色分けOFF：通常表示に戻しました'
+    ,'success');
   }
 };
 </script>
