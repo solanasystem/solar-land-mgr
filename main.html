@@ -1005,9 +1005,8 @@
           <div style="font-size:11px;color:var(--text-muted);margin-top:4px">※ Google マップで場所を開き、URLをそのままコピーして貼り付けてください</div>
         </div>
         <div class="form-group full"><label class="form-label">ハザード情報</label><input class="form-input" type="text" id="eld_hazard" placeholder="例：浸水想定区域外・土砂災害警戒なし"></div>
-        <div class="form-group"><label class="form-label">5条森林該当（地域森林計画対象民有林）</label><select class="form-input" id="eld_article5_forest" onchange="autoSetArticle5Date()"><option value="">未確認</option><option value="該当">該当</option><option value="非該当">非該当</option></select></div>
-        <div class="form-group"><label class="form-label">5条森林 確認日</label><input class="form-input" type="date" id="eld_article5_checked_at"></div>
-        <div class="form-group full"><label class="form-label">5条森林 メモ</label><input class="form-input" type="text" id="eld_article5_notes" placeholder="例：保安林混在、林班番号、現地確認結果など"></div>
+        <div class="form-group"><label class="form-label">5条森林該当（地域森林計画対象民有林）</label><select class="form-input" id="eld_article5_forest"><option value="">未確認</option><option value="該当">該当</option><option value="非該当">非該当</option></select></div>
+        <div class="form-group"><label class="form-label">農地種別 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（農転の可否判断用）</span></label><select class="form-input" id="eld_nouchi_kubun"><option value="未調査">未調査</option><option value="青地">青地</option><option value="白1種">白1種</option><option value="白2種">白2種</option><option value="白3種">白3種</option><option value="農地以外">農地以外</option><option value="調査中">調査中</option></select></div>
         <div class="form-group"><label class="form-label">緯度（lat）※自動取得</label><input class="form-input" type="number" step="0.000001" id="eld_lat" style="background:var(--surface2);color:var(--accent)"></div>
         <div class="form-group"><label class="form-label">経度（lng）※自動取得</label><input class="form-input" type="number" step="0.000001" id="eld_lng" style="background:var(--surface2);color:var(--accent)"></div>
         <div class="form-group full"><label class="form-label">備考</label><textarea class="form-textarea" id="eld_biko" placeholder="自由記入欄..."></textarea></div>
@@ -2550,12 +2549,8 @@ async function copyForestSearch(text){
 }
 
 function autoSetArticle5Date(){
-  const sel=document.getElementById('eld_article5_forest').value;
-  const dateField=document.getElementById('eld_article5_checked_at');
-  if(sel&&!dateField.value){
-    const today=new Date().toISOString().split('T')[0];
-    dateField.value=today;
-  }
+  /* v20260512q: 5条森林確認日カラム廃止に伴い、本関数は no-op に変更。
+     既存のonchange呼び出しが残っていてもエラーにならないよう関数自体は残す。 */
 }
 
 async function loadLandDetail(caseId){
@@ -2567,7 +2562,7 @@ async function loadLandDetail(caseId){
   const CPZ_LABELS_DETAIL = {urbanization:'市街化区域',control:'市街化調整区域',control_outer:'市街化調整区域（外周）',non_zoned:'非線引き区域',outside:'都市計画区域外',UNKNOWN:'未確認'};
   const cpzVal = data?.cases?.city_planning_zone || null;
   const cpzText = cpzVal ? (CPZ_LABELS_DETAIL[cpzVal] || cpzVal) : '未判定';
-  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">地目</div><div class="info-value">${data.chimoku||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">都市計画法 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（座標から自動判定）</span></div><div class="info-value">${cpzText}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}${data.article5_checked_at?` <span style="color:var(--text-muted);font-size:11px">（${data.article5_checked_at} 確認）</span>`:''}${data.article5_notes?`<div style="font-size:11px;color:var(--text-muted);margin-top:4px">${data.article5_notes}</div>`:''}</div></div><div class="info-item"><div class="info-label">森林計画図</div><div class="info-value forest-gis-link">読込中...</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
+  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">地目</div><div class="info-value">${data.chimoku||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">都市計画法 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（座標から自動判定）</span></div><div class="info-value">${cpzText}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}</div></div><div class="info-item"><div class="info-label">農地種別 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（農転の可否判断用）</span></div><div class="info-value">${data.nouchi_kubun||'未調査'}</div></div><div class="info-item"><div class="info-label">森林計画図</div><div class="info-value forest-gis-link">読込中...</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
   if(data&&data.location){
@@ -4858,7 +4853,9 @@ async function bulkFetchPostalCodes(){
 
 async function openLandEditModal(){
   const{data}=await db.from('land_info').select('*,cases(city_planning_zone)').eq('case_id',currentCaseId).single();
-  ['area_sqm','location','google_map','hazard','biko','article5_forest','article5_checked_at','article5_notes'].forEach(f=>document.getElementById('eld_'+f).value=data?.[f]||'');
+  ['area_sqm','location','google_map','hazard','biko','article5_forest'].forEach(f=>document.getElementById('eld_'+f).value=data?.[f]||'');
+  /* v20260512q: 農地種別 - 未調査をデフォルトに */
+  document.getElementById('eld_nouchi_kubun').value = data?.nouchi_kubun || '未調査';
   document.getElementById('eld_lat').value=data?.lat||'';document.getElementById('eld_lng').value=data?.lng||'';
   // ===== 都市計画法（読み取り専用、cases.city_planning_zone 由来） =====
   const _CPZ_EDIT_LABELS={urbanization:'市街化区域',control:'市街化調整区域',control_outer:'市街化調整区域（外周）',non_zoned:'非線引き区域',outside:'都市計画区域外',UNKNOWN:'未確認'};
@@ -4905,8 +4902,7 @@ async function saveLand(){
     lat:g('eld_lat')?Number(g('eld_lat')):null,
     lng:g('eld_lng')?Number(g('eld_lng')):null,
     article5_forest:g('eld_article5_forest')||null,
-    article5_checked_at:g('eld_article5_checked_at')||null,
-    article5_notes:g('eld_article5_notes')||null,
+    nouchi_kubun:g('eld_nouchi_kubun')||null,
     // ===== 概要書項目: 新3項目 =====
     chimoku:g('eld_chimoku')||null,
     land_rights:g('eld_land_rights')||null,
