@@ -298,6 +298,18 @@
   .info-label{font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;}
   .info-value{font-size:14px;color:var(--text);}
   .info-value a{color:var(--blue);text-decoration:none;font-size:12px;}.info-value a:hover{text-decoration:underline;}
+  /* v20260512r: ハザード判定結果 */
+  .hazard-detail-list{display:flex;flex-direction:column;gap:6px;}
+  .hazard-block{padding:6px 10px;border-radius:6px;}
+  .hazard-block.flood{background:rgba(88,166,255,.10);border:1px solid rgba(88,166,255,.4);}
+  .hazard-block.sabou{background:rgba(232,93,4,.10);border:1px solid rgba(232,93,4,.45);}
+  .hazard-block .hazard-title{font-size:11px;font-weight:700;color:var(--text);margin-bottom:2px;}
+  .hazard-block .hazard-detail{font-size:12px;color:var(--text);}
+  .hazard-none{color:var(--green);font-size:12px;font-style:italic;}
+  .hazard-loading{color:var(--text-muted);font-size:12px;font-style:italic;}
+  .hazard-error{color:var(--accent);font-size:11px;}
+  .hazard-overlay-btn{margin-top:8px;font-size:11px;padding:5px 10px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;}
+  .hazard-overlay-btn:hover{background:var(--surface2);}
   .negotiation-section{margin-top:8px;}
   .negotiation-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
   .section-title{font-size:13px;font-weight:700;color:var(--text);}
@@ -2519,33 +2531,204 @@ async function fetchSnowLoad(location){
   return`${min}〜${max} cm`;
 }
 
-async function fetchForestGisUrl(location){
-  if(!location)return null;
-  const loc=location.replace(/[{}（）()「」『』\[\]【】]/g,'').trim();
-  let pref=null;
-  const prefMatch=loc.match(/^(.{2,3}[都道府県])/);
-  if(prefMatch){pref=prefMatch[1];}
-  if(!pref){
-    const cityMatch=loc.match(/^(.+?[市区町村])/);
-    if(cityMatch){
-      const{data:sl}=await db.from('snow_load_master').select('prefecture').eq('current_city',cityMatch[1]).limit(1);
-      if(sl&&sl.length>0)pref=sl[0].prefecture;
+// ============ ハザード判定機能（v20260512r 追加）============
+// 重ねるハザードマップ（GSI）のラスタータイルから案件座標のハザード詳細を取得
+const HAZARD_TILES = {
+  flood:    {url: 'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png', label: '洪水浸水想定区域（想定最大規模）', verb: '洪水',       type: 'flood'},
+  naisui:   {url: 'https://disaportaldata.gsi.go.jp/raster/01_naisui_shinsuishin_data/{z}/{x}/{y}.png',    label: '内水浸水想定区域',                  verb: '内水',       type: 'flood'},
+  dosaigai: {url: 'https://disaportaldata.gsi.go.jp/raster/05_dosaigai_warning_area_data/{z}/{x}/{y}.png', label: '土砂災害警戒区域等',                verb: '土砂災害',   type: 'sabou'},
+  hightide: {url: 'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png', label: '高潮浸水想定区域',                  verb: '高潮',       type: 'flood'},
+  tsunami:  {url: 'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',     label: '津波浸水想定',                      verb: '津波',       type: 'flood'},
+};
+const HAZARD_ZOOM = 15;
+const _hazardTileCache = {};
+
+function _hazardLatLngToTilePixel(lat, lng, zoom){
+  const n = Math.pow(2, zoom);
+  const lat_rad = lat * Math.PI / 180;
+  const xt_frac = n * (lng + 180) / 360;
+  const yt_frac = n * (1 - Math.log(Math.tan(lat_rad) + 1/Math.cos(lat_rad)) / Math.PI) / 2;
+  const xtile = Math.floor(xt_frac);
+  const ytile = Math.floor(yt_frac);
+  const px = Math.floor((xt_frac - xtile) * 256);
+  const py = Math.floor((yt_frac - ytile) * 256);
+  return {xtile, ytile, px, py};
+}
+
+async function _loadHazardTile(url){
+  if(_hazardTileCache[url] !== undefined) return _hazardTileCache[url];
+  return new Promise((resolve)=>{
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256; canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const data = ctx.getImageData(0, 0, 256, 256).data;
+        _hazardTileCache[url] = data;
+        resolve(data);
+      } catch(e) {
+        _hazardTileCache[url] = null;
+        resolve(null);
+      }
+    };
+    img.onerror = () => { _hazardTileCache[url] = null; resolve(null); };
+    img.src = url;
+  });
+}
+
+async function _detectHazardAtPoint(lat, lng, tileUrlTemplate){
+  const tp = _hazardLatLngToTilePixel(lat, lng, HAZARD_ZOOM);
+  const url = tileUrlTemplate.replace('{z}', HAZARD_ZOOM).replace('{x}', tp.xtile).replace('{y}', tp.ytile);
+  const data = await _loadHazardTile(url);
+  if(!data) return null;
+  const colors = [];
+  for(let dy=-3; dy<=3; dy++){
+    for(let dx=-3; dx<=3; dx++){
+      const x = tp.px + dx, y = tp.py + dy;
+      if(x<0||x>=256||y<0||y>=256) continue;
+      const idx = (y*256 + x) * 4;
+      const a = data[idx+3];
+      if(a > 10) colors.push({r: data[idx], g: data[idx+1], b: data[idx+2]});
     }
   }
-  if(!pref)return null;
-  const{data}=await db.from('forest_gis_master').select('gis_url,gis_name').eq('prefecture',pref).limit(1);
-  if(data&&data.length>0)return data[0];
+  return colors;
+}
+
+// 1ピクセルの色 → 浸水水深レベル (-1:該当なし, 0:0.5m未満 ～ 5:20m以上)
+function _classifyFloodPixel(r, g, b){
+  // GSI公式凡例ベースの推定閾値（v20260512r 初版、実機調整必要）
+  // 5: 20m以上 (紫系 #DC7ADC)
+  if(r > 200 && r < 240 && g > 100 && g < 140 && b > 200 && b < 240) return 5;
+  // 4: 10～20m (マゼンタ系 #F285C9)
+  if(r > 230 && r < 250 && g > 120 && g < 150 && b > 190 && b < 220) return 4;
+  // 3: 5～10m (濃ピンク #FF9191)
+  if(r > 245 && g > 130 && g < 160 && b > 130 && b < 160) return 3;
+  // 2: 3～5m (ピンク #FFB7B7)
+  if(r > 245 && g > 170 && g < 200 && b > 170 && b < 200) return 2;
+  // 1: 0.5～3m (薄ピンク #FFD8C0)
+  if(r > 245 && g > 200 && g < 230 && b > 170 && b < 210) return 1;
+  // 0: 0.5m未満 (薄黄 #F7F5A9)
+  if(r > 240 && g > 230 && b > 130 && b < 200) return 0;
+  return -1;
+}
+
+function _classifyFloodDepth(colors){
+  if(!colors || colors.length === 0) return null;
+  const counts = [0,0,0,0,0,0];
+  for(const c of colors){
+    const lvl = _classifyFloodPixel(c.r, c.g, c.b);
+    if(lvl >= 0) counts[lvl]++;
+  }
+  // 最大水深を優先（深い方からチェック）
+  let maxLvl = -1, maxCount = 0;
+  for(let lvl=5; lvl>=0; lvl--){
+    if(counts[lvl] > maxCount){ maxCount = counts[lvl]; maxLvl = lvl; }
+  }
+  if(maxLvl < 0) return null;
+  const labels = ['0.5m 未満', '0.5m ～ 3.0m', '3.0m ～ 5.0m', '5.0m ～ 10.0m', '10.0m ～ 20.0m', '20.0m ～'];
+  return labels[maxLvl];
+}
+
+// 土砂災害区分判定
+function _classifySabouPixel(r, g, b){
+  // 土石流 警戒区域（黄系）
+  if(r > 240 && g > 220 && b < 180) return 'dosekiryu_warn';
+  // 土石流 特別警戒区域（濃赤系）
+  if(r > 200 && r < 240 && g < 100 && b < 100) return 'dosekiryu_special';
+  // 急傾斜地崩壊 警戒区域（オレンジ系）
+  if(r > 240 && g > 130 && g < 180 && b < 130) return 'kyukeisha_warn';
+  // 急傾斜地崩壊 特別警戒区域（深赤系）
+  if(r > 130 && r < 200 && g < 70 && b < 70) return 'kyukeisha_special';
+  // 地すべり 警戒区域（黄緑系）
+  if(r > 150 && r < 220 && g > 200 && b < 170) return 'jisuberi_warn';
+  // 地すべり 特別警戒区域（紫系）
+  if(r > 100 && r < 180 && g < 80 && b > 130 && b < 200) return 'jisuberi_special';
   return null;
 }
 
-async function copyForestSearch(text){
-  if(!text)return;
-  try{
-    await navigator.clipboard.writeText(text);
-    showToast(`📋 「${text}」をコピーしました。森林情報マップの検索バーに貼り付けてください。`);
-  }catch(e){
-    showToast('コピーに失敗しました','error');
+function _classifySabou(colors){
+  if(!colors || colors.length === 0) return [];
+  const set = new Set();
+  for(const c of colors){
+    const cls = _classifySabouPixel(c.r, c.g, c.b);
+    if(cls) set.add(cls);
   }
+  return [...set];
+}
+
+async function _runHazardCheck(lat, lng){
+  if(lat == null || lng == null) return null;
+  const result = {};
+  await Promise.all(Object.entries(HAZARD_TILES).map(async ([key, def])=>{
+    const colors = await _detectHazardAtPoint(lat, lng, def.url);
+    if(colors === null){ result[key] = {error: true}; return; }
+    if(def.type === 'flood'){
+      const depth = _classifyFloodDepth(colors);
+      result[key] = depth ? {depth} : {none: true};
+    } else if(def.type === 'sabou'){
+      const sabous = _classifySabou(colors);
+      result[key] = sabous.length > 0 ? {sabous} : {none: true};
+    }
+  }));
+  return result;
+}
+
+function _renderHazardResults(result){
+  if(!result) return '<div class="hazard-error">座標が未登録のため判定できません</div>';
+  const sabouTitles = {
+    dosekiryu_warn: '土石流', dosekiryu_special: '土石流',
+    kyukeisha_warn: '急傾斜地の崩壊', kyukeisha_special: '急傾斜地の崩壊',
+    jisuberi_warn: '地すべり', jisuberi_special: '地すべり',
+  };
+  const sabouDetails = {
+    dosekiryu_warn:    '土石流（土砂災害警戒区域（指定済））',
+    dosekiryu_special: '土石流（土砂災害特別警戒区域（指定済））',
+    kyukeisha_warn:    '急傾斜地の崩壊（土砂災害警戒区域（指定済））',
+    kyukeisha_special: '急傾斜地の崩壊（土砂災害特別警戒区域（指定済））',
+    jisuberi_warn:     '地すべり（土砂災害警戒区域（指定済））',
+    jisuberi_special:  '地すべり（土砂災害特別警戒区域（指定済））',
+  };
+  const parts = [];
+  let errorCount = 0;
+  for(const [key, def] of Object.entries(HAZARD_TILES)){
+    const r = result[key];
+    if(!r) continue;
+    if(r.error){ errorCount++; continue; }
+    if(r.none) continue;
+    if(def.type === 'flood' && r.depth){
+      parts.push(`<div class="hazard-block flood">
+        <div class="hazard-title">【${def.label}】</div>
+        <div class="hazard-detail">${def.verb}によって想定される浸水深：${r.depth}</div>
+      </div>`);
+    }
+    if(def.type === 'sabou' && r.sabous){
+      for(const s of r.sabous){
+        parts.push(`<div class="hazard-block sabou">
+          <div class="hazard-title">【${def.label}（${sabouTitles[s]}）】</div>
+          <div class="hazard-detail">${def.verb}の危険性：${sabouDetails[s]}</div>
+        </div>`);
+      }
+    }
+  }
+  if(parts.length === 0){
+    if(errorCount > 0) return '<div class="hazard-error">ハザードタイル取得に失敗しました（' + errorCount + '種）</div>';
+    return '<div class="hazard-none">該当ハザードはありません</div>';
+  }
+  return parts.join('');
+}
+
+function openOverlayHazardMap(){
+  const lat = window._currentHazardLat;
+  const lng = window._currentHazardLng;
+  if(!lat || !lng){
+    showToast('座標が未登録のため、マップを開けません', 'error');
+    return;
+  }
+  const url = `https://disaportal.gsi.go.jp/hazardmap/maps/index.html?ll=${lat},${lng}&z=15&base=pale&vs=c1j0l0u0t0h0z0`;
+  window.open(url, '_blank');
 }
 
 function autoSetArticle5Date(){
@@ -2562,23 +2745,26 @@ async function loadLandDetail(caseId){
   const CPZ_LABELS_DETAIL = {urbanization:'市街化区域',control:'市街化調整区域',control_outer:'市街化調整区域（外周）',non_zoned:'非線引き区域',outside:'都市計画区域外',UNKNOWN:'未確認'};
   const cpzVal = data?.cases?.city_planning_zone || null;
   const cpzText = cpzVal ? (CPZ_LABELS_DETAIL[cpzVal] || cpzVal) : '未判定';
-  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">地目</div><div class="info-value">${data.chimoku||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">都市計画法 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（座標から自動判定）</span></div><div class="info-value">${cpzText}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}</div></div><div class="info-item"><div class="info-label">農地種別 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（農転の可否判断用）</span></div><div class="info-value">${data.nouchi_kubun||'未調査'}</div></div><div class="info-item"><div class="info-label">森林計画図</div><div class="info-value forest-gis-link">読込中...</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
+  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">地目</div><div class="info-value">${data.chimoku||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">都市計画法 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（座標から自動判定）</span></div><div class="info-value">${cpzText}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}</div></div><div class="info-item"><div class="info-label">農地種別 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（農転の可否判断用）</span></div><div class="info-value">${data.nouchi_kubun||'未調査'}</div></div><div class="info-item full"><div class="info-label">🚨 ハザード詳細 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（重ねるハザードマップから自動取得）</span></div><div class="info-value"><div class="hazard-detail-list"><div class="hazard-loading">判定中...</div></div><button class="hazard-overlay-btn" onclick="openOverlayHazardMap()">🗺 重ねるハザードマップで詳細確認</button></div></div><div class="info-item"><div class="info-label">ハザード <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（手動メモ）</span></div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
   if(data&&data.location){
     const display=await fetchSnowLoad(data.location);
     document.querySelectorAll('.snow-load-value').forEach(el=>{el.textContent=display;});
-    const gis=await fetchForestGisUrl(data.location);
-    document.querySelectorAll('.forest-gis-link').forEach(el=>{
-      if(gis){
-        const locEsc=String(data.location||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-        let html=`<a href="${safeUrl(gis.gis_url)}" target="_blank">🌳 ${gis.gis_name||'森林計画図を開く'}</a>`;
-        if(data.location){html+=` <button onclick="copyForestSearch(this.dataset.text)" data-text="${locEsc}" style="margin-left:8px;font-size:11px;padding:2px 6px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer">📋 住所コピー</button>`;}
-        if(data.lat&&data.lng){html+=` <button onclick="copyForestSearch(this.dataset.text)" data-text="${data.lat},${data.lng}" style="margin-left:4px;font-size:11px;padding:2px 6px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer">📋 座標コピー</button>`;}
-        el.innerHTML=html;
-      }
-      else{el.textContent='—';}
+  }
+  // v20260512r: 重ねるハザードマップから5種ハザード詳細を自動判定
+  window._currentHazardLat = data?.lat || null;
+  window._currentHazardLng = data?.lng || null;
+  if(data && data.lat != null && data.lng != null){
+    _runHazardCheck(data.lat, data.lng).then(result=>{
+      const html = _renderHazardResults(result);
+      document.querySelectorAll('.hazard-detail-list').forEach(el=>{el.innerHTML = html;});
+    }).catch(e=>{
+      console.warn('[hazard] judge error:', e);
+      document.querySelectorAll('.hazard-detail-list').forEach(el=>{el.innerHTML = '<div class="hazard-error">判定処理でエラーが発生しました</div>';});
     });
+  } else {
+    document.querySelectorAll('.hazard-detail-list').forEach(el=>{el.innerHTML = '<div class="hazard-error">座標が未登録のため判定できません</div>';});
   }
 }
 
