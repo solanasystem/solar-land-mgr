@@ -2531,191 +2531,48 @@ async function fetchSnowLoad(location){
   return`${min}〜${max} cm`;
 }
 
-// ============ ハザード判定機能（v20260512r 追加）============
-// 重ねるハザードマップ（GSI）のラスタータイルから案件座標のハザード詳細を取得
-const HAZARD_TILES = {
-  flood:    {url: 'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png', label: '洪水浸水想定区域（想定最大規模）', verb: '洪水',       type: 'flood'},
-  naisui:   {url: 'https://disaportaldata.gsi.go.jp/raster/01_naisui_shinsuishin_data/{z}/{x}/{y}.png',    label: '内水浸水想定区域',                  verb: '内水',       type: 'flood'},
-  dosaigai: {url: 'https://disaportaldata.gsi.go.jp/raster/05_dosaigai_warning_area_data/{z}/{x}/{y}.png', label: '土砂災害警戒区域等',                verb: '土砂災害',   type: 'sabou'},
-  hightide: {url: 'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png', label: '高潮浸水想定区域',                  verb: '高潮',       type: 'flood'},
-  tsunami:  {url: 'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',     label: '津波浸水想定',                      verb: '津波',       type: 'flood'},
-};
-const HAZARD_ZOOM = 15;
-const _hazardTileCache = {};
-
-function _hazardLatLngToTilePixel(lat, lng, zoom){
-  const n = Math.pow(2, zoom);
-  const lat_rad = lat * Math.PI / 180;
-  const xt_frac = n * (lng + 180) / 360;
-  const yt_frac = n * (1 - Math.log(Math.tan(lat_rad) + 1/Math.cos(lat_rad)) / Math.PI) / 2;
-  const xtile = Math.floor(xt_frac);
-  const ytile = Math.floor(yt_frac);
-  const px = Math.floor((xt_frac - xtile) * 256);
-  const py = Math.floor((yt_frac - ytile) * 256);
-  return {xtile, ytile, px, py};
-}
-
-async function _loadHazardTile(url){
-  if(_hazardTileCache[url] !== undefined) return _hazardTileCache[url];
-  return new Promise((resolve)=>{
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = 256; canvas.height = 256;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        const data = ctx.getImageData(0, 0, 256, 256).data;
-        _hazardTileCache[url] = data;
-        resolve(data);
-      } catch(e) {
-        _hazardTileCache[url] = null;
-        resolve(null);
-      }
-    };
-    img.onerror = () => { _hazardTileCache[url] = null; resolve(null); };
-    img.src = url;
-  });
-}
-
-async function _detectHazardAtPoint(lat, lng, tileUrlTemplate){
-  const tp = _hazardLatLngToTilePixel(lat, lng, HAZARD_ZOOM);
-  const url = tileUrlTemplate.replace('{z}', HAZARD_ZOOM).replace('{x}', tp.xtile).replace('{y}', tp.ytile);
-  const data = await _loadHazardTile(url);
-  if(!data) return null;
-  const colors = [];
-  for(let dy=-3; dy<=3; dy++){
-    for(let dx=-3; dx<=3; dx++){
-      const x = tp.px + dx, y = tp.py + dy;
-      if(x<0||x>=256||y<0||y>=256) continue;
-      const idx = (y*256 + x) * 4;
-      const a = data[idx+3];
-      if(a > 10) colors.push({r: data[idx], g: data[idx+1], b: data[idx+2]});
-    }
-  }
-  return colors;
-}
-
-// 1ピクセルの色 → 浸水水深レベル (-1:該当なし, 0:0.5m未満 ～ 5:20m以上)
-function _classifyFloodPixel(r, g, b){
-  // GSI公式凡例ベースの推定閾値（v20260512r 初版、実機調整必要）
-  // 5: 20m以上 (紫系 #DC7ADC)
-  if(r > 200 && r < 240 && g > 100 && g < 140 && b > 200 && b < 240) return 5;
-  // 4: 10～20m (マゼンタ系 #F285C9)
-  if(r > 230 && r < 250 && g > 120 && g < 150 && b > 190 && b < 220) return 4;
-  // 3: 5～10m (濃ピンク #FF9191)
-  if(r > 245 && g > 130 && g < 160 && b > 130 && b < 160) return 3;
-  // 2: 3～5m (ピンク #FFB7B7)
-  if(r > 245 && g > 170 && g < 200 && b > 170 && b < 200) return 2;
-  // 1: 0.5～3m (薄ピンク #FFD8C0)
-  if(r > 245 && g > 200 && g < 230 && b > 170 && b < 210) return 1;
-  // 0: 0.5m未満 (薄黄 #F7F5A9)
-  if(r > 240 && g > 230 && b > 130 && b < 200) return 0;
-  return -1;
-}
-
-function _classifyFloodDepth(colors){
-  if(!colors || colors.length === 0) return null;
-  const counts = [0,0,0,0,0,0];
-  for(const c of colors){
-    const lvl = _classifyFloodPixel(c.r, c.g, c.b);
-    if(lvl >= 0) counts[lvl]++;
-  }
-  // 最大水深を優先（深い方からチェック）
-  let maxLvl = -1, maxCount = 0;
-  for(let lvl=5; lvl>=0; lvl--){
-    if(counts[lvl] > maxCount){ maxCount = counts[lvl]; maxLvl = lvl; }
-  }
-  if(maxLvl < 0) return null;
-  const labels = ['0.5m 未満', '0.5m ～ 3.0m', '3.0m ～ 5.0m', '5.0m ～ 10.0m', '10.0m ～ 20.0m', '20.0m ～'];
-  return labels[maxLvl];
-}
-
-// 土砂災害区分判定
-function _classifySabouPixel(r, g, b){
-  // 土石流 警戒区域（黄系）
-  if(r > 240 && g > 220 && b < 180) return 'dosekiryu_warn';
-  // 土石流 特別警戒区域（濃赤系）
-  if(r > 200 && r < 240 && g < 100 && b < 100) return 'dosekiryu_special';
-  // 急傾斜地崩壊 警戒区域（オレンジ系）
-  if(r > 240 && g > 130 && g < 180 && b < 130) return 'kyukeisha_warn';
-  // 急傾斜地崩壊 特別警戒区域（深赤系）
-  if(r > 130 && r < 200 && g < 70 && b < 70) return 'kyukeisha_special';
-  // 地すべり 警戒区域（黄緑系）
-  if(r > 150 && r < 220 && g > 200 && b < 170) return 'jisuberi_warn';
-  // 地すべり 特別警戒区域（紫系）
-  if(r > 100 && r < 180 && g < 80 && b > 130 && b < 200) return 'jisuberi_special';
-  return null;
-}
-
-function _classifySabou(colors){
-  if(!colors || colors.length === 0) return [];
-  const set = new Set();
-  for(const c of colors){
-    const cls = _classifySabouPixel(c.r, c.g, c.b);
-    if(cls) set.add(cls);
-  }
-  return [...set];
-}
+// ============ ハザード判定機能（v20260512s 改修）============
+// hazard-check Worker (https://hazard-check.takumi-29b.workers.dev) を呼び出して
+// 「重ねるハザードマップ」と同じ文章を取得する
+// Phase 1（静岡県・洪水のみ）→ Phase 2 で他県・他ハザードに拡張予定
+// Worker 側で完成文章を生成するため、クライアントは表示のみ
+const HAZARD_WORKER_URL = 'https://hazard-check.takumi-29b.workers.dev/hazard-check';
 
 async function _runHazardCheck(lat, lng){
   if(lat == null || lng == null) return null;
-  const result = {};
-  await Promise.all(Object.entries(HAZARD_TILES).map(async ([key, def])=>{
-    const colors = await _detectHazardAtPoint(lat, lng, def.url);
-    if(colors === null){ result[key] = {error: true}; return; }
-    if(def.type === 'flood'){
-      const depth = _classifyFloodDepth(colors);
-      result[key] = depth ? {depth} : {none: true};
-    } else if(def.type === 'sabou'){
-      const sabous = _classifySabou(colors);
-      result[key] = sabous.length > 0 ? {sabous} : {none: true};
+  try {
+    const resp = await fetch(`${HAZARD_WORKER_URL}?lat=${lat}&lng=${lng}`);
+    if(!resp.ok){
+      console.warn('[hazard] worker returned', resp.status);
+      return { _workerError: true, status: resp.status };
     }
-  }));
-  return result;
+    return await resp.json();
+  } catch(e) {
+    console.warn('[hazard] worker fetch error:', e);
+    return { _workerError: true, message: String(e) };
+  }
 }
 
-function _renderHazardResults(result){
-  if(!result) return '<div class="hazard-error">座標が未登録のため判定できません</div>';
-  const sabouTitles = {
-    dosekiryu_warn: '土石流', dosekiryu_special: '土石流',
-    kyukeisha_warn: '急傾斜地の崩壊', kyukeisha_special: '急傾斜地の崩壊',
-    jisuberi_warn: '地すべり', jisuberi_special: '地すべり',
-  };
-  const sabouDetails = {
-    dosekiryu_warn:    '土石流（土砂災害警戒区域（指定済））',
-    dosekiryu_special: '土石流（土砂災害特別警戒区域（指定済））',
-    kyukeisha_warn:    '急傾斜地の崩壊（土砂災害警戒区域（指定済））',
-    kyukeisha_special: '急傾斜地の崩壊（土砂災害特別警戒区域（指定済））',
-    jisuberi_warn:     '地すべり（土砂災害警戒区域（指定済））',
-    jisuberi_special:  '地すべり（土砂災害特別警戒区域（指定済））',
-  };
-  const parts = [];
-  let errorCount = 0;
-  for(const [key, def] of Object.entries(HAZARD_TILES)){
-    const r = result[key];
-    if(!r) continue;
-    if(r.error){ errorCount++; continue; }
-    if(r.none) continue;
-    if(def.type === 'flood' && r.depth){
-      parts.push(`<div class="hazard-block flood">
-        <div class="hazard-title">【${def.label}】</div>
-        <div class="hazard-detail">${def.verb}によって想定される浸水深：${r.depth}</div>
-      </div>`);
-    }
-    if(def.type === 'sabou' && r.sabous){
-      for(const s of r.sabous){
-        parts.push(`<div class="hazard-block sabou">
-          <div class="hazard-title">【${def.label}（${sabouTitles[s]}）】</div>
-          <div class="hazard-detail">${def.verb}の危険性：${sabouDetails[s]}</div>
-        </div>`);
-      }
-    }
+function _renderHazardResults(workerResp){
+  if(!workerResp) return '<div class="hazard-error">座標が未登録のため判定できません</div>';
+  if(workerResp._workerError){
+    return '<div class="hazard-error">ハザード判定サーバーに接続できませんでした</div>';
   }
-  if(parts.length === 0){
-    if(errorCount > 0) return '<div class="hazard-error">ハザードタイル取得に失敗しました（' + errorCount + '種）</div>';
+  const pref = workerResp.prefecture || 'unknown';
+  if(pref === 'unknown'){
+    return '<div class="hazard-error">対象地点が現在のハザード判定対応エリア外です（Phase 1: 静岡県のみ）</div>';
+  }
+  const results = workerResp.results || [];
+  if(results.length === 0){
     return '<div class="hazard-none">該当ハザードはありません</div>';
+  }
+  const parts = [];
+  for(const r of results){
+    const klass = r.type === 'dosaigai' ? 'sabou' : 'flood';
+    parts.push(`<div class="hazard-block ${klass}">
+      <div class="hazard-title">【${r.label}】</div>
+      <div class="hazard-detail">${r.sentence || ''}</div>
+    </div>`);
   }
   return parts.join('');
 }
@@ -2735,6 +2592,7 @@ function autoSetArticle5Date(){
   /* v20260512q: 5条森林確認日カラム廃止に伴い、本関数は no-op に変更。
      既存のonchange呼び出しが残っていてもエラーにならないよう関数自体は残す。 */
 }
+
 
 async function loadLandDetail(caseId){
   const{data}=await db.from('land_info').select('*,cases(city_planning_zone)').eq('case_id',caseId).single();
