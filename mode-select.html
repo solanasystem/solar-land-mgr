@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: mode-select v20260514k / Spectral Walk Edition (Footer Clearance Fix v2) -->
+<!-- BUILD: mode-select v20260514l / Spectral Walk Edition (Live HUD Metrics) -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -830,14 +830,14 @@
     <div class="brand-mark">G</div>
     <div>
       <div class="brand-text">GRID LAND</div>
-      <div class="brand-sub">MGR // v20260514k</div>
+      <div class="brand-sub">MGR // v20260514l</div>
     </div>
   </div>
 
   <div class="status-bar">
-    <span><span class="status-dot"></span>CELL <b>OPERATIONAL</b></span>
-    <span>VOLT <b>14.4V</b></span>
-    <span>CHARGE <b>98%</b></span>
+    <span><span class="status-dot" id="hud-conn-dot"></span>SYS <b id="hud-conn-val">CHECKING</b></span>
+    <span>CASES <b id="hud-cases">—</b></span>
+    <span>ACTIVE <b id="hud-active">—</b></span>
   </div>
 
   <div class="clock" id="clock">
@@ -1090,7 +1090,7 @@
 <div class="hud-footer">
   <div class="hud-left">
     <span class="hud-keep">⚡ GRID</span>
-    <span>BUILD <b>v20260514k</b></span>
+    <span>BUILD <b>v20260514l</b></span>
     <span>MODULE <b>XAMAX</b></span>
     <span>BUS <b>DC_400V</b></span>
   </div>
@@ -1378,6 +1378,75 @@ history.replaceState(null, '', location.href);
     if (!reduced) requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+})();
+
+
+// ==================================================== //
+// ==== HUD Live Metrics（C: ハイブリッド版）      ==== //
+// SYS接続状態 / CASES件数 / ACTIVE進行中比率       //
+// ==================================================== //
+(async function initHudMetrics() {
+  console.log('[hud] init');
+  const dot     = document.getElementById('hud-conn-dot');
+  const valEl   = document.getElementById('hud-conn-val');
+  const casesEl = document.getElementById('hud-cases');
+  const activeEl= document.getElementById('hud-active');
+  if (!casesEl || !activeEl) { console.warn('[hud] elements missing'); return; }
+
+  // Supabaseクライアントを既存ロジックから探索
+  let sb = null;
+  let tries = 0;
+  while (!sb && tries < 200) {
+    if (window.__auth?.sb) sb = window.__auth.sb;
+    else if (window.__auth?.supabase) sb = window.__auth.supabase;
+    else if (window.__auth?.client) sb = window.__auth.client;
+    else if (window.sb && typeof window.sb.from === 'function') sb = window.sb;
+    else if (window.supabaseClient) sb = window.supabaseClient;
+    else if (window.supabase && typeof window.supabase.from === 'function') sb = window.supabase;
+    if (sb) break;
+    await new Promise(r => setTimeout(r, 50));
+    tries++;
+  }
+
+  if (!sb) {
+    console.warn('[hud] Supabase client未発見');
+    if (valEl) valEl.textContent = 'NO_CLIENT';
+    if (dot)   dot.style.background = 'var(--warn)';
+    return;
+  }
+  console.log('[hud] supabase client found');
+
+  // 進行中（ACTIVE）判定（NG/NOT VISITED/UNKNOWN除外）
+  const ACTIVE_STATUSES = ['THINKING↑','THINKING→','THINKING↓','OK','LETTER','LTR済'];
+
+  async function refresh() {
+    try {
+      const { count: total, error: e1 } = await sb
+        .from('cases')
+        .select('id', { count: 'exact', head: true })
+        .neq('status', 'NG');
+      if (e1) throw e1;
+
+      const { count: active, error: e2 } = await sb
+        .from('cases')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ACTIVE_STATUSES);
+      if (e2) throw e2;
+
+      const pct = (total > 0) ? Math.round((active / total) * 100) : 0;
+      casesEl.textContent  = `${total ?? 0}件`;
+      activeEl.textContent = `${pct}%`;
+      if (valEl) valEl.textContent = 'OPERATIONAL';
+      if (dot)   dot.style.background = 'var(--charge)';
+      console.log('[hud] refreshed', { total, active, pct });
+    } catch (e) {
+      console.error('[hud] query failed', e);
+      if (valEl) valEl.textContent = 'OFFLINE';
+      if (dot)   dot.style.background = 'var(--signal)';
+    }
+  }
+  await refresh();
+  setInterval(refresh, 60000);
 })();
 
 </script>
