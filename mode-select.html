@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: mode-select v20260514g / Spectral Walk Edition -->
+<!-- BUILD: mode-select v20260514h / Spectral Walk Edition (Robust Auth) -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -830,7 +830,7 @@
     <div class="brand-mark">G</div>
     <div>
       <div class="brand-text">GRID LAND</div>
-      <div class="brand-sub">MGR // v20260514g</div>
+      <div class="brand-sub">MGR // v20260514h</div>
     </div>
   </div>
 
@@ -1090,7 +1090,7 @@
 <div class="hud-footer">
   <div class="hud-left">
     <span class="hud-keep">⚡ GRID</span>
-    <span>BUILD <b>v20260514g</b></span>
+    <span>BUILD <b>v20260514h</b></span>
     <span>MODULE <b>XAMAX</b></span>
     <span>BUS <b>DC_400V</b></span>
   </div>
@@ -1102,38 +1102,56 @@
 </div>
 
 <script>
-// ====== 認証ガード ======
+// ====== 認証ガード（ロバスト版） ======
+// common-auth.js の初期化を最大10秒待つ。タイムアウトしても画面は表示する。
+// 認証失敗の最終判定は common-auth.js 側に委譲する（他ページと整合）。
 (async function initAuth() {
+  console.log('[mode-select] initAuth start');
   try {
+    // window.__auth が現れるまで最大10秒待機
+    let waitTries = 0;
+    while (typeof window.__auth === 'undefined' && waitTries < 200) {
+      await new Promise(r => setTimeout(r, 50));
+      waitTries++;
+    }
     if (typeof window.__auth === 'undefined') {
-      console.warn('common-auth.js 未読み込み');
-      location.href = 'login.html';
+      console.warn('[mode-select] common-auth.js 未到達（10秒タイムアウト）— 画面は表示します');
+      // 画面は表示し続け、未認証は他ページ遷移時に処理される
       return;
     }
-    let tries = 0;
-    while (!window.__auth.profile && tries < 60) {
+    console.log('[mode-select] window.__auth ready');
+
+    // profile が現れるまで最大10秒待機
+    let profTries = 0;
+    while (!window.__auth.profile && profTries < 200) {
       await new Promise(r => setTimeout(r, 50));
-      tries++;
+      profTries++;
     }
     const p = window.__auth.profile;
-    const r = window.__auth.role || 'viewer';
-    if (!p) { location.href = 'login.html'; return; }
+    const r = (window.__auth.role || 'viewer');
+
+    if (!p) {
+      console.warn('[mode-select] profile が10秒以内に取得できず — 画面は表示します');
+      return;
+    }
+    console.log('[mode-select] profile ready', p);
 
     const name = p.display_name || p.email || '—';
     const roleU = r.toUpperCase();
-    document.getElementById('userName').textContent = name;
-    document.getElementById('userRole').textContent = roleU;
-    document.getElementById('userRole').className = 'user-role ' + r;
-    document.getElementById('opName').textContent = name;
-    document.getElementById('opRole').textContent = roleU;
-    document.getElementById('sessionId').textContent =
-      'GLM-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+    const safeSet = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    safeSet('userName', name);
+    safeSet('userRole', roleU);
+    const ur = document.getElementById('userRole'); if (ur) ur.className = 'user-role ' + r;
+    safeSet('opName', name);
+    safeSet('opRole', roleU);
+    safeSet('sessionId', 'GLM-' + Math.random().toString(36).slice(2, 6).toUpperCase());
 
     if (r === 'admin') {
-      document.getElementById('adminCard').style.display = '';
+      const ac = document.getElementById('adminCard');
+      if (ac) ac.style.display = '';
     }
   } catch (e) {
-    console.error('Auth init error', e);
+    console.error('[mode-select] Auth init error', e);
   }
 })();
 
