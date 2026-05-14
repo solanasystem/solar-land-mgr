@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<!-- BUILD: mode-select-debug v20260514b-DEBUG / Auth Disabled -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>[DEBUG] MODE SELECT // GRID LAND MGR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="mobile-responsive.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- <script src="common-auth.js"></script> --> <!-- DEBUG: auth disabled -->
+<style>
+  :root {
+    --void: #04060c;
+    --abyss: #070a13;
+    --deep: #0c111d;
+    --steel: #161c2c;
+    --steel2: #1f2640;
+    --line: #2a3350;
+    --line2: #3a4570;
+    --amber: #ffb524;
+    --amber-glow: #ffc752;
+    --cyan: #00d9ff;
+    --cyan-dim: #0099bb;
+    --magenta: #ff2e93;
+    --lime: #c6ff3d;
+    --signal: #ff3a3a;
+    --text: #eef2ff;
+    --muted: #7a8499;
+    --dim: #4a5470;
+    --display: 'Anton', 'Zen Kaku Gothic New', sans-serif;
+    --jp: 'Zen Kaku Gothic New', sans-serif;
+    --mono: 'JetBrains Mono', 'Share Tech Mono', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: var(--void);
+    color: var(--text);
+    font-family: var(--jp);
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ==== 背景：宇宙＋グリッド＋スキャンライン ==== */
+  .bg-layer { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(255,181,36,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,181,36,0.04) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+  }
+  .bg-glow1 { background: radial-gradient(circle at 20% 0%, rgba(255,181,36,0.15), transparent 50%); }
+  .bg-glow2 { background: radial-gradient(circle at 80% 100%, rgba(0,217,255,0.12), transparent 55%); }
+  .bg-noise {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.05 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    opacity: 0.4;
+    mix-blend-mode: overlay;
+  }
+  .bg-scanline {
+    background: linear-gradient(180deg, transparent 0%, transparent 49.5%, rgba(255,181,36,0.18) 50%, transparent 50.5%, transparent 100%);
+    background-size: 100% 4px;
+    opacity: 0.4;
+    animation: scan 12s linear infinite;
+  }
+  @keyframes scan {
+    0%   { background-position: 0 -100vh; }
+    100% { background-position: 0 100vh; }
+  }
+  .bg-vignette { background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.65) 100%); }
+
+  /* ==== ヘッダー ==== */
+  .topbar {
+    position: relative; z-index: 10;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(7,10,19,0.95), rgba(7,10,19,0.7));
+    backdrop-filter: blur(8px);
+    padding: 0 28px;
+    height: 64px;
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 24px;
+  }
+  .topbar::after {
+    content: '';
+    position: absolute; left: 0; right: 0; bottom: -1px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--amber) 20%, var(--amber) 80%, transparent);
+    opacity: 0.6;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand-mark {
+    width: 38px; height: 38px;
+    background: linear-gradient(135deg, var(--amber), #d97706);
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--display);
+    font-size: 18px;
+    color: var(--void);
+    box-shadow: 0 0 20px rgba(255,181,36,0.5);
+    position: relative;
+  }
+  .brand-mark::before {
+    content: '';
+    position: absolute; inset: -4px;
+    border: 1px solid var(--amber);
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    opacity: 0.4;
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.2; transform: scale(1); }
+    50%      { opacity: 0.6; transform: scale(1.08); }
+  }
+  .brand-text { font-family: var(--display); font-size: 18px; letter-spacing: 0.18em; line-height: 1; }
+  .brand-sub { font-family: var(--mono); font-size: 9px; letter-spacing: 0.3em; color: var(--amber); margin-top: 4px; text-transform: uppercase; }
+
+  .status-bar {
+    display: flex; gap: 22px;
+    font-family: var(--mono);
+    font-size: 10px; letter-spacing: 0.15em;
+    color: var(--muted); text-transform: uppercase;
+    justify-self: center;
+  }
+  .status-bar span b { color: var(--lime); font-weight: 500; margin-left: 6px; }
+  .status-dot {
+    display: inline-block;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--lime);
+    box-shadow: 0 0 8px var(--lime);
+    margin-right: 6px;
+    animation: blink 1.6s ease-in-out infinite;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.4; }
+  }
+  .clock {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 0.12em;
+    color: var(--amber);
+    text-shadow: 0 0 8px rgba(255,181,36,0.5);
+  }
+  .clock .date {
+    display: block;
+    font-size: 9px;
+    letter-spacing: 0.25em;
+    color: var(--muted);
+    margin-top: 2px;
+    text-shadow: none;
+  }
+  .user-pod {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px 6px 14px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: rgba(255,255,255,0.02);
+  }
+  .user-name { font-size: 12px; color: var(--text); font-weight: 500; }
+  .user-role {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.2em;
+    padding: 3px 7px;
+    background: var(--amber); color: var(--void);
+    border-radius: 2px; font-weight: 700;
+  }
+  .user-role.viewer  { background: var(--cyan); }
+  .user-role.manager { background: var(--lime); }
+  .logout-btn {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--muted);
+    width: 32px; height: 32px;
+    border-radius: 4px;
+    font-size: 14px; cursor: pointer;
+    transition: all 0.15s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logout-btn:hover { color: var(--signal); border-color: var(--signal); }
+
+  /* ==== メイン ==== */
+  main {
+    position: relative; z-index: 2;
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 56px 28px 80px;
+  }
+  .title-block {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: end;
+    gap: 32px;
+    margin-bottom: 56px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 28px;
+    position: relative;
+  }
+  .title-block::after {
+    content: '';
+    position: absolute; left: 0; right: 0; bottom: -1px;
+    height: 2px;
+    background: linear-gradient(90deg, var(--amber), transparent 30%);
+  }
+  .title-marker {
+    font-family: var(--mono);
+    font-size: 11px; letter-spacing: 0.3em;
+    color: var(--amber);
+    padding: 6px 10px;
+    border: 1px solid var(--amber);
+    align-self: start;
+    background: rgba(255,181,36,0.06);
+  }
+  .title-main {
+    font-family: var(--display);
+    font-size: clamp(40px, 7vw, 84px);
+    letter-spacing: 0.04em;
+    line-height: 0.9;
+    color: var(--text);
+  }
+  .title-main .accent { color: var(--amber); }
+  .title-jp {
+    font-family: var(--jp);
+    font-size: 14px; font-weight: 500;
+    color: var(--muted);
+    letter-spacing: 0.4em;
+    margin-top: 12px;
+  }
+  .title-side {
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 10px; line-height: 1.6;
+    color: var(--muted); letter-spacing: 0.1em;
+  }
+  .title-side b { color: var(--cyan); font-weight: 500; }
+
+  /* ==== モードグリッド ==== */
+  .modes { display: grid; grid-template-columns: repeat(12, 1fr); gap: 18px; }
+
+  .mode {
+    position: relative;
+    background: linear-gradient(180deg, var(--deep), var(--abyss));
+    border: 1px solid var(--line);
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+  }
+  .mode-01 { grid-column: span 7; min-height: 220px; }
+  .mode-02 { grid-column: span 5; min-height: 220px; }
+  .mode-03 { grid-column: span 5; min-height: 200px; }
+  .mode-04 { grid-column: span 7; min-height: 200px; }
+  .mode-05 { grid-column: span 12; min-height: 160px; }
+
+  .mode::before, .mode::after {
+    content: '';
+    position: absolute;
+    width: 14px; height: 14px;
+    border: 1px solid var(--accent);
+    transition: all 0.3s;
+  }
+  .mode::before { top: 8px; left: 8px; border-right: none; border-bottom: none; }
+  .mode::after  { bottom: 8px; right: 8px; border-left: none; border-top: none; }
+
+  .mode:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+    box-shadow:
+      0 0 0 1px var(--accent),
+      0 14px 40px rgba(0,0,0,0.6),
+      0 0 60px var(--accent-glow);
+  }
+  .mode:hover::before, .mode:hover::after {
+    width: 22px; height: 22px;
+  }
+  .mode.expanded {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 0 80px var(--accent-glow);
+  }
+
+  .mode-01 { --accent: var(--amber);    --accent-glow: rgba(255,181,36,0.18); }
+  .mode-02 { --accent: var(--cyan);     --accent-glow: rgba(0,217,255,0.18); }
+  .mode-03 { --accent: var(--magenta);  --accent-glow: rgba(255,46,147,0.18); }
+  .mode-04 { --accent: var(--lime);     --accent-glow: rgba(198,255,61,0.18); }
+  .mode-05 { --accent: var(--signal);   --accent-glow: rgba(255,58,58,0.18); }
+
+  .mode > .scan {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 0%, var(--accent-glow) 50%, transparent 100%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  .mode:hover > .scan { opacity: 0.3; animation: scanmove 1.8s linear infinite; }
+  @keyframes scanmove {
+    0%   { transform: translateY(-100%); }
+    100% { transform: translateY(100%); }
+  }
+
+  .mode-head {
+    padding: 24px 28px 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    position: relative;
+    z-index: 2;
+  }
+  .mode-num {
+    font-family: var(--display);
+    font-size: 56px;
+    line-height: 0.85;
+    color: var(--accent);
+    letter-spacing: 0.02em;
+    text-shadow: 0 0 24px var(--accent-glow);
+    position: relative;
+    flex-shrink: 0;
+  }
+  .mode-num::before {
+    content: 'MODE';
+    position: absolute;
+    top: -12px; left: 0;
+    font-family: var(--mono);
+    font-size: 9px; color: var(--muted);
+    letter-spacing: 0.3em;
+    text-shadow: none;
+  }
+  .mode-num::after {
+    content: '';
+    position: absolute;
+    bottom: -8px; left: 0;
+    width: 28px; height: 2px;
+    background: var(--accent);
+  }
+  .mode-title-block { flex: 1; min-width: 0; }
+  .mode-jp {
+    font-family: var(--jp);
+    font-size: clamp(18px, 2.5vw, 26px);
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+    line-height: 1.2;
+  }
+  .mode-en {
+    font-family: var(--mono);
+    font-size: 11px; letter-spacing: 0.3em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .mode-desc {
+    font-size: 12px; color: var(--muted);
+    line-height: 1.6;
+    max-width: 480px;
+  }
+  .mode-meta {
+    align-self: flex-start;
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 9px; color: var(--muted);
+    letter-spacing: 0.15em; line-height: 1.5;
+    flex-shrink: 0;
+  }
+  .mode-meta .count {
+    font-size: 22px;
+    font-family: var(--display);
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+
+  .mode-submenu {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative; z-index: 2;
+  }
+  .mode.expanded .mode-submenu { max-height: 600px; }
+  .submenu-rail {
+    border-top: 1px solid var(--accent);
+    background: linear-gradient(180deg, var(--accent-glow), transparent 60%);
+    padding: 14px 20px 20px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 10px;
+  }
+  .sub-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px;
+    background: rgba(0,0,0,0.35);
+    border: 1px solid var(--line);
+    text-decoration: none;
+    color: var(--text);
+    transition: all 0.15s;
+    cursor: pointer;
+    position: relative;
+  }
+  .sub-item:hover {
+    border-color: var(--accent);
+    background: rgba(0,0,0,0.55);
+    transform: translateX(4px);
+  }
+  .sub-item::before {
+    content: '';
+    position: absolute;
+    left: -1px; top: -1px; bottom: -1px;
+    width: 3px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .sub-item:hover::before { opacity: 1; }
+  .sub-marker {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    flex-shrink: 0;
+    width: 32px;
+  }
+  .sub-text { flex: 1; min-width: 0; }
+  .sub-title { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+  .sub-sub {
+    font-size: 10px; color: var(--muted);
+    font-family: var(--mono); letter-spacing: 0.05em;
+  }
+  .sub-arrow {
+    font-family: var(--mono);
+    color: var(--accent);
+    font-size: 14px; font-weight: 700;
+    transition: transform 0.15s;
+  }
+  .sub-item:hover .sub-arrow { transform: translateX(4px); }
+
+  .mode-glyph {
+    position: absolute;
+    right: -20px; bottom: -40px;
+    font-size: 200px;
+    font-family: var(--display);
+    color: var(--accent);
+    opacity: 0.04;
+    line-height: 1;
+    pointer-events: none;
+    user-select: none;
+    z-index: 1;
+  }
+
+  /* ==== フッターHUDバー ==== */
+  .hud-footer {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 10;
+    background: linear-gradient(0deg, rgba(7,10,19,0.95), rgba(7,10,19,0.6));
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--line);
+    padding: 10px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .hud-footer::before {
+    content: '';
+    position: absolute; left: 0; right: 0; top: -1px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--cyan) 20%, var(--cyan) 80%, transparent);
+    opacity: 0.4;
+  }
+  .hud-left, .hud-right { display: flex; gap: 22px; }
+  .hud-footer b { color: var(--lime); font-weight: 500; margin-left: 6px; }
+  .hud-footer a { color: var(--cyan); text-decoration: none; }
+  .hud-footer a:hover { color: var(--amber); }
+
+  /* ==== ロード時アニメ ==== */
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slideLeft {
+    from { opacity: 0; transform: translateX(-20px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .title-block { animation: slideLeft 0.6s cubic-bezier(0.4,0,0.2,1) both; }
+  .mode { animation: slideUp 0.6s cubic-bezier(0.4,0,0.2,1) both; opacity: 0; }
+  .mode-01 { animation-delay: 0.10s; }
+  .mode-02 { animation-delay: 0.18s; }
+  .mode-03 { animation-delay: 0.26s; }
+  .mode-04 { animation-delay: 0.34s; }
+  .mode-05 { animation-delay: 0.42s; }
+
+  /* ==== モバイル ==== */
+  @media (max-width: 880px) {
+    .topbar {
+      height: auto;
+      padding: 12px 16px;
+      grid-template-columns: auto auto;
+      grid-template-rows: auto auto;
+      gap: 10px 16px;
+    }
+    .status-bar { display: none; }
+    .clock { font-size: 12px; }
+    .clock .date { font-size: 8px; }
+    .user-pod { padding: 4px 8px 4px 10px; gap: 6px; }
+    .user-name { display: none; }
+
+    main { padding: 32px 16px 100px; }
+    .title-block {
+      grid-template-columns: 1fr;
+      gap: 14px;
+      margin-bottom: 32px;
+      padding-bottom: 20px;
+    }
+    .title-marker { justify-self: start; }
+    .title-side { text-align: left; }
+    .title-jp { letter-spacing: 0.2em; }
+
+    .modes { gap: 14px; }
+    .mode-01, .mode-02, .mode-03, .mode-04, .mode-05 {
+      grid-column: span 12;
+      min-height: auto;
+    }
+    .mode-head { padding: 20px 18px 16px; gap: 14px; }
+    .mode-num { font-size: 40px; }
+    .mode-num::before { font-size: 8px; }
+    .mode-meta .count { font-size: 18px; }
+    .mode-glyph { font-size: 140px; right: -10px; bottom: -20px; }
+    .submenu-rail { padding: 12px 14px 16px; grid-template-columns: 1fr; }
+
+    .hud-footer {
+      padding: 8px 14px;
+      font-size: 9px;
+      letter-spacing: 0.1em;
+    }
+    .hud-left { gap: 14px; }
+    .hud-right span:not(.hud-keep) { display: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- 背景レイヤー -->
+<div class="bg-layer bg-grid"></div>
+<div class="bg-layer bg-glow1"></div>
+<div class="bg-layer bg-glow2"></div>
+<div class="bg-layer bg-noise"></div>
+<div class="bg-layer bg-scanline"></div>
+<div class="bg-layer bg-vignette"></div>
+
+<!-- ヘッダーHUD -->
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">G</div>
+    <div>
+      <div class="brand-text">GRID LAND</div>
+      <div class="brand-sub">MGR // v20260514b</div>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <span><span class="status-dot"></span>SYS <b>OPERATIONAL</b></span>
+    <span>CONN <b>LIVE</b></span>
+    <span>PHASE <b>ACTIVE</b></span>
+  </div>
+
+  <div class="clock" id="clock">
+    --:--:--
+    <span class="date" id="dateLine">----.--.--</span>
+  </div>
+
+  <div style="display:flex;gap:10px;align-items:center;">
+    <div class="user-pod">
+      <span class="user-name" id="userName">—</span>
+      <span class="user-role" id="userRole">—</span>
+    </div>
+    <button class="logout-btn" onclick="logout()" title="ログアウト">⏻</button>
+  </div>
+</header>
+
+<!-- メイン -->
+<main>
+
+  <div class="title-block">
+    <div class="title-marker">// MODE SELECT</div>
+    <div>
+      <h1 class="title-main">SELECT<br><span class="accent">OPERATION</span></h1>
+      <div class="title-jp">業務モード選択 ・ 作業内容を指定してください</div>
+    </div>
+    <div class="title-side">
+      OPERATOR <b id="opName">—</b><br>
+      CLEARANCE <b id="opRole">—</b><br>
+      SESSION <b id="sessionId">—</b>
+    </div>
+  </div>
+
+  <div class="modes">
+
+    <!-- MODE 01 -->
+    <div class="mode mode-01" onclick="toggleMode(this, event)">
+      <div class="scan"></div>
+      <div class="mode-glyph">M</div>
+      <div class="mode-head">
+        <div class="mode-num">01</div>
+        <div class="mode-title-block">
+          <div class="mode-jp">各種案件マスター</div>
+          <div class="mode-en">// Case Master Operations</div>
+          <div class="mode-desc">案件・地権者・土地情報・不動産会社の4マスター統合管理。コア業務エントリー。</div>
+        </div>
+        <div class="mode-meta">
+          <div class="count">04</div>
+          MASTERS
+        </div>
+      </div>
+      <div class="mode-submenu">
+        <div class="submenu-rail">
+          <a href="main.html" class="sub-item">
+            <div class="sub-marker">M-01</div>
+            <div class="sub-text">
+              <div class="sub-title">案件マスター</div>
+              <div class="sub-sub">case / landowner / land / realestate</div>
+            </div>
+            <div class="sub-arrow">▸</div>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODE 02 -->
+    <div class="mode mode-02" onclick="toggleMode(this, event)">
+      <div class="scan"></div>
+      <div class="mode-glyph">V</div>
+      <div class="mode-head">
+        <div class="mode-num">02</div>
+        <div class="mode-title-block">
+          <div class="mode-jp">現場・訪問</div>
+          <div class="mode-en">// Field Operation</div>
+          <div class="mode-desc">地権者宅訪問・現地調査の地図ベース実行。</div>
+        </div>
+        <div class="mode-meta">
+          <div class="count">02</div>
+          MAPS
+        </div>
+      </div>
+      <div class="mode-submenu">
+        <div class="submenu-rail">
+          <a href="landowner-visit.html" class="sub-item">
+            <div class="sub-marker">V-01</div>
+            <div class="sub-text">
+              <div class="sub-title">地権者宅訪問マップ</div>
+              <div class="sub-sub">plan → navigate → record</div>
+            </div>
+            <div class="sub-arrow">▸</div>
+          </a>
+          <a href="field-survey.html" class="sub-item">
+            <div class="sub-marker">V-02</div>
+            <div class="sub-text">
+              <div class="sub-title">現地調査マップ</div>
+              <div class="sub-sub">hazard / zoning / noushin</div>
+            </div>
+            <div class="sub-arrow">▸</div>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODE 03 -->
+    <div class="mode mode-03" onclick="toggleMode(this, event)">
+      <div class="scan"></div>
+      <div class="mode-glyph">P</div>
+      <div class="mode-head">
+        <div class="mode-num">03</div>
+        <div class="mode-title-block">
+          <div class="mode-jp">各種印刷物</div>
+          <div class="mode-en">// Print Output</div>
+          <div class="mode-desc">手紙・概要書・売買契約書の生成印刷。</div>
+        </div>
+        <div class="mode-meta">
+          <div class="count">03</div>
+          DOCS
+        </div>
+      </div>
+      <div class="mode-submenu">
+        <div class="submenu-rail">
+          <a href="letter-generator.html" class="sub-item">
+            <div class="sub-marker">P-01</div>
+            <div class="sub-text">
+              <div class="sub-title">手紙作成</div>
+              <div class="sub-sub">LETTER → LTR済 auto-update</div>
+            </div>
+            <div class="sub-arrow">▸</div>
+          </a>
+          <a href="case-summary.html" class="sub-item">
+            <div class="sub-marker">P-02</div>
+            <div class="sub-text">
+              <div class="sub-title">案件概要書</div>
+              <div class="sub-sub">A4 / 公図オーバーレイ対応</div>
+            </div>
+            <div class="sub-arrow">▸</div>
+          </a>
+          <a href="purchase-agreement.html" class="sub-item">
+            <div class="sub-marker">P-03</div>
+            <div class="sub-text">
+              <div class="sub-title">売買契約書</div>
+              <div class="sub-sub">template + 案件情報流し込み</div>
+            </div>
+            <div class="sub-arrow">▸</div>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODE 04 -->
+    <div class="mode mode-04" onclick="toggleMode(this, event)">
+      <div class="scan"></div>
+      <div class="mode-glyph">S</div>
+      <div class="mode-head">
+        <div class="mode-num">04</div>
+        <div class="mode-title-block">
+          <div class="mode-jp">案件調査</div>
+          <div class="mode-en">// Survey Intelligence</div>
+          <div class="mode-desc">農地変化追跡・候補抽出・eMAFFインポート。衛星×PBF×公的データの統合インテリジェンス。</div>
+        </div>
+        <div class="mode-meta">
+          <div class="count">04</div>
+          TOOLS
+        </div>
+      </div>
+      <div class="mode-submenu">
+        <div class="submenu-rail">
+          <a href="farmland-tracker.html" class="sub-item">
+            <div class="sub-marker">S-01</div>
+            <div class="sub-text">
+              <div class="sub-title">農地トラッカー</div>
+              <div class="sub-sub">primary map / PBF + satellite</div>
+            </div>
+            <div class="sub-arrow">▸</div>
+          </a>
+          <a href="farmland-candidates.html" class="sub-item">
+            <div class="sub-marker">S-02</div>
+            <div class="sub-text">
+              <div class="sub-title">農地候補一覧</div>
+              <div class="sub-sub">PBF + pubH_ integrated</div>
+            </div>
+            <div class="sub-arrow">▸</div>
+          </a>
+          <a href="public-farmland.html" class="sub-item">
+            <div class="sub-marker">S-03</div>
+            <div class="sub-text">
+              <div class="sub-title">公的農地マッチング</div>
+              <div class="sub-sub">eMAFF 所在地照合</div>
+            </div>
+            <div class="sub-arrow">▸</div>
+          </a>
+          <a href="emaff-importer.html" class="sub-item">
+            <div class="sub-marker">S-04</div>
+            <div class="sub-text">
+              <div class="sub-title">eMAFFインポート</div>
+              <div class="sub-sub">geocode_confidence='high'</div>
+            </div>
+            <div class="sub-arrow">▸</div>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODE 05 (admin only) -->
+    <div class="mode mode-05" onclick="toggleMode(this, event)" id="adminCard" style="display:none">
+      <div class="scan"></div>
+      <div class="mode-glyph">A</div>
+      <div class="mode-head">
+        <div class="mode-num">05</div>
+        <div class="mode-title-block">
+          <div class="mode-jp">設定・管理</div>
+          <div class="mode-en">// Admin Control</div>
+          <div class="mode-desc">ユーザー管理・権限設定・システム設定。管理者専用ゾーン。</div>
+        </div>
+        <div class="mode-meta">
+          <div class="count">02</div>
+          PANELS
+        </div>
+      </div>
+      <div class="mode-submenu">
+        <div class="submenu-rail">
+          <a href="user-management.html" class="sub-item">
+            <div class="sub-marker">A-01</div>
+            <div class="sub-text">
+              <div class="sub-title">ユーザー管理</div>
+              <div class="sub-sub">admin / manager / viewer</div>
+            </div>
+            <div class="sub-arrow">▸</div>
+          </a>
+          <a href="main.html#settings" class="sub-item">
+            <div class="sub-marker">A-02</div>
+            <div class="sub-text">
+              <div class="sub-title">業務番号・表示設定</div>
+              <div class="sub-sub">case_no / business_no toggle</div>
+            </div>
+            <div class="sub-arrow">▸</div>
+          </a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<!-- フッターHUDバー -->
+<div class="hud-footer">
+  <div class="hud-left">
+    <span class="hud-keep">⚡ GRID</span>
+    <span>BUILD <b>v20260514b</b></span>
+    <span>ORG <b>XAMAX</b></span>
+    <span>ENV <b>PROD</b></span>
+  </div>
+  <div class="hud-right">
+    <span><a href="https://solanasystem.github.io/solar-land-mgr/" target="_blank">LIVE_SITE</a></span>
+    <span><a href="https://github.com/solanasystem/solar-land-mgr" target="_blank">REPO</a></span>
+    <span class="hud-keep">© XAMAX</span>
+  </div>
+</div>
+
+<script>
+// ====== 認証ガード（DEBUG: 無効化中）======
+(async function initAuth() {
+  try {
+    // DEBUG MODE: 認証スキップ
+    document.getElementById('userName').textContent = 'DEBUG_USER';
+    document.getElementById('userRole').textContent = 'ADMIN';
+    document.getElementById('userRole').className = 'user-role admin';
+    document.getElementById('opName').textContent = 'DEBUG';
+    document.getElementById('opRole').textContent = 'ADMIN';
+    document.getElementById('sessionId').textContent = 'DEBUG-MODE';
+    document.getElementById('adminCard').style.display = '';
+    return;
+    // ↓ 元のコード（DEBUG中は実行しない）
+    if (typeof window.__auth === 'undefined') {
+      console.warn('common-auth.js 未読み込み');
+      location.href = 'login.html';
+      return;
+    }
+    let tries = 0;
+    while (!window.__auth.profile && tries < 60) {
+      await new Promise(r => setTimeout(r, 50));
+      tries++;
+    }
+    const p = window.__auth.profile;
+    const r = window.__auth.role || 'viewer';
+    if (!p) { location.href = 'login.html'; return; }
+
+    const name = p.display_name || p.email || '—';
+    const roleU = r.toUpperCase();
+    document.getElementById('userName').textContent = name;
+    document.getElementById('userRole').textContent = roleU;
+    document.getElementById('userRole').className = 'user-role ' + r;
+    document.getElementById('opName').textContent = name;
+    document.getElementById('opRole').textContent = roleU;
+    document.getElementById('sessionId').textContent =
+      'GLM-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+
+    if (r === 'admin') {
+      document.getElementById('adminCard').style.display = '';
+    }
+  } catch (e) {
+    console.error('Auth init error', e);
+  }
+})();
+
+// ====== 時計 ======
+function pad(n){ return String(n).padStart(2,'0'); }
+function tickClock() {
+  const d = new Date();
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const date = `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())} ${['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getDay()]}`;
+  const cl = document.getElementById('clock');
+  cl.firstChild.nodeValue = time + ' ';
+  document.getElementById('dateLine').textContent = date;
+}
+tickClock();
+setInterval(tickClock, 1000);
+
+// ====== モードトグル（一度に1つのみ展開） ======
+function toggleMode(card, ev) {
+  // submenuリンククリックは伝播させて遷移
+  if (ev && ev.target.closest('.sub-item')) return;
+  const wasExpanded = card.classList.contains('expanded');
+  document.querySelectorAll('.mode').forEach(c => c.classList.remove('expanded'));
+  if (!wasExpanded) {
+    card.classList.add('expanded');
+    setTimeout(() => {
+      const rect = card.getBoundingClientRect();
+      if (rect.bottom > window.innerHeight - 40) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 200);
+  }
+}
+
+// ====== ログアウト ======
+async function logout() {
+  if (!confirm('ログアウトしますか？')) return;
+  try {
+    if (window.__auth && typeof window.__auth.signOut === 'function') {
+      await window.__auth.signOut();
+    } else {
+      localStorage.clear();
+    }
+  } catch (e) { console.error(e); }
+  location.href = 'login.html';
+}
+
+// 戻る抑止
+history.replaceState(null, '', location.href);
+</script>
+</body>
+</html>
