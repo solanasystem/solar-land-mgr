@@ -1,14 +1,20 @@
 /* ===================================================================
-   common-auth.js - 権限管理共通スニペット v1.0 (2026-05-10)
+   common-auth.js - 権限管理共通スニペット v1.1 (2026-05-14)
    ===================================================================
    配置: 各HTMLの <head> 内、他のスクリプトより先に
          <script src="common-auth.js"></script>
    役割:
      1. 同期チェック: localStorage.loginAt + userProfile の有効性確認
         無効/期限切れなら login.html へ即リダイレクト
-     2. window.__auth グローバル: profile / role / 権限ヘルパー提供
+     2. window.__auth グローバル: profile / role / 権限ヘルパー / Supabaseクライアント
      3. 非同期再検証: ページ完全読込後、Supabase でセッション再確認
+     4. mode-back.js を全ページに自動注入（戻るボタン共通化）
    注: login.html では本スクリプトを読み込まない
+   --------------------------------------------------------------------
+   v1.1 変更点 (2026-05-14):
+     - window.__auth.sb ゲッターで Supabaseクライアントを公開（遅延初期化）
+     - mode-back.js の自動注入を追加
+     - asyncVerify() と logout() がクライアント再利用するようリファクタ
    =================================================================== */
 (function() {
   'use strict';
@@ -81,18 +87,45 @@
     canManageUsers: function() { return profile.role === 'admin'; },
     logout: function() {
       try {
-        if (window.supabase && window.supabase.createClient) {
-          var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-          sb.auth.signOut();
-        }
+        var sb = window.__auth.sb;
+        if (sb && sb.auth) sb.auth.signOut();
       } catch (e) {}
       try {
         localStorage.removeItem('loginAt');
         localStorage.removeItem('userProfile');
       } catch (e) {}
       location.replace('login.html');
-    }
+    },
+    _sbCache: null
   };
+
+  // ------------------------------------------------------------
+  // Supabase クライアント公開（遅延初期化付き）
+  // 初回アクセス時に作成し、以降はキャッシュ済みインスタンスを返す
+  // supabase-js が未ロードの場合は null を返す（呼び出し側がポーリングで待機）
+  // ------------------------------------------------------------
+  Object.defineProperty(window.__auth, 'sb', {
+    get: function() {
+      if (this._sbCache) return this._sbCache;
+      if (typeof window.supabase === 'undefined' || !window.supabase.createClient) return null;
+      this._sbCache = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      return this._sbCache;
+    },
+    configurable: true
+  });
+
+  // ============================================================
+  // 追加機能: mode-back.js を全ページに自動注入
+  // mode-back.js 側で除外ページ判定済み（login/index/mode-select 等）
+  // ============================================================
+  (function injectBackButton() {
+    // 既に挿入済み（手動 <script> タグ）の場合はスキップ
+    if (document.querySelector('script[src$="mode-back.js"]')) return;
+    var s = document.createElement('script');
+    s.src = 'mode-back.js';
+    s.async = true;
+    document.head.appendChild(s);
+  })();
 
   // ============================================================
   // Step 3: 非同期再検証（ページ完全読込後）
@@ -101,13 +134,13 @@
     if (typeof retries === 'undefined') retries = 0;
     if (retries > 30) return; // ~6秒待ってもSDKロードしない場合は諦める
 
-    if (typeof window.supabase === 'undefined' || !window.supabase.createClient) {
+    var sb = window.__auth.sb;
+    if (!sb) {
       setTimeout(function() { asyncVerify(retries + 1); }, 200);
       return;
     }
 
     try {
-      var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
       sb.auth.getSession().then(function(res) {
         var session = res && res.data && res.data.session;
         if (!session) {
