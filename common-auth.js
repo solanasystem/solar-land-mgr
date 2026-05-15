@@ -1,5 +1,5 @@
 /* ===================================================================
-   common-auth.js - 権限管理共通スニペット v1.1 (2026-05-14)
+   common-auth.js - 権限管理共通スニペット v1.2 (2026-05-15)
    ===================================================================
    配置: 各HTMLの <head> 内、他のスクリプトより先に
          <script src="common-auth.js"></script>
@@ -11,6 +11,10 @@
      4. mode-back.js を全ページに自動注入（戻るボタン共通化）
    注: login.html では本スクリプトを読み込まない
    --------------------------------------------------------------------
+   v1.2 変更点 (2026-05-15):
+     - 'external' ロール（社外パートナー）を許可ロールに追加
+     - isExternal() ヘルパー追加
+     - canManageUsers() 等は external を除外する形で維持
    v1.1 変更点 (2026-05-14):
      - window.__auth.sb ゲッターで Supabaseクライアントを公開（遅延初期化）
      - mode-back.js の自動注入を追加
@@ -29,6 +33,9 @@
   var SESSION_MAX_MS    = 7 * 24 * 60 * 60 * 1000; // 7日
   var SUPABASE_URL      = 'https://fygnrjjifoasozbhkxlk.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+
+  // v1.2: 許可ロール一覧（externalを追加）
+  var ALLOWED_ROLES = ['admin', 'manager', 'viewer', 'external'];
 
   // ============================================================
   // ヘルパー
@@ -67,7 +74,7 @@
     throw new Error('GRID LAND MGR: Profile invalid');
   }
 
-  if (profile.role !== 'admin' && profile.role !== 'manager' && profile.role !== 'viewer') {
+  if (ALLOWED_ROLES.indexOf(profile.role) === -1) {
     bailToLogin('Unknown role: ' + profile.role);
     throw new Error('GRID LAND MGR: Unknown role');
   }
@@ -82,7 +89,8 @@
     isAdmin:        function() { return profile.role === 'admin'; },
     isManager:      function() { return profile.role === 'manager'; },
     isViewer:       function() { return profile.role === 'viewer'; },
-    canEdit:        function() { return profile.role !== 'viewer'; },
+    isExternal:     function() { return profile.role === 'external'; },
+    canEdit:        function() { return profile.role === 'admin' || profile.role === 'manager'; },
     canDelete:      function() { return profile.role === 'admin' || profile.role === 'manager'; },
     canManageUsers: function() { return profile.role === 'admin'; },
     logout: function() {

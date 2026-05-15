@@ -1,12 +1,16 @@
 /**
- * settings-helper.js
- * Version: 20260515a
+ * settings-helper.js v2 (2026-05-15)
  *
  * ユーザー別設定（可視性・色）と組織共通ステータス色を
  * 全画面に適用する共通モジュール。
  *
+ * 前提: common-auth.js が先に読み込まれており、
+ *       window.__auth が利用可能であること。
+ *
  * === 使い方 ===
- * 1) Supabase クライアント初期化後に読み込む
+ * 1) Supabase UMD と common-auth.js 読み込み後に本ファイルを読み込む
+ *    <script src="common-auth.js"></script>
+ *    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
  *    <script src="settings-helper.js"></script>
  *
  * 2) 各画面の初期化時に呼ぶ
@@ -17,12 +21,8 @@
  *
  * 4) ステータス表示要素には data-status-key="ok" を付ける
  *
- * 5) data-color-target="background" / "border" / "color"（既定）で
+ * 5) data-color-target="background" / "border" / "color" / "fill"（既定: color）で
  *    色の適用先を指定可能
- *
- * === 例 ===
- * <span data-item-key="landowner_name" data-color-target="color">山田太郎</span>
- * <div data-status-key="ok" data-color-target="background">OK</div>
  */
 (function() {
   'use strict';
@@ -39,86 +39,73 @@
   };
 
   // ────────────────────────────────────────
-  // Supabase クライアント取得（既存パターンに対応）
+  // Supabase クライアント取得（common-auth.js 経由）
   // ────────────────────────────────────────
   function getSupabase() {
-    if (window.supabaseClient && typeof window.supabaseClient.from === 'function') {
-      return window.supabaseClient;
-    }
-    if (window.supabase && typeof window.supabase.from === 'function') {
-      return window.supabase;
-    }
-    if (window._supabase && typeof window._supabase.from === 'function') {
-      return window._supabase;
-    }
+    if (window.__auth && window.__auth.sb) return window.__auth.sb;
     return null;
+  }
+
+  function getProfile() {
+    return window.__auth ? window.__auth.profile : null;
   }
 
   // ────────────────────────────────────────
   // 設定読み込み（DB から）
   // ────────────────────────────────────────
   async function loadSettings() {
-    const sb = getSupabase();
-    if (!sb) {
-      console.warn('[settings-helper] Supabase client not found. Skip loading.');
+    const profile = getProfile();
+    if (!profile) {
+      console.warn('[settings-helper] window.__auth not ready. common-auth.js が先に読み込まれているか確認してください。');
       return false;
     }
 
+    const sb = getSupabase();
+    if (!sb) {
+      console.warn('[settings-helper] Supabase client not ready.');
+      return false;
+    }
+
+    window.UserSettings.userId         = profile.id;
+    window.UserSettings.organizationId = profile.organization_id;
+    window.UserSettings.role           = profile.role;
+
     try {
-      const { data: userResp, error: uErr } = await sb.auth.getUser();
-      if (uErr || !userResp || !userResp.user) {
-        console.warn('[settings-helper] Not authenticated.');
-        return false;
-      }
-      const user = userResp.user;
-      window.UserSettings.userId = user.id;
-
-      // profile
-      const { data: profile, error: pErr } = await sb
-        .from('profiles')
-        .select('organization_id, role')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (pErr) console.warn('[settings-helper] profile error', pErr);
-      if (profile) {
-        window.UserSettings.organizationId = profile.organization_id;
-        window.UserSettings.role           = profile.role;
-      }
-
       // visibility
-      const { data: visRows } = await sb
+      const { data: visRows, error: vErr } = await sb
         .from('user_visibility_settings')
         .select('item_key, is_visible')
-        .eq('user_id', user.id);
+        .eq('user_id', profile.id);
+      if (vErr) console.warn('[settings-helper] visibility error', vErr);
       (visRows || []).forEach(r => {
         window.UserSettings.visibility[r.item_key] = r.is_visible;
       });
 
       // colors
-      const { data: colRows } = await sb
+      const { data: colRows, error: cErr } = await sb
         .from('user_color_settings')
         .select('item_key, color_hex, can_edit_color')
-        .eq('user_id', user.id);
+        .eq('user_id', profile.id);
+      if (cErr) console.warn('[settings-helper] colors error', cErr);
       (colRows || []).forEach(r => {
         window.UserSettings.colors[r.item_key]       = r.color_hex;
         window.UserSettings.canEditColor[r.item_key] = r.can_edit_color;
       });
 
       // org status colors
-      if (window.UserSettings.organizationId) {
-        const { data: stsRows } = await sb
-          .from('org_status_colors')
-          .select('status_key, color_hex')
-          .eq('organization_id', window.UserSettings.organizationId);
-        (stsRows || []).forEach(r => {
-          window.UserSettings.statusColors[r.status_key] = r.color_hex;
-        });
-      }
+      const { data: stsRows, error: sErr } = await sb
+        .from('org_status_colors')
+        .select('status_key, color_hex')
+        .eq('organization_id', profile.organization_id);
+      if (sErr) console.warn('[settings-helper] status error', sErr);
+      (stsRows || []).forEach(r => {
+        window.UserSettings.statusColors[r.status_key] = r.color_hex;
+      });
 
       window.UserSettings.loaded = true;
-      console.log('[settings-helper] Loaded.', {
-        items: Object.keys(window.UserSettings.visibility).length,
-        colors: Object.keys(window.UserSettings.colors).length,
+      console.log('[settings-helper v2] Loaded.', {
+        items:        Object.keys(window.UserSettings.visibility).length,
+        colors:       Object.keys(window.UserSettings.colors).length,
         statusColors: Object.keys(window.UserSettings.statusColors).length,
       });
       return true;
@@ -135,7 +122,7 @@
     if (!window.UserSettings.loaded) return;
     const scope = root || document;
 
-    // item-key 要素
+    // item-key 要素: 可視性 + 色
     scope.querySelectorAll('[data-item-key]').forEach(el => {
       const key = el.getAttribute('data-item-key');
 
@@ -151,19 +138,14 @@
 
       // 色
       const color = window.UserSettings.colors[key];
-      if (color) {
-        applyColor(el, color);
-      }
+      if (color) applyColor(el, color);
     });
 
-    // status-key 要素
+    // status-key 要素: 組織共通ステータス色
     scope.querySelectorAll('[data-status-key]').forEach(el => {
       const key   = el.getAttribute('data-status-key');
       const color = window.UserSettings.statusColors[key];
-      if (color) {
-        // ステータスは既定で背景色（バッジ表示用途を想定）
-        applyColor(el, color, 'background');
-      }
+      if (color) applyColor(el, color, 'background');
     });
   }
 
