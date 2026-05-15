@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>設定 - GRID LAND MGR</title>
+<link rel="stylesheet" href="mobile-responsive.css">
+<style>
+  :root {
+    --primary:      #2563EB;
+    --primary-dark: #1D4ED8;
+    --bg:           #F8FAFC;
+    --card:         #FFFFFF;
+    --border:       #E5E7EB;
+    --text:         #111827;
+    --muted:        #6B7280;
+    --success:      #10B981;
+    --danger:       #EF4444;
+    --warn-bg:      #FEF3C7;
+    --warn-fg:      #92400E;
+    --shadow-sm:    0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md:    0 2px 6px rgba(0,0,0,0.06);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans",
+                 "Yu Gothic UI", Meiryo, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .header {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky; top: 0; z-index: 20;
+    box-shadow: var(--shadow-sm);
+  }
+  .header h1 { margin: 0; font-size: 1.1rem; font-weight: 600; }
+  .header h1 .icon { margin-right: 6px; }
+  .back-btn {
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text);
+  }
+  .back-btn:hover { background: var(--bg); }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 20px; padding-bottom: 100px; }
+
+  .user-selector {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    display: none;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    box-shadow: var(--shadow-sm);
+  }
+  .user-selector.show { display: flex; }
+  .user-selector label { font-weight: 600; }
+  .user-selector select {
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    min-width: 280px;
+    font-size: 0.9rem;
+  }
+  .role-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: white;
+  }
+  .role-admin    { background: #DC2626; }
+  .role-manager  { background: #2563EB; }
+  .role-viewer   { background: #6B7280; }
+  .role-external { background: #F59E0B; }
+
+  .tabs {
+    display: flex;
+    gap: 2px;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .tab {
+    padding: 10px 18px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    font-size: 0.92rem;
+    color: var(--muted);
+    margin-bottom: -2px;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+    font-weight: 600;
+  }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .desc {
+    color: var(--muted);
+    font-size: 0.88rem;
+    margin: 0 0 14px;
+    line-height: 1.6;
+  }
+
+  .category-group {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 14px;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+  .category-header {
+    background: #F3F4F6;
+    padding: 10px 16px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .category-toggle {
+    font-size: 0.8rem;
+    color: var(--primary);
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--primary);
+    padding: 3px 10px;
+    border-radius: 4px;
+  }
+  .category-toggle:hover { background: var(--primary); color: white; }
+
+  .item-row {
+    padding: 9px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .item-row:hover { background: #FAFBFC; }
+  .item-label { flex: 1; min-width: 0; }
+  .item-name { font-size: 0.92rem; }
+  .item-detail { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+  .item-no { color: var(--muted); font-weight: 500; margin-right: 6px; }
+
+  .checkbox-input {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--primary);
+  }
+  .color-input {
+    width: 52px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 2px;
+    background: white;
+  }
+  .color-input:disabled { opacity: 0.35; cursor: not-allowed; }
+  .color-dot {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: middle;
+    border: 1px solid rgba(0,0,0,0.1);
+  }
+
+  .save-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 -2px 6px rgba(0,0,0,0.06);
+    z-index: 15;
+  }
+  .save-info { margin-right: auto; font-size: 0.85rem; color: var(--muted); }
+  .btn {
+    padding: 9px 22px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.92rem;
+    font-weight: 500;
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
+  .btn-secondary {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover:not(:disabled) { background: var(--bg); }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+
+  .toast {
+    position: fixed; bottom: 80px; right: 20px;
+    background: var(--success); color: white;
+    padding: 11px 22px;
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+    transform: translateY(80px); opacity: 0;
+    transition: all 0.25s ease;
+    z-index: 200;
+    font-size: 0.92rem;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.error { background: var(--danger); }
+
+  .loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--muted);
+  }
+  .info-box {
+    background: var(--warn-bg);
+    border: 1px solid #FCD34D;
+    color: var(--warn-fg);
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    font-size: 0.88rem;
+  }
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  .status-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: var(--shadow-sm);
+  }
+  .status-card-label { font-weight: 600; font-size: 0.92rem; }
+  .status-card-key   { font-size: 0.72rem; color: var(--muted); font-family: monospace; }
+  .status-preview {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    color: white;
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin-top: 6px;
+  }
+
+  /* レスポンシブ */
+  @media (max-width: 768px) {
+    .container { padding: 12px; padding-bottom: 90px; }
+    .header { padding: 10px 14px; }
+    .header h1 { font-size: 0.98rem; }
+    .item-row { padding: 8px 12px; }
+    .tab { padding: 9px 12px; font-size: 0.85rem; }
+    .user-selector select { min-width: 200px; }
+    .save-bar { padding: 10px 14px; }
+    .btn { padding: 8px 16px; font-size: 0.88rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span class="icon">⚙️</span>GRID LAND MGR - 設定</h1>
+  <button class="back-btn" onclick="history.back()">← 戻る</button>
+</div>
+
+<div class="container">
+
+  <!-- 編集対象ユーザー選択（admin のみ） -->
+  <div class="user-selector" id="userSelector">
+    <label for="targetUser">編集対象ユーザー：</label>
+    <select id="targetUser" onchange="onTargetUserChange()">
+      <option value="">読込中...</option>
+    </select>
+    <span id="targetUserRole"></span>
+  </div>
+
+  <!-- 一般ユーザー向け情報 -->
+  <div class="info-box" id="generalUserInfo" style="display:none;">
+    🔍 閲覧モード：あなたの設定を表示しています。<br>
+    ・「共有範囲」「色変更権限」は管理者のみが変更できます。<br>
+    ・「色設定」は権限が付与された項目のみ変更可能です。
+  </div>
+
+  <!-- タブ -->
+  <div class="tabs">
+    <button class="tab active" data-tab="visibility" onclick="switchTab('visibility')">📋 共有範囲</button>
+    <button class="tab"        data-tab="colors"     onclick="switchTab('colors')">🎨 色設定</button>
+    <button class="tab admin-only" data-tab="permissions" onclick="switchTab('permissions')" style="display:none;">🔐 色変更権限</button>
+    <button class="tab admin-only" data-tab="status"      onclick="switchTab('status')"      style="display:none;">🏷️ ステータス色（組織共通）</button>
+  </div>
+
+  <!-- タブ1: 共有範囲 -->
+  <div class="tab-content active" id="tab-visibility">
+    <p class="desc">
+      チェックを外した項目は、対象ユーザーには表示されません。<br>
+      社外パートナー（<span class="role-badge role-external">external</span>）には開示する情報を絞ってください。
+    </p>
+    <div id="visibilityList" class="loading">読込中...</div>
+  </div>
+
+  <!-- タブ2: 色設定 -->
+  <div class="tab-content" id="tab-colors">
+    <p class="desc">
+      各項目の表示色をカラーピッカーから選択できます。<br>
+      🔒 マークの項目は色変更権限が無く、編集できません（管理者へ依頼してください）。
+    </p>
+    <div id="colorsList" class="loading">読込中...</div>
+  </div>
+
+  <!-- タブ3: 色変更権限（admin のみ） -->
+  <div class="tab-content" id="tab-permissions">
+    <p class="desc">
+      各項目について、対象ユーザーが<strong>自分で色を変更できるか</strong>を設定します。<br>
+      管理者は権限に関わらず全項目を変更できます。
+    </p>
+    <div id="permissionsList" class="loading">読込中...</div>
+  </div>
+
+  <!-- タブ4: ステータス色（admin のみ） -->
+  <div class="tab-content" id="tab-status">
+    <p class="desc">
+      案件ステータスの色は<strong>組織全員に共通適用</strong>されます。<br>
+      チーム内の認識統一のため、管理者のみが編集できます。
+    </p>
+    <div id="statusList" class="loading">読込中...</div>
+  </div>
+
+</div>
+
+<!-- 保存バー -->
+<div class="save-bar">
+  <div class="save-info" id="saveInfo"></div>
+  <button class="btn btn-danger"    id="btnReset" onclick="resetToDefaults()">デフォルトに戻す</button>
+  <button class="btn btn-primary"   id="btnSave"  onclick="saveAll()">💾 保存</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ============================================ -->
+<!-- Supabase クライアント初期化                    -->
+<!-- ⚠️ SUPABASE_ANON_KEY は既存ファイルからコピー -->
+<!-- ============================================ -->
+<script type="module">
+  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+  const SUPABASE_URL      = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+  const SUPABASE_ANON_KEY = 'PASTE_YOUR_ANON_KEY_HERE'; // ← 既存HTMLからコピーして置換
+
+  window.supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  window.dispatchEvent(new Event('supabaseReady'));
+</script>
+
+<script>
+// ============================================
+// 状態管理
+// ============================================
+let ITEMS           = []; // setting_items_master 全項目
+let currentUserId   = null;
+let currentRole     = null;
+let currentOrgId    = null;
+let targetUserId    = null; // 編集中の対象（admin が他人を編集することがある）
+let targetRole      = null;
+let allUsersList    = [];
+let visibilityData  = {}; // { item_key: bool }
+let colorData       = {}; // { item_key: '#hex' }
+let permissionData  = {}; // { item_key: bool }
+let statusColorData = {}; // { status_key: { color, label, display_order } }
+
+// ============================================
+// 初期化
+// ============================================
+window.addEventListener('supabaseReady', init);
+
+async function init() {
+  const sb = window.supabaseClient;
+  try {
+    const { data: { user }, error } = await sb.auth.getUser();
+    if (error || !user) {
+      alert('ログインが必要です。');
+      location.href = 'index.html';
+      return;
+    }
+    currentUserId = user.id;
+
+    const { data: profile, error: pErr } = await sb
+      .from('profiles')
+      .select('organization_id, role')
+      .eq('id', currentUserId)
+      .maybeSingle();
+    if (pErr || !profile) {
+      showToast('プロフィール取得に失敗しました', true);
+      return;
+    }
+    currentRole  = profile.role;
+    currentOrgId = profile.organization_id;
+    targetUserId = currentUserId;
+    targetRole   = currentRole;
+
+    // 項目マスター
+    const { data: items, error: iErr } = await sb
+      .from('setting_items_master')
+      .select('*')
+      .order('display_order');
+    if (iErr) {
+      showToast('項目マスター取得失敗: ' + iErr.message, true);
+      return;
+    }
+    ITEMS = items || [];
+
+    if (currentRole === 'admin') {
+      // admin専用 UI
+      document.getElementById('userSelector').classList.add('show');
+      document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
+
+      const { data: users } = await sb
+        .from('profiles')
+        .select('id, role')
+        .eq('organization_id', currentOrgId)
+        .order('role');
+      allUsersList = users || [];
+
+      const sel = document.getElementById('targetUser');
+      sel.innerHTML = allUsersList.map(u =>
+        `<option value="${u.id}" ${u.id === currentUserId ? 'selected' : ''}>${u.id.substring(0,8)}… (${u.role})</option>`
+      ).join('');
+    } else {
+      // 一般ユーザー
+      document.getElementById('generalUserInfo').style.display = 'block';
+      document.getElementById('btnReset').style.display = 'none';
+    }
+
+    await loadTargetUserSettings();
+    render();
+    updateSaveInfo();
+  } catch (e) {
+    console.error(e);
+    showToast('初期化失敗: ' + e.message, true);
+  }
+}
+
+// ============================================
+// 対象ユーザーの設定をロード
+// ============================================
+async function loadTargetUserSettings() {
+  const sb = window.supabaseClient;
+
+  // targetRole 更新
+  const u = allUsersList.find(x => x.id === targetUserId);
+  targetRole = u ? u.role : currentRole;
+
+  const roleEl = document.getElementById('targetUserRole');
+  if (targetRole) {
+    roleEl.innerHTML = `<span class="role-badge role-${targetRole}">${targetRole}</span>`;
+  }
+
+  // visibility
+  const { data: vis } = await sb
+    .from('user_visibility_settings')
+    .select('item_key, is_visible')
+    .eq('user_id', targetUserId);
+  visibilityData = {};
+  (vis || []).forEach(v => visibilityData[v.item_key] = v.is_visible);
+
+  // colors + permissions
+  const { data: cols } = await sb
+    .from('user_color_settings')
+    .select('item_key, color_hex, can_edit_color')
+    .eq('user_id', targetUserId);
+  colorData      = {};
+  permissionData = {};
+  (cols || []).forEach(c => {
+    colorData[c.item_key]      = c.color_hex;
+    permissionData[c.item_key] = c.can_edit_color;
+  });
+
+  // status colors（組織共通）
+  const { data: sts } = await sb
+    .from('org_status_colors')
+    .select('status_key, status_label_ja, color_hex, display_order')
+    .eq('organization_id', currentOrgId)
+    .order('display_order');
+  statusColorData = {};
+  (sts || []).forEach(s => statusColorData[s.status_key] = {
+    color: s.color_hex, label: s.status_label_ja, order: s.display_order
+  });
+}
+
+// ============================================
+// レンダリング
+// ============================================
+function render() {
+  renderVisibility();
+  renderColors();
+  renderPermissions();
+  renderStatusColors();
+}
+
+function groupByCategory(items) {
+  const out = {};
+  items.forEach(it => {
+    const k = it.category_large || 'その他';
+    (out[k] = out[k] || []).push(it);
+  });
+  return out;
+}
+
+function renderVisibility() {
+  const isAdmin = currentRole === 'admin';
+  const groups  = groupByCategory(ITEMS);
+  const parts   = [];
+
+  Object.entries(groups).forEach(([cat, items]) => {
+    parts.push(`<div class="category-group">
+      <div class="category-header">
+        <span>${escapeHtml(cat)}（${items.length}項目）</span>
+        ${isAdmin ? `<button class="category-toggle" onclick="toggleCategory('visibility','${escapeHtml(cat)}')">一括切替</button>` : ''}
+      </div>`);
+
+    items.forEach(it => {
+      const checked = visibilityData[it.item_key] !== false;
+      const detail = [it.category_mid, it.category_small].filter(Boolean).join(' / ');
+      parts.push(`<div class="item-row">
+        <div class="item-label">
+          <div class="item-name"><span class="item-no">${it.display_order}.</span>${escapeHtml(it.display_name_ja)}</div>
+          ${detail ? `<div class="item-detail">${escapeHtml(detail)}</div>` : ''}
+        </div>
+        <input type="checkbox" class="checkbox-input"
+               data-item-key="${it.item_key}" data-field="visibility"
+               ${checked ? 'checked' : ''} ${isAdmin ? '' : 'disabled'}>
+      </div>`);
+    });
+    parts.push('</div>');
+  });
+  document.getElementById('visibilityList').innerHTML = parts.join('');
+}
+
+function renderColors() {
+  const isAdmin = currentRole === 'admin';
+  const groups  = groupByCategory(ITEMS);
+  const parts   = [];
+
+  Object.entries(groups).forEach(([cat, items]) => {
+    parts.push(`<div class="category-group">
+      <div class="category-header"><span>${escapeHtml(cat)}（${items.length}項目）</span></div>`);
+
+    items.forEach(it => {
+      const color   = colorData[it.item_key] || '#3B82F6';
+      const canEdit = isAdmin || permissionData[it.item_key] === true;
+      parts.push(`<div class="item-row">
+        <div class="item-label">
+          <div class="item-name">
+            <span class="color-dot" style="background:${color};"></span>
+            <span class="item-no">${it.display_order}.</span>${escapeHtml(it.display_name_ja)}
+          </div>
+          ${!canEdit ? '<div class="item-detail">🔒 色変更権限なし</div>' : ''}
+        </div>
+        <input type="color" class="color-input"
+               data-item-key="${it.item_key}" data-field="color"
+               value="${color}" ${canEdit ? '' : 'disabled'}
+               onchange="onColorChange(this)">
+      </div>`);
+    });
+    parts.push('</div>');
+  });
+  document.getElementById('colorsList').innerHTML = parts.join('');
+}
+
+function renderPermissions() {
+  if (currentRole !== 'admin') return;
+  const groups = groupByCategory(ITEMS);
+  const parts  = [];
+
+  Object.entries(groups).forEach(([cat, items]) => {
+    parts.push(`<div class="category-group">
+      <div class="category-header">
+        <span>${escapeHtml(cat)}（${items.length}項目）</span>
+        <button class="category-toggle" onclick="toggleCategory('permission','${escapeHtml(cat)}')">一括切替</button>
+      </div>`);
+
+    items.forEach(it => {
+      const checked = permissionData[it.item_key] === true;
+      parts.push(`<div class="item-row">
+        <div class="item-label">
+          <div class="item-name"><span class="item-no">${it.display_order}.</span>${escapeHtml(it.display_name_ja)}</div>
+          <div class="item-detail">対象ユーザーが自分で色を変更できる</div>
+        </div>
+        <input type="checkbox" class="checkbox-input"
+               data-item-key="${it.item_key}" data-field="permission"
+               ${checked ? 'checked' : ''}>
+      </div>`);
+    });
+    parts.push('</div>');
+  });
+  document.getElementById('permissionsList').innerHTML = parts.join('');
+}
+
+function renderStatusColors() {
+  if (currentRole !== 'admin') return;
+  const entries = Object.entries(statusColorData)
+    .sort((a,b) => (a[1].order || 0) - (b[1].order || 0));
+
+  const html = `<div class="status-grid">` + entries.map(([key, val]) => `
+    <div class="status-card">
+      <div>
+        <div class="status-card-label">${escapeHtml(val.label)}</div>
+        <div class="status-card-key">${escapeHtml(key)}</div>
+        <div class="status-preview" data-preview="${key}" style="background:${val.color};">${escapeHtml(val.label)}</div>
+      </div>
+      <input type="color" class="color-input"
+             data-status-key="${key}" data-field="status"
+             value="${val.color}" onchange="onStatusColorChange(this)">
+    </div>
+  `).join('') + `</div>`;
+  document.getElementById('statusList').innerHTML = html;
+}
+
+// ============================================
+// イベント
+// ============================================
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  const t = document.querySelector(`.tab[data-tab="${name}"]`);
+  if (t) t.classList.add('active');
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  const c = document.getElementById(`tab-${name}`);
+  if (c) c.classList.add('active');
+}
+
+async function onTargetUserChange() {
+  targetUserId = document.getElementById('targetUser').value;
+  await loadTargetUserSettings();
+  render();
+  updateSaveInfo();
+  showToast('対象ユーザーを切替えました');
+}
+
+function toggleCategory(field, cat) {
+  const items = ITEMS.filter(i => (i.category_large || 'その他') === cat);
+  const inputs = items
+    .map(i => document.querySelector(`input[data-field="${field}"][data-item-key="${i.item_key}"]`))
+    .filter(Boolean);
+  const allChecked = inputs.every(i => i.checked);
+  inputs.forEach(i => i.checked = !allChecked);
+}
+
+function onColorChange(input) {
+  // ライブプレビュー：item-name 直前のドット色を更新
+  const row = input.closest('.item-row');
+  const dot = row && row.querySelector('.color-dot');
+  if (dot) dot.style.background = input.value;
+}
+
+function onStatusColorChange(input) {
+  const card = input.closest('.status-card');
+  const prev = card && card.querySelector('.status-preview');
+  if (prev) prev.style.background = input.value;
+}
+
+function updateSaveInfo() {
+  const tu = (targetUserId === currentUserId) ? '自分' : '対象ユーザー';
+  const info = `編集対象: ${tu}（${targetRole || '?'}）`;
+  document.getElementById('saveInfo').textContent = info;
+}
+
+// ============================================
+// 保存
+// ============================================
+async function saveAll() {
+  const sb = window.supabaseClient;
+  const btn = document.getElementById('btnSave');
+  btn.disabled = true;
+  btn.textContent = '保存中…';
+
+  try {
+    const nowISO = new Date().toISOString();
+
+    // ① 共有範囲（admin のみ）
+    if (currentRole === 'admin') {
+      const rows = Array.from(document.querySelectorAll('input[data-field="visibility"]')).map(input => ({
+        user_id:         targetUserId,
+        organization_id: currentOrgId,
+        item_key:        input.dataset.itemKey,
+        is_visible:      input.checked,
+        updated_at:      nowISO,
+      }));
+      const { error } = await sb
+        .from('user_visibility_settings')
+        .upsert(rows, { onConflict: 'user_id,item_key' });
+      if (error) throw new Error('共有範囲: ' + error.message);
+    }
+
+    // ② 色設定（編集可能なもののみ）
+    const colorInputs = Array.from(document.querySelectorAll('input[data-field="color"]'))
+      .filter(i => !i.disabled);
+    for (const input of colorInputs) {
+      const { error } = await sb
+        .from('user_color_settings')
+        .update({ color_hex: input.value, updated_at: nowISO })
+        .eq('user_id',  targetUserId)
+        .eq('item_key', input.dataset.itemKey);
+      if (error) throw new Error('色設定: ' + error.message);
+    }
+
+    // ③ 色変更権限（admin のみ）
+    if (currentRole === 'admin') {
+      const permInputs = Array.from(document.querySelectorAll('input[data-field="permission"]'));
+      for (const input of permInputs) {
+        const { error } = await sb
+          .from('user_color_settings')
+          .update({ can_edit_color: input.checked, updated_at: nowISO })
+          .eq('user_id',  targetUserId)
+          .eq('item_key', input.dataset.itemKey);
+        if (error) throw new Error('色変更権限: ' + error.message);
+      }
+    }
+
+    // ④ ステータス色（admin のみ）
+    if (currentRole === 'admin') {
+      const stInputs = Array.from(document.querySelectorAll('input[data-field="status"]'));
+      for (const input of stInputs) {
+        const { error } = await sb
+          .from('org_status_colors')
+          .update({ color_hex: input.value, updated_at: nowISO })
+          .eq('organization_id', currentOrgId)
+          .eq('status_key',      input.dataset.statusKey);
+        if (error) throw new Error('ステータス色: ' + error.message);
+      }
+    }
+
+    showToast('✅ 保存しました');
+    await loadTargetUserSettings();
+    render();
+  } catch (e) {
+    console.error(e);
+    showToast('保存失敗: ' + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💾 保存';
+  }
+}
+
+// ============================================
+// リセット（admin のみ）
+// ============================================
+async function resetToDefaults() {
+  if (currentRole !== 'admin') return;
+  if (!confirm(`対象ユーザーの設定をデフォルトに戻します。\n・全54項目 共有OK\n・全項目 色 = #3B82F6\n・全項目 色変更可\n\n実行しますか？`)) return;
+
+  const sb = window.supabaseClient;
+  try {
+    const nowISO = new Date().toISOString();
+
+    await sb.from('user_visibility_settings')
+      .update({ is_visible: true, updated_at: nowISO })
+      .eq('user_id', targetUserId);
+
+    await sb.from('user_color_settings')
+      .update({ color_hex: '#3B82F6', can_edit_color: true, updated_at: nowISO })
+      .eq('user_id', targetUserId);
+
+    await loadTargetUserSettings();
+    render();
+    showToast('✅ デフォルトに戻しました');
+  } catch (e) {
+    showToast('リセット失敗: ' + e.message, true);
+  }
+}
+
+// ============================================
+// ユーティリティ
+// ============================================
+function showToast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.toggle('error', !!isError);
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// グローバル公開
+window.switchTab           = switchTab;
+window.onTargetUserChange  = onTargetUserChange;
+window.toggleCategory      = toggleCategory;
+window.onColorChange       = onColorChange;
+window.onStatusColorChange = onStatusColorChange;
+window.saveAll             = saveAll;
+window.resetToDefaults     = resetToDefaults;
+</script>
+
+</body>
+</html>
