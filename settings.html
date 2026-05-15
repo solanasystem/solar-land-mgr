@@ -116,34 +116,11 @@
     padding: 6px 14px 55px;
   }
 
-  /* ===== ユーザー選択 (admin only) ===== */
-  .user-selector {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 4px 10px;
-    margin-bottom: 4px;
-    display: none;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .user-selector.show { display: flex; }
-  .user-selector label {
-    font-size: 10.5px;
-    font-weight: 600;
-    color: var(--text-2);
-  }
-  .user-selector select {
-    padding: 3px 7px;
-    background: var(--bg-2);
-    color: var(--text-1);
-    border: 1px solid var(--border-soft);
-    border-radius: 3px;
-    min-width: 220px;
-    font-size: 10.5px;
-    font-family: inherit;
-  }
+  /* 旧ユーザー選択UI（廃止） */
+  .user-selector { display: none !important; }
+
+  /* 旧ツールバー（廃止） */
+  .toolbar { display: none !important; }
 
   /* ===== Info Box ===== */
   .info-box {
@@ -161,9 +138,7 @@
   .tabs {
     display: flex;
     gap: 2px;
-    border-bottom: 2px solid var(--border);
-    margin-bottom: 4px;
-    flex-wrap: wrap;
+    flex-shrink: 0;
   }
   .tab {
     padding: 5px 12px;
@@ -173,7 +148,6 @@
     border-bottom: 3px solid transparent;
     cursor: pointer;
     font-size: 11.5px;
-    margin-bottom: -2px;
     font-family: inherit;
   }
   .tab:hover { color: var(--text-1); }
@@ -185,15 +159,46 @@
   .tab-content { display: none; }
   .tab-content.active { display: block; }
 
-  /* 説明文：1画面確保のため極小サイズ */
-  .desc {
-    color: var(--text-3);
-    font-size: 9.5px;
-    margin: 0 0 4px;
-    line-height: 1.3;
-    opacity: 0.7;
+  /* ===== 統合コントロールバー（タブ + ユーザー選択 + フィルタ）===== */
+  .ctrl-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 0;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+    min-height: 32px;
   }
-  .desc strong { color: var(--accent); }
+  .ctrl-user {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .ctrl-user.show { display: inline-flex; }
+  .ctrl-user label {
+    font-size: 10.5px;
+    color: var(--text-2);
+    font-weight: 600;
+  }
+  .ctrl-user select {
+    padding: 3px 7px;
+    background: var(--bg-2);
+    color: var(--text-1);
+    border: 1px solid var(--border-soft);
+    border-radius: 3px;
+    min-width: 180px;
+    font-size: 10.5px;
+    font-family: inherit;
+  }
+  .ctrl-filters {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    flex-wrap: wrap;
+  }
 
   /* ===== Category Group ===== */
   /* ===== 新カードグリッド v6 - 読みやすさ重視 ===== */
@@ -254,7 +259,7 @@
 
   .cards-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 4px;
   }
 
@@ -339,7 +344,25 @@
   /* メタ情報は完全非表示（ツールチップで補完） */
   .card-meta { display: none; }
 
-  /* 色設定タブ用 */
+  /* 色設定タブ用：ピッカー兼プレビュー（コンパクト一体型） */
+  .color-picker-inline {
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--border-soft);
+    border-radius: 3px;
+    cursor: pointer;
+    padding: 0;
+    background: transparent;
+    flex-shrink: 0;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .color-picker-inline::-webkit-color-swatch-wrapper { padding: 0; }
+  .color-picker-inline::-webkit-color-swatch { border: none; border-radius: 2px; }
+  .color-picker-inline::-moz-color-swatch { border: none; border-radius: 2px; }
+  .color-picker-inline:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* 旧スタイル（共有範囲タブ用 color-preview/color-input-miniは保持） */
   .color-preview {
     width: 12px;
     height: 12px;
@@ -509,8 +532,32 @@
   .btn-primary {
     background: linear-gradient(135deg, var(--accent), #0ea5e9);
     color: var(--bg-1);
+    transition: background 0.25s ease, color 0.2s ease, filter 0.15s ease, transform 0.1s ease;
   }
   .btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
+  /* 保存中: イエロー＋パルス */
+  .btn-primary.saving {
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    color: #1a1a1a;
+    opacity: 1;
+    animation: btnPulse 1.2s ease-in-out infinite;
+  }
+  @keyframes btnPulse {
+    0%, 100% { filter: brightness(1); }
+    50%      { filter: brightness(1.25); }
+  }
+  /* 保存完了: グリーン */
+  .btn-primary.saved {
+    background: linear-gradient(135deg, #4ade80, #22c55e);
+    color: #082014;
+    opacity: 1;
+  }
+  /* エラー: レッド */
+  .btn-primary.errored {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    color: #fff;
+    opacity: 1;
+  }
   .btn-secondary {
     background: var(--surface);
     color: var(--text-1);
@@ -617,13 +664,12 @@
 
 <main>
 
-  <!-- 編集対象ユーザー選択（admin のみ） -->
-  <div class="user-selector" id="userSelector">
-    <label for="targetUser">編集対象ユーザー:</label>
-    <select id="targetUser" onchange="onTargetUserChange()">
+  <!-- 旧 user-selector（display:noneで非表示、互換用） -->
+  <div class="user-selector" id="userSelector" style="display:none;">
+    <select id="targetUser" onchange="onTargetUserChange()" style="display:none;">
       <option value="">読込中...</option>
     </select>
-    <span id="targetUserRoleBadge"></span>
+    <span id="targetUserRoleBadge" style="display:none;"></span>
   </div>
 
   <!-- 一般ユーザー向け情報 -->
@@ -633,70 +679,41 @@
     「色設定」は権限が付与された項目のみ変更可能です。
   </div>
 
-  <!-- タブ -->
-  <div class="tabs">
-    <button type="button" class="tab active"        data-tab="visibility"  onclick="switchTab('visibility')">📋 共有範囲</button>
-    <button type="button" class="tab"               data-tab="colors"      onclick="switchTab('colors')">🎨 色設定</button>
-    <button type="button" class="tab admin-only"    data-tab="permissions" onclick="switchTab('permissions')" style="display:none;">🔐 色変更権限</button>
-    <button type="button" class="tab admin-only"    data-tab="status"      onclick="switchTab('status')"      style="display:none;">🏷️ ステータス色（組織共通）</button>
+  <!-- 統合コントロールバー -->
+  <div class="ctrl-bar">
+    <div class="tabs">
+      <button type="button" class="tab active"     data-tab="visibility"  onclick="switchTab('visibility')">📋 共有範囲</button>
+      <button type="button" class="tab"            data-tab="colors"      onclick="switchTab('colors')">🎨 色設定</button>
+      <button type="button" class="tab admin-only" data-tab="permissions" onclick="switchTab('permissions')" style="display:none;">🔐 色変更権限</button>
+      <button type="button" class="tab admin-only" data-tab="status"      onclick="switchTab('status')"      style="display:none;">🏷️ ステータス色</button>
+    </div>
+    <div class="ctrl-user" id="ctrlUser">
+      <label>編集:</label>
+      <select id="ctrlTargetUser" onchange="onCtrlUserChange()"></select>
+      <span id="ctrlUserRoleBadge"></span>
+    </div>
+    <div class="ctrl-filters" id="ctrlFilters">
+      <!-- 動的に生成（タブ別フィルタ）-->
+    </div>
   </div>
 
   <!-- タブ1: 共有範囲 -->
   <div class="tab-content active" id="tab-visibility">
-    <p class="desc">
-      チェックを外した項目は、対象ユーザーには表示されません。
-      社外パートナー（<strong>external</strong>）には開示する情報を絞ってください。
-    </p>
-    <div class="toolbar">
-      <input type="text" class="toolbar-search" id="searchVis" placeholder="🔍 項目名で検索…" oninput="applyFilter('visibility')">
-      <button type="button" class="toolbar-filter active" data-filter="all" onclick="setFilter('visibility','all')">ALL</button>
-      <button type="button" class="toolbar-filter" data-filter="sync" onclick="setFilter('visibility','sync')">🔗 連動のみ</button>
-      <button type="button" class="toolbar-filter" data-filter="standalone" onclick="setFilter('visibility','standalone')">独立のみ</button>
-      <button type="button" class="toolbar-filter" data-filter="checked" onclick="setFilter('visibility','checked')">✓ ON</button>
-      <button type="button" class="toolbar-filter" data-filter="unchecked" onclick="setFilter('visibility','unchecked')">✗ OFF</button>
-      <span class="toolbar-stats" id="statsVis"></span>
-    </div>
     <div id="visibilityList" class="loading">読込中...</div>
   </div>
 
   <!-- タブ2: 色設定 -->
   <div class="tab-content" id="tab-colors">
-    <p class="desc">
-      各項目の表示色をカラーピッカーから選択できます。
-      🔒 マークの項目は色変更権限がなく、編集できません（管理者へ依頼してください）。
-    </p>
-    <div class="toolbar">
-      <input type="text" class="toolbar-search" id="searchCol" placeholder="🔍 項目名で検索…" oninput="applyFilter('colors')">
-      <button type="button" class="toolbar-filter active" data-filter="all" onclick="setFilter('colors','all')">ALL</button>
-      <button type="button" class="toolbar-filter" data-filter="editable" onclick="setFilter('colors','editable')">編集可</button>
-      <button type="button" class="toolbar-filter" data-filter="locked" onclick="setFilter('colors','locked')">🔒 編集不可</button>
-      <span class="toolbar-stats" id="statsCol"></span>
-    </div>
     <div id="colorsList" class="loading">読込中...</div>
   </div>
 
   <!-- タブ3: 色変更権限（admin のみ） -->
   <div class="tab-content" id="tab-permissions">
-    <p class="desc">
-      各項目について、対象ユーザーが<strong>自分で色を変更できるか</strong>を設定します。
-      管理者は権限に関わらず全項目を変更できます。
-    </p>
-    <div class="toolbar">
-      <input type="text" class="toolbar-search" id="searchPerm" placeholder="🔍 項目名で検索…" oninput="applyFilter('permissions')">
-      <button type="button" class="toolbar-filter active" data-filter="all" onclick="setFilter('permissions','all')">ALL</button>
-      <button type="button" class="toolbar-filter" data-filter="checked" onclick="setFilter('permissions','checked')">✓ 編集可</button>
-      <button type="button" class="toolbar-filter" data-filter="unchecked" onclick="setFilter('permissions','unchecked')">✗ 編集不可</button>
-      <span class="toolbar-stats" id="statsPerm"></span>
-    </div>
     <div id="permissionsList" class="loading">読込中...</div>
   </div>
 
   <!-- タブ4: ステータス色（admin のみ） -->
   <div class="tab-content" id="tab-status">
-    <p class="desc">
-      案件ステータスの色は<strong>組織全員に共通適用</strong>されます。
-      チーム内の認識統一のため、管理者のみが編集できます。
-    </p>
     <div id="statusList" class="loading">読込中...</div>
   </div>
 
@@ -817,8 +834,8 @@ async function init() {
     });
 
     if (window.__auth.isAdmin()) {
-      // admin専用 UI
-      document.getElementById('userSelector').classList.add('show');
+      // admin専用 UI: ctrl-bar のユーザー選択を表示
+      document.getElementById('ctrlUser').classList.add('show');
       document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
 
       // 同じ組織内の全ユーザー
@@ -829,11 +846,15 @@ async function init() {
         .order('role');
       allUsersList = users || [];
 
-      const sel = document.getElementById('targetUser');
-      sel.innerHTML = allUsersList.map(u => {
+      const optsHtml = allUsersList.map(u => {
         const label = (u.display_name || u.email || u.id.substring(0,8) + '…') + ' (' + u.role + ')';
         return `<option value="${u.id}" ${u.id === currentUserId ? 'selected' : ''}>${escapeHtml(label)}</option>`;
       }).join('');
+      // 旧hidden select と新ctrl-bar select の両方にセット
+      const oldSel = document.getElementById('targetUser');
+      const newSel = document.getElementById('ctrlTargetUser');
+      if (oldSel) oldSel.innerHTML = optsHtml;
+      if (newSel) newSel.innerHTML = optsHtml;
     } else {
       // 一般ユーザー
       document.getElementById('generalUserInfo').style.display = 'block';
@@ -843,6 +864,7 @@ async function init() {
     await loadTargetUserSettings();
     render();
     updateSaveInfo();
+    renderCtrlFilters('visibility'); // 初期フィルタバー描画
   } catch (e) {
     console.error(e);
     showToast('初期化失敗: ' + e.message, true);
@@ -1024,13 +1046,13 @@ function renderColors() {
                        data-is-editable="${canEdit ? '1' : '0'}"
                        title="${escapeHtml(it.display_name_ja)}">
         <span class="card-no">${String(it.display_order).padStart(2, '0')}</span>
-        <span class="color-preview" style="background:${color};"></span>
-        <span class="card-name">${escapeHtml(it.display_name_ja)}</span>
-        ${!canEdit ? '<span class="card-sync-mark" title="色変更権限なし">🔒</span>' : ''}
-        <input type="color" class="color-input-mini"
+        <input type="color" class="color-picker-inline"
                data-item-key="${it.item_key}" data-field="color"
                value="${color}" ${canEdit ? '' : 'disabled'}
-               onchange="onColorChange(this)">
+               onchange="onColorChange(this)"
+               title="クリックで色を変更">
+        <span class="card-name" style="color:${color};">${escapeHtml(it.display_name_ja)}</span>
+        ${!canEdit ? '<span class="card-sync-mark" title="色変更権限なし">🔒</span>' : ''}
       </div>`);
     });
     parts.push('</div></section>');
@@ -1102,6 +1124,38 @@ function renderStatusColors() {
 // ============================================
 // イベント
 // ============================================
+// タブ別フィルタ定義（ctrl-bar に動的描画）
+const TAB_FILTERS = {
+  visibility:  [
+    { id: 'all',         label: 'ALL' },
+    { id: 'sync',        label: '🔗 連動' },
+    { id: 'standalone',  label: '独立' },
+    { id: 'checked',     label: '✓ ON' },
+    { id: 'unchecked',   label: '✗ OFF' },
+  ],
+  colors:      [
+    { id: 'all',      label: 'ALL' },
+    { id: 'editable', label: '編集可' },
+    { id: 'locked',   label: '🔒 編集不可' },
+  ],
+  permissions: [
+    { id: 'all',       label: 'ALL' },
+    { id: 'checked',   label: '✓ 編集可' },
+    { id: 'unchecked', label: '✗ 編集不可' },
+  ],
+  status:      [], // ステータス色タブはフィルタなし
+};
+
+function renderCtrlFilters(tab) {
+  const bar = document.getElementById('ctrlFilters');
+  if (!bar) return;
+  const filters = TAB_FILTERS[tab] || [];
+  const active = FILTER_STATE[tab] || 'all';
+  bar.innerHTML = filters.map(f =>
+    `<button type="button" class="toolbar-filter ${active === f.id ? 'active' : ''}" data-filter="${f.id}" onclick="setFilter('${tab}','${f.id}')">${f.label}</button>`
+  ).join('') + (filters.length ? `<span class="toolbar-stats" id="ctrlStats"></span>` : '');
+}
+
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   const t = document.querySelector(`.tab[data-tab="${name}"]`);
@@ -1109,19 +1163,29 @@ function switchTab(name) {
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   const c = document.getElementById(`tab-${name}`);
   if (c) c.classList.add('active');
+  renderCtrlFilters(name);
+  applyFilter(name);
 }
 
 async function onTargetUserChange() {
-  targetUserId = document.getElementById('targetUser').value;
+  // 旧targetUser select（hidden）と同期
+  const oldSel = document.getElementById('targetUser');
+  const newSel = document.getElementById('ctrlTargetUser');
+  if (newSel && oldSel) oldSel.value = newSel.value;
+  targetUserId = (newSel && newSel.value) || (oldSel && oldSel.value);
   await loadTargetUserSettings();
   render();
   updateSaveInfo();
   showToast('対象ユーザーを切替えました');
 }
 
+// 互換: ctrl-bar からの呼び出し
+async function onCtrlUserChange() {
+  await onTargetUserChange();
+}
+
 function toggleCategory(field, cat) {
   const items = ITEMS.filter(i => (i.category_large || 'その他') === cat);
-  // 共有範囲タブの場合、従項目は除外して主項目のみ切替（連動で従も追従する）
   const inputs = items
     .map(i => document.querySelector(`input[data-field="${field}"][data-item-key="${i.item_key}"]`))
     .filter(Boolean)
@@ -1129,20 +1193,19 @@ function toggleCategory(field, cat) {
   const allChecked = inputs.every(i => i.checked);
   inputs.forEach(i => {
     i.checked = !allChecked;
-    // 連動処理を発火
     if (field === 'visibility') onVisibilityChange(i);
   });
 }
 
 // ============================================
-// 検索 + フィルタ
+// フィルタ
 // ============================================
-const FILTER_STATE = { visibility: 'all', colors: 'all', permissions: 'all' };
+const FILTER_STATE = { visibility: 'all', colors: 'all', permissions: 'all', status: 'all' };
 
 function setFilter(tab, filterName) {
   FILTER_STATE[tab] = filterName;
-  const tabContent = document.getElementById('tab-' + tab);
-  tabContent.querySelectorAll('.toolbar-filter').forEach(b => {
+  // ctrl-bar 内のフィルタボタン状態を更新
+  document.querySelectorAll('#ctrlFilters .toolbar-filter').forEach(b => {
     b.classList.toggle('active', b.dataset.filter === filterName);
   });
   applyFilter(tab);
@@ -1151,8 +1214,6 @@ function setFilter(tab, filterName) {
 function applyFilter(tab) {
   const tabContent = document.getElementById('tab-' + tab);
   if (!tabContent) return;
-  const searchEl = tabContent.querySelector('.toolbar-search');
-  const search   = (searchEl && searchEl.value || '').trim().toLowerCase();
   const filter   = FILTER_STATE[tab] || 'all';
 
   const cards = tabContent.querySelectorAll('.item-card');
@@ -1161,14 +1222,7 @@ function applyFilter(tab) {
   cards.forEach(card => {
     let match = true;
 
-    // 検索フィルタ
-    if (search) {
-      const searchData = (card.dataset.search || '');
-      if (!searchData.includes(search)) match = false;
-    }
-
-    // タイプフィルタ
-    if (match && filter !== 'all') {
+    if (filter !== 'all') {
       if (tab === 'visibility') {
         const isSync = card.dataset.isSync === '1';
         const isChk  = card.dataset.isChecked === '1';
@@ -1191,25 +1245,31 @@ function applyFilter(tab) {
     if (match) shown++;
   });
 
-  // セクションごとに空かどうか判定
   tabContent.querySelectorAll('.cat-section').forEach(sec => {
     const visible = sec.querySelectorAll('.item-card:not(.filtered-out)').length;
     sec.classList.toggle('empty', visible === 0);
   });
 
-  // 統計表示
-  const statsId = tab === 'visibility' ? 'statsVis' : tab === 'colors' ? 'statsCol' : 'statsPerm';
-  const statsEl = document.getElementById(statsId);
-  if (statsEl) statsEl.textContent = `${shown} / ${total}`;
+  // ctrl-bar 統計
+  const stats = document.getElementById('ctrlStats');
+  if (stats) stats.textContent = `${shown}/${total}`;
 }
 
 function onColorChange(input) {
   const card = input.closest('.item-card');
-  const preview = card && card.querySelector('.color-preview');
-  if (preview) preview.style.background = input.value;
-  // 旧スタイル用
-  const dot = card && card.querySelector('.color-dot');
-  if (dot) dot.style.background = input.value;
+  if (!card) return;
+  const c = input.value;
+  const key = input.dataset.itemKey;
+  // in-memory データを更新（保存処理が読み込む値を一致させる）
+  if (key) colorData[key] = c;
+  // 項目名の文字色を更新（色設定タブのリアルタイムプレビュー）
+  const name = card.querySelector('.card-name');
+  if (name) name.style.color = c;
+  // 旧プレビュー要素（あれば）も更新
+  const preview = card.querySelector('.color-preview');
+  if (preview) preview.style.background = c;
+  const dot = card.querySelector('.color-dot');
+  if (dot) dot.style.background = c;
 }
 
 // 同期グループの主項目が変更されたら、従項目のチェックボックスも追従
@@ -1257,8 +1317,11 @@ function updateSaveInfo() {
 // ============================================
 async function saveAll() {
   const btn = document.getElementById('btnSave');
+  const originalText = '💾 保存';
   btn.disabled = true;
-  btn.textContent = '保存中…';
+  btn.classList.remove('saved', 'errored');
+  btn.classList.add('saving');
+  btn.textContent = '⏳ 保存中…';
 
   try {
     const nowISO = new Date().toISOString();
@@ -1275,66 +1338,90 @@ async function saveAll() {
         if (masterInput && slaveInput) slaveInput.checked = masterInput.checked;
       });
 
-      const rows = Array.from(document.querySelectorAll('input[data-field="visibility"]')).map(input => ({
+      const visRows = Array.from(document.querySelectorAll('input[data-field="visibility"]')).map(input => ({
         user_id:         targetUserId,
         organization_id: currentOrgId,
         item_key:        input.dataset.itemKey,
         is_visible:      input.checked,
         updated_at:      nowISO,
       }));
-      const { error } = await SB
+      const { error: visErr } = await SB
         .from('user_visibility_settings')
-        .upsert(rows, { onConflict: 'user_id,item_key' });
-      if (error) throw new Error('共有範囲: ' + error.message);
+        .upsert(visRows, { onConflict: 'user_id,item_key' });
+      if (visErr) throw new Error('共有範囲: ' + visErr.message);
     }
 
-    // ② 色設定（編集可能なもののみ）
-    const colorInputs = Array.from(document.querySelectorAll('input[data-field="color"]'))
-      .filter(i => !i.disabled);
-    for (const input of colorInputs) {
-      const { error } = await SB
+    // ② 色設定 + ③ 色変更権限 を upsert で同時保存（同じテーブル）
+    // 編集可能な色入力 + 全権限入力を統合し、1行=1アイテムで upsert
+    const colorByKey = {};
+    const permByKey  = {};
+    Array.from(document.querySelectorAll('input[data-field="color"]')).forEach(input => {
+      if (!input.disabled) colorByKey[input.dataset.itemKey] = input.value;
+    });
+    Array.from(document.querySelectorAll('input[data-field="permission"]')).forEach(input => {
+      permByKey[input.dataset.itemKey] = input.checked;
+    });
+
+    // 編集対象になりうるすべての item_key をマージ
+    const allKeys = new Set([...Object.keys(colorByKey), ...Object.keys(permByKey)]);
+    if (allKeys.size > 0) {
+      const colorRows = Array.from(allKeys).map(itemKey => ({
+        user_id:         targetUserId,
+        organization_id: currentOrgId,
+        item_key:        itemKey,
+        color_hex:       colorByKey[itemKey] !== undefined ? colorByKey[itemKey] : (colorData[itemKey] || '#3B82F6'),
+        can_edit_color:  permByKey[itemKey] !== undefined ? permByKey[itemKey]  : (permissionData[itemKey] !== false),
+        updated_at:      nowISO,
+      }));
+      const { error: colorErr } = await SB
         .from('user_color_settings')
-        .update({ color_hex: input.value, updated_at: nowISO })
-        .eq('user_id',  targetUserId)
-        .eq('item_key', input.dataset.itemKey);
-      if (error) throw new Error('色設定: ' + error.message);
-    }
-
-    // ③ 色変更権限（admin のみ）
-    if (window.__auth.isAdmin()) {
-      const permInputs = Array.from(document.querySelectorAll('input[data-field="permission"]'));
-      for (const input of permInputs) {
-        const { error } = await SB
-          .from('user_color_settings')
-          .update({ can_edit_color: input.checked, updated_at: nowISO })
-          .eq('user_id',  targetUserId)
-          .eq('item_key', input.dataset.itemKey);
-        if (error) throw new Error('色変更権限: ' + error.message);
-      }
+        .upsert(colorRows, { onConflict: 'user_id,item_key' });
+      if (colorErr) throw new Error('色設定: ' + colorErr.message);
     }
 
     // ④ ステータス色（admin のみ）
     if (window.__auth.isAdmin()) {
       const stInputs = Array.from(document.querySelectorAll('input[data-field="status"]'));
-      for (const input of stInputs) {
-        const { error } = await SB
+      if (stInputs.length > 0) {
+        const stRows = stInputs.map(input => ({
+          organization_id: currentOrgId,
+          status_key:      input.dataset.statusKey,
+          color_hex:       input.value,
+          updated_at:      nowISO,
+        }));
+        const { error: stErr } = await SB
           .from('org_status_colors')
-          .update({ color_hex: input.value, updated_at: nowISO })
-          .eq('organization_id', currentOrgId)
-          .eq('status_key',      input.dataset.statusKey);
-        if (error) throw new Error('ステータス色: ' + error.message);
+          .upsert(stRows, { onConflict: 'organization_id,status_key' });
+        if (stErr) throw new Error('ステータス色: ' + stErr.message);
       }
     }
 
+    // ----- 保存成功 -----
+    btn.classList.remove('saving');
+    btn.classList.add('saved');
+    btn.textContent = '✓ 保存完了';
     showToast('✅ 保存しました');
     await loadTargetUserSettings();
     render();
+
+    // 2秒後にボタンを元に戻す
+    setTimeout(() => {
+      btn.classList.remove('saved');
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }, 2000);
+
   } catch (e) {
     console.error(e);
+    btn.classList.remove('saving');
+    btn.classList.add('errored');
+    btn.textContent = '✗ エラー';
     showToast('保存失敗: ' + e.message, true);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '💾 保存';
+    setTimeout(() => {
+      btn.classList.remove('errored');
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }, 3000);
   }
 }
 
@@ -1386,6 +1473,7 @@ function escapeHtml(s) {
 // グローバル公開（onclick用）
 window.switchTab           = switchTab;
 window.onTargetUserChange  = onTargetUserChange;
+window.onCtrlUserChange    = onCtrlUserChange;
 window.toggleCategory      = toggleCategory;
 window.onColorChange       = onColorChange;
 window.onVisibilityChange  = onVisibilityChange;
