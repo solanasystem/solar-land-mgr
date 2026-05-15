@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260515b / ハザード「該当なし」確定時に手動メモへ「ナシ」を自動投入（UIなし完全自動・バックグラウンドスキャン＋詳細表示時即時投入） -->
+<!-- BUILD: main v20260515c / ハザード「ナシ」＋都市計画区域 を共にUIなし完全自動化（バックグラウンドスキャン／詳細表示時即時投入を統一） -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -436,7 +436,6 @@
           <option>NON MEET</option><option>NG</option><option>UNKNOWN</option><option>LETTER</option><option>LTR済</option>
         </select>
         <button id="ngBlindBtn" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
-        <button id="batchJudgeBtn" class="btn btn-primary" onclick="openBatchJudgeModal()" style="display:none;background:#a855f7;border-color:#9333ea;font-size:12px;padding:6px 14px;white-space:nowrap;" title="cases.city_planning_zone が NULL かつ lat/lng 登録済みの案件を一括自動判定（admin 限定）">⚖ 都市計画区域 一括判定<span id="batchJudgePendingCount" style="font-size:11px;opacity:.9;margin-left:6px"></span></button>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-primary" onclick="openNewCaseModal()">＋ 新規案件登録</button>
@@ -868,135 +867,6 @@
     </div>
   </div>
 </div>
-<!-- ============================================================
-     都市計画区域 一括判定モーダル (Phase B-2 Step B / 2026-05-10)
-     ============================================================ -->
-<div class="modal-overlay" id="batchJudgeModal">
-  <div class="modal" style="max-width:560px">
-    <div class="modal-header">
-      <div><div class="modal-title">⚖ 都市計画区域 一括判定</div><div class="modal-subtitle">国土交通省 XKT001 API による自動判定（admin 限定）</div></div>
-      <button class="modal-close" onclick="closeModal('batchJudgeModal')">✕</button>
-    </div>
-    <div class="modal-body">
-      <!-- ============================================================
-           ダッシュボード (常時表示) - Phase B-2 Step B+1 / 2026-05-10
-           ============================================================ -->
-      <div id="batchJudgeDashboard" style="margin-bottom:18px;padding:14px 16px;background:rgba(168,85,247,.05);border:1px solid rgba(168,85,247,.2);border-radius:10px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <span style="font-size:13px;font-weight:600;color:#a855f7">📊 都市計画区域 ダッシュボード</span>
-          <span id="bjDashTotal" style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">— 件</span>
-        </div>
-
-        <!-- 進捗バー：判定済 vs 未判定 -->
-        <div style="position:relative;background:rgba(255,255,255,.06);height:26px;border-radius:13px;overflow:hidden;margin-bottom:14px;border:1px solid rgba(255,255,255,.06)">
-          <div id="bjDashProgressBar" style="background:linear-gradient(90deg,#4ade80,#22c55e);height:100%;width:0%;transition:width .4s ease"></div>
-          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:11px;font-weight:600;text-shadow:0 1px 2px rgba(0,0,0,.4)">
-            <span id="bjDashJudgedLabel" style="color:#fff">✓ 判定済 0件</span>
-            <span id="bjDashPendingLabel" style="color:rgba(255,255,255,.85)">⏳ 未判定 0件</span>
-          </div>
-        </div>
-
-        <!-- ドーナツチャート + 内訳テーブル -->
-        <div style="display:grid;grid-template-columns:130px 1fr;gap:14px;align-items:center;background:rgba(255,255,255,.03);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.05)">
-          <div style="position:relative;width:130px;height:130px">
-            <svg id="bjDashDonut" width="130" height="130" viewBox="0 0 42 42" style="display:block"></svg>
-            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none">
-              <div id="bjDashDonutTotal" style="font-size:22px;font-weight:700;color:var(--text);line-height:1">0</div>
-              <div style="font-size:10px;color:var(--text-muted);margin-top:2px">判定済</div>
-            </div>
-          </div>
-          <div id="bjDashLegend" style="font-size:12px;line-height:1.7"></div>
-        </div>
-
-        <!-- GEN/RTL 業務観点 -->
-        <div style="margin-top:12px">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">📋 業務観点：電気事業区分別 販売可否（電気事業法 GEN/RTL分類）</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px">
-            <div style="background:rgba(74,222,128,.08);padding:9px 12px;border-radius:6px;border-left:3px solid #4ade80">
-              <div style="font-size:10px;color:#4ade80;font-weight:600">✅ GEN群 全エリア販売可</div>
-              <div id="bjDashGenCount" style="font-size:18px;font-weight:700;margin-top:2px;color:var(--text)">0 件</div>
-              <div style="font-size:10px;color:var(--text-muted);margin-top:3px;line-height:1.4">発電・蓄電所・送配電事業者</div>
-            </div>
-            <div style="background:rgba(255,82,82,.08);padding:9px 12px;border-radius:6px;border-left:3px solid #ff5252">
-              <div style="font-size:10px;color:#ff5252;font-weight:600">⚠ RTL群 販売不可</div>
-              <div id="bjDashRtlCount" style="font-size:18px;font-weight:700;margin-top:2px;color:var(--text)">0 件</div>
-              <div style="font-size:10px;color:var(--text-muted);margin-top:3px;line-height:1.4">市街化調整区域は小売・アグリゲーター不可</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <!-- ============================================================
-           ダッシュボードここまで
-           ============================================================ -->
-
-      <!-- Phase 1: 確認 -->
-      <div id="batchJudgePhase1">
-        <p style="margin-bottom:14px;color:var(--text);font-size:13px;line-height:1.7">
-          <code style="background:rgba(0,0,0,.3);padding:1px 6px;border-radius:3px;font-family:var(--font-mono);font-size:12px">city_planning_zone</code> が未判定（NULL）かつ <code style="background:rgba(0,0,0,.3);padding:1px 6px;border-radius:3px;font-family:var(--font-mono);font-size:12px">lat/lng</code> が登録済みの案件を、国土交通省 XKT001 API で自動判定します。
-        </p>
-        <div style="background:rgba(255,255,255,0.04);padding:14px 16px;border-radius:8px;margin-bottom:14px;border:1px solid rgba(255,255,255,.06)">
-          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px">
-            <span style="color:var(--text-muted)">⏳ 判定対象（lat/lngあり）</span>
-            <span><strong id="batchJudgeTargetCount" style="color:#a855f7;font-size:18px">—</strong> 件</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;color:var(--text-muted)">
-            <span>✓ 判定済み</span><span id="batchJudgeAlreadyJudged">— 件</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:8px;color:var(--text-muted)">
-            <span>🚫 判定不能（座標なし）</span><span id="batchJudgeNoCoords">— 件</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:12px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);color:var(--text-muted)">
-            <span>所要時間（推定）</span><span id="batchJudgeEstimate">—</span>
-          </div>
-        </div>
-        <div style="background:rgba(251,191,36,0.06);border-left:2px solid #fbbf24;padding:8px 12px;border-radius:0 4px 4px 0;font-size:11px;color:var(--text-muted);line-height:1.6">
-          <strong style="color:#fbbf24">📌 注意</strong>: 判定中はブラウザを閉じないでください。途中停止可能、API失敗案件は PENDING のまま残ります。
-        </div>
-      </div>
-      <!-- Phase 2: 実行中 -->
-      <div id="batchJudgePhase2" style="display:none">
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">処理中...</div>
-        <div style="background:rgba(255,255,255,0.06);height:22px;border-radius:11px;overflow:hidden;margin-bottom:10px">
-          <div id="batchJudgeProgressBar" style="background:linear-gradient(90deg,#a855f7,#ec4899);height:100%;width:0%;transition:width .3s ease"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:14px;color:var(--text-muted)">
-          <span id="batchJudgeProgressText">0 / 0</span>
-          <span id="batchJudgeProgressPct">0%</span>
-        </div>
-        <div style="background:rgba(255,255,255,0.04);padding:8px 12px;border-radius:6px;font-family:var(--font-mono);font-size:12px;margin-bottom:14px;border:1px solid rgba(255,255,255,.06)">
-          現在処理中: <span id="batchJudgeCurrentCase" style="color:#a855f7;font-weight:600">—</span>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:11px">
-          <div style="background:rgba(74,222,128,0.08);padding:8px 10px;border-radius:6px;text-align:center;border:1px solid rgba(74,222,128,.15)">
-            <div style="color:#4ade80;font-weight:700;font-size:18px" id="batchJudgeOk">0</div>
-            <div style="color:var(--text-muted);margin-top:2px">✓ 成功</div>
-          </div>
-          <div style="background:rgba(255,82,82,0.08);padding:8px 10px;border-radius:6px;text-align:center;border:1px solid rgba(255,82,82,.15)">
-            <div style="color:#ff5252;font-weight:700;font-size:18px" id="batchJudgeFailed">0</div>
-            <div style="color:var(--text-muted);margin-top:2px">✗ 失敗</div>
-          </div>
-          <div style="background:rgba(148,163,184,0.08);padding:8px 10px;border-radius:6px;text-align:center;border:1px solid rgba(148,163,184,.15)">
-            <div style="color:var(--text-muted);font-weight:700;font-size:18px" id="batchJudgeSkipped">0</div>
-            <div style="color:var(--text-muted);margin-top:2px">→ スキップ</div>
-          </div>
-        </div>
-      </div>
-      <!-- Phase 3: 結果 -->
-      <div id="batchJudgePhase3" style="display:none">
-        <div style="text-align:center;font-size:40px;margin:8px 0">✅</div>
-        <div style="text-align:center;font-size:16px;margin-bottom:18px;color:var(--text)">一括判定が完了しました</div>
-        <div id="batchJudgeResultSummary" style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 4px;border:1px solid rgba(255,255,255,.06)"></div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" id="batchJudgeCancelBtn" onclick="closeModal('batchJudgeModal')">キャンセル</button>
-      <button class="btn btn-primary" id="batchJudgeStartBtn" onclick="startBatchJudge()" style="background:#a855f7;border-color:#9333ea">⚖ 一括判定を開始</button>
-      <button class="btn" id="batchJudgeAbortBtn" style="display:none;background:rgba(255,82,82,.15);color:#ff5252;border-color:rgba(255,82,82,.3)" onclick="abortBatchJudge()">⏸ 中止</button>
-      <button class="btn btn-primary" id="batchJudgeDoneBtn" style="display:none" onclick="closeModal('batchJudgeModal');refreshAll();">完了</button>
-    </div>
-  </div>
-</div>
-
 
 <div class="modal-overlay" id="editLandModal">
   <div class="modal modal-lg">
@@ -2639,7 +2509,7 @@ async function loadLandDetail(caseId){
   const CPZ_LABELS_DETAIL = {urbanization:'市街化区域',control:'市街化調整区域',control_outer:'市街化調整区域（外周）',non_zoned:'非線引き区域',outside:'都市計画区域外',UNKNOWN:'未確認'};
   const cpzVal = data?.cases?.city_planning_zone || null;
   const cpzText = cpzVal ? (CPZ_LABELS_DETAIL[cpzVal] || cpzVal) : '未判定';
-  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">地目</div><div class="info-value">${data.chimoku||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">都市計画法 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（座標から自動判定）</span></div><div class="info-value">${cpzText}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}</div></div><div class="info-item"><div class="info-label">農地種別 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（農転の可否判断用）</span></div><div class="info-value">${data.nouchi_kubun||'未調査'}</div></div><div class="info-item full"><div class="info-label">🚨 ハザード詳細 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（重ねるハザードマップから自動取得）</span></div><div class="info-value"><div class="hazard-detail-list"><div class="hazard-loading">判定中...</div></div><button class="hazard-overlay-btn" onclick="openOverlayHazardMap()">🗺 重ねるハザードマップで詳細確認</button></div></div><div class="info-item"><div class="info-label">ハザード <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（手動メモ）</span></div><div class="info-value hazard-memo-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
+  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">地目</div><div class="info-value">${data.chimoku||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">都市計画法 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（座標から自動判定）</span></div><div class="info-value cpz-value">${cpzText}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}</div></div><div class="info-item"><div class="info-label">農地種別 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（農転の可否判断用）</span></div><div class="info-value">${data.nouchi_kubun||'未調査'}</div></div><div class="info-item full"><div class="info-label">🚨 ハザード詳細 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（重ねるハザードマップから自動取得）</span></div><div class="info-value"><div class="hazard-detail-list"><div class="hazard-loading">判定中...</div></div><button class="hazard-overlay-btn" onclick="openOverlayHazardMap()">🗺 重ねるハザードマップで詳細確認</button></div></div><div class="info-item"><div class="info-label">ハザード <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（手動メモ）</span></div><div class="info-value hazard-memo-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
   if(data&&data.location){
@@ -4115,15 +3985,14 @@ function toggleCollapse(header){const body=header.nextElementSibling,arrow=heade
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 
 // ============================================================
-// Phase B-2 Step B: 都市計画区域 一括判定 (2026-05-10)
-// 判定ロジックは case-summary.html の _judge* 系を踏襲
-// XKT001 中心+3x3グリッドで境界ケース対策
+// 都市計画区域 判定ロジック (Phase B-2 Step B / 2026-05-10)
+// v20260515c: モーダルUIを廃止しバックグラウンド自動スキャンへ集約。
+// XKT001 API → 中心+3x3グリッド features → point-in-polygon で都市計画区域分類。
+// 判定本体は _batchJudgeOne / _batchFetchXKT001 / _batchClassifyFromFeatures。
 // ============================================================
 const _BATCH_XKT001_API = 'https://reinfolib-proxy.takumi-29b.workers.dev/api/XKT001';
 const _BATCH_TILE_ZOOM  = 11;
 const _BATCH_INTER_DELAY_MS = 200;
-let _batchJudgeAbortFlag = false;
-let _batchJudgePending = [];
 
 function _batchLatLngToTile(lat, lng, zoom) {
   const x = Math.floor((lng + 180) / 360 * Math.pow(2, zoom));
@@ -4219,227 +4088,6 @@ async function _batchJudgeOne(caseRow) {
   return result;
 }
 
-// ダッシュボード描画（メモリ上の集計値から SVG ドーナツ + 凡例 + GEN/RTLパネル を更新）
-const _BJ_ZONE_ORDER = [
-  { k:'urbanization',  label:'🟧 市街化区域',         color:'#FF8C5A' },
-  { k:'control',       label:'🟢 市街化調整区域',     color:'#4CAF50' },
-  { k:'control_outer', label:'🟢 市街化調整区域(外周)', color:'#388E3C' },
-  { k:'non_zoned',     label:'⬜ 非線引き区域',        color:'#90caf9' },
-  { k:'outside',       label:'⬜ 都市計画区域外',      color:'#bdbdbd' }
-];
-function _renderBatchJudgeDashboard(stats) {
-  // stats: { total, judged, pending, zones:{urbanization,control,control_outer,non_zoned,outside} }
-  const total = stats.total || 0;
-  const judged = stats.judged || 0;
-  const pending = stats.pending || 0;
-  const zones = stats.zones || {};
-
-  document.getElementById('bjDashTotal').textContent = '全 ' + total + ' 件';
-
-  // 進捗バー
-  const judgedPct = total > 0 ? (judged / total * 100) : 0;
-  document.getElementById('bjDashProgressBar').style.width = judgedPct + '%';
-  document.getElementById('bjDashJudgedLabel').textContent = '✓ 判定済 ' + judged + '件';
-  document.getElementById('bjDashPendingLabel').textContent = '⏳ 未判定 ' + pending + '件';
-
-  // ドーナツ
-  const judgedTotal = _BJ_ZONE_ORDER.reduce(function(s,o){ return s + (zones[o.k]||0); }, 0);
-  document.getElementById('bjDashDonutTotal').textContent = judgedTotal;
-  const cx = 21, cy = 21, r = 15.9155;
-  let segs = '';
-  if (judgedTotal === 0) {
-    segs = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="transparent" stroke="rgba(255,255,255,.08)" stroke-width="6"/>';
-  } else {
-    let offset = 25;
-    _BJ_ZONE_ORDER.forEach(function(o) {
-      const n = zones[o.k] || 0;
-      if (n === 0) return;
-      const pct = (n / judgedTotal) * 100;
-      segs += '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="transparent" stroke="'+o.color+'" stroke-width="6" stroke-dasharray="'+pct.toFixed(2)+' '+(100-pct).toFixed(2)+'" stroke-dashoffset="'+(-offset+25).toFixed(2)+'" transform="rotate(-90 '+cx+' '+cy+')"/>';
-      offset += pct;
-    });
-  }
-  document.getElementById('bjDashDonut').innerHTML = segs;
-
-  // 凡例
-  let legendHtml = '';
-  _BJ_ZONE_ORDER.forEach(function(o) {
-    const n = zones[o.k] || 0;
-    const pct = judgedTotal > 0 ? Math.round(n / judgedTotal * 100) : 0;
-    legendHtml += '<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0">'
-      + '<span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:11px;height:11px;background:'+o.color+';border-radius:2px"></span>'+o.label+'</span>'
-      + '<span style="font-family:var(--font-mono);color:'+(n>0?'var(--text)':'var(--text-muted)')+';font-size:11px">'+n+'件 '+(n>0?'('+pct+'%)':'')+'</span>'
-      + '</div>';
-  });
-  document.getElementById('bjDashLegend').innerHTML = legendHtml;
-
-  // GEN/RTL パネル
-  // GEN群（発電・蓄電所・送配電）：全エリアで販売可 → 判定済全件
-  // RTL群（小売・アグリゲーター）：市街化調整区域(外周含む)では販売不可
-  const genCount = judgedTotal;
-  const rtlNgCount = (zones.control || 0) + (zones.control_outer || 0);
-  document.getElementById('bjDashGenCount').textContent = genCount + ' 件';
-  document.getElementById('bjDashRtlCount').textContent = rtlNgCount + ' 件';
-}
-
-// 一括判定モーダル制御
-async function openBatchJudgeModal() {
-  if (!window.__auth || !window.__auth.isAdmin()) {
-    showToast('admin 権限が必要です', 'error');
-    return;
-  }
-  const modal = document.getElementById('batchJudgeModal');
-  if (!modal) return;
-  // 対象件数集計（land_info 経由 + cases も別途取得して total を正確に）
-  // 重要: NG案件は全機能で除外（メモリルール準拠）
-  const [casesResp, liResp] = await Promise.all([
-    db.from('cases').select('id, city_planning_zone, status'),
-    db.from('land_info').select('case_id, lat, lng, cases(case_no, display_case_no, city_planning_zone, status)')
-  ]);
-  if (casesResp.error || liResp.error) {
-    showToast('案件一覧の取得失敗: ' + ((casesResp.error||liResp.error).message), 'error');
-    return;
-  }
-  // NG案件をフィルタ（status='NG' を除外）
-  const allCases = (casesResp.data || []).filter(function(c){ return c.status !== 'NG'; });
-  const all      = (liResp.data    || []).filter(function(r){ return r.cases && r.cases.status !== 'NG'; });
-  // ダッシュボード集計
-  const zones = { urbanization:0, control:0, control_outer:0, non_zoned:0, outside:0 };
-  let judgedCount = 0;
-  allCases.forEach(function(c){
-    const z = c.city_planning_zone;
-    if (z) {
-      judgedCount++;
-      if (zones[z] !== undefined) zones[z]++;
-    }
-  });
-  const dashStats = {
-    total:   allCases.length,
-    judged:  judgedCount,
-    pending: allCases.length - judgedCount,
-    zones:   zones
-  };
-  // グローバルに保持（判定中の即時更新で再利用）
-  window._bjDashStats = dashStats;
-  _renderBatchJudgeDashboard(dashStats);
-
-  // 一括判定対象（lat/lng あり かつ city_planning_zone NULL）
-  const pending  = all.filter(function(r){ return r.cases && r.cases.city_planning_zone == null && r.lat != null && r.lng != null; });
-  const judged   = all.filter(function(r){ return r.cases && r.cases.city_planning_zone != null; });
-  const noCoords = all.filter(function(r){ return r.cases && r.cases.city_planning_zone == null && (r.lat == null || r.lng == null); });
-  _batchJudgePending = pending.map(function(r){
-    return {
-      case_id: r.case_id,
-      lat:     r.lat,
-      lng:     r.lng,
-      case_no: (r.cases && (r.cases.display_case_no || r.cases.case_no)) || '(unknown)'
-    };
-  });
-  document.getElementById('batchJudgeTargetCount').textContent  = pending.length;
-  document.getElementById('batchJudgeAlreadyJudged').textContent = judged.length + ' 件';
-  document.getElementById('batchJudgeNoCoords').textContent      = noCoords.length + ' 件';
-  const estSec = Math.max(60, pending.length * (_BATCH_INTER_DELAY_MS / 1000 + 0.8));
-  document.getElementById('batchJudgeEstimate').textContent = '約 ' + Math.ceil(estSec / 60) + ' 分';
-  // Phase 1 リセット
-  document.getElementById('batchJudgePhase1').style.display = '';
-  document.getElementById('batchJudgePhase2').style.display = 'none';
-  document.getElementById('batchJudgePhase3').style.display = 'none';
-  document.getElementById('batchJudgeStartBtn').style.display  = '';
-  document.getElementById('batchJudgeAbortBtn').style.display  = 'none';
-  document.getElementById('batchJudgeDoneBtn').style.display   = 'none';
-  document.getElementById('batchJudgeCancelBtn').style.display = '';
-  document.getElementById('batchJudgeStartBtn').disabled = (pending.length === 0);
-  modal.classList.add('open');
-}
-function abortBatchJudge() { _batchJudgeAbortFlag = true; }
-async function startBatchJudge() {
-  if (!_batchJudgePending || _batchJudgePending.length === 0) { closeModal('batchJudgeModal'); return; }
-  // Phase 2 へ
-  document.getElementById('batchJudgePhase1').style.display = 'none';
-  document.getElementById('batchJudgePhase2').style.display = '';
-  document.getElementById('batchJudgeStartBtn').style.display  = 'none';
-  document.getElementById('batchJudgeCancelBtn').style.display = 'none';
-  document.getElementById('batchJudgeAbortBtn').style.display  = '';
-  const total = _batchJudgePending.length;
-  const counters = { ok: 0, failed: 0, skipped: 0 };
-  const distribution = { urbanization: 0, control: 0, non_zoned: 0, outside: 0 };
-  _batchJudgeAbortFlag = false;
-  for (let i = 0; i < total; i++) {
-    if (_batchJudgeAbortFlag) break;
-    const c = _batchJudgePending[i];
-    document.getElementById('batchJudgeCurrentCase').textContent = c.case_no;
-    document.getElementById('batchJudgeProgressText').textContent = (i + 1) + ' / ' + total;
-    const pct = Math.round((i / total) * 100);
-    document.getElementById('batchJudgeProgressPct').textContent = pct + '%';
-    document.getElementById('batchJudgeProgressBar').style.width = pct + '%';
-    try {
-      const result = await _batchJudgeOne(c);
-      counters.ok++;
-      if (distribution[result.dbValue] !== undefined) distribution[result.dbValue]++;
-      // ダッシュボード即時更新（c-option）
-      if (window._bjDashStats) {
-        window._bjDashStats.judged++;
-        window._bjDashStats.pending = Math.max(0, window._bjDashStats.pending - 1);
-        if (window._bjDashStats.zones[result.dbValue] !== undefined) {
-          window._bjDashStats.zones[result.dbValue]++;
-        }
-        _renderBatchJudgeDashboard(window._bjDashStats);
-      }
-    } catch (e) {
-      counters.failed++;
-      console.warn('[batch-judge] failed for', c.case_no, e);
-    }
-    document.getElementById('batchJudgeOk').textContent     = counters.ok;
-    document.getElementById('batchJudgeFailed').textContent = counters.failed;
-    if (i < total - 1) await new Promise(r => setTimeout(r, _BATCH_INTER_DELAY_MS));
-  }
-  const finalProcessed = counters.ok + counters.failed;
-  counters.skipped = total - finalProcessed;
-  document.getElementById('batchJudgeSkipped').textContent = counters.skipped;
-  const finalPct = Math.round((finalProcessed / total) * 100);
-  document.getElementById('batchJudgeProgressPct').textContent = finalPct + '%';
-  document.getElementById('batchJudgeProgressBar').style.width = finalPct + '%';
-  // Phase 3 へ
-  setTimeout(function() {
-    document.getElementById('batchJudgePhase2').style.display = 'none';
-    document.getElementById('batchJudgePhase3').style.display = '';
-    document.getElementById('batchJudgeAbortBtn').style.display = 'none';
-    document.getElementById('batchJudgeDoneBtn').style.display  = '';
-    document.getElementById('batchJudgeResultSummary').innerHTML =
-      '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
-      '<tr><td style="padding:6px 14px;color:var(--text-muted)">✓ 判定成功</td><td style="padding:6px 14px;text-align:right;font-weight:600;color:#4ade80">' + counters.ok + ' 件</td></tr>' +
-      '<tr><td style="padding:6px 14px;color:var(--text-muted)">✗ 失敗（PENDING維持）</td><td style="padding:6px 14px;text-align:right;color:#ff5252">' + counters.failed + ' 件</td></tr>' +
-      (counters.skipped > 0 ? '<tr><td style="padding:6px 14px;color:var(--text-muted)">→ 中止スキップ</td><td style="padding:6px 14px;text-align:right">' + counters.skipped + ' 件</td></tr>' : '') +
-      '<tr><td colspan="2" style="border-top:1px solid rgba(255,255,255,.08);padding-top:6px"></td></tr>' +
-      '<tr><td style="padding:5px 14px;color:#ff8c5a;font-size:12px">🟧 市街化区域</td><td style="padding:5px 14px;text-align:right;font-size:12px">' + distribution.urbanization + ' 件</td></tr>' +
-      '<tr><td style="padding:5px 14px;color:#4ade80;font-size:12px">🟢 市街化調整区域</td><td style="padding:5px 14px;text-align:right;font-size:12px">' + distribution.control + ' 件</td></tr>' +
-      '<tr><td style="padding:5px 14px;color:var(--text-muted);font-size:12px">⬜ 非線引き区域</td><td style="padding:5px 14px;text-align:right;font-size:12px">' + distribution.non_zoned + ' 件</td></tr>' +
-      '<tr><td style="padding:5px 14px;color:var(--text-muted);font-size:12px">⬜ 都市計画区域外</td><td style="padding:5px 14px;text-align:right;font-size:12px">' + distribution.outside + ' 件</td></tr>' +
-      '</table>';
-  }, 400);
-}
-
-// 起動時：admin かつ pending あり の時のみボタン表示（NG除外）
-async function _initBatchJudgeButton() {
-  if (!window.__auth || !window.__auth.isAdmin()) return;
-  try {
-    const totalResp   = await db.from('cases').select('id', { count: 'exact', head: true }).or('status.is.null,status.neq.NG');
-    const pendingResp = await db.from('cases').select('id', { count: 'exact', head: true }).is('city_planning_zone', null).or('status.is.null,status.neq.NG');
-    if (totalResp.error || pendingResp.error) return;
-    const total   = totalResp.count   || 0;
-    const pending = pendingResp.count || 0;
-    const btn = document.getElementById('batchJudgeBtn');
-    if (!btn) return;
-    if (pending > 0) {
-      btn.style.display = '';
-      const cnt = document.getElementById('batchJudgePendingCount');
-      if (cnt) cnt.textContent = '（全' + total + '件・未判定' + pending + '件）';
-    }
-  } catch (e) { console.warn('[batch-judge-init]', e); }
-}
-if (document.readyState === 'complete') _initBatchJudgeButton();
-else window.addEventListener('load', _initBatchJudgeButton);
-
 // ============================================================
 // v20260515b: ハザード『ナシ』自動投入機能（バックグラウンドスキャン）
 // ボタンUIなし。アプリ起動後、サイレントに以下を実行する：
@@ -4509,6 +4157,86 @@ async function _autoHazardScanIfNeeded(){
     await new Promise(r => setTimeout(r, _AUTO_HAZARD_DELAY_MS));
   }
   console.log('[auto-hazard] バックグラウンドスキャン完了: ナシ投入=' + nashiCount + ', 該当あり=' + hasCount + ', 対応エリア外=' + ooaCount + ', 失敗=' + failCount);
+}
+
+// ============================================================
+// v20260515c: 都市計画区域 自動判定機能（バックグラウンドスキャン）
+// ボタンUIなし。アプリ起動後、サイレントに以下を実行する：
+//  ① cases.city_planning_zone が NULL かつ lat/lng 登録済み・status≠NG の案件を抽出
+//  ② XKT001 API で 1件ずつ判定（中心+3x3グリッドのfeaturesでpoint-in-polygon）
+//  ③ 判定結果（urbanization / control / non_zoned / outside）を cases.city_planning_zone へ投入
+// セッション中に1回のみ実行（重複防止フラグ）。
+// 判定本体は _batchJudgeOne を再利用。
+// 判定後、メモリ上の allCases / allLands を更新し、表示中の詳細画面・一覧を自動再描画。
+// ============================================================
+let _autoCpzScanStarted = false;
+const _AUTO_CPZ_DELAY_MS = 300;  // XKT001 API への負荷を抑える間隔
+
+const _CPZ_LABELS = {
+  urbanization: '市街化区域',
+  control: '市街化調整区域',
+  control_outer: '市街化調整区域（外周）',
+  non_zoned: '非線引き区域',
+  outside: '都市計画区域外'
+};
+
+async function _autoCpzScanIfNeeded(){
+  // セッション内で1回のみ実行
+  if(_autoCpzScanStarted) return;
+  if(!Array.isArray(allLands) || allLands.length === 0) return;
+  // 対象抽出（NG除外、lat/lng あり、city_planning_zone が未判定）
+  const eligible = allLands.filter(l => {
+    if(!l || !l.cases) return false;
+    if(l.cases.status === 'NG') return false;
+    if(l.lat == null || l.lng == null) return false;
+    if(l.cases.city_planning_zone) return false;  // 既に判定済みならスキップ
+    return true;
+  });
+  if(eligible.length === 0) return;
+  _autoCpzScanStarted = true;
+  console.log('[auto-cpz] バックグラウンドスキャン開始: ' + eligible.length + '件');
+  let okCount = 0, failCount = 0;
+  const distribution = { urbanization:0, control:0, control_outer:0, non_zoned:0, outside:0 };
+  for(const land of eligible){
+    try {
+      // 二重チェック：判定直前にメモリ上のCPZがまだNULLか確認
+      if(land.cases && land.cases.city_planning_zone) continue;
+      const result = await _batchJudgeOne({
+        case_id: land.case_id,
+        lat: land.lat,
+        lng: land.lng
+      });
+      if(!result || !result.dbValue){ failCount++; }
+      else {
+        okCount++;
+        if(distribution[result.dbValue] !== undefined) distribution[result.dbValue]++;
+        // メモリ上の land_info キャッシュ更新
+        if(land.cases) land.cases.city_planning_zone = result.dbValue;
+        // メモリ上の cases キャッシュも更新（cases.id === land.case_id）
+        if(Array.isArray(allCases)){
+          const c = allCases.find(x => String(x.id) === String(land.case_id));
+          if(c) c.city_planning_zone = result.dbValue;
+        }
+        // 一覧画面が表示中なら再描画（フィルタ状態維持）
+        const visLd = document.getElementById('landSection')?.style.display !== 'none';
+        if(visLd && typeof filterLandMaster === 'function'){ filterLandMaster(); }
+        const visCase = document.getElementById('casesSection')?.style.display !== 'none';
+        if(visCase && typeof filterCases === 'function'){ filterCases(); }
+        // 案件詳細が開いていて該当案件なら都市計画法欄も更新
+        if(window.currentCaseId && String(window.currentCaseId) === String(land.case_id)){
+          const label = _CPZ_LABELS[result.dbValue] || result.dbValue;
+          document.querySelectorAll('.cpz-value').forEach(el => { el.textContent = label; });
+        }
+      }
+    } catch(e){
+      console.warn('[auto-cpz] error', e);
+      failCount++;
+    }
+    await new Promise(r => setTimeout(r, _AUTO_CPZ_DELAY_MS));
+  }
+  console.log('[auto-cpz] バックグラウンドスキャン完了: 成功=' + okCount + ', 失敗=' + failCount +
+    ', 市街化=' + distribution.urbanization + ', 調整=' + distribution.control +
+    ', 非線引き=' + distribution.non_zoned + ', 区域外=' + distribution.outside);
 }
 
 function openEditModal(){
@@ -4654,6 +4382,11 @@ async function refreshAll(){
   // セッション内で初回のみ実行（_autoHazardScanStarted フラグで制御）
   if(typeof _autoHazardScanIfNeeded==='function'){
     setTimeout(_autoHazardScanIfNeeded, 2000);
+  }
+  // v20260515c: 都市計画区域 自動判定のバックグラウンドスキャンも起動
+  // セッション内で初回のみ実行（_autoCpzScanStarted フラグで制御）
+  if(typeof _autoCpzScanIfNeeded==='function'){
+    setTimeout(_autoCpzScanIfNeeded, 2500);
   }
 }
 async function saveCase(){
