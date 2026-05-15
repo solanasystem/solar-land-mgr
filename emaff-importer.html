@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: emaff-importer v20260509i / 業務番号(display_case_no) 対応 -->
+<!-- BUILD: emaff-importer v20260515d / address+tiban 結合時の地番重複を防止（_joinAddrTiban ヘルパー導入） -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -2300,6 +2300,26 @@ function renderSamplePropsB(){
   }
 }
 
+// v20260515d: Address と Tiban の結合ヘルパー
+// eMAFF データの Address は地番を含む場合と含まない場合があり、無条件に結合すると重複が発生する。
+// 末尾がスペース区切りで tiban、または数字-数字パターンで直接末尾に連結している場合は追加しない。
+function _joinAddrTiban(addr, tiban){
+  var a = (addr==null?'':String(addr)).trim();
+  var t = (tiban==null?'':String(tiban)).trim();
+  if(!t) return a;
+  if(!a) return t;
+  // ① スペース区切りで末尾が tiban と完全一致するケース（例: "...字梨子ノ木 9-76", tiban="9-76"）
+  var tokens = a.split(/\s+/);
+  if(tokens.length > 0 && tokens[tokens.length-1] === t) return a;
+  // ② スペースなしで tiban が直接末尾に連結しているケース（例: "...字梨子ノ木9-76", tiban="9-76"）
+  //   ただし "...字19-76" のように直前が数字（地番の一部）の場合は重複とみなさない
+  if(a.length >= t.length && a.substring(a.length - t.length) === t){
+    var beforeChar = a.length > t.length ? a.charAt(a.length - t.length - 1) : '';
+    if(!/\d/.test(beforeChar)) return a;
+  }
+  return a + ' ' + t;
+}
+
 // farmland_snapshots へ投入
 async function saveToSnapshotsB(){
   if(!modeBStats||modeBStats.target===0){
@@ -2375,7 +2395,7 @@ async function saveToSnapshotsB(){
       snapshot_date:today,
       lat:lat,
       lng:lng,
-      address:addr+(tiban?(' '+tiban):''),
+      address:_joinAddrTiban(addr,tiban),
       city:city,
       intent:'\u58f2\u308a\u305f\u3044',
       area_sqm:area,
@@ -3043,7 +3063,7 @@ async function modeCSubmit(){
     var remarks=remarksParts.join(' / ');
     rows.push({
       feature_id:fid,snapshot_date:today,lat:lat,lng:lng,
-      address:addr+(tiban?(' '+tiban):''),city:city,intent:'\u58f2\u308a\u305f\u3044',
+      address:_joinAddrTiban(addr,tiban),city:city,intent:'\u58f2\u308a\u305f\u3044',
       area_sqm:area,price:uri,
       registered_date:chimoku+'|'+kousa+'||'+chintai,
       remarks:remarks,status:'active',source_type:'emaff_navi'
