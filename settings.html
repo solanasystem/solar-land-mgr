@@ -36,7 +36,26 @@
     color: var(--text-1);
     min-height: 100vh;
     padding-bottom: 100px;
+    position: relative;
   }
+
+  /* ===== CNT背景 (Carbon Nanotube 3D Simulation) ===== */
+  #cnt-bg {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.15;
+    mix-blend-mode: screen;
+    will-change: contents;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #cnt-bg { opacity: 0.08; }
+  }
+  /* メインコンテンツを CNT 背景の上に配置 */
+  .topbar, main, .save-bar { position: relative; z-index: 2; }
 
   /* ===== Topbar (user-management.html と統一) ===== */
   .topbar {
@@ -553,6 +572,33 @@
 </style>
 </head>
 <body>
+
+<!-- ===== CNT (Carbon Nanotube) 3D 構造体背景 ===== -->
+<svg id="cnt-bg" viewBox="-12 -10 24 20" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  <defs>
+    <radialGradient id="atom-near" cx="35%" cy="32%" r="65%">
+      <stop offset="0%"   stop-color="#ffffff"  stop-opacity="1"/>
+      <stop offset="22%"  stop-color="#e0f2fe"  stop-opacity="0.98"/>
+      <stop offset="55%"  stop-color="#7dd3fc"  stop-opacity="0.85"/>
+      <stop offset="85%"  stop-color="#1e3a8a"  stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#0c1733"  stop-opacity="0.2"/>
+    </radialGradient>
+    <radialGradient id="atom-far" cx="35%" cy="32%" r="65%">
+      <stop offset="0%"   stop-color="#cbd5e1"  stop-opacity="0.7"/>
+      <stop offset="40%"  stop-color="#64748b"  stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#1e293b"  stop-opacity="0.1"/>
+    </radialGradient>
+    <linearGradient id="bond-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#dbeafe" stop-opacity="0.9"/>
+      <stop offset="50%"  stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#dbeafe" stop-opacity="0.9"/>
+    </linearGradient>
+    <filter id="atom-glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="0.04"/>
+    </filter>
+  </defs>
+  <g id="cnt-group"></g>
+</svg>
 
 <!-- ===== Topbar ===== -->
 <header class="topbar">
@@ -1348,6 +1394,142 @@ window.saveAll             = saveAll;
 window.resetToDefaults     = resetToDefaults;
 window.setFilter           = setFilter;
 window.applyFilter         = applyFilter;
+</script>
+
+<!-- ===== CNT (Carbon Nanotube) 3D 構造体レンダリング ===== -->
+<script>
+(function initCNTBackground() {
+  const svg = document.getElementById('cnt-bg');
+  const grp = document.getElementById('cnt-group');
+  if (!svg || !grp) return;
+
+  const SQRT3 = Math.sqrt(3);
+  const N_CIRC   = 16;
+  const CIRC     = N_CIRC * SQRT3;
+  const R        = CIRC / (2 * Math.PI);
+  const NUM_ROWS = 2;
+  const Y_OFFSET = -1.25;
+
+  // ---- 原子座標生成（zigzag CNT (16,0) のハニカム展開）----
+  const atoms = [];
+  for (let j = -NUM_ROWS; j <= NUM_ROWS; j++) {
+    for (let i = 0; i < N_CIRC; i++) {
+      const uA = i * SQRT3;
+      const thA = uA / R;
+      atoms.push([R * Math.cos(thA), j * 3 + Y_OFFSET, R * Math.sin(thA)]);
+      atoms.push([R * Math.cos(thA), j * 3 + 1 + Y_OFFSET, R * Math.sin(thA)]);
+      const uC = (i + 0.5) * SQRT3;
+      const thC = uC / R;
+      atoms.push([R * Math.cos(thC), j * 3 + 1.5 + Y_OFFSET, R * Math.sin(thC)]);
+      atoms.push([R * Math.cos(thC), j * 3 + 2.5 + Y_OFFSET, R * Math.sin(thC)]);
+    }
+  }
+
+  // ---- C-C 結合検出 ----
+  const bonds = [];
+  for (let i = 0; i < atoms.length; i++) {
+    for (let j = i + 1; j < atoms.length; j++) {
+      const d = Math.hypot(
+        atoms[i][0] - atoms[j][0],
+        atoms[i][1] - atoms[j][1],
+        atoms[i][2] - atoms[j][2]
+      );
+      if (d > 0.85 && d < 1.15) bonds.push([i, j]);
+    }
+  }
+  console.log(`[CNT-BG] atoms=${atoms.length}, bonds=${bonds.length}`);
+
+  // ---- SVG要素生成（軽量1層レンダリング: コアのみ・フィルター無し）----
+  const ns = 'http://www.w3.org/2000/svg';
+
+  const bondCores = bonds.map(() => {
+    const l = document.createElementNS(ns, 'line');
+    l.setAttribute('stroke', 'url(#bond-grad)');
+    l.setAttribute('stroke-width', '0.04');
+    l.setAttribute('stroke-linecap', 'round');
+    grp.appendChild(l);
+    return l;
+  });
+
+  const atomCores = atoms.map(() => {
+    const c = document.createElementNS(ns, 'circle');
+    c.setAttribute('r', '0.18');
+    c.setAttribute('fill', 'url(#atom-near)');
+    grp.appendChild(c);
+    return c;
+  });
+
+  // ---- アニメーション ----
+  // angY:    円筒中心線まわりの自転（既存）
+  // angRoll: 画面平面内（XY平面）での公転 = 中心線の傾きが時計回りに回転（新規）
+  let angY     = 0.3;
+  let angRoll  = 0;
+  let lastT = performance.now();
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const CAM_DIST = 9.0;
+  const FOCAL    = 6.5;
+
+  function frame(t) {
+    const dt = Math.min((t - lastT) / 1000, 0.1);
+    lastT = t;
+    if (!reduced) {
+      angY    += dt * 0.30;   // 自転をやや速く（滑らかさUP）
+      angRoll += dt * 0.10;   // 公転（時計回り）
+    }
+    const tilt = 0.18;
+    const cosY = Math.cos(angY), sinY = Math.sin(angY);
+    const cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+
+    // 投影：Y軸自転 + 軽いX軸チルト → 透視投影
+    // 公転（画面平面内回転）は SVG g 要素の transform で GPU加速で実装
+    function project(p) {
+      const x = p[0], y = p[1], z = p[2];
+      const x1 = x * cosY + z * sinY;
+      const z1 = -x * sinY + z * cosY;
+      const y2 = y * cosT - z1 * sinT;
+      const z2 = y * sinT + z1 * cosT;
+      const persp = FOCAL / Math.max(2.0, CAM_DIST - z2);
+      return [x1 * persp, y2 * persp, z2];
+    }
+
+    const proj = atoms.map(project);
+
+    // 結合線（属性更新は最小限・toFixed(2)で文字列短縮）
+    for (let k = 0; k < bonds.length; k++) {
+      const a = proj[bonds[k][0]];
+      const b = proj[bonds[k][1]];
+      const ln = bondCores[k];
+      ln.setAttribute('x1', a[0].toFixed(2));
+      ln.setAttribute('y1', a[1].toFixed(2));
+      ln.setAttribute('x2', b[0].toFixed(2));
+      ln.setAttribute('y2', b[1].toFixed(2));
+      const depth = (a[2] + b[2]) * 0.05 + 0.5; // 深度: 0=遠 / 1=近
+      const d = depth < 0 ? 0 : (depth > 1 ? 1 : depth);
+      ln.setAttribute('stroke-opacity', (0.15 + d * 0.55).toFixed(2));
+    }
+
+    // 原子（toFixed(2) + r 計算簡略化）
+    for (let i = 0; i < atoms.length; i++) {
+      const p = proj[i];
+      const c = atomCores[i];
+      c.setAttribute('cx', p[0].toFixed(2));
+      c.setAttribute('cy', p[1].toFixed(2));
+      const depth = p[2] * 0.1 + 0.5;
+      const d = depth < 0 ? 0 : (depth > 1 ? 1 : depth);
+      c.setAttribute('r', (0.08 + d * 0.14).toFixed(2));
+      c.setAttribute('opacity', (0.30 + d * 0.65).toFixed(2));
+    }
+
+    // 公転: SVG g 要素全体を回転（GPU合成で滑らか）
+    // angRoll は radian → degree 変換、時計回り（正の値）
+    const rollDeg = (angRoll * 180 / Math.PI) % 360;
+    grp.setAttribute('transform', 'rotate(' + rollDeg.toFixed(2) + ')');
+
+    if (!reduced) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
 </script>
 
 </body>
