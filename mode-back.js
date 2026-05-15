@@ -1,10 +1,17 @@
 // ============================================================
-// mode-back.js v20260514e
+// mode-back.js v20260515e
 // 各ページに「モード選択へ戻る」フローティングボタンを自動注入
 // 使い方: 各HTMLの <head> または </body> 直前で
 //   <script src="mode-back.js"></script>
 // を読み込むだけ。ボタンは自動生成される。
 // 除外ページ: mode-select.html / index.html / login.html
+// ------------------------------------------------------------
+// v20260515e 変更点 (2026-05-15):
+//   - 全ページの .header に padding-left:110px を強制注入
+//     左上の MODE SELECT ボタン（top:14, left:14, 幅~85px）と
+//     各ページのロゴ・タイトルが重ならないようヘッダー内コンテンツを右にシフト。
+//     これにより main.html / farmland-candidates.html / emaff-importer.html 等の
+//     ヘッダー左マージン暫定対応が不要になる（mode-back.js だけで全ページ対応）。
 // ============================================================
 
 (function () {
@@ -26,6 +33,8 @@
 
   // ====== スタイル注入 ======
   var css = ''
+    // v20260515e: ページヘッダーの左パディングを強制注入し、MODE SELECT ボタンと重ならないようにする
+    + '.header{padding-left:110px !important;}'
     + '#ms-back-btn{'
     + 'position:fixed;top:14px;left:14px;z-index:9999;'
     + 'display:inline-flex;align-items:center;gap:8px;'
@@ -67,6 +76,8 @@
     + '@media (max-width:640px){'
     + '#ms-back-btn{top:8px;left:8px;padding:7px 11px 7px 9px;font-size:10px;}'
     + '#ms-back-btn .sub{display:none;}'
+    // v20260515e: モバイルでは padding-left を 90px に縮小（モバイルの MODE SELECT ボタンが小さいため）
+    + '.header{padding-left:90px !important;}'
     + '}'
     + '@media print{#ms-back-btn{display:none !important;}}'
     + '@media (prefers-reduced-motion:reduce){'
