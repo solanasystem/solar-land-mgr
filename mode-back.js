@@ -1,15 +1,16 @@
 // ============================================================
-// mode-back.js v20260515h
+// mode-back.js v20260515j
 // 各ページに「モード選択へ戻る」フローティングボタンを自動注入
 // ------------------------------------------------------------
+// v20260515j 変更点 (2026-05-15):
+//   - MODE と SELECT を縦2段表示に変更（centered column配置）
+//   - ボタン全体を大幅にコンパクト化（高さ 36px → 28px / 幅 ~155 → ~95px）
+//   - クローバアイコン 24px → 18px
+//   - ヘッダー左padding 175px → 120px に調整
+//   - 配色・グラデは v20260515h のロゴ統一スタイルを継承
 // v20260515h 変更点 (2026-05-15):
 //   - クローバSVGをMODE SELECTボタン内部に統合
-//     ボタンとロゴアイコンが「1つの緑グラデ枠」に完全一体化。
-//   - ページ側の元 .logo > .logo-icon (SVGクローバ) を CSS で非表示化。
-//   - ボタンの縦中心線をヘッダー高さから JS で動的計算（getBoundingClientRect）。
-//     pageごとのヘッダー高さの違い(52/56px)を吸収し、完全に縦中心一致。
-// v20260515g 変更点:
-//   - 配色をサイバーパンク調(黒/シアン) → ロゴと同系統(緑グラデ)に変更
+//   - ボタンの縦中心線をヘッダー高さから JS で動的計算
 // ============================================================
 
 (function () {
@@ -28,8 +29,8 @@
   }
   if (path === '/' || path.endsWith('/solar-land-mgr/') || path.endsWith('/solar-land-mgr')) return;
 
-  // ====== クローバSVG（gradient ID を msb- 接頭辞でリネームしてページ側と衝突回避） ======
-  var CLOVER_SVG = '<svg viewBox="0 0 64 64" width="22" height="22" xmlns="http://www.w3.org/2000/svg">'
+  // ====== クローバSVG ======
+  var CLOVER_SVG = '<svg viewBox="0 0 64 64" width="18" height="18" xmlns="http://www.w3.org/2000/svg">'
     + '<defs>'
     + '<linearGradient id="msb-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient>'
     + '<linearGradient id="msb-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient>'
@@ -48,44 +49,45 @@
 
   // ====== スタイル注入 ======
   var css = ''
-    // v20260515h: ヘッダー左パディング（クローバ統合ボタン幅~155px対応）
-    + '.header{padding-left:175px !important;}'
-    // v20260515h: ページ側の元クローバアイコンを非表示（ボタン内クローバと重複排除）
+    // v20260515j: ヘッダー左パディング 175 → 120
+    + '.header{padding-left:120px !important;}'
+    // ページ側の元クローバアイコンを非表示
     + '.logo > .logo-icon{display:none !important;}'
     + '.logo .logo-icon:has(svg){display:none !important;}'
     + '#ms-back-btn{'
-    + 'position:fixed;left:14px;z-index:9999;'
-    // top は JS で動的計算して上書き（初期値だけ書いておく）
-    + 'top:12px;'
-    + 'display:inline-flex;align-items:center;gap:8px;'
-    + 'height:36px;padding:0 12px 0 10px;'
+    + 'position:fixed;left:10px;z-index:9999;'
+    + 'top:10px;'
+    + 'display:inline-flex;align-items:center;gap:5px;'
+    + 'height:28px;padding:0 9px 0 7px;'
     + 'background:linear-gradient(135deg,#0F7B3E,#064E2A);'
     + 'border:1px solid rgba(34,197,94,0.5);'
-    + 'border-radius:8px;'
+    + 'border-radius:6px;'
     + 'color:#ffffff;text-decoration:none;cursor:pointer;'
     + 'font-family:inherit;'
-    + 'font-size:11px;font-weight:700;letter-spacing:0.08em;'
     + 'line-height:1;white-space:nowrap;'
-    + 'box-shadow:inset 0 1px 2px rgba(255,255,255,0.18),0 2px 6px rgba(0,0,0,0.35);'
+    + 'box-shadow:inset 0 1px 2px rgba(255,255,255,0.18),0 2px 5px rgba(0,0,0,0.35);'
     + 'transition:transform 0.15s ease,box-shadow 0.15s ease,border-color 0.15s ease;'
     + '}'
     + '#ms-back-btn:hover{'
     + 'transform:translateX(-2px);'
     + 'border-color:rgba(134,239,172,0.75);'
-    + 'box-shadow:inset 0 1px 2px rgba(255,255,255,0.22),0 4px 12px rgba(0,0,0,0.45);'
+    + 'box-shadow:inset 0 1px 2px rgba(255,255,255,0.22),0 4px 10px rgba(0,0,0,0.45);'
     + '}'
-    + '#ms-back-btn .arr{color:#86efac;font-size:14px;line-height:1;transition:transform 0.15s;display:inline-block;}'
-    + '#ms-back-btn:hover .arr{transform:translateX(-3px);}'
-    + '#ms-back-btn .ms-clover{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;flex-shrink:0;}'
+    + '#ms-back-btn .arr{color:#86efac;font-size:11px;line-height:1;transition:transform 0.15s;display:inline-block;}'
+    + '#ms-back-btn:hover .arr{transform:translateX(-2px);}'
+    + '#ms-back-btn .ms-clover{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex-shrink:0;}'
     + '#ms-back-btn .ms-clover svg{width:100%;height:100%;display:block;}'
-    + '#ms-back-btn .lbl{color:#ffffff;font-weight:700;}'
-    + '#ms-back-btn .sub{color:#86efac;font-size:9px;font-weight:600;letter-spacing:0.12em;opacity:0.9;}'
-    + '#ms-back-btn .stack{display:inline-flex;flex-direction:row;align-items:baseline;gap:5px;line-height:1;margin-left:2px;}'
+    // 2段表示：column 方向に並べる
+    + '#ms-back-btn .stack{display:inline-flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px;line-height:1;margin-left:1px;}'
+    + '#ms-back-btn .lbl{color:#ffffff;font-weight:700;font-size:9.5px;letter-spacing:0.05em;line-height:1;}'
+    + '#ms-back-btn .sub{color:#86efac;font-size:7px;font-weight:700;letter-spacing:0.18em;opacity:0.92;line-height:1;}'
     + '@media (max-width:640px){'
-    + '#ms-back-btn{left:8px;height:32px;padding:0 10px 0 8px;font-size:10px;gap:6px;}'
-    + '#ms-back-btn .ms-clover{width:22px;height:22px;}'
-    + '#ms-back-btn .sub{display:none;}'
-    + '.header{padding-left:115px !important;}'
+    + '#ms-back-btn{left:7px;height:26px;padding:0 7px 0 5px;gap:4px;}'
+    + '#ms-back-btn .ms-clover{width:16px;height:16px;}'
+    + '#ms-back-btn .arr{font-size:10px;}'
+    + '#ms-back-btn .lbl{font-size:9px;}'
+    + '#ms-back-btn .sub{font-size:6.5px;}'
+    + '.header{padding-left:100px !important;}'
     + '}'
     + '@media print{#ms-back-btn{display:none !important;}}';
 
@@ -112,9 +114,7 @@
       '</span>';
     document.body.appendChild(btn);
 
-    // v20260515h: ヘッダー高さからボタンの top を動的計算（縦中心線を完全一致）
     alignVerticalCenter(btn);
-    // ウィンドウリサイズ時にも追従
     var rafId = null;
     window.addEventListener('resize', function() {
       if (rafId) cancelAnimationFrame(rafId);
@@ -126,11 +126,9 @@
     var header = document.querySelector('header.header, .header, header');
     if (!header) return;
     var headerRect = header.getBoundingClientRect();
-    var btnHeight = btn.offsetHeight || 36;
-    // ヘッダーの上端＋(ヘッダー高さ − ボタン高さ)/2 で完全な縦中央
+    var btnHeight = btn.offsetHeight || 28;
     var topPx = headerRect.top + (headerRect.height - btnHeight) / 2;
-    // ヘッダーが画面外（マイナス）ならスクロール中なので調整
-    if (topPx < 0) topPx = 4;
+    if (topPx < 0) topPx = 3;
     btn.style.top = topPx + 'px';
   }
 
