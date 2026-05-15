@@ -13,9 +13,9 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg-1: #0a1628;
-    --bg-2: #0f2042;
-    --bg-3: #1a3a5c;
+    --bg-1: #06080c;
+    --bg-2: #0a0e16;
+    --bg-3: #0e131e;
     --surface: rgba(255, 255, 255, 0.04);
     --surface-2: rgba(255, 255, 255, 0.06);
     --accent: #00d4ff;
@@ -235,8 +235,8 @@
 
   .cards-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-    gap: 5px;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 4px;
   }
 
   .item-card {
@@ -244,18 +244,18 @@
     background: var(--surface);
     border: 1px solid var(--border-soft);
     border-left: 3px solid transparent;
-    border-radius: 4px;
-    padding: 5px 8px 6px 10px;
+    border-radius: 3px;
+    padding: 5px 8px 5px 10px;
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-height: 54px;
+    align-items: center;
+    gap: 6px;
+    min-height: 30px;
     transition: transform 0.12s ease, background 0.15s ease, box-shadow 0.15s ease;
   }
   .item-card:hover {
     background: var(--surface-2);
     transform: translateY(-1px);
-    box-shadow: 0 3px 8px rgba(0, 212, 255, 0.1);
+    box-shadow: 0 3px 10px rgba(0, 212, 255, 0.12);
   }
 
   .item-card.is-master {
@@ -265,7 +265,7 @@
     border-left-color: rgba(148, 163, 184, 0.5);
     opacity: 0.55;
   }
-  .item-card.is-slave:hover { opacity: 0.85; }
+  .item-card.is-slave:hover { opacity: 0.9; }
   .item-card.is-standalone {
     border-left-color: rgba(0, 212, 255, 0.3);
   }
@@ -278,28 +278,25 @@
     background: rgba(0, 212, 255, 0.04);
   }
 
-  .card-top {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
   .card-no {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
     font-size: 9.5px;
     color: var(--text-2);
     font-weight: 700;
-    background: rgba(0, 212, 255, 0.1);
+    background: rgba(0, 212, 255, 0.12);
     padding: 1px 5px;
     border-radius: 2px;
     letter-spacing: 0.3px;
+    flex-shrink: 0;
   }
   .card-sync-mark {
-    font-size: 11px;
+    font-size: 10.5px;
     line-height: 1;
+    flex-shrink: 0;
   }
   .card-check {
-    width: 15px;
-    height: 15px;
+    width: 14px;
+    height: 14px;
     cursor: pointer;
     accent-color: var(--accent);
     margin-left: auto;
@@ -307,32 +304,23 @@
   }
   .card-check:disabled { cursor: not-allowed; opacity: 0.45; }
 
+  /* 項目名：横並びで1行省略 */
   .card-name {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-1);
-    line-height: 1.25;
-    word-break: break-word;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
-  .card-meta {
-    font-size: 9px;
-    color: var(--text-3);
-    font-family: 'JetBrains Mono', monospace;
-    line-height: 1.3;
+    flex: 1;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #f1f5f9;
+    line-height: 1.2;
     letter-spacing: 0.1px;
-    margin-top: auto;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
   }
-  .card-meta-sync { color: var(--accent-2); }
-  .card-meta-slave { color: var(--text-3); }
-  .card-meta-locked { color: var(--warning); }
 
+  /* メタ情報は完全非表示（ツールチップで補完） */
+  .card-meta { display: none; }
+
+  /* 色設定タブ用 */
   .color-preview {
     width: 12px;
     height: 12px;
@@ -341,14 +329,15 @@
     flex-shrink: 0;
   }
   .color-input-mini {
-    width: 100%;
+    width: 60px;
     height: 18px;
     border: 1px solid var(--border-soft);
     border-radius: 2px;
     cursor: pointer;
     padding: 1px;
     background: var(--bg-1);
-    margin-top: 2px;
+    flex-shrink: 0;
+    margin-left: auto;
   }
   .color-input-mini:disabled { opacity: 0.3; cursor: not-allowed; }
 
@@ -920,18 +909,20 @@ function renderVisibility() {
 
       let stateClass = 'is-standalone';
       let syncMark   = '';
-      let metaText   = '';
+      let tooltip    = '';
       if (isMaster) {
         stateClass = 'is-master';
-        const cnt = ITEMS.filter(x => x.sync_group === it.sync_group).length;
+        const groupItems = ITEMS.filter(x => x.sync_group === it.sync_group)
+          .filter(x => x.item_key !== it.item_key)
+          .map(x => x.display_order + '.' + x.display_name_ja);
         syncMark = '🔗';
-        metaText = `<span class="card-meta card-meta-sync">連動元 · ${cnt}項目</span>`;
+        tooltip = '連動元 · ' + groupItems.length + '項目と連動: ' + groupItems.join(', ');
       } else if (isSlave) {
         stateClass = 'is-slave';
         const masterItem = ITEMS.find(x => x.item_key === SYNC_MASTERS[it.sync_group]);
         const masterLabel = masterItem ? (masterItem.display_order + '. ' + masterItem.display_name_ja) : '?';
         syncMark = '⛓️';
-        metaText = `<span class="card-meta card-meta-slave">⇔ ${escapeHtml(masterLabel)}</span>`;
+        tooltip = masterLabel + ' と連動 (連動元の操作で同期)';
       }
 
       const canOperate = isAdmin && !isSlave;
@@ -942,19 +933,17 @@ function renderVisibility() {
                        data-item-key="${it.item_key}"
                        data-search="${escapeHtml(searchKey)}"
                        data-is-sync="${isSync ? '1' : '0'}"
-                       data-is-checked="${checked ? '1' : '0'}">
-        <div class="card-top">
-          <span class="card-no">${String(it.display_order).padStart(2, '0')}</span>
-          ${syncMark ? `<span class="card-sync-mark">${syncMark}</span>` : ''}
-          <input type="checkbox" class="card-check"
-                 data-item-key="${it.item_key}" data-field="visibility"
-                 data-sync-group="${it.sync_group || ''}"
-                 data-sync-role="${isMaster ? 'master' : (isSlave ? 'slave' : 'none')}"
-                 ${checked ? 'checked' : ''} ${canOperate ? '' : 'disabled'}
-                 onchange="onVisibilityChange(this)">
-        </div>
-        <div class="card-name">${escapeHtml(it.display_name_ja)}</div>
-        ${metaText}
+                       data-is-checked="${checked ? '1' : '0'}"
+                       title="${escapeHtml(tooltip || it.display_name_ja)}">
+        <span class="card-no">${String(it.display_order).padStart(2, '0')}</span>
+        ${syncMark ? `<span class="card-sync-mark">${syncMark}</span>` : ''}
+        <span class="card-name">${escapeHtml(it.display_name_ja)}</span>
+        <input type="checkbox" class="card-check"
+               data-item-key="${it.item_key}" data-field="visibility"
+               data-sync-group="${it.sync_group || ''}"
+               data-sync-role="${isMaster ? 'master' : (isSlave ? 'slave' : 'none')}"
+               ${checked ? 'checked' : ''} ${canOperate ? '' : 'disabled'}
+               onchange="onVisibilityChange(this)">
       </div>`);
     });
     parts.push('</div></section>');
@@ -986,13 +975,12 @@ function renderColors() {
       parts.push(`<div class="item-card is-standalone is-checked"
                        data-item-key="${it.item_key}"
                        data-search="${escapeHtml(searchKey)}"
-                       data-is-editable="${canEdit ? '1' : '0'}">
-        <div class="card-top">
-          <span class="card-no">${String(it.display_order).padStart(2, '0')}</span>
-          <span class="color-preview" style="background:${color};"></span>
-          ${!canEdit ? '<span class="card-sync-mark" title="色変更権限なし">🔒</span>' : ''}
-        </div>
-        <div class="card-name">${escapeHtml(it.display_name_ja)}</div>
+                       data-is-editable="${canEdit ? '1' : '0'}"
+                       title="${escapeHtml(it.display_name_ja)}">
+        <span class="card-no">${String(it.display_order).padStart(2, '0')}</span>
+        <span class="color-preview" style="background:${color};"></span>
+        <span class="card-name">${escapeHtml(it.display_name_ja)}</span>
+        ${!canEdit ? '<span class="card-sync-mark" title="色変更権限なし">🔒</span>' : ''}
         <input type="color" class="color-input-mini"
                data-item-key="${it.item_key}" data-field="color"
                value="${color}" ${canEdit ? '' : 'disabled'}
@@ -1031,15 +1019,13 @@ function renderPermissions() {
       parts.push(`<div class="item-card is-standalone ${checkedClass}"
                        data-item-key="${it.item_key}"
                        data-search="${escapeHtml(searchKey)}"
-                       data-is-checked="${checked ? '1' : '0'}">
-        <div class="card-top">
-          <span class="card-no">${String(it.display_order).padStart(2, '0')}</span>
-          <input type="checkbox" class="card-check"
-                 data-item-key="${it.item_key}" data-field="permission"
-                 ${checked ? 'checked' : ''}>
-        </div>
-        <div class="card-name">${escapeHtml(it.display_name_ja)}</div>
-        <span class="card-meta ${checked ? 'card-meta-sync' : 'card-meta-locked'}">${checked ? '✓ 編集可' : '🔒 編集不可'}</span>
+                       data-is-checked="${checked ? '1' : '0'}"
+                       title="${escapeHtml(it.display_name_ja)}">
+        <span class="card-no">${String(it.display_order).padStart(2, '0')}</span>
+        <span class="card-name">${escapeHtml(it.display_name_ja)}</span>
+        <input type="checkbox" class="card-check"
+               data-item-key="${it.item_key}" data-field="permission"
+               ${checked ? 'checked' : ''}>
       </div>`);
     });
     parts.push('</div></section>');
