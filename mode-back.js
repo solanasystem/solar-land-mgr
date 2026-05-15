@@ -45,7 +45,7 @@
 
   // ====== スタイル注入 ======
   var css = ''
-    + '.header{padding-left:120px !important;}'
+    + '.header, .topbar{padding-left:120px !important;}'
     + '.logo > .logo-icon{display:none !important;}'
     + '.logo .logo-icon:has(svg){display:none !important;}'
     + '#ms-back-btn{'
@@ -80,7 +80,7 @@
     + '#ms-back-btn .arr{font-size:10px;}'
     + '#ms-back-btn .lbl{font-size:9px;}'
     + '#ms-back-btn .sub{font-size:6.5px;}'
-    + '.header{padding-left:100px !important;}'
+    + '.header, .topbar{padding-left:100px !important;}'
     + '}'
     + '@media print{#ms-back-btn{display:none !important;}}';
 
