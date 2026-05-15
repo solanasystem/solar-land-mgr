@@ -215,10 +215,34 @@
   }
   .item-row:first-child { border-top: none; }
   .item-row:hover { background: rgba(255,255,255,0.02); }
+  .item-row.is-slave { opacity: 0.6; background: rgba(148, 163, 184, 0.04); }
+  .item-row.is-slave:hover { background: rgba(148, 163, 184, 0.06); }
   .item-label { flex: 1; min-width: 0; }
   .item-name { font-size: 13px; color: var(--text-1); }
   .item-detail { font-size: 11px; color: var(--text-3); margin-top: 2px; }
   .item-no { color: var(--text-3); margin-right: 6px; font-family: 'JetBrains Mono', monospace; }
+
+  /* 同期グループバッジ */
+  .sync-badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-left: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    vertical-align: middle;
+    letter-spacing: 0.3px;
+  }
+  .sync-badge.master {
+    background: rgba(74, 222, 128, 0.18);
+    color: var(--accent-2);
+    border: 1px solid rgba(74, 222, 128, 0.4);
+  }
+  .sync-badge.slave {
+    background: rgba(148, 163, 184, 0.12);
+    color: var(--text-3);
+    border: 1px solid rgba(148, 163, 184, 0.3);
+  }
 
   .checkbox-input {
     width: 18px;
@@ -503,6 +527,7 @@ let visibilityData = {};
 let colorData      = {};
 let permissionData = {};
 let statusColorData= {};
+let SYNC_MASTERS   = {}; // { sync_group: master_item_key } 各グループの主項目
 
 // ============================================
 // 初期化
@@ -547,6 +572,21 @@ async function init() {
       return;
     }
     ITEMS = items || [];
+
+    // 同期グループの主項目を計算（各グループ内で display_order 最小の項目）
+    SYNC_MASTERS = {};
+    ITEMS.forEach(it => {
+      if (!it.sync_group) return;
+      const cur = SYNC_MASTERS[it.sync_group];
+      if (!cur) {
+        SYNC_MASTERS[it.sync_group] = it.item_key;
+      } else {
+        const curItem = ITEMS.find(x => x.item_key === cur);
+        if (curItem && it.display_order < curItem.display_order) {
+          SYNC_MASTERS[it.sync_group] = it.item_key;
+        }
+      }
+    });
 
     if (window.__auth.isAdmin()) {
       // admin専用 UI
@@ -664,14 +704,37 @@ function renderVisibility() {
     items.forEach(it => {
       const checked = visibilityData[it.item_key] !== false;
       const detail = [it.category_mid, it.category_small].filter(Boolean).join(' / ');
-      parts.push(`<div class="item-row">
+
+      // 同期グループ判定
+      const isSync   = !!it.sync_group;
+      const isMaster = isSync && SYNC_MASTERS[it.sync_group] === it.item_key;
+      const isSlave  = isSync && !isMaster;
+      let syncBadge = '';
+      if (isMaster) {
+        // 連動メンバー数（自分含む）
+        const cnt = ITEMS.filter(x => x.sync_group === it.sync_group).length;
+        syncBadge = ` <span class="sync-badge master">🔗 連動元 (${cnt}項目)</span>`;
+      } else if (isSlave) {
+        const masterKey = SYNC_MASTERS[it.sync_group];
+        const masterItem = ITEMS.find(x => x.item_key === masterKey);
+        const masterLabel = masterItem ? (masterItem.display_order + '.' + masterItem.display_name_ja) : '?';
+        syncBadge = ` <span class="sync-badge slave">⛓️ ${escapeHtml(masterLabel)} と連動</span>`;
+      }
+
+      // 操作可否：admin かつ 従項目でない場合のみ操作可
+      const canOperate = isAdmin && !isSlave;
+
+      parts.push(`<div class="item-row ${isSlave ? 'is-slave' : ''}">
         <div class="item-label">
-          <div class="item-name"><span class="item-no">${it.display_order}.</span>${escapeHtml(it.display_name_ja)}</div>
+          <div class="item-name"><span class="item-no">${it.display_order}.</span>${escapeHtml(it.display_name_ja)}${syncBadge}</div>
           ${detail ? `<div class="item-detail">${escapeHtml(detail)}</div>` : ''}
         </div>
         <input type="checkbox" class="checkbox-input"
                data-item-key="${it.item_key}" data-field="visibility"
-               ${checked ? 'checked' : ''} ${isAdmin ? '' : 'disabled'}>
+               data-sync-group="${it.sync_group || ''}"
+               data-sync-role="${isMaster ? 'master' : (isSlave ? 'slave' : 'none')}"
+               ${checked ? 'checked' : ''} ${canOperate ? '' : 'disabled'}
+               onchange="onVisibilityChange(this)">
       </div>`);
     });
     parts.push('</div>');
@@ -778,17 +841,36 @@ async function onTargetUserChange() {
 
 function toggleCategory(field, cat) {
   const items = ITEMS.filter(i => (i.category_large || 'その他') === cat);
+  // 共有範囲タブの場合、従項目は除外して主項目のみ切替（連動で従も追従する）
   const inputs = items
     .map(i => document.querySelector(`input[data-field="${field}"][data-item-key="${i.item_key}"]`))
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter(inp => !inp.disabled);
   const allChecked = inputs.every(i => i.checked);
-  inputs.forEach(i => i.checked = !allChecked);
+  inputs.forEach(i => {
+    i.checked = !allChecked;
+    // 連動処理を発火
+    if (field === 'visibility') onVisibilityChange(i);
+  });
 }
 
 function onColorChange(input) {
   const row = input.closest('.item-row');
   const dot = row && row.querySelector('.color-dot');
   if (dot) dot.style.background = input.value;
+}
+
+// 同期グループの主項目が変更されたら、従項目のチェックボックスも追従
+function onVisibilityChange(input) {
+  const syncGroup = input.dataset.syncGroup;
+  const syncRole  = input.dataset.syncRole;
+  if (syncGroup && syncRole === 'master') {
+    document.querySelectorAll(
+      `input[data-field="visibility"][data-sync-group="${syncGroup}"][data-sync-role="slave"]`
+    ).forEach(slave => {
+      slave.checked = input.checked;
+    });
+  }
 }
 
 function onStatusColorChange(input) {
@@ -816,6 +898,16 @@ async function saveAll() {
 
     // ① 共有範囲（admin のみ）
     if (window.__auth.isAdmin()) {
+      // 保存前に従項目を主項目と完全同期（連動の整合性保証）
+      ITEMS.forEach(it => {
+        if (!it.sync_group) return;
+        const masterKey = SYNC_MASTERS[it.sync_group];
+        if (it.item_key === masterKey) return;
+        const masterInput = document.querySelector(`input[data-field="visibility"][data-item-key="${masterKey}"]`);
+        const slaveInput  = document.querySelector(`input[data-field="visibility"][data-item-key="${it.item_key}"]`);
+        if (masterInput && slaveInput) slaveInput.checked = masterInput.checked;
+      });
+
       const rows = Array.from(document.querySelectorAll('input[data-field="visibility"]')).map(input => ({
         user_id:         targetUserId,
         organization_id: currentOrgId,
@@ -929,6 +1021,7 @@ window.switchTab           = switchTab;
 window.onTargetUserChange  = onTargetUserChange;
 window.toggleCategory      = toggleCategory;
 window.onColorChange       = onColorChange;
+window.onVisibilityChange  = onVisibilityChange;
 window.onStatusColorChange = onStatusColorChange;
 window.saveAll             = saveAll;
 window.resetToDefaults     = resetToDefaults;
