@@ -1,17 +1,18 @@
 // ============================================================
-// mode-back.js v20260515e
+// mode-back.js v20260515f
 // 各ページに「モード選択へ戻る」フローティングボタンを自動注入
 // 使い方: 各HTMLの <head> または </body> 直前で
 //   <script src="mode-back.js"></script>
 // を読み込むだけ。ボタンは自動生成される。
 // 除外ページ: mode-select.html / index.html / login.html
 // ------------------------------------------------------------
+// v20260515f 変更点 (2026-05-15):
+//   - ボタンを 2行スタック表示 → 1行横並び「◂ MODE SELECT」に変更
+//     ヘッダー他要素（ロゴ・タイトル）と縦中心線を揃え、視覚的一体感を確保。
+//   - ボタン高さを 32px 固定、top:12px でヘッダー高さ56pxの中央線と一致。
+//   - .header の padding-left を 110px → 135px に調整（新ボタン幅対応）。
 // v20260515e 変更点 (2026-05-15):
-//   - 全ページの .header に padding-left:110px を強制注入
-//     左上の MODE SELECT ボタン（top:14, left:14, 幅~85px）と
-//     各ページのロゴ・タイトルが重ならないようヘッダー内コンテンツを右にシフト。
-//     これにより main.html / farmland-candidates.html / emaff-importer.html 等の
-//     ヘッダー左マージン暫定対応が不要になる（mode-back.js だけで全ページ対応）。
+//   - 全ページの .header に padding-left を強制注入（ロゴ重なり回避）
 // ============================================================
 
 (function () {
@@ -33,18 +34,20 @@
 
   // ====== スタイル注入 ======
   var css = ''
-    // v20260515e: ページヘッダーの左パディングを強制注入し、MODE SELECT ボタンと重ならないようにする
-    + '.header{padding-left:110px !important;}'
+    // v20260515f: ヘッダーの左パディングを強制注入（新ボタン幅~120pxに対応して135pxに拡大）
+    + '.header{padding-left:135px !important;}'
     + '#ms-back-btn{'
-    + 'position:fixed;top:14px;left:14px;z-index:9999;'
+    // v20260515f: top:12px + height:32px でヘッダー高さ56pxの縦中心線(28px)と一致
+    + 'position:fixed;top:12px;left:14px;z-index:9999;'
     + 'display:inline-flex;align-items:center;gap:8px;'
-    + 'padding:9px 14px 9px 12px;'
+    + 'height:32px;padding:0 12px;'
     + 'background:linear-gradient(180deg,rgba(7,10,19,0.92),rgba(7,10,19,0.78));'
     + '-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);'
     + 'border:1px solid rgba(0,212,255,0.45);border-radius:6px;'
     + 'color:#eef2ff;text-decoration:none;cursor:pointer;'
     + "font-family:'JetBrains Mono','Share Tech Mono','Courier New',monospace;"
     + 'font-size:11px;font-weight:600;letter-spacing:0.18em;'
+    + 'line-height:1;white-space:nowrap;'
     + 'box-shadow:0 4px 14px rgba(0,0,0,0.5),0 0 0 1px rgba(0,212,255,0.15);'
     + 'transition:all 0.2s cubic-bezier(0.4,0,0.2,1);'
     + 'overflow:hidden;'
@@ -64,19 +67,21 @@
     + '#ms-back-btn .arr{color:#00d4ff;font-size:14px;line-height:1;transition:transform 0.15s;display:inline-block;}'
     + '#ms-back-btn:hover .arr{transform:translateX(-4px);}'
     + '#ms-back-btn .lbl{font-style:italic;text-shadow:0 0 8px rgba(0,212,255,0.3);}'
+    // v20260515f: .sub を block(2行目) → inline(横並び・小フォント)に変更
     + '#ms-back-btn .sub{'
-    + 'font-size:8px;letter-spacing:0.3em;opacity:0.55;'
-    + 'display:block;margin-top:2px;font-style:italic;color:#7dd3fc;'
+    + 'display:inline;font-size:8px;letter-spacing:0.2em;opacity:0.6;'
+    + 'font-style:italic;color:#7dd3fc;'
     + '}'
-    + '#ms-back-btn .stack{display:flex;flex-direction:column;line-height:1.1;}'
+    // v20260515f: .stack を column → row（横並び）
+    + '#ms-back-btn .stack{display:inline-flex;flex-direction:row;align-items:baseline;gap:5px;line-height:1;}'
     + '@keyframes ms-back-flow{'
     + '0%{background-position:-50% 0;}'
     + '100%{background-position:150% 0;}'
     + '}'
     + '@media (max-width:640px){'
-    + '#ms-back-btn{top:8px;left:8px;padding:7px 11px 7px 9px;font-size:10px;}'
+    // v20260515f: モバイルは高さ28px、padding薄め
+    + '#ms-back-btn{top:8px;left:8px;height:28px;padding:0 10px;font-size:10px;gap:6px;}'
     + '#ms-back-btn .sub{display:none;}'
-    // v20260515e: モバイルでは padding-left を 90px に縮小（モバイルの MODE SELECT ボタンが小さいため）
     + '.header{padding-left:90px !important;}'
     + '}'
     + '@media print{#ms-back-btn{display:none !important;}}'
