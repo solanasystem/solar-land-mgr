@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260509q / 電力会社選択ドロップダウンを各マスターのツールバーに統合（縦スペース1行節約） -->
+<!-- BUILD: main v20260515a / ハザード「該当なし」確定時に手動メモへ「ナシ」を自動投入（リアルタイム＋一括バックフィル） -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -437,6 +437,7 @@
         </select>
         <button id="ngBlindBtn" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
         <button id="batchJudgeBtn" class="btn btn-primary" onclick="openBatchJudgeModal()" style="display:none;background:#a855f7;border-color:#9333ea;font-size:12px;padding:6px 14px;white-space:nowrap;" title="cases.city_planning_zone が NULL かつ lat/lng 登録済みの案件を一括自動判定（admin 限定）">⚖ 都市計画区域 一括判定<span id="batchJudgePendingCount" style="font-size:11px;opacity:.9;margin-left:6px"></span></button>
+        <button id="batchHazardBtn" class="btn btn-primary" onclick="openBatchHazardModal()" style="display:none;background:#0891b2;border-color:#0e7490;font-size:12px;padding:6px 14px;white-space:nowrap;" title="ハザード手動メモが空欄かつ lat/lng 登録済みの案件を一括判定し、該当ハザードなしの案件に『ナシ』を自動投入（admin 限定）">🌊 ハザード『ナシ』一括判定<span id="batchHazardPendingCount" style="font-size:11px;opacity:.9;margin-left:6px"></span></button>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-primary" onclick="openNewCaseModal()">＋ 新規案件登録</button>
@@ -996,6 +997,90 @@
     </div>
   </div>
 </div>
+
+<!-- v20260515a: ハザード『ナシ』一括判定モーダル -->
+<div class="modal-overlay" id="batchHazardModal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <div><div class="modal-title">🌊 ハザード『ナシ』一括判定</div><div class="modal-subtitle">hazard-check Worker による該当なし確認＆『ナシ』自動投入（admin 限定）</div></div>
+      <button class="modal-close" onclick="closeModal('batchHazardModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- Phase 1: 確認 -->
+      <div id="batchHazardPhase1">
+        <p style="margin-bottom:14px;color:var(--text);font-size:13px;line-height:1.7">
+          <code style="background:rgba(0,0,0,.3);padding:1px 6px;border-radius:3px;font-family:var(--font-mono);font-size:12px">land_info.hazard</code> が空欄かつ <code style="background:rgba(0,0,0,.3);padding:1px 6px;border-radius:3px;font-family:var(--font-mono);font-size:12px">lat/lng</code> が登録済みの案件を、hazard-check Worker で1件ずつ判定します。<br>
+          <span style="color:#0891b2">該当ハザード「該当なし」と確定した案件のみ</span>、ハザード手動メモに <strong style="color:#22c55e">『ナシ』</strong> を自動投入します。
+        </p>
+        <div style="background:rgba(255,255,255,0.04);padding:14px 16px;border-radius:8px;margin-bottom:14px;border:1px solid rgba(255,255,255,.06)">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px">
+            <span style="color:var(--text-muted)">⏳ 判定対象（空欄＋lat/lngあり）</span>
+            <span><strong id="batchHazardTargetCount" style="color:#0891b2;font-size:18px">—</strong> 件</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;color:var(--text-muted)">
+            <span>✓ 既にメモ入力済み</span><span id="batchHazardAlreadyFilled">— 件</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:8px;color:var(--text-muted)">
+            <span>🚫 判定不能（座標なし）</span><span id="batchHazardNoCoords">— 件</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);color:var(--text-muted)">
+            <span>所要時間（推定）</span><span id="batchHazardEstimate">—</span>
+          </div>
+        </div>
+        <div style="background:rgba(251,191,36,0.06);border-left:2px solid #fbbf24;padding:8px 12px;border-radius:0 4px 4px 0;font-size:11px;color:var(--text-muted);line-height:1.6">
+          <strong style="color:#fbbf24">📌 注意</strong>: 既存メモは保護されます（上書きしません）。ハザード判定対応エリア外（Worker が unknown を返す案件）はスキップされます。判定中はブラウザを閉じないでください。
+        </div>
+      </div>
+      <!-- Phase 2: 実行中 -->
+      <div id="batchHazardPhase2" style="display:none">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">処理中...</div>
+        <div style="background:rgba(255,255,255,0.06);height:22px;border-radius:11px;overflow:hidden;margin-bottom:10px">
+          <div id="batchHazardProgressBar" style="background:linear-gradient(90deg,#0891b2,#06b6d4);height:100%;width:0%;transition:width .3s ease"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:14px;color:var(--text-muted)">
+          <span id="batchHazardProgressText">0 / 0</span>
+          <span id="batchHazardProgressPct">0%</span>
+        </div>
+        <div style="background:rgba(255,255,255,0.04);padding:8px 12px;border-radius:6px;font-family:var(--font-mono);font-size:12px;margin-bottom:14px;border:1px solid rgba(255,255,255,.06)">
+          現在処理中: <span id="batchHazardCurrentCase" style="color:#0891b2;font-weight:600">—</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;margin-bottom:8px">
+          <div style="background:rgba(34,197,94,0.08);padding:8px 10px;border-radius:6px;text-align:center;border:1px solid rgba(34,197,94,.15)">
+            <div style="color:#22c55e;font-weight:700;font-size:18px" id="batchHazardNashi">0</div>
+            <div style="color:var(--text-muted);margin-top:2px">『ナシ』投入</div>
+          </div>
+          <div style="background:rgba(232,93,4,0.08);padding:8px 10px;border-radius:6px;text-align:center;border:1px solid rgba(232,93,4,.15)">
+            <div style="color:#e85d04;font-weight:700;font-size:18px" id="batchHazardHas">0</div>
+            <div style="color:var(--text-muted);margin-top:2px">⚠ 該当あり</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">
+          <div style="background:rgba(148,163,184,0.08);padding:8px 10px;border-radius:6px;text-align:center;border:1px solid rgba(148,163,184,.15)">
+            <div style="color:var(--text-muted);font-weight:700;font-size:18px" id="batchHazardOoa">0</div>
+            <div style="color:var(--text-muted);margin-top:2px">→ 対応エリア外</div>
+          </div>
+          <div style="background:rgba(255,82,82,0.08);padding:8px 10px;border-radius:6px;text-align:center;border:1px solid rgba(255,82,82,.15)">
+            <div style="color:#ff5252;font-weight:700;font-size:18px" id="batchHazardFailed">0</div>
+            <div style="color:var(--text-muted);margin-top:2px">✗ 失敗</div>
+          </div>
+        </div>
+      </div>
+      <!-- Phase 3: 結果 -->
+      <div id="batchHazardPhase3" style="display:none">
+        <div style="text-align:center;font-size:40px;margin:8px 0">✅</div>
+        <div style="text-align:center;font-size:16px;margin-bottom:18px;color:var(--text)">ハザード『ナシ』一括判定が完了しました</div>
+        <div id="batchHazardResultSummary" style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 4px;border:1px solid rgba(255,255,255,.06)"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="batchHazardCancelBtn" onclick="closeModal('batchHazardModal')">キャンセル</button>
+      <button class="btn btn-primary" id="batchHazardStartBtn" onclick="startBatchHazard()" style="background:#0891b2;border-color:#0e7490">🌊 一括判定を開始</button>
+      <button class="btn" id="batchHazardAbortBtn" style="display:none;background:rgba(255,82,82,.15);color:#ff5252;border-color:rgba(255,82,82,.3)" onclick="abortBatchHazard()">⏸ 中止</button>
+      <button class="btn btn-primary" id="batchHazardDoneBtn" style="display:none" onclick="closeModal('batchHazardModal');refreshAll();">完了</button>
+    </div>
+  </div>
+</div>
+
 
 <div class="modal-overlay" id="editLandModal">
   <div class="modal modal-lg">
@@ -2577,6 +2662,41 @@ function _renderHazardResults(workerResp){
   return parts.join('');
 }
 
+// v20260515a: 「該当ハザードはありません」確定時、手動メモが空欄なら land_info.hazard='ナシ' を自動投入
+// 防衛条件をすべて満たした場合のみ DB 更新する（既存メモ保護・対応エリア外スキップ・NG除外）
+async function _autoFillHazardNashi(caseId, landData, workerResp){
+  try {
+    if(!caseId || !landData) return;
+    // Worker 応答が正常かつ「該当なし」確定であること
+    if(!workerResp || workerResp._workerError) return;
+    const pref = workerResp.prefecture;
+    if(!pref || pref === 'unknown') return;
+    const results = workerResp.results || [];
+    if(results.length !== 0) return;
+    // 既存メモがある場合は上書きしない
+    const cur = landData.hazard;
+    if(cur && String(cur).trim() !== '' && String(cur).trim() !== '—') return;
+    // 既に「ナシ」なら重複更新しない
+    if(String(cur || '').trim() === 'ナシ') return;
+    // NG 案件は除外（鉄則）
+    if(landData.cases && landData.cases.status === 'NG') return;
+    // DB 更新
+    const { error } = await db.from('land_info').update({ hazard: 'ナシ' }).eq('case_id', caseId);
+    if(error){ console.warn('[hazard-nashi] DB更新失敗:', error); return; }
+    // ローカルデータ更新
+    landData.hazard = 'ナシ';
+    // 詳細画面の手動メモ欄を更新
+    document.querySelectorAll('.hazard-memo-value').forEach(el=>{ el.textContent = 'ナシ'; });
+    // 一覧キャッシュも更新（再表示時の整合性確保）
+    if(window.allLands && Array.isArray(window.allLands)){
+      const target = window.allLands.find(l => l.case_id === caseId);
+      if(target) target.hazard = 'ナシ';
+    }
+  } catch(e){
+    console.warn('[hazard-nashi] error:', e);
+  }
+}
+
 function openOverlayHazardMap(){
   const lat = window._currentHazardLat;
   const lng = window._currentHazardLng;
@@ -2603,7 +2723,7 @@ async function loadLandDetail(caseId){
   const CPZ_LABELS_DETAIL = {urbanization:'市街化区域',control:'市街化調整区域',control_outer:'市街化調整区域（外周）',non_zoned:'非線引き区域',outside:'都市計画区域外',UNKNOWN:'未確認'};
   const cpzVal = data?.cases?.city_planning_zone || null;
   const cpzText = cpzVal ? (CPZ_LABELS_DETAIL[cpzVal] || cpzVal) : '未判定';
-  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">地目</div><div class="info-value">${data.chimoku||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">都市計画法 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（座標から自動判定）</span></div><div class="info-value">${cpzText}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}</div></div><div class="info-item"><div class="info-label">農地種別 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（農転の可否判断用）</span></div><div class="info-value">${data.nouchi_kubun||'未調査'}</div></div><div class="info-item full"><div class="info-label">🚨 ハザード詳細 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（重ねるハザードマップから自動取得）</span></div><div class="info-value"><div class="hazard-detail-list"><div class="hazard-loading">判定中...</div></div><button class="hazard-overlay-btn" onclick="openOverlayHazardMap()">🗺 重ねるハザードマップで詳細確認</button></div></div><div class="info-item"><div class="info-label">ハザード <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（手動メモ）</span></div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
+  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">地目</div><div class="info-value">${data.chimoku||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">都市計画法 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（座標から自動判定）</span></div><div class="info-value">${cpzText}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}</div></div><div class="info-item"><div class="info-label">農地種別 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（農転の可否判断用）</span></div><div class="info-value">${data.nouchi_kubun||'未調査'}</div></div><div class="info-item full"><div class="info-label">🚨 ハザード詳細 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（重ねるハザードマップから自動取得）</span></div><div class="info-value"><div class="hazard-detail-list"><div class="hazard-loading">判定中...</div></div><button class="hazard-overlay-btn" onclick="openOverlayHazardMap()">🗺 重ねるハザードマップで詳細確認</button></div></div><div class="info-item"><div class="info-label">ハザード <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（手動メモ）</span></div><div class="info-value hazard-memo-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
   if(data&&data.location){
@@ -2611,12 +2731,15 @@ async function loadLandDetail(caseId){
     document.querySelectorAll('.snow-load-value').forEach(el=>{el.textContent=display;});
   }
   // v20260512r: 重ねるハザードマップから5種ハザード詳細を自動判定
+  // v20260515a: 「該当なし」確定時、手動メモが空欄なら land_info.hazard='ナシ' を自動投入
   window._currentHazardLat = data?.lat || null;
   window._currentHazardLng = data?.lng || null;
   if(data && data.lat != null && data.lng != null){
-    _runHazardCheck(data.lat, data.lng).then(result=>{
+    _runHazardCheck(data.lat, data.lng).then(async result=>{
       const html = _renderHazardResults(result);
       document.querySelectorAll('.hazard-detail-list').forEach(el=>{el.innerHTML = html;});
+      // v20260515a: 該当なし確定時に「ナシ」を自動投入（防衛条件付き）
+      await _autoFillHazardNashi(caseId, data, result);
     }).catch(e=>{
       console.warn('[hazard] judge error:', e);
       document.querySelectorAll('.hazard-detail-list').forEach(el=>{el.innerHTML = '<div class="hazard-error">判定処理でエラーが発生しました</div>';});
@@ -4400,6 +4523,167 @@ async function _initBatchJudgeButton() {
 }
 if (document.readyState === 'complete') _initBatchJudgeButton();
 else window.addEventListener('load', _initBatchJudgeButton);
+
+// ============================================================
+// v20260515a: ハザード『ナシ』一括判定機能
+// hazard-check Worker で1件ずつ判定し、「該当なし」確定時のみ
+// land_info.hazard='ナシ' を投入する。既存メモは保護。
+// ============================================================
+let _batchHazardAbortFlag = false;
+let _batchHazardPending = [];
+const _BATCH_HAZARD_INTER_DELAY_MS = 500;  // Worker への負荷を抑える間隔
+
+function _isHazardMemoEmpty(v){
+  if(v == null) return true;
+  const s = String(v).trim();
+  return s === '' || s === '—' || s === '-';
+}
+
+async function openBatchHazardModal() {
+  if (!window.__auth || !window.__auth.isAdmin()) {
+    showToast('admin 権限が必要です', 'error');
+    return;
+  }
+  const modal = document.getElementById('batchHazardModal');
+  if (!modal) return;
+  // 対象: land_info 全件取得（NG除外、空欄、lat/lng あり）
+  const { data, error } = await db.from('land_info')
+    .select('case_id, lat, lng, hazard, cases(case_no, display_case_no, status)');
+  if (error) {
+    showToast('案件一覧の取得失敗: ' + error.message, 'error');
+    return;
+  }
+  // NG 除外
+  const all = (data || []).filter(r => r.cases && r.cases.status !== 'NG');
+  const eligible = all.filter(r => _isHazardMemoEmpty(r.hazard) && r.lat != null && r.lng != null);
+  const filled   = all.filter(r => !_isHazardMemoEmpty(r.hazard));
+  const noCoords = all.filter(r => _isHazardMemoEmpty(r.hazard) && (r.lat == null || r.lng == null));
+  _batchHazardPending = eligible.map(r => ({
+    case_id: r.case_id,
+    lat:     r.lat,
+    lng:     r.lng,
+    case_no: (r.cases && (r.cases.display_case_no || r.cases.case_no)) || '(unknown)'
+  }));
+  document.getElementById('batchHazardTargetCount').textContent  = eligible.length;
+  document.getElementById('batchHazardAlreadyFilled').textContent = filled.length + ' 件';
+  document.getElementById('batchHazardNoCoords').textContent      = noCoords.length + ' 件';
+  const estSec = Math.max(30, eligible.length * (_BATCH_HAZARD_INTER_DELAY_MS / 1000 + 0.4));
+  document.getElementById('batchHazardEstimate').textContent = '約 ' + Math.ceil(estSec / 60) + ' 分';
+  // Phase 1 リセット
+  document.getElementById('batchHazardPhase1').style.display = '';
+  document.getElementById('batchHazardPhase2').style.display = 'none';
+  document.getElementById('batchHazardPhase3').style.display = 'none';
+  document.getElementById('batchHazardStartBtn').style.display  = '';
+  document.getElementById('batchHazardAbortBtn').style.display  = 'none';
+  document.getElementById('batchHazardDoneBtn').style.display   = 'none';
+  document.getElementById('batchHazardCancelBtn').style.display = '';
+  document.getElementById('batchHazardStartBtn').disabled = (eligible.length === 0);
+  modal.classList.add('open');
+}
+
+function abortBatchHazard(){ _batchHazardAbortFlag = true; }
+
+async function startBatchHazard() {
+  if (!_batchHazardPending || _batchHazardPending.length === 0) { closeModal('batchHazardModal'); return; }
+  // Phase 2 へ
+  document.getElementById('batchHazardPhase1').style.display = 'none';
+  document.getElementById('batchHazardPhase2').style.display = '';
+  document.getElementById('batchHazardStartBtn').style.display  = 'none';
+  document.getElementById('batchHazardCancelBtn').style.display = 'none';
+  document.getElementById('batchHazardAbortBtn').style.display  = '';
+  const total = _batchHazardPending.length;
+  const counters = { nashi: 0, hasHazard: 0, outOfArea: 0, failed: 0, skipped: 0 };
+  _batchHazardAbortFlag = false;
+  for (let i = 0; i < total; i++) {
+    if (_batchHazardAbortFlag) break;
+    const c = _batchHazardPending[i];
+    document.getElementById('batchHazardCurrentCase').textContent = c.case_no;
+    document.getElementById('batchHazardProgressText').textContent = (i + 1) + ' / ' + total;
+    const pct = Math.round((i / total) * 100);
+    document.getElementById('batchHazardProgressPct').textContent = pct + '%';
+    document.getElementById('batchHazardProgressBar').style.width = pct + '%';
+    try {
+      const result = await _runHazardCheck(c.lat, c.lng);
+      if (!result || result._workerError) {
+        counters.failed++;
+      } else if (!result.prefecture || result.prefecture === 'unknown') {
+        counters.outOfArea++;
+      } else {
+        const results = result.results || [];
+        if (results.length === 0) {
+          // 該当なし確定 → 「ナシ」を投入
+          const { error } = await db.from('land_info').update({ hazard: 'ナシ' }).eq('case_id', c.case_id);
+          if (error) {
+            console.warn('[batch-hazard] DB更新失敗', c.case_no, error);
+            counters.failed++;
+          } else {
+            counters.nashi++;
+            // メモリ上の一覧キャッシュも更新
+            if (window.allLands && Array.isArray(window.allLands)) {
+              const t = window.allLands.find(l => l.case_id === c.case_id);
+              if (t) t.hazard = 'ナシ';
+            }
+          }
+        } else {
+          counters.hasHazard++;
+        }
+      }
+    } catch (e) {
+      counters.failed++;
+      console.warn('[batch-hazard] failed for', c.case_no, e);
+    }
+    document.getElementById('batchHazardNashi').textContent  = counters.nashi;
+    document.getElementById('batchHazardHas').textContent    = counters.hasHazard;
+    document.getElementById('batchHazardOoa').textContent    = counters.outOfArea;
+    document.getElementById('batchHazardFailed').textContent = counters.failed;
+    if (i < total - 1) await new Promise(r => setTimeout(r, _BATCH_HAZARD_INTER_DELAY_MS));
+  }
+  const finalProcessed = counters.nashi + counters.hasHazard + counters.outOfArea + counters.failed;
+  counters.skipped = Math.max(0, total - finalProcessed);
+  const finalPct = total > 0 ? Math.round((finalProcessed / total) * 100) : 0;
+  document.getElementById('batchHazardProgressPct').textContent = finalPct + '%';
+  document.getElementById('batchHazardProgressBar').style.width = finalPct + '%';
+  // Phase 3 へ
+  setTimeout(function() {
+    document.getElementById('batchHazardPhase2').style.display = 'none';
+    document.getElementById('batchHazardPhase3').style.display = '';
+    document.getElementById('batchHazardAbortBtn').style.display = 'none';
+    document.getElementById('batchHazardDoneBtn').style.display  = '';
+    document.getElementById('batchHazardResultSummary').innerHTML =
+      '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+      '<tr><td style="padding:6px 14px;color:var(--text-muted)">✓ 『ナシ』投入</td><td style="padding:6px 14px;text-align:right;font-weight:600;color:#22c55e">' + counters.nashi + ' 件</td></tr>' +
+      '<tr><td style="padding:6px 14px;color:var(--text-muted)">⚠ 該当ハザードあり（メモ未変更）</td><td style="padding:6px 14px;text-align:right;color:#e85d04">' + counters.hasHazard + ' 件</td></tr>' +
+      '<tr><td style="padding:6px 14px;color:var(--text-muted)">→ 対応エリア外（スキップ）</td><td style="padding:6px 14px;text-align:right">' + counters.outOfArea + ' 件</td></tr>' +
+      '<tr><td style="padding:6px 14px;color:var(--text-muted)">✗ Worker失敗</td><td style="padding:6px 14px;text-align:right;color:#ff5252">' + counters.failed + ' 件</td></tr>' +
+      (counters.skipped > 0 ? '<tr><td style="padding:6px 14px;color:var(--text-muted)">→ 中止スキップ</td><td style="padding:6px 14px;text-align:right">' + counters.skipped + ' 件</td></tr>' : '') +
+      '</table>';
+  }, 400);
+}
+
+// 起動時：admin かつ未投入あり の時のみボタン表示
+async function _initBatchHazardButton() {
+  if (!window.__auth || !window.__auth.isAdmin()) return;
+  try {
+    const { data, error } = await db.from('land_info')
+      .select('case_id, lat, lng, hazard, cases(status)');
+    if (error) return;
+    const eligible = (data || []).filter(r => {
+      if (!r.cases || r.cases.status === 'NG') return false;
+      if (r.lat == null || r.lng == null) return false;
+      if (!_isHazardMemoEmpty(r.hazard)) return false;
+      return true;
+    });
+    const btn = document.getElementById('batchHazardBtn');
+    if (!btn) return;
+    if (eligible.length > 0) {
+      btn.style.display = '';
+      const cnt = document.getElementById('batchHazardPendingCount');
+      if (cnt) cnt.textContent = '（未投入' + eligible.length + '件）';
+    }
+  } catch (e) { console.warn('[batch-hazard-init]', e); }
+}
+if (document.readyState === 'complete') _initBatchHazardButton();
+else window.addEventListener('load', _initBatchHazardButton);
 
 function openEditModal(){
   const t=document.querySelector('.detail-tab.active')?.textContent||'';
