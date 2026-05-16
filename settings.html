@@ -3,10 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0,user-scalable=yes">
-<!-- ===== 権限管理ガード v1.2 (2026-05-15) - 必ず他スクリプトより前に配置 ===== -->
-<script src="common-auth.js"></script>
-<link rel="stylesheet" href="viewer-mode.css">
-<script src="viewer-mode.js"></script>
+<!-- 強制リロード不要化：HTML自体は毎回再取得 -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<!-- 外部JS/CSS はキャッシュバスター付きで動的に読み込む（強制リロード不要） -->
+<script>
+(function(){
+  var bust = 'v=' + Date.now();
+  function load(tagName, attrs){
+    var el = document.createElement(tagName);
+    Object.keys(attrs).forEach(function(k){ el.setAttribute(k, attrs[k]); });
+    if (tagName === 'script') el.async = false; // 順序保証
+    document.write(el.outerHTML);
+  }
+  load('script', { src: 'common-auth.js?' + bust });
+  load('link',   { rel: 'stylesheet', href: 'viewer-mode.css?' + bust });
+  load('script', { src: 'viewer-mode.js?' + bust });
+})();
+</script>
 <title>設定 - GRID LAND MGR</title>
 <link rel="icon" href="data:,">
 <style>
@@ -1123,6 +1138,7 @@ function renderStatusColors() {
       </div>
       <input type="color" class="color-input"
              data-status-key="${key}" data-field="status"
+             data-status-label-ja="${escapeHtml(val.label || '')}"
              value="${val.color}" onchange="onStatusColorChange(this)">
     </div>
   `).join('') + `</div>`;
@@ -1437,12 +1453,21 @@ async function saveAll() {
     if (window.__auth.isAdmin()) {
       const stInputs = Array.from(document.querySelectorAll('input[data-field="status"]'));
       if (stInputs.length > 0) {
-        const stRows = stInputs.map(input => ({
-          organization_id: currentOrgId,
-          status_key:      input.dataset.statusKey,
-          color_hex:       input.value,
-          updated_at:      nowISO,
-        }));
+        const stRows = stInputs.map(input => {
+          const key = input.dataset.statusKey;
+          // 既存ラベルを必ず含める（NOT NULL制約のため）
+          // 1) statusColorData から取得  2) data-status-label-ja  3) status-key を最終フォールバック
+          const labelFromState = (statusColorData[key] && statusColorData[key].label) || null;
+          const labelFromAttr  = input.dataset.statusLabelJa || null;
+          return {
+            organization_id: currentOrgId,
+            status_key:      key,
+            status_label_ja: labelFromState || labelFromAttr || key,
+            color_hex:       input.value,
+            updated_at:      nowISO,
+          };
+        });
+        console.log('[saveAll] stRows サンプル(先頭3件):', stRows.slice(0, 3));
         const { data: stRes, error: stErr } = await SB
           .from('org_status_colors')
           .upsert(stRows, { onConflict: 'organization_id,status_key' })
