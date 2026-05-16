@@ -2757,6 +2757,33 @@ initDraggablePanels('fieldSurvey', [
     });
   }
   attachHandler();
+
+  // 2026-05-16 追加: URLパラメータ受信
+  //   ?lat=...&lng=...&zoom=...(省略時16)&highlight=1
+  //   例: field-survey.html?lat=34.5&lng=137.2&zoom=16&highlight=1
+  //   → 該当座標を中心にズーム移動し、脈動マーカーを表示
+  function applyUrlParams() {
+    if (typeof map === 'undefined' || !map) { setTimeout(applyUrlParams, 200); return; }
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var lat = parseFloat(params.get('lat'));
+      var lng = parseFloat(params.get('lng'));
+      var zoom = parseInt(params.get('zoom'), 10);
+      var highlight = params.get('highlight') === '1';
+      if (isNaN(lat) || isNaN(lng)) return;
+      if (isNaN(zoom)) zoom = 16;
+      map.setView([lat, lng], zoom);
+      if (highlight) {
+        // タイル読込・地図移動が完了してから脈動マーカー描画
+        setTimeout(function(){
+          try { showSelectionFlash(L.latLng(lat, lng)); } catch(e) {}
+        }, 600);
+      }
+    } catch (e) {
+      console.warn('[url-params] 例外:', e);
+    }
+  }
+  applyUrlParams();
 })();
 </script>
 </body>
