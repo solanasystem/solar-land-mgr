@@ -4117,8 +4117,18 @@ async function saveLand(){
     notification_flag:_parseSummaryFlag(g('eld_notification_flag'))
   };
   const{data:ex}=await db.from('land_info').select('id').eq('case_id',currentCaseId).single();
+  console.log('[saveLand] existing:', ex, 'caseId:', currentCaseId, 'payload keys:', Object.keys(payload).length);
+  console.log('[saveLand] payload:', payload);
   const{error}=ex?await db.from('land_info').update(payload).eq('case_id',currentCaseId):await db.from('land_info').insert(payload);
-  if(error){showToast('保存エラー','error');return;}
+  if(error){
+    console.error('[saveLand] エラー詳細:', error);
+    const msg = error.message || JSON.stringify(error);
+    const detail = error.details ? '\n詳細: ' + error.details : '';
+    const hint = error.hint ? '\nヒント: ' + error.hint : '';
+    showToast('保存エラー: ' + msg, 'error');
+    alert('土地情報の保存に失敗しました：\n\n' + msg + detail + hint);
+    return;
+  }
   showToast('土地情報を保存しました');closeModal('editLandModal');
   await Promise.all([loadLandDetail(currentCaseId),refreshAll()]);
 }

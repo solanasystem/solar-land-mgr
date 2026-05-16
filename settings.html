@@ -1284,12 +1284,40 @@ function onColorChange(input) {
   if (!card) return;
   const c = input.value;
   const key = input.dataset.itemKey;
-  // in-memory データを更新（保存処理が読み込む値を一致させる）
-  if (key) colorData[key] = c;
-  // 項目名の文字色を更新（色設定タブのリアルタイムプレビュー）
+  if (!key) return;
+
+  // 変更された項目自身を更新
+  applyColorToCard(card, c);
+  colorData[key] = c;
+
+  // ★ 同期グループ連動：同じ sync_group の項目すべてに同じ色を反映
+  const targetItem = ITEMS.find(x => x.item_key === key);
+  if (targetItem && targetItem.sync_group) {
+    const groupKey = targetItem.sync_group;
+    const groupItems = ITEMS.filter(x => x.sync_group === groupKey && x.item_key !== key);
+    let syncCount = 0;
+    groupItems.forEach(it => {
+      colorData[it.item_key] = c;
+      // 色設定タブの他カードを直接更新（DOMから探す）
+      const otherCard = document.querySelector(`#colorsList .item-card[data-item-key="${it.item_key}"]`);
+      if (otherCard) {
+        applyColorToCard(otherCard, c);
+        // 色入力ボックス自体の値も更新
+        const otherInput = otherCard.querySelector('input[data-field="color"]');
+        if (otherInput) otherInput.value = c;
+        syncCount++;
+      }
+    });
+    if (syncCount > 0) {
+      console.log(`[onColorChange] sync_group=${groupKey} で ${syncCount}項目を連動更新（自身含めて${syncCount + 1}項目）`);
+    }
+  }
+}
+
+// カードに色を適用（項目名・プレビュー・ドット）
+function applyColorToCard(card, c) {
   const name = card.querySelector('.card-name');
   if (name) name.style.color = c;
-  // 旧プレビュー要素（あれば）も更新
   const preview = card.querySelector('.color-preview');
   if (preview) preview.style.background = c;
   const dot = card.querySelector('.color-dot');
@@ -1422,6 +1450,25 @@ async function saveAll() {
     });
     Array.from(document.querySelectorAll('input[data-field="permission"]')).forEach(input => {
       permByKey[input.dataset.itemKey] = input.checked;
+    });
+
+    // ★ 色設定の sync_group 連動：グループ内で1つでも変更されたら、全項目同じ色にする
+    // （色変更時に onColorChange で UI を同期させているが、保存時にもう一度整合性を保証）
+    ITEMS.forEach(it => {
+      if (!it.sync_group) return;
+      // グループ内で colorByKey に値があるものから、最も主項目に近いものを優先
+      const masterKey = SYNC_MASTERS[it.sync_group];
+      const groupItems = ITEMS.filter(x => x.sync_group === it.sync_group);
+      let syncColor = colorByKey[masterKey];
+      if (!syncColor) {
+        // マスタが未定義なら、グループ内で最初に見つかった色を使う
+        for (const g of groupItems) {
+          if (colorByKey[g.item_key]) { syncColor = colorByKey[g.item_key]; break; }
+        }
+      }
+      if (syncColor) {
+        groupItems.forEach(g => { colorByKey[g.item_key] = syncColor; });
+      }
     });
     console.log('[saveAll] colorByKey:', Object.keys(colorByKey).length, '件 / permByKey:', Object.keys(permByKey).length, '件');
 
