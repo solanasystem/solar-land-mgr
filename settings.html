@@ -889,36 +889,44 @@ async function loadTargetUserSettings() {
     roleBadge.innerHTML = `<span class="role-badge role-${targetRole}">${targetRole}</span>`;
   }
 
+  console.log('[loadTargetUserSettings] targetUserId:', targetUserId, 'role:', targetRole);
+
   // visibility
-  const { data: vis } = await SB
+  const { data: vis, error: visErr } = await SB
     .from('user_visibility_settings')
     .select('item_key, is_visible')
     .eq('user_id', targetUserId);
+  if (visErr) console.error('[loadTargetUserSettings] visibility読込エラー:', visErr);
   visibilityData = {};
   (vis || []).forEach(v => visibilityData[v.item_key] = v.is_visible);
+  console.log('[loadTargetUserSettings] visibility:', (vis || []).length, '件');
 
   // colors + permissions
-  const { data: cols } = await SB
+  const { data: cols, error: colsErr } = await SB
     .from('user_color_settings')
     .select('item_key, color_hex, can_edit_color')
     .eq('user_id', targetUserId);
+  if (colsErr) console.error('[loadTargetUserSettings] colors読込エラー:', colsErr);
   colorData = {};
   permissionData = {};
   (cols || []).forEach(c => {
     colorData[c.item_key]      = c.color_hex;
     permissionData[c.item_key] = c.can_edit_color;
   });
+  console.log('[loadTargetUserSettings] colors:', (cols || []).length, '件');
 
   // status colors（組織共通）
-  const { data: sts } = await SB
+  const { data: sts, error: stsErr } = await SB
     .from('org_status_colors')
     .select('status_key, status_label_ja, color_hex, display_order')
     .eq('organization_id', currentOrgId)
     .order('display_order');
+  if (stsErr) console.error('[loadTargetUserSettings] status_colors読込エラー:', stsErr);
   statusColorData = {};
   (sts || []).forEach(s => statusColorData[s.status_key] = {
     color: s.color_hex, label: s.status_label_ja, order: s.display_order
   });
+  console.log('[loadTargetUserSettings] status_colors:', (sts || []).length, '件');
 }
 
 // ============================================
@@ -1323,6 +1331,36 @@ async function saveAll() {
   btn.classList.add('saving');
   btn.textContent = '⏳ 保存中…';
 
+  console.log('=== [saveAll] 保存開始 ===');
+  console.log('targetUserId:', targetUserId);
+  console.log('currentOrgId:', currentOrgId);
+  console.log('isAdmin:', window.__auth && window.__auth.isAdmin());
+
+  // 事前チェック：必須情報の有無
+  if (!SB) {
+    btn.classList.remove('saving'); btn.classList.add('errored');
+    btn.textContent = '✗ 認証未初期化';
+    showToast('Supabase未初期化です。再ログインしてください。', true);
+    setTimeout(() => { btn.classList.remove('errored'); btn.disabled = false; btn.textContent = originalText; }, 4000);
+    return;
+  }
+  if (!targetUserId) {
+    btn.classList.remove('saving'); btn.classList.add('errored');
+    btn.textContent = '✗ ユーザー未選択';
+    showToast('対象ユーザーが取得できません。再ログインしてください。', true);
+    setTimeout(() => { btn.classList.remove('errored'); btn.disabled = false; btn.textContent = originalText; }, 4000);
+    return;
+  }
+  if (!currentOrgId) {
+    btn.classList.remove('saving'); btn.classList.add('errored');
+    btn.textContent = '✗ 組織ID未取得';
+    showToast('organization_id が取得できません。profilesを確認してください。', true);
+    setTimeout(() => { btn.classList.remove('errored'); btn.disabled = false; btn.textContent = originalText; }, 4000);
+    return;
+  }
+
+  let visCount = 0, colorCount = 0, statusCount = 0;
+
   try {
     const nowISO = new Date().toISOString();
 
@@ -1345,14 +1383,22 @@ async function saveAll() {
         is_visible:      input.checked,
         updated_at:      nowISO,
       }));
-      const { error: visErr } = await SB
-        .from('user_visibility_settings')
-        .upsert(visRows, { onConflict: 'user_id,item_key' });
-      if (visErr) throw new Error('共有範囲: ' + visErr.message);
+      console.log('[saveAll] visRows:', visRows.length, '件');
+      if (visRows.length > 0) {
+        const { data: visData, error: visErr } = await SB
+          .from('user_visibility_settings')
+          .upsert(visRows, { onConflict: 'user_id,item_key' })
+          .select();
+        if (visErr) {
+          console.error('[saveAll] 共有範囲エラー:', visErr);
+          throw new Error('共有範囲: ' + (visErr.message || JSON.stringify(visErr)));
+        }
+        visCount = (visData && visData.length) || visRows.length;
+        console.log('[saveAll] 共有範囲 保存OK:', visCount, '件');
+      }
     }
 
     // ② 色設定 + ③ 色変更権限 を upsert で同時保存（同じテーブル）
-    // 編集可能な色入力 + 全権限入力を統合し、1行=1アイテムで upsert
     const colorByKey = {};
     const permByKey  = {};
     Array.from(document.querySelectorAll('input[data-field="color"]')).forEach(input => {
@@ -1361,6 +1407,7 @@ async function saveAll() {
     Array.from(document.querySelectorAll('input[data-field="permission"]')).forEach(input => {
       permByKey[input.dataset.itemKey] = input.checked;
     });
+    console.log('[saveAll] colorByKey:', Object.keys(colorByKey).length, '件 / permByKey:', Object.keys(permByKey).length, '件');
 
     // 編集対象になりうるすべての item_key をマージ
     const allKeys = new Set([...Object.keys(colorByKey), ...Object.keys(permByKey)]);
@@ -1373,10 +1420,17 @@ async function saveAll() {
         can_edit_color:  permByKey[itemKey] !== undefined ? permByKey[itemKey]  : (permissionData[itemKey] !== false),
         updated_at:      nowISO,
       }));
-      const { error: colorErr } = await SB
+      console.log('[saveAll] colorRows サンプル(先頭3件):', colorRows.slice(0, 3));
+      const { data: colorRes, error: colorErr } = await SB
         .from('user_color_settings')
-        .upsert(colorRows, { onConflict: 'user_id,item_key' });
-      if (colorErr) throw new Error('色設定: ' + colorErr.message);
+        .upsert(colorRows, { onConflict: 'user_id,item_key' })
+        .select();
+      if (colorErr) {
+        console.error('[saveAll] 色設定エラー:', colorErr);
+        throw new Error('色設定: ' + (colorErr.message || JSON.stringify(colorErr)));
+      }
+      colorCount = (colorRes && colorRes.length) || colorRows.length;
+      console.log('[saveAll] 色設定 保存OK:', colorCount, '件');
     }
 
     // ④ ステータス色（admin のみ）
@@ -1389,39 +1443,54 @@ async function saveAll() {
           color_hex:       input.value,
           updated_at:      nowISO,
         }));
-        const { error: stErr } = await SB
+        const { data: stRes, error: stErr } = await SB
           .from('org_status_colors')
-          .upsert(stRows, { onConflict: 'organization_id,status_key' });
-        if (stErr) throw new Error('ステータス色: ' + stErr.message);
+          .upsert(stRows, { onConflict: 'organization_id,status_key' })
+          .select();
+        if (stErr) {
+          console.error('[saveAll] ステータス色エラー:', stErr);
+          throw new Error('ステータス色: ' + (stErr.message || JSON.stringify(stErr)));
+        }
+        statusCount = (stRes && stRes.length) || stRows.length;
+        console.log('[saveAll] ステータス色 保存OK:', statusCount, '件');
       }
     }
 
     // ----- 保存成功 -----
     btn.classList.remove('saving');
     btn.classList.add('saved');
-    btn.textContent = '✓ 保存完了';
-    showToast('✅ 保存しました');
+    btn.textContent = `✓ 保存完了 (色${colorCount}件)`;
+    const summary = [];
+    if (visCount > 0)    summary.push(`共有範囲 ${visCount}件`);
+    if (colorCount > 0)  summary.push(`色設定 ${colorCount}件`);
+    if (statusCount > 0) summary.push(`ステータス色 ${statusCount}件`);
+    showToast(`✅ 保存成功： ${summary.join(' / ') || '0件'}`);
+    console.log('=== [saveAll] 保存完了 ===', { visCount, colorCount, statusCount });
+
     await loadTargetUserSettings();
     render();
 
-    // 2秒後にボタンを元に戻す
+    // 4秒後にボタンを元に戻す（ユーザーが視覚確認できる十分な時間）
     setTimeout(() => {
       btn.classList.remove('saved');
       btn.disabled = false;
       btn.textContent = originalText;
-    }, 2000);
+    }, 4000);
 
   } catch (e) {
-    console.error(e);
+    console.error('=== [saveAll] 保存失敗 ===', e);
     btn.classList.remove('saving');
     btn.classList.add('errored');
-    btn.textContent = '✗ エラー';
-    showToast('保存失敗: ' + e.message, true);
+    btn.textContent = '✗ エラー（詳細はトースト）';
+    const msg = (e && e.message) || String(e);
+    showToast('❌ 保存失敗: ' + msg, true);
+    // 念のため alert でも通知（ユーザーが見逃さないため）
+    alert('保存に失敗しました：\n\n' + msg + '\n\n（コンソールに詳細ログがあります）');
     setTimeout(() => {
       btn.classList.remove('errored');
       btn.disabled = false;
       btn.textContent = originalText;
-    }, 3000);
+    }, 5000);
   }
 }
 
