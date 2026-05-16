@@ -4,6 +4,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ===== 権限管理ガード v20260515ae (common-auth.js) - 必ず他スクリプトより前に配置 ===== -->
+<script src="common-auth.js"></script>
+<!-- ===== MODE SELECT 戻るボタン v20260515ae (mode-back.js) ===== -->
+<script src="mode-back.js"></script>
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <script>
@@ -70,7 +74,15 @@
   #stickyZone{position:sticky;top:98px;z-index:90;background:var(--bg);}
   #stickyZone>div{max-width:1400px;margin:0 auto;}
   .sticky-toolbar{padding:8px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--bg);}
-  .power-company-bar{padding:6px 24px 6px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;background:var(--bg);border-bottom:1px solid var(--border);}
+  .power-company-bar{padding:6px 24px 6px;display:flex;align-items:center;gap:12px;background:var(--bg);border-bottom:1px solid var(--border);}
+  /* v20260515ae: 旧.pc-tab(横並びボタン10個) は廃止、新.pc-select(プルダウン1個)に統一 */
+  .pc-label{font-family:var(--font-main);font-size:12px;font-weight:600;color:var(--text-muted);letter-spacing:.04em;white-space:nowrap;}
+  .pc-select{padding:5px 28px 5px 12px;background:rgba(240,180,41,.10);border:1px solid var(--accent);border-radius:5px;color:var(--accent);font-family:var(--font-main);font-size:12.5px;font-weight:700;cursor:pointer;min-width:200px;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath fill='%23f0b429' d='M6 8L0 0h12z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:10px;}
+  .pc-select:hover{background-color:rgba(240,180,41,.18);}
+  .pc-select option{background:var(--bg);color:var(--text);}
+  .pc-active-count{font-family:var(--font-mono);font-size:11.5px;color:var(--text-muted);margin-left:auto;}
+  .pc-active-count b{color:var(--accent);font-size:13px;font-weight:700;}
+  /* 旧.pc-tab スタイル（互換のため残置、不使用） */
   .pc-tab{padding:5px 12px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:5px;color:var(--text-muted);font-family:var(--font-main);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap;}
   .pc-tab:hover{background:var(--surface2);color:var(--text);}
   .pc-tab.active{background:rgba(240,180,41,.15);border-color:var(--accent);color:var(--accent);font-weight:700;}
@@ -386,24 +398,23 @@
     <button id="mobileNgBlindBtn" class="mobile-ng-blind-btn" onclick="mobileToggleNgBlind()">NG</button>
   </div>
   <div id="casesStickyBlock">
-    <div class="sticky-toolbar">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <input class="search-box" type="text" placeholder="案件番号・地権者・地名で検索..." id="searchInput" oninput="filterCases()">
-        <select class="filter-select" id="filterKubun" onchange="filterCases()">
-          <option value="">すべての区分</option>
-          <option>低圧太陽光</option><option>高圧太陽光</option>
-          <option>低圧蓄電池</option><option>高圧蓄電池</option><option>営農型太陽光</option>
-        </select>
-        <select class="filter-select" id="filterStatus" onchange="filterCases()">
-          <option value="">すべてのステータス</option>
-          <option>NOT VISITED</option><option>THINKING↑</option><option>THINKING→</option>
-          <option>THINKING↓</option><option>OK</option><option>SUCCESS</option>
-          <option>NON MEET</option><option>NG</option><option>UNKNOWN</option><option>LETTER</option><option>LTR済</option>
-        </select>
-        <button id="ngBlindBtn" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
-      </div>
+    <div class="sticky-toolbar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <input class="search-box" type="text" placeholder="案件番号・地権者・地名で検索..." id="searchInput" oninput="filterCases()">
+      <select class="filter-select" id="filterKubun" onchange="filterCases()">
+        <option value="">すべての区分</option>
+        <option>低圧太陽光</option><option>高圧太陽光</option>
+        <option>低圧蓄電池</option><option>高圧蓄電池</option><option>営農型太陽光</option>
+      </select>
+      <select class="filter-select" id="filterStatus" onchange="filterCases()">
+        <option value="">すべてのステータス</option>
+        <option>NOT VISITED</option><option>THINKING↑</option><option>THINKING→</option>
+        <option>THINKING↓</option><option>OK</option><option>SUCCESS</option>
+        <option>NON MEET</option><option>NG</option><option>UNKNOWN</option><option>LETTER</option><option>LTR済</option>
+      </select>
+      <button id="ngBlindBtn" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
+      <span style="flex:1"></span>
       <button class="btn btn-primary" onclick="openNewCaseModal()">＋ 新規案件登録</button>
-      <button class="btn btn-primary" onclick="openBulkImportModal()" style="background:#10b981;border-color:#059669;margin-left:8px;">📁 書類一括取込</button>
+      <button class="btn btn-primary" onclick="openBulkImportModal()" style="background:#10b981;border-color:#059669;">📁 書類一括取込</button>
     </div>
     <div class="cases-table-header" style="grid-template-columns:50px 120px 40px 140px 140px 140px 150px 80px 1fr 160px">
       <div style="text-align:center">No</div><div><select id="caseNoDisplayModeSelect" onchange="setCaseNoDisplayMode(this.value)" title="案件番号 ⇔ 業務番号 表示切替" style="background:transparent;border:1px solid var(--border);color:var(--text);font-size:12px;padding:2px 6px;border-radius:4px;cursor:pointer;font-weight:600">
@@ -1308,12 +1319,19 @@ function renderPowerCompanyTabs(){
   (allCases||[]).forEach(c=>{const pc=getPowerCompanyFromArea(c.area_name);if(counts[pc]!==undefined)counts[pc]++;});
   const bar=document.getElementById('powerCompanyBar');
   if(!bar)return;
-  bar.innerHTML=POWER_COMPANIES.map(pc=>{
-    const n=counts[pc]||0;
-    const active=pc===currentPowerCompany?' active':'';
-    const empty=n===0?' empty':'';
-    return `<button class="pc-tab${active}${empty}" onclick="setPowerCompany('${pc}')">${pc}<span class="pc-count">(${n})</span></button>`;
-  }).join('');
+  const totalActive=counts[currentPowerCompany]||0;
+  /* v20260515ae: 10ボタン横並び → 1個のプルダウンに変更（過去仕様の復元） */
+  bar.innerHTML=`
+    <label class="pc-label">⚡ 電力会社</label>
+    <select class="pc-select" id="powerCompanySelect" onchange="setPowerCompany(this.value)">
+      ${POWER_COMPANIES.map(pc=>{
+        const n=counts[pc]||0;
+        const sel=pc===currentPowerCompany?' selected':'';
+        return `<option value="${pc}"${sel}>${pc}（${n}件）</option>`;
+      }).join('')}
+    </select>
+    <span class="pc-active-count">表示中: <b>${totalActive}</b> 件</span>
+  `;
 }
 function setPowerCompany(pc){
   currentPowerCompany=pc;
