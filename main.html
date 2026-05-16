@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260509i / 業務番号(display_case_no) 全ページ対応 -->
+<!-- BUILD: main v20260516f / 過去改修の完全復元（v20260509o+p+q+v20260512q+v20260515ae+v20260516a-e の統合） -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -359,7 +359,6 @@
   </details>
 </div>
 <div id="stickyZone">
-  <div id="powerCompanyBar" class="power-company-bar"></div>
   <div id="mobileFilterBar" class="mobile-filter-bar">
     <select id="mobilePcSelect" class="mobile-filter-select" onchange="setPowerCompany(this.value)">
       <option value="北海道電力">北海道電力</option>
@@ -399,6 +398,7 @@
   </div>
   <div id="casesStickyBlock">
     <div class="sticky-toolbar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <div class="pc-dropdown-slot"></div>
       <input class="search-box" type="text" placeholder="案件番号・地権者・地名で検索..." id="searchInput" oninput="filterCases()">
       <select class="filter-select" id="filterKubun" onchange="filterCases()">
         <option value="">すべての区分</option>
@@ -438,6 +438,7 @@
     </div>
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="案件番号・氏名・住所・電話・メモで検索..." id="loSearchInput" oninput="filterLandowners()">
         <select class="filter-select" id="filterLoStatus" onchange="filterLandowners()">
           <option value="">すべてのステータス</option>
@@ -457,6 +458,7 @@
   <div id="landStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="案件番号・所在・地番・地目・備考で検索..." id="ldSearchInput" oninput="filterLandMaster()">
         <button id="ngBlindBtnLd" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
@@ -470,6 +472,7 @@
   <div id="realestateStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="案件番号・会社名・住所・担当者・電話で検索..." id="reSearchInput" oninput="filterRealestate()">
         <button id="ngBlindBtnRe" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
@@ -484,6 +487,7 @@
   <div id="introcompanyStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="会社名・担当者・住所・電話・携帯で検索..." id="icSearchInput" oninput="filterIntroductionCompanies()">
         <select class="filter-select" id="icFilterPriority" onchange="filterIntroductionCompanies()">
           <option value="">全ての優先度</option>
@@ -511,6 +515,7 @@
   <div id="salesStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="案件No・案件名・紹介先企業で検索..." id="siSearchInput" oninput="filterSalesIntroductions()">
         <select class="filter-select" id="siFilterStatus" onchange="filterSalesIntroductions()">
           <option value="">全ての紹介ステータス</option>
@@ -1304,36 +1309,109 @@ const db=createClient(SUPABASE_URL,SUPABASE_KEY);
 let allCases=[],currentCaseId=null,currentLandownerId=null;
 /* 案件番号表示モード：'case_no'=システム案件番号 / 'business_no'=業務用案件番号 */
 let caseNoDisplayMode = (typeof localStorage!=='undefined' && localStorage.getItem('caseNoDisplayMode')) || 'case_no';
-let ngBlind=true;
+
+/* ============================================================================
+   v20260516f: フィルタ状態の永続化ヘルパー（過去会話 v20260509o の復元）
+   localStorage キー: gridLandMgr.{key}
+   ============================================================================ */
+const _FILTER_LS_PREFIX = 'gridLandMgr.';
+function _filterStateGet(key, defaultValue){
+  try{
+    const v = localStorage.getItem(_FILTER_LS_PREFIX + key);
+    if(v===null||v===undefined)return defaultValue;
+    if(v==='true')return true;
+    if(v==='false')return false;
+    return v;
+  }catch(e){return defaultValue;}
+}
+function _filterStateSet(key, value){
+  try{ localStorage.setItem(_FILTER_LS_PREFIX + key, String(value)); }catch(e){}
+}
+/* NGブラインドボタンの見た目を ngBlind 変数の状態と同期 */
+function _syncNgBlindUI(){
+  const label = `NGブラインド ${ngBlind ? 'ON' : 'OFF'}`;
+  const style = ngBlind
+    ? 'background:rgba(248,81,73,.4);color:#fff;border:1px solid rgba(248,81,73,.8);'
+    : 'background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);';
+  ['ngBlindBtn','ngBlindBtnLo','ngBlindBtnLd','ngBlindBtnRe'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el){
+      el.textContent = label;
+      el.style.cssText = el.style.cssText.replace(/background:[^;]+;color:[^;]+;border:[^;]+;/, style);
+    }
+  });
+}
+/* localStorage から検索ボックス・セレクタの値を復元 */
+function _restoreFilterInputs(){
+  const fields = [
+    'searchInput','filterKubun','filterStatus',
+    'loSearchInput','filterLoStatus',
+    'ldSearchInput',
+    'reSearchInput',
+    'icSearchInput','siSearchInput',
+    'mobileKubunSelect','mobileStatusSelect'
+  ];
+  fields.forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el)return;
+    const saved = _filterStateGet(id, null);
+    if(saved !== null && saved !== undefined){
+      el.value = saved;
+    }
+  });
+}
+/* 各検索ボックス・セレクタに変更時の永続化を bind */
+function _bindFilterPersistence(){
+  const fields = [
+    'searchInput','filterKubun','filterStatus',
+    'loSearchInput','filterLoStatus',
+    'ldSearchInput',
+    'reSearchInput',
+    'icSearchInput','siSearchInput',
+    'mobileKubunSelect','mobileStatusSelect'
+  ];
+  fields.forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el)return;
+    const ev = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(ev, ()=>_filterStateSet(id, el.value));
+  });
+}
+
+let ngBlind = _filterStateGet('ngBlind', true);
 
 /* ========== 管轄電力会社 マッピング ==========
    定数・関数は power-company-utils.js から提供される（全国1,736市区町村対応）：
    POWER_COMPANIES / PREF_TO_POWER / AREA_TO_PREF / BROAD_REGION_TO_POWER /
    DEFAULT_POWER_COMPANY / normalizeAreaKey / getPowerCompanyFromArea /
    filterCasesByPowerCompany */
-let currentPowerCompany='中部電力'; /* 初期選択 */
+let currentPowerCompany = _filterStateGet('currentPowerCompany', '中部電力'); /* 初期選択（永続化対応） */
 
 function renderPowerCompanyTabs(){
   const counts={};POWER_COMPANIES.forEach(pc=>counts[pc]=0);
   (allCases||[]).forEach(c=>{const pc=getPowerCompanyFromArea(c.area_name);if(counts[pc]!==undefined)counts[pc]++;});
-  const bar=document.getElementById('powerCompanyBar');
-  if(!bar)return;
   const totalActive=counts[currentPowerCompany]||0;
-  /* v20260515ae: 10ボタン横並び → 1個のプルダウンに変更（過去仕様の復元） */
-  bar.innerHTML=`
-    <label class="pc-label">⚡ 電力会社</label>
-    <select class="pc-select" id="powerCompanySelect" onchange="setPowerCompany(this.value)">
+  /* v20260516f: 各 sticky-toolbar 内の .pc-dropdown-slot に書き出し（1行統合・複数マスター共通） */
+  const html=`
+    <label class="pc-label" style="white-space:nowrap;font-size:12px">⚡ 電力会社</label>
+    <select class="pc-select filter-select" onchange="setPowerCompany(this.value)" style="font-size:12px;padding:6px 8px">
       ${POWER_COMPANIES.map(pc=>{
         const n=counts[pc]||0;
         const sel=pc===currentPowerCompany?' selected':'';
         return `<option value="${pc}"${sel}>${pc}（${n}件）</option>`;
       }).join('')}
     </select>
-    <span class="pc-active-count">表示中: <b>${totalActive}</b> 件</span>
+    <span class="pc-active-count" style="white-space:nowrap;font-size:11px;color:var(--text-muted);margin-left:4px">表示中: <b style="color:var(--accent)">${totalActive}</b> 件</span>
   `;
+  /* 旧 #powerCompanyBar への描画（後方互換用、既に削除済みなので何もしない） */
+  /* 全 sticky-toolbar 内の pc-dropdown-slot に描画 */
+  document.querySelectorAll('.pc-dropdown-slot').forEach(slot=>{
+    slot.innerHTML=html;
+  });
 }
 function setPowerCompany(pc){
   currentPowerCompany=pc;
+  _filterStateSet('currentPowerCompany', pc);  /* v20260516f: 永続化 */
   renderPowerCompanyTabs();
   populateAreaDropdowns();
   filterCases();filterLandowners();filterLandMaster();
@@ -1384,6 +1462,10 @@ function syncNewPcToArea(){
 
 document.addEventListener('DOMContentLoaded',()=>{
   _initCaseNoDisplayMode();
+  /* v20260516f: フィルタ状態の復元（localStorageから値を入力欄に書き戻す） */
+  _restoreFilterInputs();
+  _syncNgBlindUI();            /* NGブラインドボタンの見た目を変数と同期 */
+  _bindFilterPersistence();    /* 各検索ボックス・セレクタに永続化を bind */
   loadCases();
   document.getElementById('logDate').value=new Date().toISOString().split('T')[0];
   document.querySelector('.nav-btn.active').style.borderBottomColor='#a371f7';
@@ -1403,7 +1485,7 @@ async function loadCases(){
     (losRes.data||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
     allCases=sortCasesByParentChild((casesRes.data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''})));
     renderPowerCompanyTabs();populateAreaDropdowns();
-    renderCases(allCases);updateStats(allCases);
+    filterCases();updateStats(allCases);  /* v20260516f: 初期描画でフィルタを適用 */
   }catch(e){showToast('接続エラー: '+e.message,'error');}
 }
 
@@ -1416,12 +1498,8 @@ function updateStats(cases){
 
 function toggleNgBlind(){
   ngBlind=!ngBlind;
-  const label=`NGブラインド ${ngBlind?'ON':'OFF'}`;
-  const style=ngBlind?'background:rgba(248,81,73,.4);color:#fff;border:1px solid rgba(248,81,73,.8);':'background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.4);';
-  ['ngBlindBtn','ngBlindBtnLo','ngBlindBtnLd','ngBlindBtnRe'].forEach(id=>{
-    const el=document.getElementById(id);
-    if(el){el.textContent=label;el.style.cssText=el.style.cssText.replace(/background:[^;]+;color:[^;]+;border:[^;]+;/,style);}
-  });
+  _filterStateSet('ngBlind', ngBlind);  /* v20260516f: 永続化 */
+  _syncNgBlindUI();                     /* v20260516f: ボタン見た目を一元管理 */
   filterCases();
   filterLandowners();
   filterLandMaster();
