@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260516h / v20260516g + 地権者コピーモードに「エリア選択」を追加（2段階セレクタ） -->
+<!-- BUILD: main v20260516j / v20260516i + エリアセレクタを電力会社ベースに修正（バグ：田原市-XXXが中部電力に含まれない問題を解消） -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -810,18 +810,18 @@
         <div style="font-size:11px;color:var(--text-muted);margin-top:6px">※ 共有名義の場合、所有者ごとに切り替えて編集できます。保存は選択中の所有者のみ反映されます。</div>
       </div>
       <input type="hidden" id="elo_current_id" value="">
-      <!-- v20260516h: 地権者登録コピーモード（エリア→地権者 2段階セレクタ） -->
+      <!-- v20260516j: 地権者登録コピーモード（電力会社→地権者 2段階セレクタ） -->
       <div id="elo_copy_from_section" style="background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.3);border-radius:6px;padding:10px 12px;margin-bottom:12px">
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <label style="font-size:12px;color:#60a5fa;font-weight:600;white-space:nowrap">📋 同一地権者からコピー：</label>
-          <select id="elo_copy_area" class="form-input" style="flex:0 0 160px" onchange="_filterCopyFromByArea()">
-            <option value="">— エリア選択 —</option>
+          <select id="elo_copy_area" class="form-input" style="flex:0 0 180px" onchange="_filterCopyFromByArea()">
+            <option value="">— 電力会社を選択 —</option>
           </select>
           <select id="elo_copy_from" class="form-input" style="flex:1;min-width:240px" onchange="copyFromExistingLandowner(this.value)">
             <option value="">— 地権者を選択 —</option>
           </select>
         </div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">※ エリア（案件番号のプレフィックス）で絞り込んでから地権者を選択。氏名・電話・〒・住所・GoogleMAPを自動入力できます。</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">※ 電力会社で絞り込んでから地権者を選択。氏名・電話・〒・住所・GoogleMAPを自動入力できます。ヘッダーで選択中の電力会社が初期値になります。</div>
       </div>
       <div class="form-grid">
         <div class="form-group"><label class="form-label">氏名</label><input class="form-input" type="text" id="elo_name" placeholder="例：山田 太郎"></div>
@@ -3905,14 +3905,27 @@ function _extractAreaFromCaseNo(caseNo){
   return m?m[1]:'';
 }
 
+/* 住所から市町村を抽出（v20260516i）
+   例: "愛知県田原市田原町大字加治字天神6番地の" → "田原市"
+       "蒲郡市西浦町五郎蔵屋敷24番地" → "蒲郡市"（都道府県省略）
+       "神奈川県横浜市神奈川区浦島丘17番地1" → "横浜市" */
+function _extractCityFromAddress(addr){
+  if(!addr)return '';
+  /* 都道府県を除去 */
+  const noPref=String(addr).replace(/^\s*(東京都|北海道|(?:京都|大阪)府|[^\s]{2,3}県)/,'');
+  /* 最初の市区町村を抽出（区は政令市の区を吸収するため "市" 優先で抽出） */
+  const m=noPref.match(/^([^\s]+?[市区町村])/);
+  return m?m[1]:'';
+}
+
 async function _populateCopyFromLandownerSelect(){
   const areaSel=document.getElementById('elo_copy_area');
   const sel=document.getElementById('elo_copy_from');
   if(!sel||!areaSel)return;
   try{
-    /* 全 landowner_info を取得（氏名がある行のみ） */
+    /* 全 landowner_info を取得（氏名がある行のみ、cases.area_name も取得） */
     const{data,error}=await db.from('landowner_info')
-      .select('id,name,tel,postal_code,address,google_map,lat,lng,case_id,cases:case_id(case_no,parent_case_no,display_case_no)')
+      .select('id,name,tel,postal_code,address,google_map,lat,lng,case_id,cases:case_id(case_no,parent_case_no,display_case_no,area_name)')
       .not('name','is',null)
       .order('name',{ascending:true});
     if(error){
@@ -3924,58 +3937,96 @@ async function _populateCopyFromLandownerSelect(){
     /* 自案件は除外 */
     _copyFromAllLandowners=(data||[]).filter(d=>d.case_id!==currentCaseId);
 
-    /* エリア一覧抽出（案件番号のハイフン前、parent_case_no優先） */
-    const areaSet=new Set();
+    /* v20260516j: エリアを「電力会社」で判定（area_name → getPowerCompanyFromArea で電力会社を取得）
+       これにより「中部-XXX」「田原市-XXX」「磐田市-XXX」「浜松市-XXX」が全て「中部電力」に集約される */
+    const powerCount={};
     _copyFromAllLandowners.forEach(d=>{
-      const c=d.cases||{};
-      const caseNo=c.parent_case_no||c.case_no||'';
-      const area=_extractAreaFromCaseNo(caseNo);
-      if(area)areaSet.add(area);
+      const areaName=d.cases?.area_name||'';
+      const pc=(typeof getPowerCompanyFromArea==='function')?getPowerCompanyFromArea(areaName):'';
+      if(pc){
+        powerCount[pc]=(powerCount[pc]||0)+1;
+        d._powerCompany=pc;  /* キャッシュ */
+      }else{
+        d._powerCompany='(電力会社不明)';
+        powerCount['(電力会社不明)']=(powerCount['(電力会社不明)']||0)+1;
+      }
     });
-    const areas=Array.from(areaSet).sort((a,b)=>a.localeCompare(b,'ja'));
 
-    /* エリアセレクタを初期化（件数表示付き） */
-    const areaOpts=['<option value="">— エリア選択 —</option>','<option value="__ALL__">すべて表示（'+_copyFromAllLandowners.length+'件）</option>'];
-    areas.forEach(a=>{
-      const cnt=_copyFromAllLandowners.filter(d=>{
-        const c=d.cases||{};
-        return _extractAreaFromCaseNo(c.parent_case_no||c.case_no||'')===a;
-      }).length;
-      areaOpts.push(`<option value="${a}">${a}（${cnt}件）</option>`);
-    });
+    /* エリアセレクタは電力会社リスト（POWER_COMPANIES）で構築 */
+    const areaOpts=['<option value="">— 電力会社を選択 —</option>','<option value="__ALL__">すべて表示（'+_copyFromAllLandowners.length+'件）</option>'];
+    if(typeof POWER_COMPANIES!=='undefined'){
+      POWER_COMPANIES.forEach(pc=>{
+        const cnt=powerCount[pc]||0;
+        if(cnt>0)areaOpts.push(`<option value="${pc}">${pc}（${cnt}件）</option>`);
+      });
+    }
+    /* 電力会社不明分があれば末尾に追加 */
+    if(powerCount['(電力会社不明)']){
+      areaOpts.push(`<option value="(電力会社不明)">(電力会社不明)（${powerCount['(電力会社不明)']}件）</option>`);
+    }
     areaSel.innerHTML=areaOpts.join('');
 
-    /* 地権者セレクタは初期状態（エリア未選択）に */
-    sel.innerHTML='<option value="">— まずエリアを選択してください —</option>';
-    console.log('[copyFrom] 取得件数:',_copyFromAllLandowners.length,'/ エリア数:',areas.length);
+    /* 初期選択：ヘッダーの currentPowerCompany と同じにして自動絞り込み */
+    if(typeof currentPowerCompany!=='undefined'&&currentPowerCompany&&powerCount[currentPowerCompany]){
+      areaSel.value=currentPowerCompany;
+      _filterCopyFromByArea();  /* 自動的にフィルタ実行 */
+    }else{
+      sel.innerHTML='<option value="">— まず電力会社を選択してください —</option>';
+    }
+    console.log('[copyFrom] 取得件数:',_copyFromAllLandowners.length,'/ 電力会社別:',powerCount);
   }catch(e){
     console.error('[copyFrom] 例外:',e);
   }
 }
 
-/* エリア選択時のフィルタ処理：選択エリアに属する地権者だけを地権者セレクタに表示 */
+/* エリア選択時のフィルタ処理：選択された電力会社に属する地権者だけを地権者セレクタに表示
+   v20260516j: 案件番号プレフィックスではなく電力会社（getPowerCompanyFromArea）で判定 */
 function _filterCopyFromByArea(){
   const area=document.getElementById('elo_copy_area').value;
   const sel=document.getElementById('elo_copy_from');
   if(!sel)return;
   if(!area){
-    sel.innerHTML='<option value="">— まずエリアを選択してください —</option>';
+    sel.innerHTML='<option value="">— まず電力会社を選択してください —</option>';
     return;
   }
-  /* "__ALL__" の場合は全件、それ以外はエリア一致のみ */
-  const filtered=(area==='__ALL__')?_copyFromAllLandowners
-    :_copyFromAllLandowners.filter(d=>{
-      const c=d.cases||{};
-      return _extractAreaFromCaseNo(c.parent_case_no||c.case_no||'')===area;
-    });
+  /* "__ALL__" の場合は全件、それ以外は電力会社一致のみ */
+  const filtered=(area==='__ALL__')?_copyFromAllLandowners.slice()
+    :_copyFromAllLandowners.filter(d=>d._powerCompany===area);
+
+  /* 各レコードに市町村を付与してから、市町村→案件番号順でソート */
+  filtered.forEach(d=>{
+    d._city=_extractCityFromAddress(d.address)||'(住所未登録)';
+  });
+  filtered.sort((a,b)=>{
+    /* 市町村昇順（日本語ロケール） */
+    const ca=a._city||'';
+    const cb=b._city||'';
+    const cityCmp=ca.localeCompare(cb,'ja');
+    if(cityCmp!==0)return cityCmp;
+    /* 同一市町村内は案件番号順 */
+    const aCaseNo=(a.cases?.parent_case_no)||(a.cases?.case_no)||'';
+    const bCaseNo=(b.cases?.parent_case_no)||(b.cases?.case_no)||'';
+    return aCaseNo.localeCompare(bCaseNo,'ja',{numeric:true});
+  });
+
+  /* 市町村別の件数を計算（option の groupラベル用） */
+  const cityCount={};
+  filtered.forEach(d=>{ cityCount[d._city]=(cityCount[d._city]||0)+1; });
 
   const opts=['<option value="">— 地権者を選択（'+filtered.length+'件） —</option>'];
+  let lastCity=null;
   filtered.forEach(d=>{
     const c=d.cases||{};
     const caseNo=c.parent_case_no||c.case_no||'—';
     const branch=c.parent_case_no?` (枝${c.case_no?c.case_no.replace(c.parent_case_no+'-',''):''})`:'';
-    const addrSnip=d.address?' / '+d.address.substring(0,20):'';
-    const label=`[${caseNo}${branch}] ${d.name||'(無名)'}${addrSnip}`;
+    /* 市町村が変わったらセパレータを挿入（視認性向上） */
+    if(d._city!==lastCity){
+      opts.push(`<option value="" disabled style="background:rgba(96,165,250,.15);color:#60a5fa;font-weight:600">─── ${(typeof _escHtml==='function')?_escHtml(d._city):d._city}（${cityCount[d._city]}件） ───</option>`);
+      lastCity=d._city;
+    }
+    /* ラベル：[市町村] [案件番号] 氏名 / 住所詳細 */
+    const addrSnip=d.address?' / '+d.address.substring(0,30):'';
+    const label=`　[${d._city}] [${caseNo}${branch}] ${d.name||'(無名)'}${addrSnip}`;
     /* value にコピー用 payload を JSON で埋め込み */
     const payload={
       name:d.name||'',
@@ -4009,7 +4060,7 @@ function copyFromExistingLandowner(jsonStr){
     document.getElementById('elo_copy_from').value='';
     document.getElementById('elo_copy_area').value='';
     /* 地権者セレクタの中身もリセット */
-    document.getElementById('elo_copy_from').innerHTML='<option value="">— まずエリアを選択してください —</option>';
+    document.getElementById('elo_copy_from').innerHTML='<option value="">— まず電力会社を選択してください —</option>';
   }catch(e){
     console.error('[copyFrom] パースエラー:',e);
     showToast('コピーに失敗しました','error');
