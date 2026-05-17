@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260516w / v20260516vベース + 地権者コピー検索ロジックを修正：氏名の全角スペース揺れを吸収（「吉見」で「吉　見　○○」をヒット） -->
+<!-- BUILD: main v20260516y / v20260516xのステータス履歴システム + trigger_sourceをシンプル3種類（manual/letter_print/visit_complete）に確定 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -9,8 +9,8 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <!-- ローカルJS: 静的順序読み込み（POWER_COMPANIES等の定数を後続スクリプトが参照するため順序保証必須） -->
-<script src="common-auth.js?v=20260516w"></script>
-<script src="mode-back.js?v=20260516w"></script>
+<script src="common-auth.js?v=20260516y"></script>
+<script src="mode-back.js?v=20260516y"></script>
 <script>
 /* ===== version.json による自動更新チェック =====
    修正時は version.json のバージョン文字列を更新すること。
@@ -42,10 +42,10 @@
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <!-- ローカルCSS/JS: 静的順序読み込み（POWER_COMPANIES等を main.html inline JS が参照するため順序保証必須） -->
-<link rel="stylesheet" href="mobile-responsive.css?v=20260516w">
-<link rel="stylesheet" href="toki-ai.css?v=20260516w">
-<script src="power-company-utils.js?v=20260516w"></script>
-<script src="toki-ai.js?v=20260516w" defer></script>
+<link rel="stylesheet" href="mobile-responsive.css?v=20260516y">
+<link rel="stylesheet" href="toki-ai.css?v=20260516y">
+<script src="power-company-utils.js?v=20260516y"></script>
+<script src="toki-ai.js?v=20260516y" defer></script>
 <!-- 外部CDN（Supabase / pdf.js / pdf-lib）はバージョン固定 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -696,6 +696,22 @@
     <div class="detail-body">
       <div class="tab-pane active" id="tab-landowner">
         <div class="info-grid" id="landownerInfo"></div>
+
+        <!-- v20260516x: ステータス推移セクション -->
+        <div class="status-history-section" style="margin-top:18px;padding:14px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.25);border-radius:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <span class="section-title" style="font-weight:700;font-size:14px;color:#60a5fa">📜 ステータス推移</span>
+            <span id="statusHistoryStats" style="font-size:11px;color:var(--text-muted)"></span>
+          </div>
+          <div id="statusHistoryTimeline" style="display:flex;flex-direction:column;gap:6px">
+            <div style="color:var(--text-muted);font-size:12px;padding:8px">読込中...</div>
+          </div>
+          <div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);font-size:11px;color:var(--text-muted);display:flex;justify-content:space-between;align-items:center">
+            <span>💡 ステータス変更時のメモを残す</span>
+            <button type="button" class="btn btn-ghost" style="font-size:11px;padding:3px 10px" onclick="openStatusNoteDialog()">＋ メモ付きでステータス変更</button>
+          </div>
+        </div>
+
         <div class="negotiation-section">
           <div class="negotiation-header">
             <span class="section-title">📋 商談記録</span>
@@ -1821,8 +1837,19 @@ async function quickUpdateKubun(id,val,el){
   await refreshAll();
 }
 async function quickUpdateStatus(id,val,el){
-  const{error}=await db.from('cases').update({status:val}).eq('id',id);
-  if(error){showToast('更新エラー: '+error.message,'error');return;}
+  /* v20260516x: RPC経由で履歴自動記録（trigger_source='manual'） */
+  const{data:histId,error}=await db.rpc('change_case_status',{
+    p_case_id:id,
+    p_new_status:val,
+    p_trigger_source:'manual',
+    p_note:null
+  });
+  if(error){
+    /* フォールバック：RPCが未デプロイの場合は直接UPDATE（Triggerが履歴を残す） */
+    console.warn('[quickUpdateStatus] RPC失敗、直接UPDATEへフォールバック:',error);
+    const{error:err2}=await db.from('cases').update({status:val}).eq('id',id);
+    if(err2){showToast('更新エラー: '+err2.message,'error');return;}
+  }
   el.closest('.status-select-wrap').className=`status-badge status-select-wrap status-${statusClass(val)}`;
   showToast('ステータスを更新しました','success');
   await refreshAll();
@@ -2160,7 +2187,142 @@ async function openDetail(caseId,mode){
   document.getElementById(tab).classList.add('active');
   document.getElementById(mode==='land'?'tabLand':'tabLandowner').classList.add('active');
   document.getElementById('detailModal').classList.add('open');
-  await Promise.all([loadLandownerDetail(caseId),loadLandDetail(caseId),loadRealestateDetail(caseId),loadDocuments(caseId)]);
+  await Promise.all([loadLandownerDetail(caseId),loadLandDetail(caseId),loadRealestateDetail(caseId),loadDocuments(caseId),loadCaseStatusHistory(caseId)]);
+}
+
+/* v20260516x: ステータス推移タイムラインを案件詳細に描画 */
+async function loadCaseStatusHistory(caseId){
+  const tl=document.getElementById('statusHistoryTimeline');
+  const stats=document.getElementById('statusHistoryStats');
+  if(!tl)return;
+  tl.innerHTML='<div style="color:var(--text-muted);font-size:12px;padding:8px">読込中...</div>';
+  try{
+    const{data,error}=await db.from('case_status_history')
+      .select('*')
+      .eq('case_id',caseId)
+      .order('changed_at',{ascending:true});
+    if(error)throw error;
+    if(!data||!data.length){
+      tl.innerHTML='<div style="color:var(--text-muted);font-size:12px;padding:8px">履歴がありません（DBセットアップ未実行の可能性）</div>';
+      if(stats)stats.textContent='';
+      return;
+    }
+    /* 統計（トリガー別件数） */
+    const tc={};
+    data.forEach(h=>{tc[h.trigger_source]=(tc[h.trigger_source]||0)+1;});
+    const summary=[];
+    if(tc['letter_print'])summary.push('📮手紙'+tc['letter_print']);
+    if(tc['visit_complete'])summary.push('🚶訪問'+tc['visit_complete']);
+    if(tc['phone'])summary.push('📞電話'+tc['phone']);
+    if(tc['email'])summary.push('📧メール'+tc['email']);
+    if(tc['manual'])summary.push('✋手動'+tc['manual']);
+    if(stats)stats.textContent=summary.length?summary.join(' / '):(data.length+'件');
+    
+    /* タイムライン描画 */
+    let html='';
+    data.forEach((h,i)=>{
+      const dt=new Date(h.changed_at);
+      const dtStr=dt.toLocaleDateString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit'})+' '+dt.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
+      const triggerLabel={
+        'manual':'✋ 手動',
+        'letter_print':'📮 手紙印刷',
+        'visit_complete':'🚶 訪問完了',
+        'phone':'📞 電話',
+        'email':'📧 メール',
+        'initial_snapshot':'📍 履歴開始時点',
+        'auto':'⚙ 自動記録'
+      }[h.trigger_source]||h.trigger_source;
+      const oldBadge=h.old_status?`<span class="status-badge status-${statusClass(h.old_status)}" style="font-size:10px;padding:1px 6px">${_escHtml(h.old_status)}</span>`:'<span style="color:var(--text-muted);font-size:11px">(開始)</span>';
+      const newBadge=`<span class="status-badge status-${statusClass(h.new_status)}" style="font-size:10px;padding:1px 6px">${_escHtml(h.new_status)}</span>`;
+      html+=`<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--surface);border-radius:4px;font-size:12px;flex-wrap:wrap">
+        <span style="color:var(--text-muted);font-family:var(--font-mono);font-size:10px;min-width:28px">#${i+1}</span>
+        ${oldBadge}
+        <span style="color:var(--text-muted)">→</span>
+        ${newBadge}
+        <span style="margin-left:auto;color:var(--accent);font-size:10px;font-weight:600">${triggerLabel}</span>
+        <span style="color:var(--text-muted);font-family:var(--font-mono);font-size:10px">${dtStr}</span>
+      </div>`;
+      if(h.note){
+        html+=`<div style="padding:0 8px 6px 40px;color:var(--text-muted);font-size:11px;font-style:italic">📝 ${_escHtml(h.note)}</div>`;
+      }
+    });
+    tl.innerHTML=html;
+  }catch(e){
+    console.error('[loadCaseStatusHistory]',e);
+    tl.innerHTML='<div style="color:var(--red);font-size:12px;padding:8px">履歴取得エラー: '+_escHtml(e.message||String(e))+'</div>';
+  }
+}
+
+/* v20260516x: メモ付きでステータス変更するダイアログ */
+function openStatusNoteDialog(){
+  if(!currentCaseId){showToast('案件が選択されていません','error');return;}
+  const c=allCases.find(x=>String(x.id)===String(currentCaseId));
+  if(!c){showToast('案件データが見つかりません','error');return;}
+  /* 選択肢を構築 */
+  const STATUSES=['NOT VISITED','THINKING↑','THINKING→','THINKING↓','OK','SUCCESS','NON MEET','NG','UNKNOWN','LETTER','LTR済'];
+  /* v20260516y: シンプル3種類（manual / letter_print / visit_complete） */
+  const TRIGGERS=[
+    {v:'manual',label:'✋ 手動（その他）'},
+    {v:'letter_print',label:'📮 手紙関連'},
+    {v:'visit_complete',label:'🚶 訪問完了'}
+  ];
+  const overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:3000;display:flex;align-items:center;justify-content:center';
+  const statusOpts=STATUSES.map(s=>`<option value="${s}"${s===c.status?' selected':''}>${s}</option>`).join('');
+  const triggerOpts=TRIGGERS.map(t=>`<option value="${t.v}">${t.label}</option>`).join('');
+  overlay.innerHTML=`<div style="background:var(--bg);border:2px solid var(--accent);border-radius:10px;padding:20px;width:min(480px,calc(100vw - 40px));max-height:calc(100vh - 60px);overflow-y:auto;box-shadow:0 16px 48px rgba(0,0,0,.7)">
+    <div style="font-size:15px;font-weight:700;color:var(--accent);margin-bottom:14px">📝 メモ付きでステータス変更</div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div>
+        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">現在のステータス</label>
+        <div>${statusBadge(c.status)}</div>
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">新しいステータス</label>
+        <select id="snd_new_status" class="form-input" style="width:100%">${statusOpts}</select>
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">変更理由・営業手法</label>
+        <select id="snd_trigger" class="form-input" style="width:100%">${triggerOpts}</select>
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">補足メモ（任意）</label>
+        <textarea id="snd_note" class="form-input" rows="3" style="width:100%;resize:vertical" placeholder="例：電話で「興味なし」と返答／不在のため再訪予定 など"></textarea>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button class="btn btn-ghost" onclick="this.closest('[data-snd-overlay]').remove()">キャンセル</button>
+      <button class="btn btn-primary" onclick="_submitStatusNote(this)">保存</button>
+    </div>
+  </div>`;
+  overlay.setAttribute('data-snd-overlay','1');
+  overlay.addEventListener('click',(e)=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
+async function _submitStatusNote(btn){
+  const overlay=btn.closest('[data-snd-overlay]');
+  if(!overlay)return;
+  const newStatus=overlay.querySelector('#snd_new_status').value;
+  const trigger=overlay.querySelector('#snd_trigger').value;
+  const note=(overlay.querySelector('#snd_note').value||'').trim()||null;
+  if(!newStatus){showToast('ステータスを選択してください','error');return;}
+  btn.disabled=true;btn.textContent='保存中...';
+  try{
+    const{error}=await db.rpc('change_case_status',{
+      p_case_id:currentCaseId,
+      p_new_status:newStatus,
+      p_trigger_source:trigger,
+      p_note:note
+    });
+    if(error)throw error;
+    overlay.remove();
+    showToast('ステータスを変更しました','success');
+    await Promise.all([refreshAll(),loadCaseStatusHistory(currentCaseId)]);
+  }catch(e){
+    btn.disabled=false;btn.textContent='保存';
+    showToast('保存エラー: '+(e.message||e),'error');
+  }
 }
 
 // 📄 概要書を生成（新タブで case-summary.html を開く）
