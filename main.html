@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260516o / v20260516n + 地権者コピーで同一地権者を氏名+住所の正規化キーで集約（NFKC・空白・番地表記の揺れ吸収）、代表行+補助行で表示 -->
+<!-- BUILD: main v20260516p / v20260516o + 地権者コピーリストを氏名五十音順の単純リストに再設計（市町村セパレータ廃止、全案件番号を1行に列記して氏名・案件番号どちらでも探しやすく） -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -4007,8 +4007,7 @@ function _normalizeForOwnerCompare(s){
 }
 
 /* エリア選択時のフィルタ処理：選択された電力会社に属する地権者だけを地権者セレクタに表示
-   v20260516j: 案件番号プレフィックスではなく電力会社（getPowerCompanyFromArea）で判定
-   v20260516o: 同一地権者を氏名+住所の正規化キーで集約、代表行+補助行で表示 */
+   v20260516p: 氏名順の単純リストに再設計（市町村セパレータ廃止、全案件番号を一行に列記して典型的な「氏名」「案件番号」検索に最適化） */
 function _filterCopyFromByArea(){
   const area=document.getElementById('elo_copy_area').value;
   const sel=document.getElementById('elo_copy_from');
@@ -4021,17 +4020,12 @@ function _filterCopyFromByArea(){
   const filtered=(area==='__ALL__')?_copyFromAllLandowners.slice()
     :_copyFromAllLandowners.filter(d=>d._powerCompany===area);
 
-  /* 各レコードに市町村を付与 */
-  filtered.forEach(d=>{
-    d._city=_extractCityFromAddress(d.address)||'(住所未登録)';
-  });
-
-  /* v20260516o: 同一地権者を氏名+住所の正規化キーで group by */
+  /* 同一地権者を氏名+住所の正規化キーで group by */
   const groupMap={};
   filtered.forEach(d=>{
     const nameKey=_normalizeForOwnerCompare(d.name);
     const addrKey=_normalizeForOwnerCompare(d.address);
-    /* 住所が空の場合は氏名のみで判定（同名異人の懸念はあるが、入力支援としては許容） */
+    /* 住所が空の場合は氏名のみで判定 */
     const key=addrKey?(nameKey+'|'+addrKey):('NAME_ONLY|'+nameKey);
     if(!groupMap[key])groupMap[key]=[];
     groupMap[key].push(d);
@@ -4051,36 +4045,34 @@ function _filterCopyFromByArea(){
     return main;
   });
 
-  /* 代表レコードを 市町村→案件番号 順でソート */
+  /* v20260516p: 代表レコードを「氏名 五十音順」でソート。同名は案件番号順 */
   mainRecords.sort((a,b)=>{
-    const ca=a._city||'';
-    const cb=b._city||'';
-    const cityCmp=ca.localeCompare(cb,'ja');
-    if(cityCmp!==0)return cityCmp;
+    const an=(a.name||'').trim();
+    const bn=(b.name||'').trim();
+    const nameCmp=an.localeCompare(bn,'ja');
+    if(nameCmp!==0)return nameCmp;
     const aCaseNo=(a.cases?.parent_case_no)||(a.cases?.case_no)||'';
     const bCaseNo=(b.cases?.parent_case_no)||(b.cases?.case_no)||'';
     return aCaseNo.localeCompare(bCaseNo,'ja',{numeric:true});
   });
 
-  /* 市町村別の人数を計算 */
-  const cityPersonCount={};
-  mainRecords.forEach(d=>{ cityPersonCount[d._city]=(cityPersonCount[d._city]||0)+1; });
-
+  /* レンダリング：1人1行、氏名先頭、全案件番号を [...] 列記、住所は末尾 */
   const opts=['<option value="">— 地権者を選択（'+mainRecords.length+'人 / '+filtered.length+'件） —</option>'];
-  let lastCity=null;
   mainRecords.forEach(d=>{
     const c=d.cases||{};
-    const caseNo=c.parent_case_no||c.case_no||'—';
-    const branch=c.parent_case_no?` (枝${c.case_no?c.case_no.replace(c.parent_case_no+'-',''):''})`:'';
-    /* 市町村セパレータ */
-    if(d._city!==lastCity){
-      opts.push(`<option value="" disabled style="background:rgba(96,165,250,.15);color:#60a5fa;font-weight:600">─── ${(typeof _escHtml==='function')?_escHtml(d._city):d._city}（${cityPersonCount[d._city]}人） ───</option>`);
-      lastCity=d._city;
-    }
-    /* 代表行（選択可能） */
-    const addrSnip=d.address?' / '+d.address.substring(0,30):'';
-    const ownerCount=(d._sameOwnerOthers&&d._sameOwnerOthers.length)?` (×${d._sameOwnerOthers.length+1}件)`:'';
-    const label=`　[${d._city}] [${caseNo}${branch}] ${d.name||'(無名)'}${ownerCount}${addrSnip}`;
+    /* 全案件番号を ', ' で連結（代表 + 他案件） */
+    const allCaseNos=[c.parent_case_no||c.case_no||'?']
+      .concat((d._sameOwnerOthers||[]).map(o=>{
+        const oc=o.cases||{};
+        return oc.parent_case_no||oc.case_no||'?';
+      }));
+    const caseNosStr=allCaseNos.join(', ');
+    const count=allCaseNos.length;
+    const countMark=count>=2?` ×${count}件`:'';
+    const addrSnip=d.address?' / '+d.address.substring(0,28)+(d.address.length>28?'…':''):'';
+    /* ラベル：氏名 ×N件 [案件番号1, 案件番号2, ...] / 住所略 */
+    const label=`${d.name||'(無名)'}${countMark}　[${caseNosStr}]${addrSnip}`;
+    /* value にコピー用 payload を JSON で埋め込み */
     const payload={
       name:d.name||'',
       tel:d.tel||'',
@@ -4092,16 +4084,6 @@ function _filterCopyFromByArea(){
     };
     const v=JSON.stringify(payload).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
     opts.push(`<option value="${v}">${(typeof _escHtml==='function')?_escHtml(label):label.replace(/</g,'&lt;')}</option>`);
-    /* 補助行（disabled、案件番号のみ列記） */
-    if(d._sameOwnerOthers&&d._sameOwnerOthers.length>0){
-      const otherCaseNos=d._sameOwnerOthers.map(o=>{
-        const oc=o.cases||{};
-        const ocaseNo=oc.parent_case_no||oc.case_no||'?';
-        const obranch=oc.parent_case_no?` (枝${oc.case_no?oc.case_no.replace(oc.parent_case_no+'-',''):''})`:'';
-        return `[${ocaseNo}${obranch}]`;
-      }).join(' ');
-      opts.push(`<option value="" disabled style="color:var(--text-muted);font-size:11px;font-style:italic;padding-left:24px">　　└ 同一地権者の他案件: ${(typeof _escHtml==='function')?_escHtml(otherCaseNos):otherCaseNos}</option>`);
-    }
   });
   sel.innerHTML=opts.join('');
 }
