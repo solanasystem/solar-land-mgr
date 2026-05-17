@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260516j / v20260516i + エリアセレクタを電力会社ベースに修正（バグ：田原市-XXXが中部電力に含まれない問題を解消） -->
+<!-- BUILD: main v20260516k / v20260516j + GoogleMAP URL がコピー元で空でも lat/lng から自動生成（HTML属性エスケープも強化） -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -4037,7 +4037,7 @@ function _filterCopyFromByArea(){
       lat:d.lat==null?'':String(d.lat),
       lng:d.lng==null?'':String(d.lng)
     };
-    const v=JSON.stringify(payload).replace(/"/g,'&quot;');
+    const v=JSON.stringify(payload).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
     opts.push(`<option value="${v}">${(typeof _escHtml==='function')?_escHtml(label):label.replace(/</g,'&lt;')}</option>`);
   });
   sel.innerHTML=opts.join('');
@@ -4046,24 +4046,45 @@ function _filterCopyFromByArea(){
 function copyFromExistingLandowner(jsonStr){
   if(!jsonStr)return;
   try{
-    const d=JSON.parse(jsonStr.replace(/&quot;/g,'"'));
+    /* HTML属性エスケープを復号（&amp; を先に戻すと &quot; が二重置換される可能性があるため順序注意） */
+    const d=JSON.parse(jsonStr.replace(/&quot;/g,'"').replace(/&amp;/g,'&'));
+    console.log('[copyFrom] コピー元データ:',d);
     /* 5項目 + lat/lng を一括反映 */
     if(d.name!==undefined)document.getElementById('elo_name').value=d.name;
     if(d.tel!==undefined)document.getElementById('elo_tel').value=d.tel;
     if(d.postal_code!==undefined)document.getElementById('elo_postal_code').value=d.postal_code;
     if(d.address!==undefined)document.getElementById('elo_address').value=d.address;
-    if(d.google_map!==undefined)document.getElementById('elo_google_map').value=d.google_map;
+
+    /* v20260516k: GoogleMAP URL フォールバック処理
+       コピー元に google_map URL が登録されていない場合、lat/lng から URL を自動生成 */
+    let gmap=d.google_map||'';
+    if(!gmap && d.lat && d.lng){
+      gmap=`https://www.google.com/maps/@${d.lat},${d.lng},17z`;
+      console.log('[copyFrom] google_map が空のため lat/lng から URL を自動生成:',gmap);
+    }
+    document.getElementById('elo_google_map').value=gmap;
+
     if(d.lat!==undefined)document.getElementById('elo_lat').value=d.lat;
     if(d.lng!==undefined)document.getElementById('elo_lng').value=d.lng;
-    showToast('✅ '+(d.name||'地権者')+' の情報をコピーしました');
+
+    /* コピーされた項目の一覧をトーストに表示（透明性向上） */
+    const copied=[];
+    if(d.name)copied.push('氏名');
+    if(d.tel)copied.push('電話');
+    if(d.postal_code)copied.push('〒');
+    if(d.address)copied.push('住所');
+    if(gmap)copied.push('GoogleMAP'+(d.google_map?'':'(自動生成)'));
+    if(d.lat||d.lng)copied.push('緯度経度');
+    showToast('✅ '+(d.name||'地権者')+' をコピー: '+copied.join('・'));
+
     /* 両セレクタをリセット（連続コピー防止） */
     document.getElementById('elo_copy_from').value='';
     document.getElementById('elo_copy_area').value='';
     /* 地権者セレクタの中身もリセット */
     document.getElementById('elo_copy_from').innerHTML='<option value="">— まず電力会社を選択してください —</option>';
   }catch(e){
-    console.error('[copyFrom] パースエラー:',e);
-    showToast('コピーに失敗しました','error');
+    console.error('[copyFrom] パースエラー:',e,'jsonStr:',jsonStr);
+    showToast('コピーに失敗しました: '+(e.message||e),'error');
   }
 }
 
