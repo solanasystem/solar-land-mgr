@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260516u / v20260516tベース + 重大バグ修正：_populateCopyFromLandownerSelect が削除済み旧select id='elo_copy_from' を参照していて即returnしていた問題を解消（電力会社リストが出ない原因） -->
+<!-- BUILD: main v20260516v / v20260516uベース + 地権者コピーパネルをposition:fixedで画面中央配置（モーダルからはみ出し横スクロール発生問題を解消）+ 半透明オーバーレイ追加 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -9,8 +9,8 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <!-- ローカルJS: 静的順序読み込み（POWER_COMPANIES等の定数を後続スクリプトが参照するため順序保証必須） -->
-<script src="common-auth.js?v=20260516u"></script>
-<script src="mode-back.js?v=20260516u"></script>
+<script src="common-auth.js?v=20260516v"></script>
+<script src="mode-back.js?v=20260516v"></script>
 <script>
 /* ===== version.json による自動更新チェック =====
    修正時は version.json のバージョン文字列を更新すること。
@@ -42,10 +42,10 @@
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <!-- ローカルCSS/JS: 静的順序読み込み（POWER_COMPANIES等を main.html inline JS が参照するため順序保証必須） -->
-<link rel="stylesheet" href="mobile-responsive.css?v=20260516u">
-<link rel="stylesheet" href="toki-ai.css?v=20260516u">
-<script src="power-company-utils.js?v=20260516u"></script>
-<script src="toki-ai.js?v=20260516u" defer></script>
+<link rel="stylesheet" href="mobile-responsive.css?v=20260516v">
+<link rel="stylesheet" href="toki-ai.css?v=20260516v">
+<script src="power-company-utils.js?v=20260516v"></script>
+<script src="toki-ai.js?v=20260516v" defer></script>
 <!-- 外部CDN（Supabase / pdf.js / pdf-lib）はバージョン固定 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -827,7 +827,9 @@
               <span id="elo_copy_from_btn_label">— まず電力会社を選択してください —</span>
               <span style="color:var(--text-muted);font-size:11px">▼</span>
             </button>
-            <div id="elo_copy_from_panel" style="display:none;position:absolute;top:calc(100% + 4px);left:0;width:720px;max-width:90vw;background:var(--bg);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:1000;flex-direction:column;max-height:480px">
+            <!-- v20260516v: パネル背景の半透明オーバーレイ（クリックで閉じる） -->
+            <div id="elo_copy_from_overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1999" onclick="_toggleCopyFromPicker()"></div>
+            <div id="elo_copy_from_panel" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(720px,calc(100vw - 40px));max-height:min(640px,calc(100vh - 80px));background:var(--bg);border:2px solid var(--accent);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.7);z-index:2000;flex-direction:column">
               <!-- 検索ボックス -->
               <div style="padding:10px 12px;border-bottom:1px solid var(--border)">
                 <input type="text" id="elo_copy_from_search" placeholder="🔍 氏名・案件番号で絞り込み..." oninput="_filterCopyFromPickerRows()"
@@ -840,7 +842,7 @@
                 <div>関連案件番号</div>
               </div>
               <!-- データ行（スクロール） -->
-              <div id="elo_copy_from_rows" style="overflow-y:auto;flex:1;max-height:380px"></div>
+              <div id="elo_copy_from_rows" style="overflow-y:auto;flex:1;min-height:200px"></div>
               <!-- フッター -->
               <div id="elo_copy_from_footer" style="padding:6px 12px;background:var(--surface);border-top:1px solid var(--border);font-size:11px;color:var(--text-muted);text-align:center"></div>
             </div>
@@ -1515,21 +1517,18 @@ document.addEventListener('DOMContentLoaded',()=>{
   const nh=document.querySelector('.nav')?.offsetHeight||42;
   document.getElementById('stickyZone').style.top=(hh+nh)+'px';
 
-  /* v20260516q: 地権者コピーピッカーの Esc キー＋外部クリック閉じる処理 */
+  /* v20260516q+v: 地権者コピーピッカーの Esc キー＋外部クリック閉じる処理（オーバーレイも同期） */
   document.addEventListener('keydown',(e)=>{
     if(e.key==='Escape'){
       const p=document.getElementById('elo_copy_from_panel');
-      if(p&&p.style.display==='flex'){p.style.display='none';}
+      const ov=document.getElementById('elo_copy_from_overlay');
+      if(p&&p.style.display==='flex'){
+        p.style.display='none';
+        if(ov)ov.style.display='none';
+      }
     }
   });
-  document.addEventListener('click',(e)=>{
-    const p=document.getElementById('elo_copy_from_panel');
-    const btn=document.getElementById('elo_copy_from_btn');
-    if(!p||!btn)return;
-    if(p.style.display!=='flex')return;
-    if(p.contains(e.target)||btn.contains(e.target))return;
-    p.style.display='none';
-  });
+  /* v20260516v: position:fixed パネル + オーバーレイ方式に変更したため外部クリック処理は不要（オーバーレイ自体が onclick で閉じる） */
 });
 
 async function loadCases(){
@@ -4175,9 +4174,11 @@ function _filterCopyFromPickerRows(){
 /* パネルの開閉 */
 function _toggleCopyFromPicker(){
   const p=document.getElementById('elo_copy_from_panel');
+  const ov=document.getElementById('elo_copy_from_overlay');
   if(!p)return;
   const isOpen=p.style.display==='flex';
   p.style.display=isOpen?'none':'flex';
+  if(ov)ov.style.display=isOpen?'none':'block';  /* v20260516v: オーバーレイ同期 */
   if(!isOpen){
     setTimeout(()=>{
       const s=document.getElementById('elo_copy_from_search');
@@ -4227,9 +4228,11 @@ function copyFromExistingLandowner(jsonStr){
     showToast('✅ '+(d.name||'地権者')+' をコピー: '+copied.join('・'));
 
     /* 両セレクタをリセット（連続コピー防止） */
-    /* v20260516q: 新ピッカー対応 — パネルを閉じる、エリアセレクタはそのまま維持 */
+    /* v20260516q+v: 新ピッカー対応 — パネル+オーバーレイを閉じる、エリアセレクタは維持 */
     const panel=document.getElementById('elo_copy_from_panel');
+    const overlay=document.getElementById('elo_copy_from_overlay');
     if(panel)panel.style.display='none';
+    if(overlay)overlay.style.display='none';
     const lbl=document.getElementById('elo_copy_from_btn_label');
     if(lbl)lbl.textContent=`✓ コピー済: ${d.name||'地権者'}（再選択するには再度クリック）`;
   }catch(e){
