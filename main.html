@@ -1,15 +1,27 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260516p / v20260516o + 地権者コピーリストを氏名五十音順の単純リストに再設計（市町村セパレータ廃止、全案件番号を1行に列記して氏名・案件番号どちらでも探しやすく） -->
+<!-- BUILD: main v20260516r / v20260516q + 強力キャッシュバスター追加（settings.html と同方式）：no-cache メタ + 全外部JS/CSSに Date.now() 動的付与 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<!-- ===== 権限管理ガード v20260515ae (common-auth.js) - 必ず他スクリプトより前に配置 ===== -->
-<script src="common-auth.js"></script>
-<!-- ===== MODE SELECT 戻るボタン v20260515ae (mode-back.js) ===== -->
-<script src="mode-back.js"></script>
-<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<!-- v20260516r: 強力なキャッシュ制御（HTML自体を毎回再取得） -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<!-- v20260516r: 外部JS/CSS をキャッシュバスター付きで動的に読み込む（強制リロード不要） -->
+<script>
+(function(){
+  var bust = 'v=' + Date.now();
+  function load(tagName, attrs){
+    var el = document.createElement(tagName);
+    Object.keys(attrs).forEach(function(k){ el.setAttribute(k, attrs[k]); });
+    if (tagName === 'script') el.async = false; // 順序保証
+    document.write(el.outerHTML);
+  }
+  load('script', { src: 'common-auth.js?' + bust });
+  load('script', { src: 'mode-back.js?' + bust });
+})();
+</script>
 <script>
 /* ===== version.json による自動更新チェック =====
    修正時は version.json のバージョン文字列を更新すること。
@@ -40,13 +52,33 @@
 </script>
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="mobile-responsive.css?v=20260429a">
-<link rel="stylesheet" href="toki-ai.css?v=20260501f">
+<!-- v20260516r: ローカルリソースをキャッシュバスター付きで動的読み込み -->
+<script>
+(function(){
+  var bust = 'v=' + Date.now();
+  function loadCSS(href){
+    var el = document.createElement('link');
+    el.rel = 'stylesheet';
+    el.href = href + (href.indexOf('?')>=0?'&':'?') + bust;
+    document.write(el.outerHTML);
+  }
+  function loadJS(src, defer){
+    var el = document.createElement('script');
+    el.src = src + (src.indexOf('?')>=0?'&':'?') + bust;
+    if(defer) el.defer = true;
+    el.async = false;
+    document.write(el.outerHTML);
+  }
+  loadCSS('mobile-responsive.css');
+  loadCSS('toki-ai.css');
+  loadJS('power-company-utils.js');
+  loadJS('toki-ai.js', true);
+})();
+</script>
+<!-- 外部CDN（Supabase / pdf.js / pdf-lib）はバージョン固定 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-<script src="power-company-utils.js?v=20260501f"></script>
-<script src="toki-ai.js?v=20260501f" defer></script>
 <style>
   :root {
     --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
@@ -810,18 +842,40 @@
         <div style="font-size:11px;color:var(--text-muted);margin-top:6px">※ 共有名義の場合、所有者ごとに切り替えて編集できます。保存は選択中の所有者のみ反映されます。</div>
       </div>
       <input type="hidden" id="elo_current_id" value="">
-      <!-- v20260516j: 地権者登録コピーモード（電力会社→地権者 2段階セレクタ） -->
-      <div id="elo_copy_from_section" style="background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.3);border-radius:6px;padding:10px 12px;margin-bottom:12px">
+      <!-- v20260516q: 地権者登録コピーモード（電力会社→テーブル形式ピッカー） -->
+      <div id="elo_copy_from_section" style="background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.3);border-radius:6px;padding:10px 12px;margin-bottom:12px;position:relative">
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <label style="font-size:12px;color:#60a5fa;font-weight:600;white-space:nowrap">📋 同一地権者からコピー：</label>
           <select id="elo_copy_area" class="form-input" style="flex:0 0 180px" onchange="_filterCopyFromByArea()">
             <option value="">— 電力会社を選択 —</option>
           </select>
-          <select id="elo_copy_from" class="form-input" style="flex:1;min-width:240px" onchange="copyFromExistingLandowner(this.value)">
-            <option value="">— 地権者を選択 —</option>
-          </select>
+          <!-- カスタムピッカー：ボタンクリックで下にテーブルパネルを展開 -->
+          <div style="flex:1;min-width:240px;position:relative">
+            <button type="button" id="elo_copy_from_btn" onclick="_toggleCopyFromPicker()"
+                    class="form-input" style="width:100%;text-align:left;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+              <span id="elo_copy_from_btn_label">— まず電力会社を選択してください —</span>
+              <span style="color:var(--text-muted);font-size:11px">▼</span>
+            </button>
+            <div id="elo_copy_from_panel" style="display:none;position:absolute;top:calc(100% + 4px);left:0;width:720px;max-width:90vw;background:var(--bg);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:1000;flex-direction:column;max-height:480px">
+              <!-- 検索ボックス -->
+              <div style="padding:10px 12px;border-bottom:1px solid var(--border)">
+                <input type="text" id="elo_copy_from_search" placeholder="🔍 氏名・案件番号で絞り込み..." oninput="_filterCopyFromPickerRows()"
+                       style="width:100%;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px;outline:none">
+              </div>
+              <!-- 固定ヘッダー -->
+              <div style="display:grid;grid-template-columns:50px 1fr 1.4fr;gap:8px;padding:8px 12px;background:var(--surface2);border-bottom:2px solid var(--accent);font-size:11px;font-weight:700;color:var(--text);letter-spacing:1px">
+                <div style="text-align:center">No</div>
+                <div>地権者名</div>
+                <div>関連案件番号</div>
+              </div>
+              <!-- データ行（スクロール） -->
+              <div id="elo_copy_from_rows" style="overflow-y:auto;flex:1;max-height:380px"></div>
+              <!-- フッター -->
+              <div id="elo_copy_from_footer" style="padding:6px 12px;background:var(--surface);border-top:1px solid var(--border);font-size:11px;color:var(--text-muted);text-align:center"></div>
+            </div>
+          </div>
         </div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">※ 電力会社で絞り込んでから地権者を選択。氏名・電話・〒・住所・GoogleMAPを自動入力できます。ヘッダーで選択中の電力会社が初期値になります。</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">※ 電力会社で絞り込んでから「地権者を選択」ボタンを押し、リストから選択。Esc キーまたはパネル外クリックで閉じる。</div>
       </div>
       <div class="form-grid">
         <div class="form-group"><label class="form-label">氏名</label><input class="form-input" type="text" id="elo_name" placeholder="例：山田 太郎"></div>
@@ -1489,6 +1543,22 @@ document.addEventListener('DOMContentLoaded',()=>{
   const hh=document.querySelector('.header')?.offsetHeight||56;
   const nh=document.querySelector('.nav')?.offsetHeight||42;
   document.getElementById('stickyZone').style.top=(hh+nh)+'px';
+
+  /* v20260516q: 地権者コピーピッカーの Esc キー＋外部クリック閉じる処理 */
+  document.addEventListener('keydown',(e)=>{
+    if(e.key==='Escape'){
+      const p=document.getElementById('elo_copy_from_panel');
+      if(p&&p.style.display==='flex'){p.style.display='none';}
+    }
+  });
+  document.addEventListener('click',(e)=>{
+    const p=document.getElementById('elo_copy_from_panel');
+    const btn=document.getElementById('elo_copy_from_btn');
+    if(!p||!btn)return;
+    if(p.style.display!=='flex')return;
+    if(p.contains(e.target)||btn.contains(e.target))return;
+    p.style.display='none';
+  });
 });
 
 async function loadCases(){
@@ -4006,17 +4076,20 @@ function _normalizeForOwnerCompare(s){
     .toLowerCase();
 }
 
-/* エリア選択時のフィルタ処理：選択された電力会社に属する地権者だけを地権者セレクタに表示
-   v20260516p: 氏名順の単純リストに再設計（市町村セパレータ廃止、全案件番号を一行に列記して典型的な「氏名」「案件番号」検索に最適化） */
+/* エリア選択時のフィルタ処理：選択された電力会社に属する地権者だけをカスタムピッカーに表示
+   v20260516q: テーブル形式（No / 地権者名 / 関連案件番号）の3列レイアウトに再設計、固定ヘッダー、検索可能 */
 function _filterCopyFromByArea(){
   const area=document.getElementById('elo_copy_area').value;
-  const sel=document.getElementById('elo_copy_from');
-  if(!sel)return;
+  const lbl=document.getElementById('elo_copy_from_btn_label');
+  const rows=document.getElementById('elo_copy_from_rows');
+  const footer=document.getElementById('elo_copy_from_footer');
+  if(!rows)return;
   if(!area){
-    sel.innerHTML='<option value="">— まず電力会社を選択してください —</option>';
+    if(lbl)lbl.textContent='— まず電力会社を選択してください —';
+    rows.innerHTML='<div style="padding:24px;text-align:center;color:var(--text-muted)">まず電力会社を選択してください</div>';
+    if(footer)footer.textContent='';
     return;
   }
-  /* "__ALL__" の場合は全件、それ以外は電力会社一致のみ */
   const filtered=(area==='__ALL__')?_copyFromAllLandowners.slice()
     :_copyFromAllLandowners.filter(d=>d._powerCompany===area);
 
@@ -4025,12 +4098,10 @@ function _filterCopyFromByArea(){
   filtered.forEach(d=>{
     const nameKey=_normalizeForOwnerCompare(d.name);
     const addrKey=_normalizeForOwnerCompare(d.address);
-    /* 住所が空の場合は氏名のみで判定 */
     const key=addrKey?(nameKey+'|'+addrKey):('NAME_ONLY|'+nameKey);
     if(!groupMap[key])groupMap[key]=[];
     groupMap[key].push(d);
   });
-  /* 各グループ内で案件番号順にソート（一番若い番号を先頭に） */
   Object.values(groupMap).forEach(grp=>{
     grp.sort((a,b)=>{
       const aCaseNo=(a.cases?.parent_case_no)||(a.cases?.case_no)||'';
@@ -4038,14 +4109,11 @@ function _filterCopyFromByArea(){
       return aCaseNo.localeCompare(bCaseNo,'ja',{numeric:true});
     });
   });
-  /* 代表（先頭）レコードに「他案件」を付与 */
   const mainRecords=Object.values(groupMap).map(grp=>{
     const main=grp[0];
     main._sameOwnerOthers=grp.slice(1);
     return main;
   });
-
-  /* v20260516p: 代表レコードを「氏名 五十音順」でソート。同名は案件番号順 */
   mainRecords.sort((a,b)=>{
     const an=(a.name||'').trim();
     const bn=(b.name||'').trim();
@@ -4056,11 +4124,23 @@ function _filterCopyFromByArea(){
     return aCaseNo.localeCompare(bCaseNo,'ja',{numeric:true});
   });
 
-  /* レンダリング：1人1行、氏名先頭、全案件番号を [...] 列記、住所は末尾 */
-  const opts=['<option value="">— 地権者を選択（'+mainRecords.length+'人 / '+filtered.length+'件） —</option>'];
-  mainRecords.forEach(d=>{
+  _renderCopyFromPickerRows(mainRecords,filtered.length);
+  if(lbl)lbl.textContent=`地権者を選択（${mainRecords.length}人 / ${filtered.length}件）`;
+}
+
+/* テーブル形式の行を描画 */
+function _renderCopyFromPickerRows(mainRecords,totalCount){
+  const rows=document.getElementById('elo_copy_from_rows');
+  const footer=document.getElementById('elo_copy_from_footer');
+  if(!rows)return;
+  if(!mainRecords.length){
+    rows.innerHTML='<div style="padding:24px;text-align:center;color:var(--text-muted)">該当する地権者がいません</div>';
+    if(footer)footer.textContent='';
+    return;
+  }
+  let html='';
+  mainRecords.forEach((d,idx)=>{
     const c=d.cases||{};
-    /* 全案件番号を ', ' で連結（代表 + 他案件） */
     const allCaseNos=[c.parent_case_no||c.case_no||'?']
       .concat((d._sameOwnerOthers||[]).map(o=>{
         const oc=o.cases||{};
@@ -4068,11 +4148,7 @@ function _filterCopyFromByArea(){
       }));
     const caseNosStr=allCaseNos.join(', ');
     const count=allCaseNos.length;
-    const countMark=count>=2?` ×${count}件`:'';
-    const addrSnip=d.address?' / '+d.address.substring(0,28)+(d.address.length>28?'…':''):'';
-    /* ラベル：氏名 ×N件 [案件番号1, 案件番号2, ...] / 住所略 */
-    const label=`${d.name||'(無名)'}${countMark}　[${caseNosStr}]${addrSnip}`;
-    /* value にコピー用 payload を JSON で埋め込み */
+    const countBadge=count>=2?` <span style="background:rgba(240,180,41,.2);color:#f0b429;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;margin-left:4px">×${count}</span>`:'';
     const payload={
       name:d.name||'',
       tel:d.tel||'',
@@ -4082,10 +4158,57 @@ function _filterCopyFromByArea(){
       lat:d.lat==null?'':String(d.lat),
       lng:d.lng==null?'':String(d.lng)
     };
-    const v=JSON.stringify(payload).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
-    opts.push(`<option value="${v}">${(typeof _escHtml==='function')?_escHtml(label):label.replace(/</g,'&lt;')}</option>`);
+    const payloadEsc=JSON.stringify(payload).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    const searchText=((d.name||'')+' '+caseNosStr).toLowerCase();
+    const searchTextEsc=(typeof _escHtml==='function')?_escHtml(searchText):searchText.replace(/</g,'&lt;');
+    const nameEsc=(typeof _escHtml==='function')?_escHtml(d.name||'(無名)'):(d.name||'(無名)').replace(/</g,'&lt;');
+    const caseNosEsc=(typeof _escHtml==='function')?_escHtml(caseNosStr):caseNosStr.replace(/</g,'&lt;');
+    html+=`<div class="copy-row" data-search-text="${searchTextEsc}" data-payload="${payloadEsc}" onclick="_pickCopyRow(this)"
+      style="display:grid;grid-template-columns:50px 1fr 1.4fr;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px;align-items:center"
+      onmouseover="this.style.background='rgba(96,165,250,.12)'"
+      onmouseout="this.style.background='transparent'">
+      <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:11px">${idx+1}</div>
+      <div style="font-weight:600;color:var(--text)">${nameEsc}${countBadge}</div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--accent)">${caseNosEsc}</div>
+    </div>`;
   });
-  sel.innerHTML=opts.join('');
+  rows.innerHTML=html;
+  if(footer)footer.textContent=`${mainRecords.length}人 / 全${totalCount}件　行をクリックでコピー実行`;
+}
+
+/* 検索ボックス入力時のリアルタイム絞り込み */
+function _filterCopyFromPickerRows(){
+  const q=(document.getElementById('elo_copy_from_search').value||'').toLowerCase().trim();
+  let visible=0,total=0;
+  document.querySelectorAll('#elo_copy_from_rows .copy-row').forEach(row=>{
+    total++;
+    const t=row.dataset.searchText||'';
+    const show=!q||t.includes(q);
+    row.style.display=show?'grid':'none';
+    if(show)visible++;
+  });
+  const footer=document.getElementById('elo_copy_from_footer');
+  if(footer)footer.textContent=q?`絞り込み: ${visible}/${total}人　行をクリックでコピー実行`:`${total}人　行をクリックでコピー実行`;
+}
+
+/* パネルの開閉 */
+function _toggleCopyFromPicker(){
+  const p=document.getElementById('elo_copy_from_panel');
+  if(!p)return;
+  const isOpen=p.style.display==='flex';
+  p.style.display=isOpen?'none':'flex';
+  if(!isOpen){
+    setTimeout(()=>{
+      const s=document.getElementById('elo_copy_from_search');
+      if(s){s.value='';s.focus();_filterCopyFromPickerRows();}
+    },50);
+  }
+}
+
+/* 行クリック処理 */
+function _pickCopyRow(el){
+  const raw=el.dataset.payload||'';
+  copyFromExistingLandowner(raw);
 }
 
 function copyFromExistingLandowner(jsonStr){
@@ -4123,10 +4246,11 @@ function copyFromExistingLandowner(jsonStr){
     showToast('✅ '+(d.name||'地権者')+' をコピー: '+copied.join('・'));
 
     /* 両セレクタをリセット（連続コピー防止） */
-    document.getElementById('elo_copy_from').value='';
-    document.getElementById('elo_copy_area').value='';
-    /* 地権者セレクタの中身もリセット */
-    document.getElementById('elo_copy_from').innerHTML='<option value="">— まず電力会社を選択してください —</option>';
+    /* v20260516q: 新ピッカー対応 — パネルを閉じる、エリアセレクタはそのまま維持 */
+    const panel=document.getElementById('elo_copy_from_panel');
+    if(panel)panel.style.display='none';
+    const lbl=document.getElementById('elo_copy_from_btn_label');
+    if(lbl)lbl.textContent=`✓ コピー済: ${d.name||'地権者'}（再選択するには再度クリック）`;
   }catch(e){
     console.error('[copyFrom] パースエラー:',e,'jsonStr:',jsonStr);
     showToast('コピーに失敗しました: '+(e.message||e),'error');
