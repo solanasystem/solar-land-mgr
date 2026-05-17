@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260516g / v20260516f + 地権者登録コピーモード（同一地権者の情報を一括コピー） -->
+<!-- BUILD: main v20260516h / v20260516g + 地権者コピーモードに「エリア選択」を追加（2段階セレクタ） -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -810,15 +810,18 @@
         <div style="font-size:11px;color:var(--text-muted);margin-top:6px">※ 共有名義の場合、所有者ごとに切り替えて編集できます。保存は選択中の所有者のみ反映されます。</div>
       </div>
       <input type="hidden" id="elo_current_id" value="">
-      <!-- v20260516g: 地権者登録コピーモード（同一地権者の情報を一括コピー） -->
+      <!-- v20260516h: 地権者登録コピーモード（エリア→地権者 2段階セレクタ） -->
       <div id="elo_copy_from_section" style="background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.3);border-radius:6px;padding:10px 12px;margin-bottom:12px">
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <label style="font-size:12px;color:#60a5fa;font-weight:600;white-space:nowrap">📋 同一地権者からコピー：</label>
+          <select id="elo_copy_area" class="form-input" style="flex:0 0 160px" onchange="_filterCopyFromByArea()">
+            <option value="">— エリア選択 —</option>
+          </select>
           <select id="elo_copy_from" class="form-input" style="flex:1;min-width:240px" onchange="copyFromExistingLandowner(this.value)">
-            <option value="">— 既存の案件から選択 —</option>
+            <option value="">— 地権者を選択 —</option>
           </select>
         </div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">※ 同一地権者の案件が既に登録されている場合、氏名・電話・〒・住所・GoogleMAPを自動入力できます。</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">※ エリア（案件番号のプレフィックス）で絞り込んでから地権者を選択。氏名・電話・〒・住所・GoogleMAPを自動入力できます。</div>
       </div>
       <div class="form-grid">
         <div class="form-group"><label class="form-label">氏名</label><input class="form-input" type="text" id="elo_name" placeholder="例：山田 太郎"></div>
@@ -3889,50 +3892,104 @@ function addNewLandownerEdit(){
 }
 
 /* ============================================================================
-   v20260516g: 地権者登録コピーモード
+   v20260516h: 地権者登録コピーモード（エリア→地権者 2段階セレクタ）
    既存案件の地権者情報（氏名・電話・〒・住所・GoogleMAP）を一括コピー
    ============================================================================ */
+let _copyFromAllLandowners=[];  /* 全地権者データのキャッシュ（自案件除外） */
+
+/* 案件番号からエリア（プレフィックス）を抽出
+   例: "中部-001" → "中部", "中部-001-1"（枝番）→ "中部", "東京湾岸-005" → "東京湾岸" */
+function _extractAreaFromCaseNo(caseNo){
+  if(!caseNo)return '';
+  const m=String(caseNo).match(/^([^-]+)-/);
+  return m?m[1]:'';
+}
+
 async function _populateCopyFromLandownerSelect(){
+  const areaSel=document.getElementById('elo_copy_area');
   const sel=document.getElementById('elo_copy_from');
-  if(!sel)return;
+  if(!sel||!areaSel)return;
   try{
-    /* 全 landowner_info を取得（自案件以外を対象、氏名がある行のみ） */
+    /* 全 landowner_info を取得（氏名がある行のみ） */
     const{data,error}=await db.from('landowner_info')
       .select('id,name,tel,postal_code,address,google_map,lat,lng,case_id,cases:case_id(case_no,parent_case_no,display_case_no)')
       .not('name','is',null)
       .order('name',{ascending:true});
     if(error){
       console.error('[copyFrom] 地権者リスト取得エラー:',error);
+      areaSel.innerHTML='<option value="">— 取得失敗 —</option>';
       sel.innerHTML='<option value="">— 取得失敗 —</option>';
       return;
     }
-    /* 自案件は除外（既に編集中なので不要） */
-    const filtered=(data||[]).filter(d=>d.case_id!==currentCaseId);
-    const opts=['<option value="">— 既存の案件から選択 —</option>'];
-    filtered.forEach(d=>{
+    /* 自案件は除外 */
+    _copyFromAllLandowners=(data||[]).filter(d=>d.case_id!==currentCaseId);
+
+    /* エリア一覧抽出（案件番号のハイフン前、parent_case_no優先） */
+    const areaSet=new Set();
+    _copyFromAllLandowners.forEach(d=>{
       const c=d.cases||{};
-      /* 案件番号表示：parent_case_no があれば優先、なければ case_no */
-      const caseNo=c.parent_case_no||c.case_no||'—';
-      const branch=c.parent_case_no?` (枝${c.case_no?c.case_no.replace(c.parent_case_no+'-',''):''})`:'';
-      const label=`[${caseNo}${branch}] ${d.name||'(無名)'}${d.address?' / '+d.address.substring(0,20):''}`;
-      /* value にコピー用 payload を JSON で埋め込み */
-      const payload={
-        name:d.name||'',
-        tel:d.tel||'',
-        postal_code:d.postal_code||'',
-        address:d.address||'',
-        google_map:d.google_map||'',
-        lat:d.lat==null?'':String(d.lat),
-        lng:d.lng==null?'':String(d.lng)
-      };
-      const v=JSON.stringify(payload).replace(/"/g,'&quot;');
-      opts.push(`<option value="${v}">${_escHtml ? _escHtml(label) : label.replace(/</g,'&lt;')}</option>`);
+      const caseNo=c.parent_case_no||c.case_no||'';
+      const area=_extractAreaFromCaseNo(caseNo);
+      if(area)areaSet.add(area);
     });
-    sel.innerHTML=opts.join('');
-    console.log('[copyFrom] 取得件数:',filtered.length);
+    const areas=Array.from(areaSet).sort((a,b)=>a.localeCompare(b,'ja'));
+
+    /* エリアセレクタを初期化（件数表示付き） */
+    const areaOpts=['<option value="">— エリア選択 —</option>','<option value="__ALL__">すべて表示（'+_copyFromAllLandowners.length+'件）</option>'];
+    areas.forEach(a=>{
+      const cnt=_copyFromAllLandowners.filter(d=>{
+        const c=d.cases||{};
+        return _extractAreaFromCaseNo(c.parent_case_no||c.case_no||'')===a;
+      }).length;
+      areaOpts.push(`<option value="${a}">${a}（${cnt}件）</option>`);
+    });
+    areaSel.innerHTML=areaOpts.join('');
+
+    /* 地権者セレクタは初期状態（エリア未選択）に */
+    sel.innerHTML='<option value="">— まずエリアを選択してください —</option>';
+    console.log('[copyFrom] 取得件数:',_copyFromAllLandowners.length,'/ エリア数:',areas.length);
   }catch(e){
     console.error('[copyFrom] 例外:',e);
   }
+}
+
+/* エリア選択時のフィルタ処理：選択エリアに属する地権者だけを地権者セレクタに表示 */
+function _filterCopyFromByArea(){
+  const area=document.getElementById('elo_copy_area').value;
+  const sel=document.getElementById('elo_copy_from');
+  if(!sel)return;
+  if(!area){
+    sel.innerHTML='<option value="">— まずエリアを選択してください —</option>';
+    return;
+  }
+  /* "__ALL__" の場合は全件、それ以外はエリア一致のみ */
+  const filtered=(area==='__ALL__')?_copyFromAllLandowners
+    :_copyFromAllLandowners.filter(d=>{
+      const c=d.cases||{};
+      return _extractAreaFromCaseNo(c.parent_case_no||c.case_no||'')===area;
+    });
+
+  const opts=['<option value="">— 地権者を選択（'+filtered.length+'件） —</option>'];
+  filtered.forEach(d=>{
+    const c=d.cases||{};
+    const caseNo=c.parent_case_no||c.case_no||'—';
+    const branch=c.parent_case_no?` (枝${c.case_no?c.case_no.replace(c.parent_case_no+'-',''):''})`:'';
+    const addrSnip=d.address?' / '+d.address.substring(0,20):'';
+    const label=`[${caseNo}${branch}] ${d.name||'(無名)'}${addrSnip}`;
+    /* value にコピー用 payload を JSON で埋め込み */
+    const payload={
+      name:d.name||'',
+      tel:d.tel||'',
+      postal_code:d.postal_code||'',
+      address:d.address||'',
+      google_map:d.google_map||'',
+      lat:d.lat==null?'':String(d.lat),
+      lng:d.lng==null?'':String(d.lng)
+    };
+    const v=JSON.stringify(payload).replace(/"/g,'&quot;');
+    opts.push(`<option value="${v}">${(typeof _escHtml==='function')?_escHtml(label):label.replace(/</g,'&lt;')}</option>`);
+  });
+  sel.innerHTML=opts.join('');
 }
 
 function copyFromExistingLandowner(jsonStr){
@@ -3948,8 +4005,11 @@ function copyFromExistingLandowner(jsonStr){
     if(d.lat!==undefined)document.getElementById('elo_lat').value=d.lat;
     if(d.lng!==undefined)document.getElementById('elo_lng').value=d.lng;
     showToast('✅ '+(d.name||'地権者')+' の情報をコピーしました');
-    /* セレクタをリセット（連続コピー防止） */
+    /* 両セレクタをリセット（連続コピー防止） */
     document.getElementById('elo_copy_from').value='';
+    document.getElementById('elo_copy_area').value='';
+    /* 地権者セレクタの中身もリセット */
+    document.getElementById('elo_copy_from').innerHTML='<option value="">— まずエリアを選択してください —</option>';
   }catch(e){
     console.error('[copyFrom] パースエラー:',e);
     showToast('コピーに失敗しました','error');
