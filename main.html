@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260516t / v20260516qのテーブル形式ピッカー+全機能維持 + キャッシュバスター方式を静的バージョン文字列に修正（document.write方式の順序保証問題を解消） -->
+<!-- BUILD: main v20260516u / v20260516tベース + 重大バグ修正：_populateCopyFromLandownerSelect が削除済み旧select id='elo_copy_from' を参照していて即returnしていた問題を解消（電力会社リストが出ない原因） -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -9,8 +9,8 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <!-- ローカルJS: 静的順序読み込み（POWER_COMPANIES等の定数を後続スクリプトが参照するため順序保証必須） -->
-<script src="common-auth.js?v=20260516t"></script>
-<script src="mode-back.js?v=20260516t"></script>
+<script src="common-auth.js?v=20260516u"></script>
+<script src="mode-back.js?v=20260516u"></script>
 <script>
 /* ===== version.json による自動更新チェック =====
    修正時は version.json のバージョン文字列を更新すること。
@@ -42,10 +42,10 @@
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <!-- ローカルCSS/JS: 静的順序読み込み（POWER_COMPANIES等を main.html inline JS が参照するため順序保証必須） -->
-<link rel="stylesheet" href="mobile-responsive.css?v=20260516t">
-<link rel="stylesheet" href="toki-ai.css?v=20260516t">
-<script src="power-company-utils.js?v=20260516t"></script>
-<script src="toki-ai.js?v=20260516t" defer></script>
+<link rel="stylesheet" href="mobile-responsive.css?v=20260516u">
+<link rel="stylesheet" href="toki-ai.css?v=20260516u">
+<script src="power-company-utils.js?v=20260516u"></script>
+<script src="toki-ai.js?v=20260516u" defer></script>
 <!-- 外部CDN（Supabase / pdf.js / pdf-lib）はバージョン固定 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -3968,8 +3968,12 @@ function _extractCityFromAddress(addr){
 
 async function _populateCopyFromLandownerSelect(){
   const areaSel=document.getElementById('elo_copy_area');
-  const sel=document.getElementById('elo_copy_from');
-  if(!sel||!areaSel)return;
+  /* v20260516u: 旧 select id="elo_copy_from" は v20260516q でカスタムピッカーに置き換え済み。
+     ここでは areaSel の存在確認のみ。地権者表示は新ピッカーの _filterCopyFromByArea()/_renderCopyFromPickerRows() が担当 */
+  if(!areaSel){
+    console.error('[copyFrom] エリアセレクタが見つかりません');
+    return;
+  }
   try{
     /* 全 landowner_info を取得（氏名がある行のみ、cases.area_name も取得） */
     const{data,error}=await db.from('landowner_info')
@@ -3979,21 +3983,22 @@ async function _populateCopyFromLandownerSelect(){
     if(error){
       console.error('[copyFrom] 地権者リスト取得エラー:',error);
       areaSel.innerHTML='<option value="">— 取得失敗 —</option>';
-      sel.innerHTML='<option value="">— 取得失敗 —</option>';
+      const lbl=document.getElementById('elo_copy_from_btn_label');
+      if(lbl)lbl.textContent='— 取得失敗 —';
+      if(typeof showToast==='function')showToast('地権者リスト取得失敗: '+(error.message||error),'error');
       return;
     }
     /* 自案件は除外 */
     _copyFromAllLandowners=(data||[]).filter(d=>d.case_id!==currentCaseId);
 
-    /* v20260516j: エリアを「電力会社」で判定（area_name → getPowerCompanyFromArea で電力会社を取得）
-       これにより「中部-XXX」「田原市-XXX」「磐田市-XXX」「浜松市-XXX」が全て「中部電力」に集約される */
+    /* v20260516j: エリアを「電力会社」で判定（area_name → getPowerCompanyFromArea で電力会社を取得） */
     const powerCount={};
     _copyFromAllLandowners.forEach(d=>{
       const areaName=d.cases?.area_name||'';
       const pc=(typeof getPowerCompanyFromArea==='function')?getPowerCompanyFromArea(areaName):'';
       if(pc){
         powerCount[pc]=(powerCount[pc]||0)+1;
-        d._powerCompany=pc;  /* キャッシュ */
+        d._powerCompany=pc;
       }else{
         d._powerCompany='(電力会社不明)';
         powerCount['(電力会社不明)']=(powerCount['(電力会社不明)']||0)+1;
@@ -4002,11 +4007,14 @@ async function _populateCopyFromLandownerSelect(){
 
     /* エリアセレクタは電力会社リスト（POWER_COMPANIES）で構築 */
     const areaOpts=['<option value="">— 電力会社を選択 —</option>','<option value="__ALL__">すべて表示（'+_copyFromAllLandowners.length+'件）</option>'];
-    if(typeof POWER_COMPANIES!=='undefined'){
+    if(typeof POWER_COMPANIES!=='undefined'&&Array.isArray(POWER_COMPANIES)){
       POWER_COMPANIES.forEach(pc=>{
         const cnt=powerCount[pc]||0;
         if(cnt>0)areaOpts.push(`<option value="${pc}">${pc}（${cnt}件）</option>`);
       });
+    }else{
+      console.error('[copyFrom] POWER_COMPANIES が未定義（power-company-utils.js 読込失敗の可能性）');
+      if(typeof showToast==='function')showToast('POWER_COMPANIES 未定義（power-company-utils.js 読込失敗）','error');
     }
     /* 電力会社不明分があれば末尾に追加 */
     if(powerCount['(電力会社不明)']){
@@ -4017,13 +4025,15 @@ async function _populateCopyFromLandownerSelect(){
     /* 初期選択：ヘッダーの currentPowerCompany と同じにして自動絞り込み */
     if(typeof currentPowerCompany!=='undefined'&&currentPowerCompany&&powerCount[currentPowerCompany]){
       areaSel.value=currentPowerCompany;
-      _filterCopyFromByArea();  /* 自動的にフィルタ実行 */
+      _filterCopyFromByArea();  /* 自動的にフィルタ実行（新ピッカーの行描画も呼ばれる） */
     }else{
-      sel.innerHTML='<option value="">— まず電力会社を選択してください —</option>';
+      const lbl=document.getElementById('elo_copy_from_btn_label');
+      if(lbl)lbl.textContent='— まず電力会社を選択してください —';
     }
     console.log('[copyFrom] 取得件数:',_copyFromAllLandowners.length,'/ 電力会社別:',powerCount);
   }catch(e){
     console.error('[copyFrom] 例外:',e);
+    if(typeof showToast==='function')showToast('地権者コピー初期化エラー: '+(e.message||e),'error');
   }
 }
 
