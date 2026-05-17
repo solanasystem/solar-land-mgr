@@ -1,20 +1,20 @@
 <!DOCTYPE html>
-<!-- BUILD: purchase-agreement v20260516z4 / 所在から地番除去（小字までの表記に統一） -->
+<!-- BUILD: purchase-agreement v20260516z5 / 地番列の地目混入を地目列に振り分け + 宛先アンダーライン3/5短縮 -->
 <html lang="ja">
 <head>
-<!-- v20260516z4: 強制リロード不要化（メモリ#29ルール適用） -->
+<!-- v20260516z5: 強制リロード不要化（メモリ#29ルール適用） -->
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <!-- ===== 権限管理ガード v1.0 (2026-05-10) - 必ず他スクリプトより前に配置 ===== -->
-<script src="common-auth.js?v=20260516z4"></script>
+<script src="common-auth.js?v=20260516z5"></script>
 <!-- ===== MODE SELECT 戻るボタン v20260515ad (mode-back.js) ===== -->
-<script src="mode-back.js?v=20260516z4"></script>
+<script src="mode-back.js?v=20260516z5"></script>
 
-<link rel="stylesheet" href="viewer-mode.css?v=20260516z4">
-<script src="viewer-mode.js?v=20260516z4"></script>
+<link rel="stylesheet" href="viewer-mode.css?v=20260516z5">
+<script src="viewer-mode.js?v=20260516z5"></script>
 
 <title>📄 買付証明書・売買契約書 | GRID LAND MGR</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -412,7 +412,7 @@ function renderPreview(caseId){
   for(let i=0;i<3;i++){
     const l=lands[i];
     if(l){
-      landsHtml+=`<tr><td>${i+1}</td><td>${escapeHtml(stripChibanFromLocation(l.location,l.chiban))}</td><td>${escapeHtml(l.chiban||'')}</td><td>${escapeHtml(l.chimoku||'')}</td><td>${l.area_sqm?Number(l.area_sqm).toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2}):''}</td></tr>`;
+      landsHtml+=`<tr><td>${i+1}</td><td>${escapeHtml(stripChibanFromLocation(l.location,l.chiban))}</td><td>${escapeHtml(getDisplayChiban(l))}</td><td>${escapeHtml(getDisplayChimoku(l))}</td><td>${l.area_sqm?Number(l.area_sqm).toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2}):''}</td></tr>`;
     }
   }
 
@@ -469,7 +469,29 @@ function stripChibanFromLocation(location, chiban){
       if(r2 !== loc) return r2;
     }
   }
-  return loc.replace(/[\s\u3000]+\d+(?:[-－]\d+)?(?:番地?\d*)?[\s\u3000]*$/,'').trim();
+  // v20260516z5: 末尾パターン2種で除去
+  //   1) 空白あり + 数字(+派生)
+  //   2) 空白なしでも明示的に「番」「番地」が付く数字パターン（誤判定回避）
+  return loc.replace(/(?:[\s\u3000]+\d+(?:[-－]\d+)?(?:番地?\d*)?|\d+(?:[-－]\d+)?番地?\d*)[\s\u3000]*$/,'').trim();
+}
+
+// v20260516z5: 地番(chiban)カラムに地目が混入しているデータへの対応
+//   既存DBで chiban='畑'/'田'/'宅地' のようなパターンが存在するため、
+//   表示時に「地番らしい値か(=数字を含むか)」で振り分けて
+//   地番列・地目列が正しく分かれるようにする
+function isChibanLike(v){
+  return v && /\d/.test(String(v));
+}
+// 地番列表示用：地番らしい値だけ通す（地目混入なら空）
+function getDisplayChiban(l){
+  return isChibanLike(l && l.chiban) ? l.chiban : '';
+}
+// 地目列表示用：chimoku優先、なければchibanが地目混入ならそれを使う
+function getDisplayChimoku(l){
+  if(!l) return '';
+  if(l.chimoku) return l.chimoku;
+  if(l.chiban && !isChibanLike(l.chiban)) return l.chiban;
+  return '';
 }
 
 // 全角空白でセンタリングパディング
@@ -528,7 +550,7 @@ async function downloadDocx(docType){
     if(spaceMatches.length >= 3){
       // 値（中央寄せでパディング）
       const v1 = xmlEscape(padCenter(priceText, 8));    // 売渡金額
-      const v2 = xmlEscape(padCenter(ownerName, 13));   // 買付証明書宛先
+      const v2 = xmlEscape(padCenter(ownerName, 8));    // 買付証明書宛先（v20260516z5: アンダーライン短縮 13→8）
       const v3 = xmlEscape(padCenter(priceText, 8));    // 買付金額
       // 前から順に置換（位置を保つ）
       const m0 = spaceMatches[0], m1 = spaceMatches[1], m2 = spaceMatches[2];
@@ -594,8 +616,8 @@ async function downloadDocx(docType){
         const l = lands[rowIdx - 1];
         const values = l ? [
           xmlEscape(stripChibanFromLocation(l.location, l.chiban)),
-          xmlEscape(l.chiban||''),
-          xmlEscape(l.chimoku||''),
+          xmlEscape(getDisplayChiban(l)),
+          xmlEscape(getDisplayChimoku(l)),
           l.area_sqm ? xmlEscape(Number(l.area_sqm).toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2})) : '',
           xmlEscape(owner.name||''),
           ''
@@ -685,8 +707,8 @@ async function generateContractDocx(c, owner, lands){
     for(let i=1;i<=9;i++){
       const l = lands[i-1];
       const loc    = l ? xmlEscape(stripChibanFromLocation(l.location, l.chiban)) : '';
-      const chiban = l ? xmlEscape(l.chiban||'') : '';
-      const chimoku= l ? xmlEscape(l.chimoku||'') : '';
+      const chiban = l ? xmlEscape(getDisplayChiban(l)) : '';
+      const chimoku= l ? xmlEscape(getDisplayChimoku(l)) : '';
       const area   = (l && l.area_sqm) ? xmlEscape(Number(l.area_sqm).toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2})) : '';
       const share  = ''; // 持分は常にブランク（地権者直筆）
       docXml = docXml.replaceAll('{{LAND_LOC_C_'   +i+'}}', loc);
