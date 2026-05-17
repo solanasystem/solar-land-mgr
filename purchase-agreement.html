@@ -1,20 +1,20 @@
 <!DOCTYPE html>
-<!-- BUILD: purchase-agreement v20260516z5 / 地番列の地目混入を地目列に振り分け + 宛先アンダーライン3/5短縮 -->
+<!-- BUILD: purchase-agreement v20260516z6 / locationから抽出した地番を地番列に再配置 -->
 <html lang="ja">
 <head>
-<!-- v20260516z5: 強制リロード不要化（メモリ#29ルール適用） -->
+<!-- v20260516z6: 強制リロード不要化（メモリ#29ルール適用） -->
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <!-- ===== 権限管理ガード v1.0 (2026-05-10) - 必ず他スクリプトより前に配置 ===== -->
-<script src="common-auth.js?v=20260516z5"></script>
+<script src="common-auth.js?v=20260516z6"></script>
 <!-- ===== MODE SELECT 戻るボタン v20260515ad (mode-back.js) ===== -->
-<script src="mode-back.js?v=20260516z5"></script>
+<script src="mode-back.js?v=20260516z6"></script>
 
-<link rel="stylesheet" href="viewer-mode.css?v=20260516z5">
-<script src="viewer-mode.js?v=20260516z5"></script>
+<link rel="stylesheet" href="viewer-mode.css?v=20260516z6">
+<script src="viewer-mode.js?v=20260516z6"></script>
 
 <title>📄 買付証明書・売買契約書 | GRID LAND MGR</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -479,12 +479,27 @@ function stripChibanFromLocation(location, chiban){
 //   既存DBで chiban='畑'/'田'/'宅地' のようなパターンが存在するため、
 //   表示時に「地番らしい値か(=数字を含むか)」で振り分けて
 //   地番列・地目列が正しく分かれるようにする
+// v20260516z6: chibanが地目混入時は location 末尾の地番パターンを抽出して地番列に表示
 function isChibanLike(v){
   return v && /\d/.test(String(v));
 }
-// 地番列表示用：地番らしい値だけ通す（地目混入なら空）
+// locationの末尾から地番パターン(数字+番地など)を抽出
+function extractChibanFromLocation(location){
+  if(!location) return '';
+  const loc = String(location);
+  // パターン1: 空白あり + 数字(+番地など)
+  let m = loc.match(/[\s\u3000]+(\d+(?:[-－]\d+)?(?:番地?\d*)?)[\s\u3000]*$/);
+  if(m) return m[1];
+  // パターン2: 空白なしでも「番」「番地」明示の数字
+  m = loc.match(/(\d+(?:[-－]\d+)?番地?\d*)[\s\u3000]*$/);
+  if(m) return m[1];
+  return '';
+}
+// 地番列表示用：chibanが地番らしいならそれを優先、地目混入や空ならlocationから抽出
 function getDisplayChiban(l){
-  return isChibanLike(l && l.chiban) ? l.chiban : '';
+  if(!l) return '';
+  if(isChibanLike(l.chiban)) return l.chiban;
+  return extractChibanFromLocation(l.location);
 }
 // 地目列表示用：chimoku優先、なければchibanが地目混入ならそれを使う
 function getDisplayChimoku(l){
