@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260509m / Phase B-2 Block 2 + caseDisplayNo修正 + 戻るボタンmain.htmlフォールバック -->
+<!-- BUILD: case-summary v20260516z8 / 複数筆対応: 2筆目以降を備考欄に自動追記 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -1971,8 +1971,9 @@ async function loadCase(caseNoOrId) {
     });
 
     // ----- ② land_info / landowner_info を case_id で取得 -----
+    // v20260516z8: 複数筆対応 - 全筆取得して 2筆目以降は備考に追記
     const [landR, ownerR] = await Promise.all([
-      sbClient.from('land_info').select('*').eq('case_id', c.id).limit(1),
+      sbClient.from('land_info').select('*').eq('case_id', c.id).order('id'),
       sbClient.from('landowner_info').select('*').eq('case_id', c.id).limit(1),
     ]);
 
@@ -1984,7 +1985,9 @@ async function loadCase(caseNoOrId) {
       console.warn('landowner_info取得エラー:', ownerR.error);
     }
 
-    const land = (landR.data && landR.data[0]) || {};
+    const lands = (landR.data || []);
+    const land = lands[0] || {};
+    const extraLands = lands.slice(1); // v20260516z8: 2筆目以降（備考に追記）
     const owner = (ownerR.data && ownerR.data[0]) || {};
 
     // ----- ③ 垂直積雪量を snow_load_master から照合 -----
@@ -2114,8 +2117,18 @@ function render(c, land, owner, snowDepth) {
   const jourei    = land.jourei;
   const guideline = land.guideline;
 
-  // 備考
-  const bikou = land.biko || c.bikou || c.memo;
+  // 備考: 1筆目のbiko + v20260516z8: 2筆目以降があれば情報を追記
+  let bikou = land.biko || c.bikou || c.memo || '';
+  if (extraLands && extraLands.length > 0) {
+    const lines = extraLands.map((l, i) => {
+      const idx = i + 2;
+      const dispChiban  = (l.chiban && /\d/.test(l.chiban)) ? l.chiban : '';
+      const dispChimoku = l.chimoku || (l.chiban && !/\d/.test(l.chiban) ? l.chiban : '');
+      const area = (l.area_sqm==null || l.area_sqm==='') ? '—' : Number(l.area_sqm).toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2});
+      return `${idx}筆目: ${l.location||'—'} / 地番=${dispChiban||'—'} / 面積=${area}㎡ / 地目=${dispChimoku||'—'} / 都市計画区域=${l.horeijo_seigen||'—'}`;
+    }).join('\n');
+    bikou = (bikou ? bikou + '\n\n' : '') + `[他${extraLands.length}筆]\n` + lines;
+  }
 
   // ===== 描画 =====
   setText('d-name', deriveName(caseNo, kubun, address, landNo));

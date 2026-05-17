@@ -1,16 +1,15 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260516y / v20260516xのステータス履歴システム + trigger_sourceをシンプル3種類（manual/letter_print/visit_complete）に確定 -->
+<!-- BUILD: main v20260516z8 / 土地情報複数筆対応 + 案件一覧で「他にN筆」表示 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 + 外部リソースは静的バージョン文字列で順序保証） -->
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<!-- ===== 権限管理ガード v20260515ae (common-auth.js) - 必ず他スクリプトより前に配置 ===== -->
+<script src="common-auth.js?v=20260516z8"></script>
+<!-- ===== MODE SELECT 戻るボタン v20260515ae (mode-back.js) ===== -->
+<script src="mode-back.js?v=20260516z8"></script>
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-<!-- ローカルJS: 静的順序読み込み（POWER_COMPANIES等の定数を後続スクリプトが参照するため順序保証必須） -->
-<script src="common-auth.js?v=20260516y"></script>
-<script src="mode-back.js?v=20260516y"></script>
 <script>
 /* ===== version.json による自動更新チェック =====
    修正時は version.json のバージョン文字列を更新すること。
@@ -41,15 +40,13 @@
 </script>
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-<!-- ローカルCSS/JS: 静的順序読み込み（POWER_COMPANIES等を main.html inline JS が参照するため順序保証必須） -->
-<link rel="stylesheet" href="mobile-responsive.css?v=20260516y">
-<link rel="stylesheet" href="toki-ai.css?v=20260516y">
-<script src="power-company-utils.js?v=20260516y"></script>
-<script src="toki-ai.js?v=20260516y" defer></script>
-<!-- 外部CDN（Supabase / pdf.js / pdf-lib）はバージョン固定 -->
+<link rel="stylesheet" href="mobile-responsive.css?v=20260516z8">
+<link rel="stylesheet" href="toki-ai.css?v=20260516z8">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="power-company-utils.js?v=20260516z8"></script>
+<script src="toki-ai.js?v=20260516z8"defer></script>
 <style>
   :root {
     --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
@@ -152,8 +149,8 @@
   .badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:500;}
   .badge-teiatsu-solar{background:rgba(240,180,41,.15);color:#f0b429;border:1px solid rgba(240,180,41,.3);}
   .badge-kouatsu-solar{background:rgba(232,93,4,.15);color:#e85d04;border:1px solid rgba(232,93,4,.3);}
-  .badge-teiatsu-battery{background:rgba(0,255,255,.15);color:#00FFFF;border:1px solid rgba(0,255,255,.3);}
-  .badge-kouatsu-battery{background:rgba(167,139,250,.18);color:#a78bfa;border:1px solid rgba(167,139,250,.45);}
+  .badge-teiatsu-battery{background:rgba(125,211,252,.15);color:#7dd3fc;border:1px solid rgba(125,211,252,.3);}
+  .badge-kouatsu-battery{background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);}
   .badge-einosolar{background:rgba(22,101,52,.3);color:#4ade80;border:1px solid rgba(22,101,52,.5);}
   .status-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;}
   .status-dot{width:6px;height:6px;border-radius:50%;}
@@ -362,6 +359,7 @@
   </details>
 </div>
 <div id="stickyZone">
+  <div id="powerCompanyBar" class="power-company-bar"></div>
   <div id="mobileFilterBar" class="mobile-filter-bar">
     <select id="mobilePcSelect" class="mobile-filter-select" onchange="setPowerCompany(this.value)">
       <option value="北海道電力">北海道電力</option>
@@ -401,7 +399,6 @@
   </div>
   <div id="casesStickyBlock">
     <div class="sticky-toolbar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-      <div class="pc-dropdown-slot"></div>
       <input class="search-box" type="text" placeholder="案件番号・地権者・地名で検索..." id="searchInput" oninput="filterCases()">
       <select class="filter-select" id="filterKubun" onchange="filterCases()">
         <option value="">すべての区分</option>
@@ -441,7 +438,6 @@
     </div>
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="案件番号・氏名・住所・電話・メモで検索..." id="loSearchInput" oninput="filterLandowners()">
         <select class="filter-select" id="filterLoStatus" onchange="filterLandowners()">
           <option value="">すべてのステータス</option>
@@ -461,7 +457,6 @@
   <div id="landStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="案件番号・所在・地番・地目・備考で検索..." id="ldSearchInput" oninput="filterLandMaster()">
         <button id="ngBlindBtnLd" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
@@ -475,7 +470,6 @@
   <div id="realestateStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="案件番号・会社名・住所・担当者・電話で検索..." id="reSearchInput" oninput="filterRealestate()">
         <button id="ngBlindBtnRe" class="btn" onclick="toggleNgBlind()" style="background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;">NGブラインド ON</button>
       </div>
@@ -490,7 +484,6 @@
   <div id="introcompanyStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="会社名・担当者・住所・電話・携帯で検索..." id="icSearchInput" oninput="filterIntroductionCompanies()">
         <select class="filter-select" id="icFilterPriority" onchange="filterIntroductionCompanies()">
           <option value="">全ての優先度</option>
@@ -518,7 +511,6 @@
   <div id="salesStickyBlock" style="display:none">
     <div class="sticky-toolbar">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <div class="pc-dropdown-slot"></div>
         <input class="search-box" type="text" placeholder="案件No・案件名・紹介先企業で検索..." id="siSearchInput" oninput="filterSalesIntroductions()">
         <select class="filter-select" id="siFilterStatus" onchange="filterSalesIntroductions()">
           <option value="">全ての紹介ステータス</option>
@@ -696,22 +688,6 @@
     <div class="detail-body">
       <div class="tab-pane active" id="tab-landowner">
         <div class="info-grid" id="landownerInfo"></div>
-
-        <!-- v20260516x: ステータス推移セクション -->
-        <div class="status-history-section" style="margin-top:18px;padding:14px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.25);border-radius:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-            <span class="section-title" style="font-weight:700;font-size:14px;color:#60a5fa">📜 ステータス推移</span>
-            <span id="statusHistoryStats" style="font-size:11px;color:var(--text-muted)"></span>
-          </div>
-          <div id="statusHistoryTimeline" style="display:flex;flex-direction:column;gap:6px">
-            <div style="color:var(--text-muted);font-size:12px;padding:8px">読込中...</div>
-          </div>
-          <div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);font-size:11px;color:var(--text-muted);display:flex;justify-content:space-between;align-items:center">
-            <span>💡 ステータス変更時のメモを残す</span>
-            <button type="button" class="btn btn-ghost" style="font-size:11px;padding:3px 10px" onclick="openStatusNoteDialog()">＋ メモ付きでステータス変更</button>
-          </div>
-        </div>
-
         <div class="negotiation-section">
           <div class="negotiation-header">
             <span class="section-title">📋 商談記録</span>
@@ -829,43 +805,6 @@
         <div style="font-size:11px;color:var(--text-muted);margin-top:6px">※ 共有名義の場合、所有者ごとに切り替えて編集できます。保存は選択中の所有者のみ反映されます。</div>
       </div>
       <input type="hidden" id="elo_current_id" value="">
-      <!-- v20260516q: 地権者登録コピーモード（電力会社→テーブル形式ピッカー） -->
-      <div id="elo_copy_from_section" style="background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.3);border-radius:6px;padding:10px 12px;margin-bottom:12px;position:relative">
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <label style="font-size:12px;color:#60a5fa;font-weight:600;white-space:nowrap">📋 同一地権者からコピー：</label>
-          <select id="elo_copy_area" class="form-input" style="flex:0 0 180px" onchange="_filterCopyFromByArea()">
-            <option value="">— 電力会社を選択 —</option>
-          </select>
-          <!-- カスタムピッカー：ボタンクリックで下にテーブルパネルを展開 -->
-          <div style="flex:1;min-width:240px;position:relative">
-            <button type="button" id="elo_copy_from_btn" onclick="_toggleCopyFromPicker()"
-                    class="form-input" style="width:100%;text-align:left;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
-              <span id="elo_copy_from_btn_label">— まず電力会社を選択してください —</span>
-              <span style="color:var(--text-muted);font-size:11px">▼</span>
-            </button>
-            <!-- v20260516v: パネル背景の半透明オーバーレイ（クリックで閉じる） -->
-            <div id="elo_copy_from_overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1999" onclick="_toggleCopyFromPicker()"></div>
-            <div id="elo_copy_from_panel" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(720px,calc(100vw - 40px));max-height:min(640px,calc(100vh - 80px));background:var(--bg);border:2px solid var(--accent);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.7);z-index:2000;flex-direction:column">
-              <!-- 検索ボックス -->
-              <div style="padding:10px 12px;border-bottom:1px solid var(--border)">
-                <input type="text" id="elo_copy_from_search" placeholder="🔍 氏名・案件番号で絞り込み..." oninput="_filterCopyFromPickerRows()"
-                       style="width:100%;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px;outline:none">
-              </div>
-              <!-- 固定ヘッダー -->
-              <div style="display:grid;grid-template-columns:50px 1fr 1.4fr;gap:8px;padding:8px 12px;background:var(--surface2);border-bottom:2px solid var(--accent);font-size:11px;font-weight:700;color:var(--text);letter-spacing:1px">
-                <div style="text-align:center">No</div>
-                <div>地権者名</div>
-                <div>関連案件番号</div>
-              </div>
-              <!-- データ行（スクロール） -->
-              <div id="elo_copy_from_rows" style="overflow-y:auto;flex:1;min-height:200px"></div>
-              <!-- フッター -->
-              <div id="elo_copy_from_footer" style="padding:6px 12px;background:var(--surface);border-top:1px solid var(--border);font-size:11px;color:var(--text-muted);text-align:center"></div>
-            </div>
-          </div>
-        </div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">※ 電力会社で絞り込んでから「地権者を選択」ボタンを押し、リストから選択。Esc キーまたはパネル外クリックで閉じる。</div>
-      </div>
       <div class="form-grid">
         <div class="form-group"><label class="form-label">氏名</label><input class="form-input" type="text" id="elo_name" placeholder="例：山田 太郎"></div>
         <div class="form-group"><label class="form-label">電話番号</label><input class="form-input" type="text" id="elo_tel" placeholder="例：090-1234-5678"></div>
@@ -904,10 +843,30 @@
     </div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group"><label class="form-label">登記面積（㎡）</label><input class="form-input" type="number" id="eld_area_sqm" placeholder="例：3000"></div>
-        <div class="form-group"><label class="form-label">用途地域・地目</label><input class="form-input" type="text" id="eld_chiban" placeholder="例：農地・田"></div>
-        <div class="form-group full"><label class="form-label">所在</label><input class="form-input" type="text" id="eld_location" placeholder="例：埼玉県大里郡寄居町大字西ノ入402-71"></div>
-        <div class="form-group full"><label class="form-label">法令上の制限</label><input class="form-input" type="text" id="eld_horeijo_seigen" placeholder="例：農地法・自然保護区域外"></div>
+      <!-- v20260516z7: 複数筆対応の表形式UI（No/所在/地番/面積/地目/都市計画区域） -->
+      <div class="form-group full" style="margin-bottom:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <label class="form-label" style="margin:0">📋 不動産明細（数筆対応）</label>
+          <button type="button" class="btn btn-ghost" onclick="addLandRow()" style="font-size:12px;padding:4px 10px">＋ 行追加</button>
+        </div>
+        <div id="landRowsWrap" style="border:1px solid var(--border);border-radius:6px;max-height:240px;overflow-y:auto;background:var(--surface)">
+          <table id="landRowsTable" style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead style="position:sticky;top:0;background:var(--surface2);z-index:2;box-shadow:0 1px 0 var(--border)">
+              <tr>
+                <th style="width:38px;padding:6px 4px;text-align:center;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">No</th>
+                <th style="padding:6px 4px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">所在</th>
+                <th style="width:90px;padding:6px 4px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">地番</th>
+                <th style="width:80px;padding:6px 4px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">面積㎡</th>
+                <th style="width:70px;padding:6px 4px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">地目</th>
+                <th style="width:130px;padding:6px 4px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">都市計画区域</th>
+                <th style="width:34px;padding:6px 4px;border-bottom:1px solid var(--border)"></th>
+              </tr>
+            </thead>
+            <tbody id="landRowsBody"></tbody>
+          </table>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">※ 同一案件で複数筆ある場合は「＋ 行追加」で追加。「×」で削除。「地番」が数字でない既存データは空欄表示され、その値は「地目」列に振り分けて表示されます</div>
+      </div>
         <div class="form-group full"><label class="form-label">Googleマップ URL</label>
           <div style="display:flex;gap:8px;align-items:center">
             <input class="form-input" type="text" id="eld_google_map" placeholder="https://www.google.com/maps/@36.1234,139.1234,17z" style="flex:1" oninput="autoExtractLatLng()">
@@ -1106,25 +1065,21 @@
     <div class="modal-header">
       <div>
         <div class="modal-title">📄 書類アップロード</div>
-        <div class="modal-subtitle">登記簿・公図・その他資料 PDF（20MB以下）</div>
+        <div class="modal-subtitle">登記簿・公図PDF（20MB以下）</div>
       </div>
       <button class="modal-close" onclick="closeModal('uploadDocModal')">✕</button>
     </div>
     <div class="modal-body">
       <div class="form-group">
         <label class="form-label">書類種別 <span style="color:#ef4444">*</span></label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <label style="flex:1;min-width:140px;cursor:pointer;display:flex;align-items:center;gap:8px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);">
+        <div style="display:flex;gap:8px;">
+          <label style="flex:1;cursor:pointer;display:flex;align-items:center;gap:8px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);">
             <input type="radio" name="docType" value="touki" onchange="togglePdfTypeFields()" checked>
             <span>📜 登記簿</span>
           </label>
-          <label style="flex:1;min-width:140px;cursor:pointer;display:flex;align-items:center;gap:8px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);">
+          <label style="flex:1;cursor:pointer;display:flex;align-items:center;gap:8px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);">
             <input type="radio" name="docType" value="kouzu" onchange="togglePdfTypeFields()">
             <span>🗺 公図</span>
-          </label>
-          <label style="flex:1;min-width:140px;cursor:pointer;display:flex;align-items:center;gap:8px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);">
-            <input type="radio" name="docType" value="other" onchange="togglePdfTypeFields()">
-            <span>📋 その他資料</span>
           </label>
         </div>
       </div>
@@ -1369,109 +1324,36 @@ const db=createClient(SUPABASE_URL,SUPABASE_KEY);
 let allCases=[],currentCaseId=null,currentLandownerId=null;
 /* 案件番号表示モード：'case_no'=システム案件番号 / 'business_no'=業務用案件番号 */
 let caseNoDisplayMode = (typeof localStorage!=='undefined' && localStorage.getItem('caseNoDisplayMode')) || 'case_no';
-
-/* ============================================================================
-   v20260516f: フィルタ状態の永続化ヘルパー（過去会話 v20260509o の復元）
-   localStorage キー: gridLandMgr.{key}
-   ============================================================================ */
-const _FILTER_LS_PREFIX = 'gridLandMgr.';
-function _filterStateGet(key, defaultValue){
-  try{
-    const v = localStorage.getItem(_FILTER_LS_PREFIX + key);
-    if(v===null||v===undefined)return defaultValue;
-    if(v==='true')return true;
-    if(v==='false')return false;
-    return v;
-  }catch(e){return defaultValue;}
-}
-function _filterStateSet(key, value){
-  try{ localStorage.setItem(_FILTER_LS_PREFIX + key, String(value)); }catch(e){}
-}
-/* NGブラインドボタンの見た目を ngBlind 変数の状態と同期 */
-function _syncNgBlindUI(){
-  const label = `NGブラインド ${ngBlind ? 'ON' : 'OFF'}`;
-  const style = ngBlind
-    ? 'background:rgba(248,81,73,.4);color:#fff;border:1px solid rgba(248,81,73,.8);'
-    : 'background:rgba(107,114,128,.4);color:#fff;border:1px solid rgba(107,114,128,.8);';
-  ['ngBlindBtn','ngBlindBtnLo','ngBlindBtnLd','ngBlindBtnRe'].forEach(id=>{
-    const el = document.getElementById(id);
-    if(el){
-      el.textContent = label;
-      el.style.cssText = el.style.cssText.replace(/background:[^;]+;color:[^;]+;border:[^;]+;/, style);
-    }
-  });
-}
-/* localStorage から検索ボックス・セレクタの値を復元 */
-function _restoreFilterInputs(){
-  const fields = [
-    'searchInput','filterKubun','filterStatus',
-    'loSearchInput','filterLoStatus',
-    'ldSearchInput',
-    'reSearchInput',
-    'icSearchInput','siSearchInput',
-    'mobileKubunSelect','mobileStatusSelect'
-  ];
-  fields.forEach(id=>{
-    const el = document.getElementById(id);
-    if(!el)return;
-    const saved = _filterStateGet(id, null);
-    if(saved !== null && saved !== undefined){
-      el.value = saved;
-    }
-  });
-}
-/* 各検索ボックス・セレクタに変更時の永続化を bind */
-function _bindFilterPersistence(){
-  const fields = [
-    'searchInput','filterKubun','filterStatus',
-    'loSearchInput','filterLoStatus',
-    'ldSearchInput',
-    'reSearchInput',
-    'icSearchInput','siSearchInput',
-    'mobileKubunSelect','mobileStatusSelect'
-  ];
-  fields.forEach(id=>{
-    const el = document.getElementById(id);
-    if(!el)return;
-    const ev = el.tagName === 'SELECT' ? 'change' : 'input';
-    el.addEventListener(ev, ()=>_filterStateSet(id, el.value));
-  });
-}
-
-let ngBlind = _filterStateGet('ngBlind', true);
+let ngBlind=true;
 
 /* ========== 管轄電力会社 マッピング ==========
    定数・関数は power-company-utils.js から提供される（全国1,736市区町村対応）：
    POWER_COMPANIES / PREF_TO_POWER / AREA_TO_PREF / BROAD_REGION_TO_POWER /
    DEFAULT_POWER_COMPANY / normalizeAreaKey / getPowerCompanyFromArea /
    filterCasesByPowerCompany */
-let currentPowerCompany = _filterStateGet('currentPowerCompany', '中部電力'); /* 初期選択（永続化対応） */
+let currentPowerCompany='中部電力'; /* 初期選択 */
 
 function renderPowerCompanyTabs(){
   const counts={};POWER_COMPANIES.forEach(pc=>counts[pc]=0);
   (allCases||[]).forEach(c=>{const pc=getPowerCompanyFromArea(c.area_name);if(counts[pc]!==undefined)counts[pc]++;});
+  const bar=document.getElementById('powerCompanyBar');
+  if(!bar)return;
   const totalActive=counts[currentPowerCompany]||0;
-  /* v20260516f: 各 sticky-toolbar 内の .pc-dropdown-slot に書き出し（1行統合・複数マスター共通） */
-  const html=`
-    <label class="pc-label" style="white-space:nowrap;font-size:12px">⚡ 電力会社</label>
-    <select class="pc-select filter-select" onchange="setPowerCompany(this.value)" style="font-size:12px;padding:6px 8px">
+  /* v20260515ae: 10ボタン横並び → 1個のプルダウンに変更（過去仕様の復元） */
+  bar.innerHTML=`
+    <label class="pc-label">⚡ 電力会社</label>
+    <select class="pc-select" id="powerCompanySelect" onchange="setPowerCompany(this.value)">
       ${POWER_COMPANIES.map(pc=>{
         const n=counts[pc]||0;
         const sel=pc===currentPowerCompany?' selected':'';
         return `<option value="${pc}"${sel}>${pc}（${n}件）</option>`;
       }).join('')}
     </select>
-    <span class="pc-active-count" style="white-space:nowrap;font-size:11px;color:var(--text-muted);margin-left:4px">表示中: <b style="color:var(--accent)">${totalActive}</b> 件</span>
+    <span class="pc-active-count">表示中: <b>${totalActive}</b> 件</span>
   `;
-  /* 旧 #powerCompanyBar への描画（後方互換用、既に削除済みなので何もしない） */
-  /* 全 sticky-toolbar 内の pc-dropdown-slot に描画 */
-  document.querySelectorAll('.pc-dropdown-slot').forEach(slot=>{
-    slot.innerHTML=html;
-  });
 }
 function setPowerCompany(pc){
   currentPowerCompany=pc;
-  _filterStateSet('currentPowerCompany', pc);  /* v20260516f: 永続化 */
   renderPowerCompanyTabs();
   populateAreaDropdowns();
   filterCases();filterLandowners();filterLandMaster();
@@ -1522,29 +1404,12 @@ function syncNewPcToArea(){
 
 document.addEventListener('DOMContentLoaded',()=>{
   _initCaseNoDisplayMode();
-  /* v20260516f: フィルタ状態の復元（localStorageから値を入力欄に書き戻す） */
-  _restoreFilterInputs();
-  _syncNgBlindUI();            /* NGブラインドボタンの見た目を変数と同期 */
-  _bindFilterPersistence();    /* 各検索ボックス・セレクタに永続化を bind */
   loadCases();
   document.getElementById('logDate').value=new Date().toISOString().split('T')[0];
   document.querySelector('.nav-btn.active').style.borderBottomColor='#a371f7';
   const hh=document.querySelector('.header')?.offsetHeight||56;
   const nh=document.querySelector('.nav')?.offsetHeight||42;
   document.getElementById('stickyZone').style.top=(hh+nh)+'px';
-
-  /* v20260516q+v: 地権者コピーピッカーの Esc キー＋外部クリック閉じる処理（オーバーレイも同期） */
-  document.addEventListener('keydown',(e)=>{
-    if(e.key==='Escape'){
-      const p=document.getElementById('elo_copy_from_panel');
-      const ov=document.getElementById('elo_copy_from_overlay');
-      if(p&&p.style.display==='flex'){
-        p.style.display='none';
-        if(ov)ov.style.display='none';
-      }
-    }
-  });
-  /* v20260516v: position:fixed パネル + オーバーレイ方式に変更したため外部クリック処理は不要（オーバーレイ自体が onclick で閉じる） */
 });
 
 async function loadCases(){
@@ -1558,7 +1423,7 @@ async function loadCases(){
     (losRes.data||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
     allCases=sortCasesByParentChild((casesRes.data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''})));
     renderPowerCompanyTabs();populateAreaDropdowns();
-    filterCases();updateStats(allCases);  /* v20260516f: 初期描画でフィルタを適用 */
+    renderCases(allCases);updateStats(allCases);
   }catch(e){showToast('接続エラー: '+e.message,'error');}
 }
 
@@ -1571,8 +1436,12 @@ function updateStats(cases){
 
 function toggleNgBlind(){
   ngBlind=!ngBlind;
-  _filterStateSet('ngBlind', ngBlind);  /* v20260516f: 永続化 */
-  _syncNgBlindUI();                     /* v20260516f: ボタン見た目を一元管理 */
+  const label=`NGブラインド ${ngBlind?'ON':'OFF'}`;
+  const style=ngBlind?'background:rgba(248,81,73,.4);color:#fff;border:1px solid rgba(248,81,73,.8);':'background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.4);';
+  ['ngBlindBtn','ngBlindBtnLo','ngBlindBtnLd','ngBlindBtnRe'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){el.textContent=label;el.style.cssText=el.style.cssText.replace(/background:[^;]+;color:[^;]+;border:[^;]+;/,style);}
+  });
   filterCases();
   filterLandowners();
   filterLandMaster();
@@ -1837,19 +1706,8 @@ async function quickUpdateKubun(id,val,el){
   await refreshAll();
 }
 async function quickUpdateStatus(id,val,el){
-  /* v20260516x: RPC経由で履歴自動記録（trigger_source='manual'） */
-  const{data:histId,error}=await db.rpc('change_case_status',{
-    p_case_id:id,
-    p_new_status:val,
-    p_trigger_source:'manual',
-    p_note:null
-  });
-  if(error){
-    /* フォールバック：RPCが未デプロイの場合は直接UPDATE（Triggerが履歴を残す） */
-    console.warn('[quickUpdateStatus] RPC失敗、直接UPDATEへフォールバック:',error);
-    const{error:err2}=await db.from('cases').update({status:val}).eq('id',id);
-    if(err2){showToast('更新エラー: '+err2.message,'error');return;}
-  }
+  const{error}=await db.from('cases').update({status:val}).eq('id',id);
+  if(error){showToast('更新エラー: '+error.message,'error');return;}
   el.closest('.status-select-wrap').className=`status-badge status-select-wrap status-${statusClass(val)}`;
   showToast('ステータスを更新しました','success');
   await refreshAll();
@@ -2187,142 +2045,7 @@ async function openDetail(caseId,mode){
   document.getElementById(tab).classList.add('active');
   document.getElementById(mode==='land'?'tabLand':'tabLandowner').classList.add('active');
   document.getElementById('detailModal').classList.add('open');
-  await Promise.all([loadLandownerDetail(caseId),loadLandDetail(caseId),loadRealestateDetail(caseId),loadDocuments(caseId),loadCaseStatusHistory(caseId)]);
-}
-
-/* v20260516x: ステータス推移タイムラインを案件詳細に描画 */
-async function loadCaseStatusHistory(caseId){
-  const tl=document.getElementById('statusHistoryTimeline');
-  const stats=document.getElementById('statusHistoryStats');
-  if(!tl)return;
-  tl.innerHTML='<div style="color:var(--text-muted);font-size:12px;padding:8px">読込中...</div>';
-  try{
-    const{data,error}=await db.from('case_status_history')
-      .select('*')
-      .eq('case_id',caseId)
-      .order('changed_at',{ascending:true});
-    if(error)throw error;
-    if(!data||!data.length){
-      tl.innerHTML='<div style="color:var(--text-muted);font-size:12px;padding:8px">履歴がありません（DBセットアップ未実行の可能性）</div>';
-      if(stats)stats.textContent='';
-      return;
-    }
-    /* 統計（トリガー別件数） */
-    const tc={};
-    data.forEach(h=>{tc[h.trigger_source]=(tc[h.trigger_source]||0)+1;});
-    const summary=[];
-    if(tc['letter_print'])summary.push('📮手紙'+tc['letter_print']);
-    if(tc['visit_complete'])summary.push('🚶訪問'+tc['visit_complete']);
-    if(tc['phone'])summary.push('📞電話'+tc['phone']);
-    if(tc['email'])summary.push('📧メール'+tc['email']);
-    if(tc['manual'])summary.push('✋手動'+tc['manual']);
-    if(stats)stats.textContent=summary.length?summary.join(' / '):(data.length+'件');
-    
-    /* タイムライン描画 */
-    let html='';
-    data.forEach((h,i)=>{
-      const dt=new Date(h.changed_at);
-      const dtStr=dt.toLocaleDateString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit'})+' '+dt.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
-      const triggerLabel={
-        'manual':'✋ 手動',
-        'letter_print':'📮 手紙印刷',
-        'visit_complete':'🚶 訪問完了',
-        'phone':'📞 電話',
-        'email':'📧 メール',
-        'initial_snapshot':'📍 履歴開始時点',
-        'auto':'⚙ 自動記録'
-      }[h.trigger_source]||h.trigger_source;
-      const oldBadge=h.old_status?`<span class="status-badge status-${statusClass(h.old_status)}" style="font-size:10px;padding:1px 6px">${_escHtml(h.old_status)}</span>`:'<span style="color:var(--text-muted);font-size:11px">(開始)</span>';
-      const newBadge=`<span class="status-badge status-${statusClass(h.new_status)}" style="font-size:10px;padding:1px 6px">${_escHtml(h.new_status)}</span>`;
-      html+=`<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--surface);border-radius:4px;font-size:12px;flex-wrap:wrap">
-        <span style="color:var(--text-muted);font-family:var(--font-mono);font-size:10px;min-width:28px">#${i+1}</span>
-        ${oldBadge}
-        <span style="color:var(--text-muted)">→</span>
-        ${newBadge}
-        <span style="margin-left:auto;color:var(--accent);font-size:10px;font-weight:600">${triggerLabel}</span>
-        <span style="color:var(--text-muted);font-family:var(--font-mono);font-size:10px">${dtStr}</span>
-      </div>`;
-      if(h.note){
-        html+=`<div style="padding:0 8px 6px 40px;color:var(--text-muted);font-size:11px;font-style:italic">📝 ${_escHtml(h.note)}</div>`;
-      }
-    });
-    tl.innerHTML=html;
-  }catch(e){
-    console.error('[loadCaseStatusHistory]',e);
-    tl.innerHTML='<div style="color:var(--red);font-size:12px;padding:8px">履歴取得エラー: '+_escHtml(e.message||String(e))+'</div>';
-  }
-}
-
-/* v20260516x: メモ付きでステータス変更するダイアログ */
-function openStatusNoteDialog(){
-  if(!currentCaseId){showToast('案件が選択されていません','error');return;}
-  const c=allCases.find(x=>String(x.id)===String(currentCaseId));
-  if(!c){showToast('案件データが見つかりません','error');return;}
-  /* 選択肢を構築 */
-  const STATUSES=['NOT VISITED','THINKING↑','THINKING→','THINKING↓','OK','SUCCESS','NON MEET','NG','UNKNOWN','LETTER','LTR済'];
-  /* v20260516y: シンプル3種類（manual / letter_print / visit_complete） */
-  const TRIGGERS=[
-    {v:'manual',label:'✋ 手動（その他）'},
-    {v:'letter_print',label:'📮 手紙関連'},
-    {v:'visit_complete',label:'🚶 訪問完了'}
-  ];
-  const overlay=document.createElement('div');
-  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:3000;display:flex;align-items:center;justify-content:center';
-  const statusOpts=STATUSES.map(s=>`<option value="${s}"${s===c.status?' selected':''}>${s}</option>`).join('');
-  const triggerOpts=TRIGGERS.map(t=>`<option value="${t.v}">${t.label}</option>`).join('');
-  overlay.innerHTML=`<div style="background:var(--bg);border:2px solid var(--accent);border-radius:10px;padding:20px;width:min(480px,calc(100vw - 40px));max-height:calc(100vh - 60px);overflow-y:auto;box-shadow:0 16px 48px rgba(0,0,0,.7)">
-    <div style="font-size:15px;font-weight:700;color:var(--accent);margin-bottom:14px">📝 メモ付きでステータス変更</div>
-    <div style="display:flex;flex-direction:column;gap:10px">
-      <div>
-        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">現在のステータス</label>
-        <div>${statusBadge(c.status)}</div>
-      </div>
-      <div>
-        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">新しいステータス</label>
-        <select id="snd_new_status" class="form-input" style="width:100%">${statusOpts}</select>
-      </div>
-      <div>
-        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">変更理由・営業手法</label>
-        <select id="snd_trigger" class="form-input" style="width:100%">${triggerOpts}</select>
-      </div>
-      <div>
-        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">補足メモ（任意）</label>
-        <textarea id="snd_note" class="form-input" rows="3" style="width:100%;resize:vertical" placeholder="例：電話で「興味なし」と返答／不在のため再訪予定 など"></textarea>
-      </div>
-    </div>
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
-      <button class="btn btn-ghost" onclick="this.closest('[data-snd-overlay]').remove()">キャンセル</button>
-      <button class="btn btn-primary" onclick="_submitStatusNote(this)">保存</button>
-    </div>
-  </div>`;
-  overlay.setAttribute('data-snd-overlay','1');
-  overlay.addEventListener('click',(e)=>{if(e.target===overlay)overlay.remove();});
-  document.body.appendChild(overlay);
-}
-
-async function _submitStatusNote(btn){
-  const overlay=btn.closest('[data-snd-overlay]');
-  if(!overlay)return;
-  const newStatus=overlay.querySelector('#snd_new_status').value;
-  const trigger=overlay.querySelector('#snd_trigger').value;
-  const note=(overlay.querySelector('#snd_note').value||'').trim()||null;
-  if(!newStatus){showToast('ステータスを選択してください','error');return;}
-  btn.disabled=true;btn.textContent='保存中...';
-  try{
-    const{error}=await db.rpc('change_case_status',{
-      p_case_id:currentCaseId,
-      p_new_status:newStatus,
-      p_trigger_source:trigger,
-      p_note:note
-    });
-    if(error)throw error;
-    overlay.remove();
-    showToast('ステータスを変更しました','success');
-    await Promise.all([refreshAll(),loadCaseStatusHistory(currentCaseId)]);
-  }catch(e){
-    btn.disabled=false;btn.textContent='保存';
-    showToast('保存エラー: '+(e.message||e),'error');
-  }
+  await Promise.all([loadLandownerDetail(caseId),loadLandDetail(caseId),loadRealestateDetail(caseId),loadDocuments(caseId)]);
 }
 
 // 📄 概要書を生成（新タブで case-summary.html を開く）
@@ -2437,12 +2160,27 @@ function autoSetArticle5Date(){
 }
 
 async function loadLandDetail(caseId){
-  const{data}=await db.from('land_info').select('*').eq('case_id',caseId).single();
+  // v20260516z7: 複数筆対応 - .single() を外して複数行に対応
+  const{data:rows}=await db.from('land_info').select('*').eq('case_id',caseId).order('id');
+  const data = rows && rows.length > 0 ? rows[0] : null;
+  const extraCount = rows ? Math.max(0, rows.length - 1) : 0;
   // 所在の前後に {} が混入している場合を除去（AI転記やDB側で付与されたケースに対応）
   if(data&&typeof data.location==='string'){
     data.location=data.location.replace(/^\{|\}$/g,'').trim();
   }
-  const html=data?`<div class="info-item"><div class="info-label">登記面積</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">用途地域・地目</div><div class="info-value">${data.chiban||'—'}</div></div><div class="info-item full"><div class="info-label">所在</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">法令上の制限</div><div class="info-value">${data.horeijo_seigen||'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">現地調査マップ <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（近隣案件確認）</span></div><div class="info-value">${data.lat&&data.lng?`<a href="field-survey.html?lat=${encodeURIComponent(data.lat)}&lng=${encodeURIComponent(data.lng)}&zoom=16&highlight=1" target="_blank" style="color:#22c55e">🗺 現地調査マップを開く</a>`:'<span style="color:var(--text-muted)">緯度経度未登録</span>'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}</div></div><div class="info-item"><div class="info-label">農地種別</div><div class="info-value">${data.nouchi_kubun||'未調査'}</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`:'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
+  // 複数筆ある場合、所在/地番/地目/面積/都市計画区域を簡易表でまとめて表示
+  let multiTbl = '';
+  if(rows && rows.length > 1){
+    let trs = '';
+    rows.forEach((r, i) => {
+      const dispChiban  = (r.chiban && /\d/.test(r.chiban)) ? r.chiban : '';
+      const dispChimoku = r.chimoku || (r.chiban && !/\d/.test(r.chiban) ? r.chiban : '');
+      const area = (r.area_sqm==null||r.area_sqm==='') ? '—' : Number(r.area_sqm).toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2});
+      trs += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 6px;text-align:center;color:var(--text-muted)">${i+1}</td><td style="padding:4px 6px">${r.location||'—'}</td><td style="padding:4px 6px">${dispChiban||'—'}</td><td style="padding:4px 6px;text-align:right">${area}</td><td style="padding:4px 6px">${dispChimoku||'—'}</td><td style="padding:4px 6px">${r.horeijo_seigen||'—'}</td></tr>`;
+    });
+    multiTbl = `<div class="info-item full"><div class="info-label">不動産明細（全${rows.length}筆）</div><div class="info-value" style="padding:0"><div style="border:1px solid var(--border);border-radius:6px;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead style="background:var(--surface2)"><tr><th style="padding:6px;width:34px;text-align:center;color:var(--text-muted);font-weight:600">No</th><th style="padding:6px;text-align:left;color:var(--text-muted);font-weight:600">所在</th><th style="padding:6px;width:80px;text-align:left;color:var(--text-muted);font-weight:600">地番</th><th style="padding:6px;width:90px;text-align:right;color:var(--text-muted);font-weight:600">面積㎡</th><th style="padding:6px;width:60px;text-align:left;color:var(--text-muted);font-weight:600">地目</th><th style="padding:6px;width:120px;text-align:left;color:var(--text-muted);font-weight:600">都市計画区域</th></tr></thead><tbody>${trs}</tbody></table></div></div></div>`;
+  }
+  const html=data?(multiTbl + `<div class="info-item"><div class="info-label">登記面積${rows.length>1?'（先頭筆）':''}</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">用途地域・地目${rows.length>1?'（先頭筆）':''}</div><div class="info-value">${data.chiban||'—'}</div></div><div class="info-item full"><div class="info-label">所在${rows.length>1?'（先頭筆）':''}</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">法令上の制限${rows.length>1?'（先頭筆）':''}</div><div class="info-value">${data.horeijo_seigen||'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">現地調査マップ <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（近隣案件確認）</span></div><div class="info-value">${data.lat&&data.lng?`<a href="field-survey.html?lat=${encodeURIComponent(data.lat)}&lng=${encodeURIComponent(data.lng)}&zoom=16&highlight=1" target="_blank" style="color:#22c55e">🗺 現地調査マップを開く</a>`:'<span style="color:var(--text-muted)">緯度経度未登録</span>'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}</div></div><div class="info-item"><div class="info-label">農地種別</div><div class="info-value">${data.nouchi_kubun||'未調査'}</div></div><div class="info-item"><div class="info-label">森林計画図</div><div class="info-value forest-gis-link">読込中...</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`):'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
   if(data&&data.location){
@@ -2775,11 +2513,8 @@ async function loadDocuments(caseId){
   }
   list.innerHTML=headerHtml+data.map(d=>{
     const isTouki=d.document_type==='touki';
-    const isKouzu=d.document_type==='kouzu';
-    const isOther=d.document_type==='other';
-    /* v20260516n: 書類種別に「その他資料」を追加 */
-    const typeLabel=isTouki?'📜 登記簿':isKouzu?'🗺 公図':isOther?'📋 その他資料':'📄 書類';
-    const typeColor=isTouki?'#3b82f6':isKouzu?'#10b981':isOther?'#8b5cf6':'#6b7280';
+    const typeLabel=isTouki?'📜 登記簿':'🗺 公図';
+    const typeColor=isTouki?'#3b82f6':'#10b981';
     const sizeKB=d.file_size_compressed?Math.round(d.file_size_compressed/1024):0;
     const origKB=d.file_size_original?Math.round(d.file_size_original/1024):0;
     const compressInfo=d.compression_applied&&origKB?`${origKB}→${sizeKB}KB`:`${sizeKB}KB`;
@@ -3186,11 +2921,15 @@ async function _bulkLoadCandidates(){
   // 1. 全案件を取得（NG含む）
   const{data:cs,error:e1}=await db.from('cases').select('id,case_no,display_case_no,status,area_name,parent_case_no,branch_no');
   if(e1)throw e1;
-  // 2. land_info を全件取得
-  const{data:lis,error:e2}=await db.from('land_info').select('case_id,location').not('location','is',null);
+  // 2. land_info を全件取得（v20260516z8: 複数筆対応 - id順で取得して1筆目を代表とする + 筆数を集計）
+  const{data:lis,error:e2}=await db.from('land_info').select('case_id,location,id').not('location','is',null).order('id');
   if(e2)throw e2;
   const liMap={};
-  (lis||[]).forEach(l=>{liMap[l.case_id]=l.location;});
+  const liCountMap={};
+  (lis||[]).forEach(l=>{
+    if(!liMap[l.case_id]) liMap[l.case_id]=l.location;  // 1筆目のみ保持
+    liCountMap[l.case_id]=(liCountMap[l.case_id]||0)+1;
+  });
   // 3. 統合（land_info があるものだけ）+ 電力会社判定
   const allCases=(cs||[]).filter(c=>liMap[c.id]).map(c=>({
     id:c.id,
@@ -3200,12 +2939,21 @@ async function _bulkLoadCandidates(){
     parent_case_no:c.parent_case_no,
     branch_no:c.branch_no,
     land_info_location:liMap[c.id],
+    land_info_count:liCountMap[c.id]||1,
     power_company:getPowerCompanyFromArea(c.area_name)
   }));
   // 4. NG含む全候補を別配列に保存（マッチなしファイルの追加検索用）
   _bulkAllCandidatesIncludeNG=allCases;
   // 5. 通常のマッチング対象は非NGのみ
   return allCases.filter(c=>c.status!=='NG');
+}
+
+// v20260516z8: 所在表示用 - 複数筆なら「（他N筆）」を追記
+function _locDispWithExtra(c){
+  const loc = c?.land_info_location || '';
+  if(!loc) return '';
+  const cnt = c?.land_info_count || 1;
+  return cnt > 1 ? `${loc}（他${cnt-1}筆）` : loc;
 }
 
 // フォルダ選択時のハンドラ
@@ -3394,13 +3142,13 @@ function renderBulkPreview(){
       const opts=filterByArea(m.matches);
       matchSelectHtml=`<select onchange="updateBulkMatch(${idx},this.value)" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px;font-size:12px;width:100%;margin-top:6px;">
         <option value="">-- 候補から選択 ${areaFilter?`(${areaFilter}内 ${opts.length}件)`:''} --</option>
-        ${opts.map(c=>`<option value="${c.id}" ${item.selectedCaseId===c.id?'selected':''}>${_bulkDisplayCaseNo(c)} - ${c.land_info_location||''}</option>`).join('')}
+        ${opts.map(c=>`<option value="${c.id}" ${item.selectedCaseId===c.id?'selected':''}>${_bulkDisplayCaseNo(c)} - ${_locDispWithExtra(c)}</option>`).join('')}
       </select>`;
     }else if(m.type==='none'){
       const opts=filterByArea(_bulkAllCandidates);
       matchSelectHtml=`<select onchange="updateBulkMatch(${idx},this.value)" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px;font-size:12px;width:100%;margin-top:6px;">
         <option value="">-- 手動で案件を選択 ${areaFilter?`(${areaFilter}内 ${opts.length}件)`:`(全${opts.length}件)`} --</option>
-        ${opts.map(c=>`<option value="${c.id}" ${item.selectedCaseId===c.id?'selected':''}>${_bulkDisplayCaseNo(c)} - ${c.land_info_location||''}</option>`).join('')}
+        ${opts.map(c=>`<option value="${c.id}" ${item.selectedCaseId===c.id?'selected':''}>${_bulkDisplayCaseNo(c)} - ${_locDispWithExtra(c)}</option>`).join('')}
       </select>`;
     }
     // 自動一致判定（所在の一致度）
@@ -3447,7 +3195,7 @@ function renderBulkPreview(){
     const ngWarningHtml=item.uploaded?'':isNgMatch?`
       <div style="background:#ef4444;color:#fff;padding:10px 14px;font-weight:700;font-size:13px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <span style="font-size:18px;">⚠️</span>
-        <span>NG案件と一致：${_bulkDisplayCaseNo(item.ngMatch)}（${item.ngMatch.land_info_location||''}）</span>
+        <span>NG案件と一致：${_bulkDisplayCaseNo(item.ngMatch)}（${_locDispWithExtra(item.ngMatch)}）</span>
         <span style="margin-left:auto;background:rgba(255,255,255,.25);padding:2px 8px;border-radius:4px;font-size:11px;">💡 取込不要 → スキップ済み</span>
       </div>
     `:'';
@@ -3492,7 +3240,7 @@ function renderBulkPreview(){
               </div>
               <div style="margin-bottom:10px;">
                 <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">📍 所在（land_info）</div>
-                <div style="font-size:13px;color:var(--text);font-family:var(--font-mono);word-break:break-all;line-height:1.5;">${item.ngMatch.land_info_location||'-'}</div>
+                <div style="font-size:13px;color:var(--text);font-family:var(--font-mono);word-break:break-all;line-height:1.5;">${_locDispWithExtra(item.ngMatch)||'-'}</div>
               </div>
               <div style="background:rgba(239,68,68,.15);border:1px solid #ef4444;border-radius:4px;padding:8px;font-size:11px;color:#fca5a5;line-height:1.5;">
                 💡 <strong>NG案件のため取込不要</strong><br>登記情報の紐付けは不要です（運用方針）
@@ -3504,7 +3252,7 @@ function renderBulkPreview(){
               </div>
               <div>
                 <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">📍 所在（land_info）</div>
-                <div style="font-size:13px;color:var(--text);font-family:var(--font-mono);word-break:break-all;line-height:1.5;">${matchedCase.land_info_location||'-'}</div>
+                <div style="font-size:13px;color:var(--text);font-family:var(--font-mono);word-break:break-all;line-height:1.5;">${_locDispWithExtra(matchedCase)||'-'}</div>
               </div>
             `:`
               <div style="font-size:12px;color:var(--text-muted);padding:20px 0;text-align:center;">案件が選択されていません</div>
@@ -4068,8 +3816,6 @@ async function openLandownerEditModal(){
     fillLandownerEditForm(null);
   }
   document.getElementById('elo_postal_hint').textContent='';
-  /* v20260516g: コピー元セレクタを初期化 */
-  await _populateCopyFromLandownerSelect();
   document.getElementById('editLandownerModal').classList.add('open');
 }
 function fillLandownerEditForm(d){
@@ -4099,322 +3845,6 @@ function addNewLandownerEdit(){
   }
   showToast('新規所有者として入力中。保存ボタンで追加されます');
 }
-
-/* ============================================================================
-   v20260516h: 地権者登録コピーモード（エリア→地権者 2段階セレクタ）
-   既存案件の地権者情報（氏名・電話・〒・住所・GoogleMAP）を一括コピー
-   ============================================================================ */
-let _copyFromAllLandowners=[];  /* 全地権者データのキャッシュ（自案件除外） */
-
-/* 案件番号からエリア（プレフィックス）を抽出
-   例: "中部-001" → "中部", "中部-001-1"（枝番）→ "中部", "東京湾岸-005" → "東京湾岸" */
-function _extractAreaFromCaseNo(caseNo){
-  if(!caseNo)return '';
-  const m=String(caseNo).match(/^([^-]+)-/);
-  return m?m[1]:'';
-}
-
-/* 住所から市町村を抽出（v20260516i）
-   例: "愛知県田原市田原町大字加治字天神6番地の" → "田原市"
-       "蒲郡市西浦町五郎蔵屋敷24番地" → "蒲郡市"（都道府県省略）
-       "神奈川県横浜市神奈川区浦島丘17番地1" → "横浜市" */
-function _extractCityFromAddress(addr){
-  if(!addr)return '';
-  /* 都道府県を除去 */
-  const noPref=String(addr).replace(/^\s*(東京都|北海道|(?:京都|大阪)府|[^\s]{2,3}県)/,'');
-  /* 最初の市区町村を抽出（区は政令市の区を吸収するため "市" 優先で抽出） */
-  const m=noPref.match(/^([^\s]+?[市区町村])/);
-  return m?m[1]:'';
-}
-
-async function _populateCopyFromLandownerSelect(){
-  const areaSel=document.getElementById('elo_copy_area');
-  /* v20260516u: 旧 select id="elo_copy_from" は v20260516q でカスタムピッカーに置き換え済み。
-     ここでは areaSel の存在確認のみ。地権者表示は新ピッカーの _filterCopyFromByArea()/_renderCopyFromPickerRows() が担当 */
-  if(!areaSel){
-    console.error('[copyFrom] エリアセレクタが見つかりません');
-    return;
-  }
-  try{
-    /* 全 landowner_info を取得（氏名がある行のみ、cases.area_name も取得） */
-    const{data,error}=await db.from('landowner_info')
-      .select('id,name,tel,postal_code,address,google_map,lat,lng,case_id,cases:case_id(case_no,parent_case_no,display_case_no,area_name)')
-      .not('name','is',null)
-      .order('name',{ascending:true});
-    if(error){
-      console.error('[copyFrom] 地権者リスト取得エラー:',error);
-      areaSel.innerHTML='<option value="">— 取得失敗 —</option>';
-      const lbl=document.getElementById('elo_copy_from_btn_label');
-      if(lbl)lbl.textContent='— 取得失敗 —';
-      if(typeof showToast==='function')showToast('地権者リスト取得失敗: '+(error.message||error),'error');
-      return;
-    }
-    /* 自案件は除外 */
-    _copyFromAllLandowners=(data||[]).filter(d=>d.case_id!==currentCaseId);
-
-    /* v20260516j: エリアを「電力会社」で判定（area_name → getPowerCompanyFromArea で電力会社を取得） */
-    const powerCount={};
-    _copyFromAllLandowners.forEach(d=>{
-      const areaName=d.cases?.area_name||'';
-      const pc=(typeof getPowerCompanyFromArea==='function')?getPowerCompanyFromArea(areaName):'';
-      if(pc){
-        powerCount[pc]=(powerCount[pc]||0)+1;
-        d._powerCompany=pc;
-      }else{
-        d._powerCompany='(電力会社不明)';
-        powerCount['(電力会社不明)']=(powerCount['(電力会社不明)']||0)+1;
-      }
-    });
-
-    /* エリアセレクタは電力会社リスト（POWER_COMPANIES）で構築 */
-    const areaOpts=['<option value="">— 電力会社を選択 —</option>','<option value="__ALL__">すべて表示（'+_copyFromAllLandowners.length+'件）</option>'];
-    if(typeof POWER_COMPANIES!=='undefined'&&Array.isArray(POWER_COMPANIES)){
-      POWER_COMPANIES.forEach(pc=>{
-        const cnt=powerCount[pc]||0;
-        if(cnt>0)areaOpts.push(`<option value="${pc}">${pc}（${cnt}件）</option>`);
-      });
-    }else{
-      console.error('[copyFrom] POWER_COMPANIES が未定義（power-company-utils.js 読込失敗の可能性）');
-      if(typeof showToast==='function')showToast('POWER_COMPANIES 未定義（power-company-utils.js 読込失敗）','error');
-    }
-    /* 電力会社不明分があれば末尾に追加 */
-    if(powerCount['(電力会社不明)']){
-      areaOpts.push(`<option value="(電力会社不明)">(電力会社不明)（${powerCount['(電力会社不明)']}件）</option>`);
-    }
-    areaSel.innerHTML=areaOpts.join('');
-
-    /* 初期選択：ヘッダーの currentPowerCompany と同じにして自動絞り込み */
-    if(typeof currentPowerCompany!=='undefined'&&currentPowerCompany&&powerCount[currentPowerCompany]){
-      areaSel.value=currentPowerCompany;
-      _filterCopyFromByArea();  /* 自動的にフィルタ実行（新ピッカーの行描画も呼ばれる） */
-    }else{
-      const lbl=document.getElementById('elo_copy_from_btn_label');
-      if(lbl)lbl.textContent='— まず電力会社を選択してください —';
-    }
-    console.log('[copyFrom] 取得件数:',_copyFromAllLandowners.length,'/ 電力会社別:',powerCount);
-  }catch(e){
-    console.error('[copyFrom] 例外:',e);
-    if(typeof showToast==='function')showToast('地権者コピー初期化エラー: '+(e.message||e),'error');
-  }
-}
-
-/* 検索用の正規化（v20260516w）：NFKC + 空白除去 + 小文字化
-   「吉見」で検索した時に「吉　見　金　次」「吉 見」もマッチさせるため
-   _normalizeForOwnerCompare とは別物（番地表記揺れは吸収しない、検索クエリの意図を壊さないため） */
-function _normalizeForSearch(s){
-  if(!s)return '';
-  return String(s)
-    .normalize('NFKC')
-    .replace(/[\s\u3000]+/g,'')
-    .toLowerCase();
-}
-
-/* 同一地権者判定用の正規化（v20260516o）
-   - NFKC: 全角英数→半角、全角記号→半角、半角カナ→全角カナを統一
-   - 空白除去（全角・半角・タブ・改行）
-   - ハイフン類統一（長音符・各種ダッシュ→ハイフン）
-   - 住所表記の揺れ（番地の/番地/番、丁目→-、大字/字省略）を吸収
-   - 小文字化 */
-function _normalizeForOwnerCompare(s){
-  if(!s)return '';
-  return String(s)
-    .normalize('NFKC')
-    .replace(/[\s\u3000]+/g,'')
-    .replace(/[ーｰ−–—‐ｰ]/g,'-')
-    .replace(/番地の/g,'番')
-    .replace(/番地/g,'番')
-    .replace(/丁目/g,'-')
-    .replace(/大字/g,'')
-    .replace(/字/g,'')
-    .toLowerCase();
-}
-
-/* エリア選択時のフィルタ処理：選択された電力会社に属する地権者だけをカスタムピッカーに表示
-   v20260516q: テーブル形式（No / 地権者名 / 関連案件番号）の3列レイアウトに再設計、固定ヘッダー、検索可能 */
-function _filterCopyFromByArea(){
-  const area=document.getElementById('elo_copy_area').value;
-  const lbl=document.getElementById('elo_copy_from_btn_label');
-  const rows=document.getElementById('elo_copy_from_rows');
-  const footer=document.getElementById('elo_copy_from_footer');
-  if(!rows)return;
-  if(!area){
-    if(lbl)lbl.textContent='— まず電力会社を選択してください —';
-    rows.innerHTML='<div style="padding:24px;text-align:center;color:var(--text-muted)">まず電力会社を選択してください</div>';
-    if(footer)footer.textContent='';
-    return;
-  }
-  const filtered=(area==='__ALL__')?_copyFromAllLandowners.slice()
-    :_copyFromAllLandowners.filter(d=>d._powerCompany===area);
-
-  /* 同一地権者を氏名+住所の正規化キーで group by */
-  const groupMap={};
-  filtered.forEach(d=>{
-    const nameKey=_normalizeForOwnerCompare(d.name);
-    const addrKey=_normalizeForOwnerCompare(d.address);
-    const key=addrKey?(nameKey+'|'+addrKey):('NAME_ONLY|'+nameKey);
-    if(!groupMap[key])groupMap[key]=[];
-    groupMap[key].push(d);
-  });
-  Object.values(groupMap).forEach(grp=>{
-    grp.sort((a,b)=>{
-      const aCaseNo=(a.cases?.parent_case_no)||(a.cases?.case_no)||'';
-      const bCaseNo=(b.cases?.parent_case_no)||(b.cases?.case_no)||'';
-      return aCaseNo.localeCompare(bCaseNo,'ja',{numeric:true});
-    });
-  });
-  const mainRecords=Object.values(groupMap).map(grp=>{
-    const main=grp[0];
-    main._sameOwnerOthers=grp.slice(1);
-    return main;
-  });
-  mainRecords.sort((a,b)=>{
-    const an=(a.name||'').trim();
-    const bn=(b.name||'').trim();
-    const nameCmp=an.localeCompare(bn,'ja');
-    if(nameCmp!==0)return nameCmp;
-    const aCaseNo=(a.cases?.parent_case_no)||(a.cases?.case_no)||'';
-    const bCaseNo=(b.cases?.parent_case_no)||(b.cases?.case_no)||'';
-    return aCaseNo.localeCompare(bCaseNo,'ja',{numeric:true});
-  });
-
-  _renderCopyFromPickerRows(mainRecords,filtered.length);
-  if(lbl)lbl.textContent=`地権者を選択（${mainRecords.length}人 / ${filtered.length}件）`;
-}
-
-/* テーブル形式の行を描画 */
-function _renderCopyFromPickerRows(mainRecords,totalCount){
-  const rows=document.getElementById('elo_copy_from_rows');
-  const footer=document.getElementById('elo_copy_from_footer');
-  if(!rows)return;
-  if(!mainRecords.length){
-    rows.innerHTML='<div style="padding:24px;text-align:center;color:var(--text-muted)">該当する地権者がいません</div>';
-    if(footer)footer.textContent='';
-    return;
-  }
-  let html='';
-  mainRecords.forEach((d,idx)=>{
-    const c=d.cases||{};
-    const allCaseNos=[c.parent_case_no||c.case_no||'?']
-      .concat((d._sameOwnerOthers||[]).map(o=>{
-        const oc=o.cases||{};
-        return oc.parent_case_no||oc.case_no||'?';
-      }));
-    const caseNosStr=allCaseNos.join(', ');
-    const count=allCaseNos.length;
-    const countBadge=count>=2?` <span style="background:rgba(240,180,41,.2);color:#f0b429;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;margin-left:4px">×${count}</span>`:'';
-    const payload={
-      name:d.name||'',
-      tel:d.tel||'',
-      postal_code:d.postal_code||'',
-      address:d.address||'',
-      google_map:d.google_map||'',
-      lat:d.lat==null?'':String(d.lat),
-      lng:d.lng==null?'':String(d.lng)
-    };
-    const payloadEsc=JSON.stringify(payload).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
-    const searchText=_normalizeForSearch((d.name||'')+' '+caseNosStr);
-    const searchTextEsc=(typeof _escHtml==='function')?_escHtml(searchText):searchText.replace(/</g,'&lt;');
-    const nameEsc=(typeof _escHtml==='function')?_escHtml(d.name||'(無名)'):(d.name||'(無名)').replace(/</g,'&lt;');
-    const caseNosEsc=(typeof _escHtml==='function')?_escHtml(caseNosStr):caseNosStr.replace(/</g,'&lt;');
-    html+=`<div class="copy-row" data-search-text="${searchTextEsc}" data-payload="${payloadEsc}" onclick="_pickCopyRow(this)"
-      style="display:grid;grid-template-columns:50px 1fr 1.4fr;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px;align-items:center"
-      onmouseover="this.style.background='rgba(96,165,250,.12)'"
-      onmouseout="this.style.background='transparent'">
-      <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:11px">${idx+1}</div>
-      <div style="font-weight:600;color:var(--text)">${nameEsc}${countBadge}</div>
-      <div style="font-family:var(--font-mono);font-size:11px;color:var(--accent)">${caseNosEsc}</div>
-    </div>`;
-  });
-  rows.innerHTML=html;
-  if(footer)footer.textContent=`${mainRecords.length}人 / 全${totalCount}件　行をクリックでコピー実行`;
-}
-
-/* 検索ボックス入力時のリアルタイム絞り込み
-   v20260516w: クエリと検索対象の両方をNFKC正規化+空白除去で比較（「吉見」で「吉 見」「吉　見」をヒット） */
-function _filterCopyFromPickerRows(){
-  const q=_normalizeForSearch(document.getElementById('elo_copy_from_search').value||'');
-  let visible=0,total=0;
-  document.querySelectorAll('#elo_copy_from_rows .copy-row').forEach(row=>{
-    total++;
-    const t=row.dataset.searchText||'';
-    const show=!q||t.includes(q);
-    row.style.display=show?'grid':'none';
-    if(show)visible++;
-  });
-  const footer=document.getElementById('elo_copy_from_footer');
-  if(footer)footer.textContent=q?`絞り込み: ${visible}/${total}人　行をクリックでコピー実行`:`${total}人　行をクリックでコピー実行`;
-}
-
-/* パネルの開閉 */
-function _toggleCopyFromPicker(){
-  const p=document.getElementById('elo_copy_from_panel');
-  const ov=document.getElementById('elo_copy_from_overlay');
-  if(!p)return;
-  const isOpen=p.style.display==='flex';
-  p.style.display=isOpen?'none':'flex';
-  if(ov)ov.style.display=isOpen?'none':'block';  /* v20260516v: オーバーレイ同期 */
-  if(!isOpen){
-    setTimeout(()=>{
-      const s=document.getElementById('elo_copy_from_search');
-      if(s){s.value='';s.focus();_filterCopyFromPickerRows();}
-    },50);
-  }
-}
-
-/* 行クリック処理 */
-function _pickCopyRow(el){
-  const raw=el.dataset.payload||'';
-  copyFromExistingLandowner(raw);
-}
-
-function copyFromExistingLandowner(jsonStr){
-  if(!jsonStr)return;
-  try{
-    /* HTML属性エスケープを復号（&amp; を先に戻すと &quot; が二重置換される可能性があるため順序注意） */
-    const d=JSON.parse(jsonStr.replace(/&quot;/g,'"').replace(/&amp;/g,'&'));
-    console.log('[copyFrom] コピー元データ:',d);
-    /* 5項目 + lat/lng を一括反映 */
-    if(d.name!==undefined)document.getElementById('elo_name').value=d.name;
-    if(d.tel!==undefined)document.getElementById('elo_tel').value=d.tel;
-    if(d.postal_code!==undefined)document.getElementById('elo_postal_code').value=d.postal_code;
-    if(d.address!==undefined)document.getElementById('elo_address').value=d.address;
-
-    /* v20260516k: GoogleMAP URL フォールバック処理
-       コピー元に google_map URL が登録されていない場合、lat/lng から URL を自動生成 */
-    let gmap=d.google_map||'';
-    if(!gmap && d.lat && d.lng){
-      gmap=`https://www.google.com/maps/@${d.lat},${d.lng},17z`;
-      console.log('[copyFrom] google_map が空のため lat/lng から URL を自動生成:',gmap);
-    }
-    document.getElementById('elo_google_map').value=gmap;
-
-    if(d.lat!==undefined)document.getElementById('elo_lat').value=d.lat;
-    if(d.lng!==undefined)document.getElementById('elo_lng').value=d.lng;
-
-    /* コピーされた項目の一覧をトーストに表示（透明性向上） */
-    const copied=[];
-    if(d.name)copied.push('氏名');
-    if(d.tel)copied.push('電話');
-    if(d.postal_code)copied.push('〒');
-    if(d.address)copied.push('住所');
-    if(gmap)copied.push('GoogleMAP'+(d.google_map?'':'(自動生成)'));
-    if(d.lat||d.lng)copied.push('緯度経度');
-    showToast('✅ '+(d.name||'地権者')+' をコピー: '+copied.join('・'));
-
-    /* 両セレクタをリセット（連続コピー防止） */
-    /* v20260516q+v: 新ピッカー対応 — パネル+オーバーレイを閉じる、エリアセレクタは維持 */
-    const panel=document.getElementById('elo_copy_from_panel');
-    const overlay=document.getElementById('elo_copy_from_overlay');
-    if(panel)panel.style.display='none';
-    if(overlay)overlay.style.display='none';
-    const lbl=document.getElementById('elo_copy_from_btn_label');
-    if(lbl)lbl.textContent=`✓ コピー済: ${d.name||'地権者'}（再選択するには再度クリック）`;
-  }catch(e){
-    console.error('[copyFrom] パースエラー:',e,'jsonStr:',jsonStr);
-    showToast('コピーに失敗しました: '+(e.message||e),'error');
-  }
-}
-
 async function saveLandowner(){
   const g=id=>document.getElementById(id).value;
   const price=g('elo_price')?Number(g('elo_price')):null;
@@ -4648,18 +4078,126 @@ async function bulkFetchPostalCodes(){
   await loadLandownersMaster();
 }
 
-async function openLandEditModal(){
-  const{data}=await db.from('land_info').select('*').eq('case_id',currentCaseId).single();
-  ['area_sqm','location','chiban','horeijo_seigen','google_map','hazard','biko','article5_forest','nouchi_kubun'].forEach(f=>document.getElementById('eld_'+f).value=data?.[f]||'');
-  document.getElementById('eld_lat').value=data?.lat||'';document.getElementById('eld_lng').value=data?.lng||'';
-  // ===== 概要書項目: テキスト14項目 + 新3項目(chimoku/land_rights/rental_fee) =====
-  ['chimoku','land_rights','rental_fee','otsu_rights','road_width','road_pavement','logging_permit','noushinhou_kubun','youto_chiiki','jourei','guideline','pole_left','pole_center','pole_right','buried_culture_details','application_details','notification_details'].forEach(f=>{
-    const el=document.getElementById('eld_'+f); if(el) el.value=data?.[f]||'';
+// v20260516z7: 複数筆対応のための土地行管理
+let _editLandRows = [];
+
+// chibanが地番らしい(数字を含む)か判定
+function _isChibanLike(v){ return v && /\d/.test(String(v)); }
+
+// 既存DB値の地番/地目を表示用に振り分け（chibanに地目混入時の救済）
+function _splitChibanChimoku(r){
+  const dispChiban  = _isChibanLike(r.chiban) ? r.chiban : '';
+  const dispChimoku = r.chimoku || (r.chiban && !_isChibanLike(r.chiban) ? r.chiban : '');
+  return { dispChiban: dispChiban || '', dispChimoku: dispChimoku || '' };
+}
+
+// 行UIをレンダリング
+function renderLandRows(){
+  const tbody = document.getElementById('landRowsBody');
+  if(!tbody) return;
+  tbody.innerHTML = '';
+  const visibleRows = _editLandRows.filter(r => !r._deleted);
+  if(visibleRows.length === 0){
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-muted)">「＋ 行追加」で土地情報を追加してください</td></tr>';
+    return;
+  }
+  visibleRows.forEach((row) => {
+    const idx = _editLandRows.indexOf(row);
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid var(--border)';
+    const cellStyle = 'padding:3px 4px;vertical-align:middle';
+    const inputStyle = 'width:100%;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 6px;font-size:12px;box-sizing:border-box';
+    tr.innerHTML = `
+      <td style="${cellStyle};text-align:center;color:var(--text-muted);font-weight:600">${visibleRows.indexOf(row)+1}</td>
+      <td style="${cellStyle}"><input type="text" data-idx="${idx}" data-field="location" value="${_escAttr(row.location)}" placeholder="例：愛知県田原市神戸町松本" style="${inputStyle}"></td>
+      <td style="${cellStyle}"><input type="text" data-idx="${idx}" data-field="chiban" value="${_escAttr(row.chiban)}" placeholder="23番地" style="${inputStyle}"></td>
+      <td style="${cellStyle}"><input type="number" step="0.01" data-idx="${idx}" data-field="area_sqm" value="${row.area_sqm==null?'':row.area_sqm}" placeholder="882" style="${inputStyle}"></td>
+      <td style="${cellStyle}"><input type="text" data-idx="${idx}" data-field="chimoku" value="${_escAttr(row.chimoku)}" placeholder="畑" style="${inputStyle}"></td>
+      <td style="${cellStyle}"><input type="text" data-idx="${idx}" data-field="horeijo_seigen" value="${_escAttr(row.horeijo_seigen)}" placeholder="市街化調整区域" style="${inputStyle}"></td>
+      <td style="${cellStyle};text-align:center"><button type="button" onclick="removeLandRow(${idx})" style="background:transparent;border:1px solid var(--danger,#f87171);color:var(--danger,#f87171);border-radius:4px;width:24px;height:24px;cursor:pointer;font-size:12px;padding:0" title="この行を削除">✕</button></td>
+    `;
+    tbody.appendChild(tr);
   });
-  // ===== 概要書項目: フラグ12項目 (BOOLEAN→string) =====
+  // 入力ハンドラを一括バインド
+  tbody.querySelectorAll('input[data-idx]').forEach(el => {
+    el.addEventListener('input', () => {
+      const i = parseInt(el.dataset.idx);
+      const f = el.dataset.field;
+      if(f === 'area_sqm'){
+        _editLandRows[i][f] = el.value === '' ? null : Number(el.value);
+      } else {
+        _editLandRows[i][f] = el.value;
+      }
+    });
+  });
+}
+function _escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function addLandRow(){
+  _editLandRows.push({id:null, location:'', chiban:'', area_sqm:null, chimoku:'', horeijo_seigen:'', _isNew:true});
+  renderLandRows();
+  // 追加した行の所在欄にフォーカス
+  setTimeout(() => {
+    const inputs = document.querySelectorAll('#landRowsBody input[data-field="location"]');
+    if(inputs.length > 0) inputs[inputs.length-1].focus();
+  }, 50);
+}
+
+function removeLandRow(idx){
+  const row = _editLandRows[idx];
+  if(!row) return;
+  if(row._isNew){
+    _editLandRows.splice(idx, 1);
+  } else {
+    if(!confirm('この行を削除しますか？（保存時にDBから削除されます）')) return;
+    row._deleted = true;
+  }
+  renderLandRows();
+}
+
+async function openLandEditModal(){
+  // 複数行取得（id順）
+  const{data:rows, error} = await db.from('land_info').select('*').eq('case_id',currentCaseId).order('id');
+  if(error){
+    console.error('[openLandEditModal] ロードエラー:', error);
+    showToast('土地情報の読み込みに失敗しました','error');
+    return;
+  }
+  // 行データ準備（地番/地目の自動振り分け）
+  if(rows && rows.length > 0){
+    _editLandRows = rows.map(r => {
+      const split = _splitChibanChimoku(r);
+      return {
+        id: r.id,
+        location: r.location || '',
+        chiban: split.dispChiban,
+        area_sqm: r.area_sqm,
+        chimoku: split.dispChimoku,
+        horeijo_seigen: r.horeijo_seigen || '',
+        _raw: r
+      };
+    });
+  } else {
+    // 新規：空行1つ
+    _editLandRows = [{id:null, location:'', chiban:'', area_sqm:null, chimoku:'', horeijo_seigen:'', _isNew:true}];
+  }
+  renderLandRows();
+
+  // 共通フィールド（案件全体に1つ）は「最初の行」から取得
+  const first = rows && rows.length > 0 ? rows[0] : {};
+  ['google_map','hazard','biko','article5_forest','nouchi_kubun'].forEach(f=>{
+    const el = document.getElementById('eld_'+f); if(el) el.value = first[f] || '';
+  });
+  document.getElementById('eld_lat').value = first.lat || '';
+  document.getElementById('eld_lng').value = first.lng || '';
+  // ===== 概要書項目: テキスト17項目（chimokuは行に統合済みのため除外） =====
+  ['land_rights','rental_fee','otsu_rights','road_width','road_pavement','logging_permit','noushinhou_kubun','youto_chiiki','jourei','guideline','pole_left','pole_center','pole_right','buried_culture_details','application_details','notification_details'].forEach(f=>{
+    const el=document.getElementById('eld_'+f); if(el) el.value=first?.[f]||'';
+  });
+  // ===== 概要書項目: フラグ12項目 =====
   ['hazard_flood_flag','hazard_landslide_flag','hazard_high_tide_flag','hazard_tsunami_flag','hazard_sabo_flag','hazard_river_flag','hazard_wildlife_flag','hazard_buried_culture_flag','hazard_national_park_flag','hazard_natural_env_flag','application_flag','notification_flag'].forEach(f=>{
     const el=document.getElementById('eld_'+f); if(!el) return;
-    const v=data?.[f];
+    const v=first?.[f];
     el.value=(v===true)?'true':(v===false)?'false':'';
   });
   document.getElementById('editLandModal').classList.add('open');
@@ -4681,13 +4219,15 @@ function toggleSummarySection(){
 }
 
 async function saveLand(){
+  // v20260516z7: 複数筆対応保存
+  const visibleRows = _editLandRows.filter(r => !r._deleted);
+  if(visibleRows.length === 0){
+    alert('土地情報を最低1行入力してください（「＋ 行追加」で追加できます）');
+    return;
+  }
   const g=id=>document.getElementById(id).value;
-  const payload={
-    case_id:currentCaseId,
-    area_sqm:g('eld_area_sqm')?Number(g('eld_area_sqm')):null,
-    location:g('eld_location'),
-    chiban:g('eld_chiban'),
-    horeijo_seigen:g('eld_horeijo_seigen'),
+  // 共通フィールド（案件全体・全行にコピー保存）
+  const commonPayload = {
     google_map:g('eld_google_map'),
     hazard:g('eld_hazard'),
     biko:g('eld_biko'),
@@ -4695,11 +4235,9 @@ async function saveLand(){
     lng:g('eld_lng')?Number(g('eld_lng')):null,
     article5_forest:g('eld_article5_forest')||null,
     nouchi_kubun:g('eld_nouchi_kubun')||null,
-    // ===== 概要書項目: 新3項目 =====
-    chimoku:g('eld_chimoku')||null,
+    // ===== 概要書項目（chimokuは行ごとなので除外） =====
     land_rights:g('eld_land_rights')||null,
     rental_fee:g('eld_rental_fee')||null,
-    // ===== 概要書項目: テキスト14本 =====
     otsu_rights:g('eld_otsu_rights')||null,
     road_width:g('eld_road_width')||null,
     road_pavement:g('eld_road_pavement')||null,
@@ -4714,7 +4252,6 @@ async function saveLand(){
     buried_culture_details:g('eld_buried_culture_details')||null,
     application_details:g('eld_application_details')||null,
     notification_details:g('eld_notification_details')||null,
-    // ===== 概要書項目: フラグ12本 (BOOLEAN) =====
     hazard_flood_flag:_parseSummaryFlag(g('eld_hazard_flood_flag')),
     hazard_landslide_flag:_parseSummaryFlag(g('eld_hazard_landslide_flag')),
     hazard_high_tide_flag:_parseSummaryFlag(g('eld_hazard_high_tide_flag')),
@@ -4728,20 +4265,39 @@ async function saveLand(){
     application_flag:_parseSummaryFlag(g('eld_application_flag')),
     notification_flag:_parseSummaryFlag(g('eld_notification_flag'))
   };
-  const{data:ex}=await db.from('land_info').select('id').eq('case_id',currentCaseId).single();
-  console.log('[saveLand] existing:', ex, 'caseId:', currentCaseId, 'payload keys:', Object.keys(payload).length);
-  console.log('[saveLand] payload:', payload);
-  const{error}=ex?await db.from('land_info').update(payload).eq('case_id',currentCaseId):await db.from('land_info').insert(payload);
-  if(error){
-    console.error('[saveLand] エラー詳細:', error);
-    const msg = error.message || JSON.stringify(error);
-    const detail = error.details ? '\n詳細: ' + error.details : '';
-    const hint = error.hint ? '\nヒント: ' + error.hint : '';
+  // 行ごとのフィールド生成
+  const rowPayload = (row) => ({
+    case_id: currentCaseId,
+    location: row.location || null,
+    chiban: row.chiban || null,
+    area_sqm: (row.area_sqm===null||row.area_sqm==='')?null:Number(row.area_sqm),
+    chimoku: row.chimoku || null,
+    horeijo_seigen: row.horeijo_seigen || null,
+    ...commonPayload
+  });
+  const errors = [];
+  // 順に処理: DELETE → UPDATE → INSERT
+  for(const row of _editLandRows){
+    if(row._deleted && row.id){
+      const{error} = await db.from('land_info').delete().eq('id', row.id);
+      if(error){ console.error('[saveLand DELETE]', error); errors.push(error); }
+    } else if(!row._deleted && row.id){
+      const{error} = await db.from('land_info').update(rowPayload(row)).eq('id', row.id);
+      if(error){ console.error('[saveLand UPDATE]', error); errors.push(error); }
+    } else if(!row._deleted && !row.id){
+      const{error} = await db.from('land_info').insert(rowPayload(row));
+      if(error){ console.error('[saveLand INSERT]', error); errors.push(error); }
+    }
+  }
+  if(errors.length > 0){
+    const e = errors[0];
+    const msg = e.message || JSON.stringify(e);
     showToast('保存エラー: ' + msg, 'error');
-    alert('土地情報の保存に失敗しました：\n\n' + msg + detail + hint);
+    alert('土地情報の保存に失敗しました：\n\n' + msg + (e.details?('\n詳細: '+e.details):'') + (e.hint?('\nヒント: '+e.hint):''));
     return;
   }
-  showToast('土地情報を保存しました');closeModal('editLandModal');
+  showToast(`土地情報を保存しました（${visibleRows.length}件）`);
+  closeModal('editLandModal');
   await Promise.all([loadLandDetail(currentCaseId),refreshAll()]);
 }
 
