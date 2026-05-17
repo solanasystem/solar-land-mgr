@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260516z8 / 土地情報複数筆対応 + 案件一覧で「他にN筆」表示 -->
+<!-- BUILD: main v20260516za / 不動産明細表に合計面積行を追加（案件詳細・編集モーダル両方） -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- ===== 権限管理ガード v20260515ae (common-auth.js) - 必ず他スクリプトより前に配置 ===== -->
-<script src="common-auth.js?v=20260516z8"></script>
+<script src="common-auth.js?v=20260516za"></script>
 <!-- ===== MODE SELECT 戻るボタン v20260515ae (mode-back.js) ===== -->
-<script src="mode-back.js?v=20260516z8"></script>
+<script src="mode-back.js?v=20260516za"></script>
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <script>
@@ -40,13 +40,13 @@
 </script>
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="mobile-responsive.css?v=20260516z8">
-<link rel="stylesheet" href="toki-ai.css?v=20260516z8">
+<link rel="stylesheet" href="mobile-responsive.css?v=20260516za">
+<link rel="stylesheet" href="toki-ai.css?v=20260516za">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-<script src="power-company-utils.js?v=20260516z8"></script>
-<script src="toki-ai.js?v=20260516z8"defer></script>
+<script src="power-company-utils.js?v=20260516za"></script>
+<script src="toki-ai.js?v=20260516za"defer></script>
 <style>
   :root {
     --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
@@ -2160,27 +2160,34 @@ function autoSetArticle5Date(){
 }
 
 async function loadLandDetail(caseId){
-  // v20260516z7: 複数筆対応 - .single() を外して複数行に対応
+  // v20260516z9: 全筆を常に表形式で表示（編集モーダルと同じ見た目）
   const{data:rows}=await db.from('land_info').select('*').eq('case_id',caseId).order('id');
-  const data = rows && rows.length > 0 ? rows[0] : null;
-  const extraCount = rows ? Math.max(0, rows.length - 1) : 0;
-  // 所在の前後に {} が混入している場合を除去（AI転記やDB側で付与されたケースに対応）
-  if(data&&typeof data.location==='string'){
-    data.location=data.location.replace(/^\{|\}$/g,'').trim();
+  if(!rows || rows.length === 0){
+    const empty = '<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
+    document.getElementById('landInfoMain').innerHTML = empty;
+    document.getElementById('landInfoCollapse').innerHTML = empty;
+    return;
   }
-  // 複数筆ある場合、所在/地番/地目/面積/都市計画区域を簡易表でまとめて表示
-  let multiTbl = '';
-  if(rows && rows.length > 1){
-    let trs = '';
-    rows.forEach((r, i) => {
-      const dispChiban  = (r.chiban && /\d/.test(r.chiban)) ? r.chiban : '';
-      const dispChimoku = r.chimoku || (r.chiban && !/\d/.test(r.chiban) ? r.chiban : '');
-      const area = (r.area_sqm==null||r.area_sqm==='') ? '—' : Number(r.area_sqm).toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2});
-      trs += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 6px;text-align:center;color:var(--text-muted)">${i+1}</td><td style="padding:4px 6px">${r.location||'—'}</td><td style="padding:4px 6px">${dispChiban||'—'}</td><td style="padding:4px 6px;text-align:right">${area}</td><td style="padding:4px 6px">${dispChimoku||'—'}</td><td style="padding:4px 6px">${r.horeijo_seigen||'—'}</td></tr>`;
-    });
-    multiTbl = `<div class="info-item full"><div class="info-label">不動産明細（全${rows.length}筆）</div><div class="info-value" style="padding:0"><div style="border:1px solid var(--border);border-radius:6px;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead style="background:var(--surface2)"><tr><th style="padding:6px;width:34px;text-align:center;color:var(--text-muted);font-weight:600">No</th><th style="padding:6px;text-align:left;color:var(--text-muted);font-weight:600">所在</th><th style="padding:6px;width:80px;text-align:left;color:var(--text-muted);font-weight:600">地番</th><th style="padding:6px;width:90px;text-align:right;color:var(--text-muted);font-weight:600">面積㎡</th><th style="padding:6px;width:60px;text-align:left;color:var(--text-muted);font-weight:600">地目</th><th style="padding:6px;width:120px;text-align:left;color:var(--text-muted);font-weight:600">都市計画区域</th></tr></thead><tbody>${trs}</tbody></table></div></div></div>`;
-  }
-  const html=data?(multiTbl + `<div class="info-item"><div class="info-label">登記面積${rows.length>1?'（先頭筆）':''}</div><div class="info-value">${formatArea(data.area_sqm)}</div></div><div class="info-item"><div class="info-label">用途地域・地目${rows.length>1?'（先頭筆）':''}</div><div class="info-value">${data.chiban||'—'}</div></div><div class="info-item full"><div class="info-label">所在${rows.length>1?'（先頭筆）':''}</div><div class="info-value">${data.location||'—'}</div></div><div class="info-item full"><div class="info-label">法令上の制限${rows.length>1?'（先頭筆）':''}</div><div class="info-value">${data.horeijo_seigen||'—'}</div></div><div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">現地調査マップ <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（近隣案件確認）</span></div><div class="info-value">${data.lat&&data.lng?`<a href="field-survey.html?lat=${encodeURIComponent(data.lat)}&lng=${encodeURIComponent(data.lng)}&zoom=16&highlight=1" target="_blank" style="color:#22c55e">🗺 現地調査マップを開く</a>`:'<span style="color:var(--text-muted)">緯度経度未登録</span>'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}</div></div><div class="info-item"><div class="info-label">農地種別</div><div class="info-value">${data.nouchi_kubun||'未調査'}</div></div><div class="info-item"><div class="info-label">森林計画図</div><div class="info-value forest-gis-link">読込中...</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`):'<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">土地情報が未登録です</div>';
+  // 所在の前後 {} 除去
+  rows.forEach(r=>{ if(typeof r.location==='string'){ r.location = r.location.replace(/^\{|\}$/g,'').trim(); } });
+  // 表形式（全N筆）+ 合計行（v20260516za）
+  let trs = '';
+  let totalArea = 0;
+  rows.forEach((r, i) => {
+    const split = _splitChibanChimoku(r);
+    const areaNum = (r.area_sqm==null||r.area_sqm==='') ? null : Number(r.area_sqm);
+    if(areaNum && !isNaN(areaNum)) totalArea += areaNum;
+    const area = (areaNum==null||isNaN(areaNum)) ? '—' : areaNum.toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2});
+    trs += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px;text-align:center;color:var(--text-muted)">${i+1}</td><td style="padding:6px">${split.dispLocation||'—'}</td><td style="padding:6px">${split.dispChiban||'—'}</td><td style="padding:6px;text-align:right">${area}</td><td style="padding:6px">${split.dispChimoku||'—'}</td><td style="padding:6px">${r.horeijo_seigen||'—'}</td></tr>`;
+  });
+  // 合計行
+  const totalDisp = totalArea > 0 ? totalArea.toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+  trs += `<tr style="background:var(--surface2);font-weight:600"><td colspan="3" style="padding:6px;text-align:right;color:var(--accent)">合計</td><td style="padding:6px;text-align:right;color:var(--accent)">${totalDisp}</td><td colspan="2" style="padding:6px"></td></tr>`;
+  const labelSuffix = rows.length > 1 ? `（全${rows.length}筆）` : '';
+  const multiTbl = `<div class="info-item full"><div class="info-label">📋 不動産明細${labelSuffix}</div><div class="info-value" style="padding:0"><div style="border:1px solid var(--border);border-radius:6px;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead style="background:var(--surface2)"><tr><th style="padding:6px;width:34px;text-align:center;color:var(--text-muted);font-weight:600">No</th><th style="padding:6px;text-align:left;color:var(--text-muted);font-weight:600">所在</th><th style="padding:6px;width:80px;text-align:left;color:var(--text-muted);font-weight:600">地番</th><th style="padding:6px;width:90px;text-align:right;color:var(--text-muted);font-weight:600">面積㎡</th><th style="padding:6px;width:60px;text-align:left;color:var(--text-muted);font-weight:600">地目</th><th style="padding:6px;width:130px;text-align:left;color:var(--text-muted);font-weight:600">都市計画区域</th></tr></thead><tbody>${trs}</tbody></table></div></div></div>`;
+  // 共通情報（先頭筆から取得）- 登記面積/用途地域・地目/所在/法令上の制限の縦リストは削除（表に統合済み）
+  const data = rows[0];
+  const html = multiTbl + `<div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">現地調査マップ <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（近隣案件確認）</span></div><div class="info-value">${data.lat&&data.lng?`<a href="field-survey.html?lat=${encodeURIComponent(data.lat)}&lng=${encodeURIComponent(data.lng)}&zoom=16&highlight=1" target="_blank" style="color:#22c55e">🗺 現地調査マップを開く</a>`:'<span style="color:var(--text-muted)">緯度経度未登録</span>'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}</div></div><div class="info-item"><div class="info-label">農地種別</div><div class="info-value">${data.nouchi_kubun||'未調査'}</div></div><div class="info-item"><div class="info-label">森林計画図</div><div class="info-value forest-gis-link">読込中...</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`;
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
   if(data&&data.location){
@@ -4084,11 +4091,50 @@ let _editLandRows = [];
 // chibanが地番らしい(数字を含む)か判定
 function _isChibanLike(v){ return v && /\d/.test(String(v)); }
 
-// 既存DB値の地番/地目を表示用に振り分け（chibanに地目混入時の救済）
+// v20260516z9: locationの末尾から地番を抽出
+function _extractChibanFromLocation(location){
+  if(!location) return '';
+  const loc = String(location);
+  // パターン1: 空白あり + 数字(+派生)
+  let m = loc.match(/[\s\u3000]+(\d+(?:[-－]\d+)?(?:番地?\d*)?)[\s\u3000]*$/);
+  if(m) return m[1];
+  // パターン2: 空白なしでも「番」「番地」明示の数字
+  m = loc.match(/(\d+(?:[-－]\d+)?番地?\d*)[\s\u3000]*$/);
+  if(m) return m[1];
+  return '';
+}
+
+// v20260516z9: locationから末尾の地番を除去（所在欄を「小字まで」に整形）
+function _stripChibanFromLocation(location, chiban){
+  if(!location) return '';
+  const loc = String(location);
+  if(chiban){
+    const chibanStr = String(chiban).trim();
+    const escaped = chibanStr.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const r1 = loc.replace(new RegExp('[\\s\u3000]*'+escaped+'[\\s\u3000]*$'),'').trim();
+    if(r1 !== loc) return r1;
+    const m = chibanStr.match(/^(\d+(?:[-－]\d+)?)/);
+    if(m){
+      const numPart = m[1];
+      const r2 = loc.replace(new RegExp('[\\s\u3000]+'+numPart+'[\\s\u3000]*$'),'').trim();
+      if(r2 !== loc) return r2;
+    }
+  }
+  return loc.replace(/(?:[\s\u3000]+\d+(?:[-－]\d+)?(?:番地?\d*)?|\d+(?:[-－]\d+)?番地?\d*)[\s\u3000]*$/,'').trim();
+}
+
+// 既存DB値の地番/地目/所在を表示用に振り分け
+// v20260516z9: location からの地番抽出を組み込み（所在は「小字まで」に整形して、抽出した地番は地番列へ）
 function _splitChibanChimoku(r){
-  const dispChiban  = _isChibanLike(r.chiban) ? r.chiban : '';
-  const dispChimoku = r.chimoku || (r.chiban && !_isChibanLike(r.chiban) ? r.chiban : '');
-  return { dispChiban: dispChiban || '', dispChimoku: dispChimoku || '' };
+  const chibanIsNum = _isChibanLike(r.chiban);
+  const dispChiban  = chibanIsNum ? r.chiban : _extractChibanFromLocation(r.location);
+  const dispChimoku = r.chimoku || (r.chiban && !chibanIsNum ? r.chiban : '');
+  const dispLocation = _stripChibanFromLocation(r.location, chibanIsNum ? r.chiban : null);
+  return {
+    dispLocation: dispLocation || '',
+    dispChiban: dispChiban || '',
+    dispChimoku: dispChimoku || ''
+  };
 }
 
 // 行UIをレンダリング
@@ -4118,6 +4164,13 @@ function renderLandRows(){
     `;
     tbody.appendChild(tr);
   });
+  // v20260516za: 合計行を末尾に追加
+  const totalTr = document.createElement('tr');
+  totalTr.style.background = 'var(--surface2)';
+  totalTr.style.fontWeight = '600';
+  totalTr.innerHTML = `<td colspan="3" style="padding:6px;text-align:right;color:var(--accent)">合計</td><td id="landTotalArea" style="padding:6px;text-align:right;color:var(--accent)">—</td><td colspan="3" style="padding:6px"></td>`;
+  tbody.appendChild(totalTr);
+  _updateLandTotal();
   // 入力ハンドラを一括バインド
   tbody.querySelectorAll('input[data-idx]').forEach(el => {
     el.addEventListener('input', () => {
@@ -4125,11 +4178,24 @@ function renderLandRows(){
       const f = el.dataset.field;
       if(f === 'area_sqm'){
         _editLandRows[i][f] = el.value === '' ? null : Number(el.value);
+        _updateLandTotal(); // v20260516za: 面積変更時に合計を即時更新
       } else {
         _editLandRows[i][f] = el.value;
       }
     });
   });
+}
+// v20260516za: 合計面積を計算してセルに反映
+function _updateLandTotal(){
+  const el = document.getElementById('landTotalArea');
+  if(!el) return;
+  const total = _editLandRows
+    .filter(r => !r._deleted)
+    .reduce((s, r) => {
+      const v = (r.area_sqm==null||r.area_sqm==='') ? 0 : Number(r.area_sqm);
+      return s + (isNaN(v) ? 0 : v);
+    }, 0);
+  el.textContent = total > 0 ? total.toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
 }
 function _escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -4163,13 +4229,13 @@ async function openLandEditModal(){
     showToast('土地情報の読み込みに失敗しました','error');
     return;
   }
-  // 行データ準備（地番/地目の自動振り分け）
+  // 行データ準備（地番/地目/所在の自動振り分け＝既存DBで location末尾に地番が含まれている場合に対応）
   if(rows && rows.length > 0){
     _editLandRows = rows.map(r => {
       const split = _splitChibanChimoku(r);
       return {
         id: r.id,
-        location: r.location || '',
+        location: split.dispLocation,
         chiban: split.dispChiban,
         area_sqm: r.area_sqm,
         chimoku: split.dispChimoku,
