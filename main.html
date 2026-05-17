@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260516za / 不動産明細表に合計面積行を追加（案件詳細・編集モーダル両方） -->
+<!-- BUILD: main v20260516zb / 表列幅調整 + 共通情報を表形式整理 + 森林計画図セクション削除 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- ===== 権限管理ガード v20260515ae (common-auth.js) - 必ず他スクリプトより前に配置 ===== -->
-<script src="common-auth.js?v=20260516za"></script>
+<script src="common-auth.js?v=20260516zb"></script>
 <!-- ===== MODE SELECT 戻るボタン v20260515ae (mode-back.js) ===== -->
-<script src="mode-back.js?v=20260516za"></script>
+<script src="mode-back.js?v=20260516zb"></script>
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <script>
@@ -40,13 +40,13 @@
 </script>
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="mobile-responsive.css?v=20260516za">
-<link rel="stylesheet" href="toki-ai.css?v=20260516za">
+<link rel="stylesheet" href="mobile-responsive.css?v=20260516zb">
+<link rel="stylesheet" href="toki-ai.css?v=20260516zb">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-<script src="power-company-utils.js?v=20260516za"></script>
-<script src="toki-ai.js?v=20260516za"defer></script>
+<script src="power-company-utils.js?v=20260516zb"></script>
+<script src="toki-ai.js?v=20260516zb"defer></script>
 <style>
   :root {
     --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
@@ -850,16 +850,25 @@
           <button type="button" class="btn btn-ghost" onclick="addLandRow()" style="font-size:12px;padding:4px 10px">＋ 行追加</button>
         </div>
         <div id="landRowsWrap" style="border:1px solid var(--border);border-radius:6px;max-height:240px;overflow-y:auto;background:var(--surface)">
-          <table id="landRowsTable" style="width:100%;border-collapse:collapse;font-size:12px">
+          <table id="landRowsTable" style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+            <colgroup>
+              <col style="width:38px">
+              <col style="width:38%">
+              <col style="width:100px">
+              <col style="width:90px">
+              <col style="width:80px">
+              <col style="width:150px">
+              <col style="width:34px">
+            </colgroup>
             <thead style="position:sticky;top:0;background:var(--surface2);z-index:2;box-shadow:0 1px 0 var(--border)">
               <tr>
-                <th style="width:38px;padding:6px 4px;text-align:center;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">No</th>
+                <th style="padding:6px 4px;text-align:center;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">No</th>
                 <th style="padding:6px 4px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">所在</th>
-                <th style="width:90px;padding:6px 4px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">地番</th>
-                <th style="width:80px;padding:6px 4px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">面積㎡</th>
-                <th style="width:70px;padding:6px 4px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">地目</th>
-                <th style="width:130px;padding:6px 4px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">都市計画区域</th>
-                <th style="width:34px;padding:6px 4px;border-bottom:1px solid var(--border)"></th>
+                <th style="padding:6px 4px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">地番</th>
+                <th style="padding:6px 4px;text-align:right;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">面積㎡</th>
+                <th style="padding:6px 4px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">地目</th>
+                <th style="padding:6px 4px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border)">都市計画区域</th>
+                <th style="padding:6px 4px;border-bottom:1px solid var(--border)"></th>
               </tr>
             </thead>
             <tbody id="landRowsBody"></tbody>
@@ -2184,26 +2193,26 @@ async function loadLandDetail(caseId){
   const totalDisp = totalArea > 0 ? totalArea.toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
   trs += `<tr style="background:var(--surface2);font-weight:600"><td colspan="3" style="padding:6px;text-align:right;color:var(--accent)">合計</td><td style="padding:6px;text-align:right;color:var(--accent)">${totalDisp}</td><td colspan="2" style="padding:6px"></td></tr>`;
   const labelSuffix = rows.length > 1 ? `（全${rows.length}筆）` : '';
-  const multiTbl = `<div class="info-item full"><div class="info-label">📋 不動産明細${labelSuffix}</div><div class="info-value" style="padding:0"><div style="border:1px solid var(--border);border-radius:6px;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead style="background:var(--surface2)"><tr><th style="padding:6px;width:34px;text-align:center;color:var(--text-muted);font-weight:600">No</th><th style="padding:6px;text-align:left;color:var(--text-muted);font-weight:600">所在</th><th style="padding:6px;width:80px;text-align:left;color:var(--text-muted);font-weight:600">地番</th><th style="padding:6px;width:90px;text-align:right;color:var(--text-muted);font-weight:600">面積㎡</th><th style="padding:6px;width:60px;text-align:left;color:var(--text-muted);font-weight:600">地目</th><th style="padding:6px;width:130px;text-align:left;color:var(--text-muted);font-weight:600">都市計画区域</th></tr></thead><tbody>${trs}</tbody></table></div></div></div>`;
-  // 共通情報（先頭筆から取得）- 登記面積/用途地域・地目/所在/法令上の制限の縦リストは削除（表に統合済み）
+  const multiTbl = `<div class="info-item full"><div class="info-label">📋 不動産明細${labelSuffix}</div><div class="info-value" style="padding:0"><div style="border:1px solid var(--border);border-radius:6px;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed"><colgroup><col style="width:34px"><col style="width:40%"><col style="width:90px"><col style="width:90px"><col style="width:70px"><col style="width:150px"></colgroup><thead style="background:var(--surface2)"><tr><th style="padding:6px;text-align:center;color:var(--text-muted);font-weight:600">No</th><th style="padding:6px;text-align:left;color:var(--text-muted);font-weight:600">所在</th><th style="padding:6px;text-align:left;color:var(--text-muted);font-weight:600">地番</th><th style="padding:6px;text-align:right;color:var(--text-muted);font-weight:600">面積㎡</th><th style="padding:6px;text-align:left;color:var(--text-muted);font-weight:600">地目</th><th style="padding:6px;text-align:left;color:var(--text-muted);font-weight:600">都市計画区域</th></tr></thead><tbody>${trs}</tbody></table></div></div></div>`;
+  // 共通情報（先頭筆から取得）- v20260516zb: 2列×4行の表形式に整理 + 森林計画図セクション削除
   const data = rows[0];
-  const html = multiTbl + `<div class="info-item"><div class="info-label">Googleマップ</div><div class="info-value">${data.google_map?`<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>`:'—'}</div></div><div class="info-item"><div class="info-label">現地調査マップ <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（近隣案件確認）</span></div><div class="info-value">${data.lat&&data.lng?`<a href="field-survey.html?lat=${encodeURIComponent(data.lat)}&lng=${encodeURIComponent(data.lng)}&zoom=16&highlight=1" target="_blank" style="color:#22c55e">🗺 現地調査マップを開く</a>`:'<span style="color:var(--text-muted)">緯度経度未登録</span>'}</div></div><div class="info-item"><div class="info-label">垂直積雪量 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（国土交通省告示第474号 別表1より）</span></div><div class="info-value snow-load-value">— cm</div></div><div class="info-item"><div class="info-label">5条森林該当 <span style="font-size:10px;font-weight:normal;color:var(--text-muted)">（地域森林計画対象民有林）</span></div><div class="info-value">${data.article5_forest||'未確認'}</div></div><div class="info-item"><div class="info-label">農地種別</div><div class="info-value">${data.nouchi_kubun||'未調査'}</div></div><div class="info-item"><div class="info-label">森林計画図</div><div class="info-value forest-gis-link">読込中...</div></div><div class="info-item"><div class="info-label">ハザード</div><div class="info-value">${data.hazard||'—'}</div></div><div class="info-item full"><div class="info-label">備考</div><div class="info-value">${data.biko||'—'}</div></div>`;
+  const gmapCell = data.google_map ? `<a href="${safeUrl(data.google_map)}" target="_blank">🔍 地図を開く</a>` : '—';
+  const fieldCell = (data.lat && data.lng) ? `<a href="field-survey.html?lat=${encodeURIComponent(data.lat)}&lng=${encodeURIComponent(data.lng)}&zoom=16&highlight=1" target="_blank" style="color:#22c55e">🗺 現地調査マップを開く</a>` : '<span style="color:var(--text-muted)">緯度経度未登録</span>';
+  const headStyle = 'padding:8px 10px;width:140px;background:var(--surface2);color:var(--text-muted);font-weight:600;font-size:12px;text-align:left;vertical-align:middle';
+  const cellStyle = 'padding:8px 10px;font-size:13px;vertical-align:middle';
+  const detailTbl = `<div class="info-item full"><div class="info-label">📍 土地情報詳細</div><div class="info-value" style="padding:0"><div style="border:1px solid var(--border);border-radius:6px;overflow:hidden"><table style="width:100%;border-collapse:collapse;table-layout:fixed">
+<tbody>
+<tr style="border-bottom:1px solid var(--border)"><th style="${headStyle}">Googleマップ</th><td style="${cellStyle}">${gmapCell}</td><th style="${headStyle}">現地調査マップ <span style="font-size:10px;font-weight:normal">（近隣案件確認）</span></th><td style="${cellStyle}">${fieldCell}</td></tr>
+<tr style="border-bottom:1px solid var(--border)"><th style="${headStyle}">垂直積雪量 <span style="font-size:10px;font-weight:normal">（告示474号 別表1）</span></th><td style="${cellStyle}"><span class="snow-load-value">— cm</span></td><th style="${headStyle}">5条森林該当 <span style="font-size:10px;font-weight:normal">（地域森林計画対象民有林）</span></th><td style="${cellStyle}">${data.article5_forest||'未確認'}</td></tr>
+<tr style="border-bottom:1px solid var(--border)"><th style="${headStyle}">農地種別</th><td style="${cellStyle}">${data.nouchi_kubun||'未調査'}</td><th style="${headStyle}">ハザード</th><td style="${cellStyle}">${data.hazard||'—'}</td></tr>
+<tr><th style="${headStyle}">備考</th><td colspan="3" style="${cellStyle};white-space:pre-wrap">${data.biko||'—'}</td></tr>
+</tbody></table></div></div></div>`;
+  const html = multiTbl + detailTbl;
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
   if(data&&data.location){
     const display=await fetchSnowLoad(data.location);
     document.querySelectorAll('.snow-load-value').forEach(el=>{el.textContent=display;});
-    const gis=await fetchForestGisUrl(data.location);
-    document.querySelectorAll('.forest-gis-link').forEach(el=>{
-      if(gis){
-        const locEsc=String(data.location||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-        let html=`<a href="${safeUrl(gis.gis_url)}" target="_blank">🌳 ${gis.gis_name||'森林計画図を開く'}</a>`;
-        if(data.location){html+=` <button onclick="copyForestSearch(this.dataset.text)" data-text="${locEsc}" style="margin-left:8px;font-size:11px;padding:2px 6px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer">📋 住所コピー</button>`;}
-        if(data.lat&&data.lng){html+=` <button onclick="copyForestSearch(this.dataset.text)" data-text="${data.lat},${data.lng}" style="margin-left:4px;font-size:11px;padding:2px 6px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer">📋 座標コピー</button>`;}
-        el.innerHTML=html;
-      }
-      else{el.textContent='—';}
-    });
   }
 }
 
