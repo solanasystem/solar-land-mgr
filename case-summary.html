@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260519d / P1: 手入力UI(contenteditable+blur自動保存)10セル、売価マスク解除、kubunから売却/賃貸自動判定、setsudo_status/touki_setsudo手入力値優先 -->
+<!-- BUILD: case-summary v20260519e / ハザードNULLは「なし」レ点扱いに変更、農振法区分セル手入力対応追加 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -2369,6 +2369,7 @@ function setupEditableCells(c, land) {
   makeEditable('d-tokijo',    'land_info', 'touki_setsudo',  land.id);          // #2 登記上（接道あり/なし）暫定手入力
   makeEditable('d-haba',      'land_info', 'road_width',     land.id);          // #3 幅
   makeEditable('d-pavement',  'land_info', 'road_pavement',  land.id);          // #4 舗装状況
+  makeEditable('d-noshin',    'land_info', 'noushinhou_kubun', land.id);        // #9 農振法区分/農地の種別（v20260519e 手入力対応）
   makeEditable('d-bassai',    'land_info', 'logging_permit', land.id);          // #10 伐採届
   makeEditable('d-pole-l',    'land_info', 'pole_left',      land.id);          // #11 電柱左
   makeEditable('d-pole-c',    'land_info', 'pole_center',    land.id);          // #11 電柱中央
@@ -4069,15 +4070,14 @@ function applyHazardFlags(land) {
     const offEl = document.getElementById(`hz-${it.key}-off`);
     if (!onEl || !offEl) return;
     if (v === true) {
+      // 明示的にハザード検出 → 「あり」にレ点
       onEl.innerHTML  = '<span class="chk-on"></span>';
       offEl.innerHTML = '<span class="chk-off"></span>';
-    } else if (v === false) {
+    } else {
+      // v20260519e: false または null（未判定）は「なし」にレ点
+      // システム上ハザードが検出されていなければ「なし」と推定する運用
       onEl.innerHTML  = '<span class="chk-off"></span>';
       offEl.innerHTML = '<span class="chk-on"></span>';
-    } else {
-      // NULL = 未調査（両方□のまま）
-      onEl.innerHTML  = '<span class="chk-off"></span>';
-      offEl.innerHTML = '<span class="chk-off"></span>';
     }
   });
   // 埋蔵文化財詳細
