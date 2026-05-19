@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260519l / 手入力UI(blur自動保存)とP2自動取得の衝突修正(dataset.lastVal同期で書き戻し防止) -->
+<!-- BUILD: case-summary v20260519m / P3公図接道判定追加(cadastral_polygon×N02道路の幾何交差判定→touki_setsudo自動更新) -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -2266,6 +2266,9 @@ function render(c, land, owner, snowDepth, extraLands, survey) {
   // ===== v20260519f: P2 道路幅員自動取得（手入力値が無ければR2タイルから取得） =====
   applyRoadWidthAuto(land);
 
+  // ===== v20260519m: P3 公図接道判定（公図ポリゴン×道路LineString幾何演算） =====
+  applyTouriSetsudoAuto(land);
+
   // ===== セル内テキスト自動フィット =====
   // DOM 反映後に適用するため setTimeout で遅延実行
   setTimeout(applyTextFitToCells, 50);
@@ -2639,6 +2642,169 @@ async function applyRoadWidthAuto(land) {
     }
   } catch (err) {
     console.error('[P2] 道路幅員自動取得エラー:', err);
+    if (cell) {
+      cell.style.color = '';
+      cell.style.fontStyle = '';
+      cell.textContent = 'ーーー';
+    }
+  }
+}
+
+// ============================================================
+// v20260519m: P3 公図接道判定
+// land_info.cadastral_polygon (画像pixel座標) と cadastral_overlay_bounds (緯度経度) を組み合わせ、
+// R2の道路LineStringと幾何演算で接道判定。手入力値がある場合はスキップ。
+// ============================================================
+
+// 画像URLから自然サイズを取得（非同期）
+function _loadImageSize(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = () => reject(new Error('image load failed: ' + url));
+    img.src = url;
+  });
+}
+
+async function applyTouriSetsudoAuto(land) {
+  if (!land || !land.id) return;
+  // 手入力値があればスキップ
+  if (land.touki_setsudo && String(land.touki_setsudo).trim() !== '') {
+    console.log('[P3] touki_setsudo 手入力値あり、自動判定スキップ');
+    return;
+  }
+  // 必要データが揃っているか
+  if (!Array.isArray(land.cadastral_polygon) || land.cadastral_polygon.length < 3) {
+    console.log('[P3] cadastral_polygon 未登録、スキップ');
+    return;
+  }
+  if (!land.cadastral_overlay_bounds) {
+    console.log('[P3] cadastral_overlay_bounds 未登録、スキップ');
+    return;
+  }
+  if (!land.cadastral_image_url) {
+    console.log('[P3] cadastral_image_url 未登録、スキップ');
+    return;
+  }
+  if (typeof turf === 'undefined') {
+    console.warn('[P3] Turf.js 未ロード');
+    return;
+  }
+  const lat = parseFloat(land.lat);
+  const lng = parseFloat(land.lng);
+  if (isNaN(lat) || isNaN(lng)) return;
+
+  const cell = document.getElementById('d-tokijo');
+  if (cell) {
+    cell.textContent = '判定中...';
+    cell.style.color = '#6b7280';
+    cell.style.fontStyle = 'italic';
+  }
+
+  try {
+    // 1) 画像サイズ取得
+    const { width: W, height: H } = await _loadImageSize(land.cadastral_image_url);
+    if (!W || !H) throw new Error('image size 0');
+
+    // 2) bounds 抽出
+    const b = land.cadastral_overlay_bounds;
+    const sw = b.sw || b.southwest;
+    const ne = b.ne || b.northeast;
+    if (!Array.isArray(sw) || !Array.isArray(ne)) throw new Error('bounds invalid');
+    const swLat = sw[0], swLng = sw[1];
+    const neLat = ne[0], neLng = ne[1];
+
+    // 3) 公図ポリゴン(画像pixel)→緯度経度に変換
+    // 注: cadastral_overlay_rotation が 0 度の場合のみ正確。回転ありは未対応（暫定）。
+    const rotation = parseFloat(land.cadastral_overlay_rotation || 0);
+    if (Math.abs(rotation) > 0.5) {
+      console.warn('[P3] 公図が回転しているため接道判定はスキップ（rotation=' + rotation + '°）');
+      if (cell) {
+        cell.textContent = 'ーーー';
+        cell.style.color = '';
+        cell.style.fontStyle = '';
+        cell.dataset.lastVal = 'ーーー';
+      }
+      return;
+    }
+    const polyCoords = land.cadastral_polygon.map(([px, py]) => {
+      const lngVal = swLng + (px / W) * (neLng - swLng);
+      const latVal = neLat - (py / H) * (neLat - swLat);
+      return [lngVal, latVal];
+    });
+    // GeoJSON Polygonとして閉じる
+    if (polyCoords.length > 0) {
+      const first = polyCoords[0], last = polyCoords[polyCoords.length - 1];
+      if (first[0] !== last[0] || first[1] !== last[1]) polyCoords.push([first[0], first[1]]);
+    }
+    const turfPolygon = turf.polygon([polyCoords]);
+    const polyLine = turf.polygonToLine(turfPolygon);
+
+    // 4) 周辺道路タイル取得（中心+周辺8タイル）
+    const tileNames = getSurroundingRoadTiles(lat, lng);
+    const tiles = await Promise.all(tileNames.map(fetchRoadTile));
+    let roads = [];
+    for (const t of tiles) {
+      if (t && Array.isArray(t.features)) roads = roads.concat(t.features);
+    }
+
+    // 5) 接道判定
+    // (a) 公図ポリゴンと道路LineStringが交差すれば「接道あり」
+    // (b) 交差なくても、道路LineStringの頂点が ポリゴン辺から2m以内 なら「接道あり」
+    let hasContact = false;
+    const NEAR_M = 2;
+    for (const road of roads) {
+      if (!road.geometry) continue;
+      const t = road.geometry.type;
+      if (t !== 'LineString' && t !== 'MultiLineString') continue;
+      try {
+        if (turf.booleanIntersects(turfPolygon, road)) {
+          hasContact = true; break;
+        }
+      } catch (_) { /* skip invalid */ }
+    }
+    if (!hasContact) {
+      for (const road of roads) {
+        if (!road.geometry) continue;
+        const t = road.geometry.type;
+        const coordsArr = (t === 'LineString') ? [road.geometry.coordinates]
+                         : (t === 'MultiLineString') ? road.geometry.coordinates : null;
+        if (!coordsArr) continue;
+        try {
+          for (const line of coordsArr) {
+            for (const pt of line) {
+              const d = turf.pointToLineDistance(turf.point(pt), polyLine, { units: 'meters' });
+              if (d < NEAR_M) { hasContact = true; break; }
+            }
+            if (hasContact) break;
+          }
+        } catch (_) { /* skip */ }
+        if (hasContact) break;
+      }
+    }
+
+    const result = hasContact ? '接道あり' : '接道なし';
+
+    if (cell) {
+      cell.style.color = '';
+      cell.style.fontStyle = '';
+      cell.textContent = result;
+      cell.dataset.lastVal = result;
+      cell.title = `公図ポリゴン × N02道路 幾何交差判定\n結果: ${result}\n判定基準: ポリゴンと道路の交差 or 道路頂点が辺から${NEAR_M}m以内`;
+    }
+
+    const { error } = await sbClient
+      .from('land_info')
+      .update({ touki_setsudo: result })
+      .eq('id', land.id);
+    if (error) {
+      console.warn('[P3] touki_setsudo DB保存失敗:', error);
+    } else {
+      console.log('[P3] touki_setsudo 自動保存成功:', result);
+    }
+  } catch (err) {
+    console.error('[P3] 公図接道判定エラー:', err);
     if (cell) {
       cell.style.color = '';
       cell.style.fontStyle = '';
