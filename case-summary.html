@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260519n / P4ハザード周辺マップ実装(disaportal埋込+4種切替+拡大縮小+案件フラグ) -->
+<!-- BUILD: case-summary v20260519o / P4改修: 航空写真ベース、5項目独立on/offチェックボックス、マーカーを位置図と同じ赤丸スタイル -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -1571,13 +1571,13 @@ window.addEventListener('load', function() {
         <div id="hazard-map-container" style="position:absolute; inset:0; background:#f3f4f6;">
           <div id="hazard-map-placeholder" style="display:flex; align-items:center; justify-content:center; width:100%; height:100%; color:#9ca3af; font-size:8.5pt; text-align:center;">案件位置を取得中...</div>
         </div>
-        <!-- ハザード切替UI（マップ初期化後に表示） -->
+        <!-- ハザード切替UI（マップ初期化後に表示） v20260519o: 5項目チェックボックス（独立on/off） -->
         <div id="hazard-layer-switcher" style="display:none; position:absolute; top:18px; right:6px; z-index:402; background:rgba(255,255,255,.95); border:1px solid #d1d5db; border-radius:4px; padding:3px 4px; font-size:6.5pt; box-shadow:0 1px 3px rgba(0,0,0,.15);">
-          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="radio" name="hzlayer" value="flood" checked style="margin-right:2px; vertical-align:middle;">洪水</label>
-          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="radio" name="hzlayer" value="dosaigai" style="margin-right:2px; vertical-align:middle;">土砂</label>
-          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="radio" name="hzlayer" value="hightide" style="margin-right:2px; vertical-align:middle;">高潮</label>
-          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="radio" name="hzlayer" value="tsunami" style="margin-right:2px; vertical-align:middle;">津波</label>
-          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="radio" name="hzlayer" value="none" style="margin-right:2px; vertical-align:middle;">なし</label>
+          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="checkbox" data-hzlayer="flood" checked style="margin-right:2px; vertical-align:middle;">洪水</label>
+          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="checkbox" data-hzlayer="naisui" style="margin-right:2px; vertical-align:middle;">内水</label>
+          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="checkbox" data-hzlayer="dosaigai" style="margin-right:2px; vertical-align:middle;">土砂</label>
+          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="checkbox" data-hzlayer="hightide" style="margin-right:2px; vertical-align:middle;">高潮</label>
+          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="checkbox" data-hzlayer="tsunami" style="margin-right:2px; vertical-align:middle;">津波</label>
         </div>
         <div class="img-cell-bottom" id="d-haz-cap">ハザードMAP</div>
       </div>
@@ -2833,13 +2833,14 @@ async function applyTouriSetsudoAuto(land) {
 
 const HAZARD_TILE_URLS = {
   flood:    'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  naisui:   'https://disaportaldata.gsi.go.jp/raster/01_naisui_shinsuishin_data/{z}/{x}/{y}.png',
   dosaigai: 'https://disaportaldata.gsi.go.jp/raster/05_dosaigai_warning_area_data/{z}/{x}/{y}.png',
   hightide: 'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
   tsunami:  'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',
 };
 
 let _hazardMap = null;
-let _hazardOverlayLayer = null;
+let _hazardLayers = {};       // v20260519o: 各レイヤーを独立管理（複数on可能）
 let _hazardMarker = null;
 
 function applyHazardMap(land) {
@@ -2856,15 +2857,14 @@ function applyHazardMap(land) {
     return;
   }
 
-  // 既存マップを破棄して再生成（案件切替時の残骸防止）
+  // 既存マップを破棄して再生成
   if (_hazardMap) {
     try { _hazardMap.remove(); } catch (_) {}
     _hazardMap = null;
-    _hazardOverlayLayer = null;
+    _hazardLayers = {};
     _hazardMarker = null;
   }
 
-  // placeholder を非表示にして地図用 div を準備
   if (placeholder) placeholder.style.display = 'none';
   let mapDiv = container.querySelector('#hazard-map-leaflet');
   if (!mapDiv) {
@@ -2882,40 +2882,49 @@ function applyHazardMap(land) {
       attributionControl: false,
     });
 
-    // 国土地理院 標準地図ベース
-    L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+    // v20260519o: 航空写真ベース（国土地理院シームレス）
+    L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', {
       maxZoom: 18,
     }).addTo(_hazardMap);
 
-    // 初期ハザードレイヤー（洪水）
-    _hazardOverlayLayer = L.tileLayer(HAZARD_TILE_URLS.flood, {
-      opacity: 0.6,
+    // v20260519o: 案件位置マーカー（位置図と同じスタイル：半径5、赤、塗り0.3）
+    _hazardMarker = L.circleMarker([lat, lng], {
+      radius: 5,
+      color: '#FF0000',
+      weight: 2.5,
+      fillColor: '#FF0000',
+      fillOpacity: 0.3,
+    }).addTo(_hazardMap);
+
+    // 初期: 洪水のみON
+    _hazardLayers.flood = L.tileLayer(HAZARD_TILE_URLS.flood, {
+      opacity: 0.55,
       maxZoom: 18,
     }).addTo(_hazardMap);
 
-    // 案件位置フラグ（赤マーカー）
-    const flagIcon = L.divIcon({
-      className: '',
-      html: '<div style="width:30px; height:30px; background:#ef4444; border:3px solid #fff; border-radius:50% 50% 50% 0; transform:rotate(-45deg); box-shadow:0 2px 6px rgba(0,0,0,.4);"></div>',
-      iconSize: [30, 30],
-      iconAnchor: [15, 30],
-    });
-    _hazardMarker = L.marker([lat, lng], { icon: flagIcon }).addTo(_hazardMap);
-
-    // ハザード切替ハンドラ
+    // v20260519o: 各チェックボックスの独立on/off
     if (switcher) {
       switcher.style.display = 'block';
-      const radios = switcher.querySelectorAll('input[name="hzlayer"]');
-      radios.forEach(r => {
-        r.addEventListener('change', (e) => {
+      const checks = switcher.querySelectorAll('input[type="checkbox"][data-hzlayer]');
+      checks.forEach(cb => {
+        cb.addEventListener('change', (e) => {
           if (!_hazardMap) return;
-          if (_hazardOverlayLayer) { _hazardMap.removeLayer(_hazardOverlayLayer); _hazardOverlayLayer = null; }
-          const v = e.target.value;
-          if (v !== 'none' && HAZARD_TILE_URLS[v]) {
-            _hazardOverlayLayer = L.tileLayer(HAZARD_TILE_URLS[v], {
-              opacity: 0.6,
-              maxZoom: 18,
-            }).addTo(_hazardMap);
+          const key = e.target.getAttribute('data-hzlayer');
+          if (!HAZARD_TILE_URLS[key]) return;
+          if (e.target.checked) {
+            // ON: レイヤー追加（既に追加済みなら何もしない）
+            if (!_hazardLayers[key]) {
+              _hazardLayers[key] = L.tileLayer(HAZARD_TILE_URLS[key], {
+                opacity: 0.55,
+                maxZoom: 18,
+              }).addTo(_hazardMap);
+            }
+          } else {
+            // OFF: レイヤー削除
+            if (_hazardLayers[key]) {
+              try { _hazardMap.removeLayer(_hazardLayers[key]); } catch (_) {}
+              _hazardLayers[key] = null;
+            }
           }
         });
       });
