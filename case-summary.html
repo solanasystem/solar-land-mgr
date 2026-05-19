@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260519c / 公図アップロードのファイル名サニタイズ強化(Invalid keyエラー対策: 全角→半角、ASCII safe文字以外を_に置換、timestamp付与で衝突回避) -->
+<!-- BUILD: case-summary v20260519d / P1: 手入力UI(contenteditable+blur自動保存)10セル、売価マスク解除、kubunから売却/賃貸自動判定、setsudo_status/touki_setsudo手入力値優先 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -15,7 +15,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>案件概要書 v17 - GRID LAND MGR</title>
+<title>案件概要書 v18 - GRID LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
 <script>
 // グローバルJSエラーを画面に表示する保険（DevToolsを開かなくても診断可能にする）
@@ -1281,13 +1281,30 @@ window.addEventListener('load', function() {
   @media print {
     .judge-modal { display: none !important; }
   }
+  /* v20260519d: 手入力UI（contenteditableセル） */
+  .editable-cell {
+    cursor: text;
+    outline: 1px dashed transparent;
+    transition: outline-color 0.15s, background 0.15s;
+    min-width: 30px;
+  }
+  .editable-cell:hover { outline-color: #93c5fd; background: rgba(147,197,253,.08); }
+  .editable-cell:focus { outline: 2px solid #2563eb; background: #fff; }
+  .editable-cell.saving { background: #fef3c7; }
+  .editable-cell.save-ok { background: #d1fae5; animation: fadeBg 1.5s ease-out; }
+  .editable-cell.save-error { background: #fee2e2; outline-color: #ef4444 !important; }
+  @keyframes fadeBg { 0% { background: #d1fae5; } 100% { background: transparent; } }
+  /* 印刷時は編集枠を消す */
+  @media print {
+    .editable-cell { outline: none !important; background: transparent !important; cursor: default !important; }
+  }
 </style>
 </head>
 <body>
 
 <!-- ======== ツールバー ======== -->
 <div class="toolbar no-print">
-  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v17</span></h1>
+  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v18</span></h1>
   <input type="text" class="case-id-input" id="caseIdInput" placeholder="案件番号 / 業務番号 (例: AICHI-001)" />
   <button onclick="loadByInput()">📥 読込</button>
   <button class="primary" onclick="window.print()">🖨 印刷 / PDF出力</button>
@@ -2079,10 +2096,10 @@ function render(c, land, owner, snowDepth, extraLands, survey) {
   // #4 権利(乙区)
   const otsuRights = land.otsu_rights;
 
-  // #5/#6 接道（道接続→「道」、現場確認情報があれば「有り」表示）
-  // road_pavement に値があれば現地確認済みと推定
-  const setsuFlag = (land.road_width || land.road_pavement) ? '有り' : null;
-  const tokijo    = (land.road_width || land.road_pavement) ? '道' : null;
+  // #5/#6 接道（v20260519d: 手入力値 setsudo_status / touki_setsudo を優先）
+  //   優先順: 手入力値 → 既存ロジック（road_width/road_pavement があれば有り/道）
+  const setsuFlag = land.setsudo_status || ((land.road_width || land.road_pavement) ? '有り' : null);
+  const tokijo    = land.touki_setsudo  || ((land.road_width || land.road_pavement) ? '道'   : null);
 
   // #7 接道幅員 / #8 舗装状況
   const roadWidth    = land.road_width;
@@ -2096,12 +2113,12 @@ function render(c, land, owner, snowDepth, extraLands, survey) {
   // #11 権利（land.land_rights、なければ「所有権」）
   const kenri = land.land_rights || '所有権';
 
-  // 契約形態（cases.contract_type）
-  const contractType = c.contract_type || '';
+  // 契約形態（v20260519d: contract_type 未設定でも kubun が蓄電池/太陽光なら売却扱い）
+  const contractType = c.contract_type || (/蓄電池|太陽光/.test(kubun || '') ? '売却' : '');
   const isRental = contractType === '賃貸';
 
   // 売価（売却案件のみ表示。賃貸案件は「ーーー」）
-  // cases.price をマスク表示（営業先提出用）
+  // v20260519d: 営業先提出マスクを解除（マスクは別ボタンで切替予定）
   const price = isRental ? null : c.price;
 
   // #12 賃料（賃貸案件のみ表示。売却案件は「ーーー」）
@@ -2166,7 +2183,7 @@ function render(c, land, owner, snowDepth, extraLands, survey) {
 
   // 土地行
   setText('d-kenri',    kenri);
-  setText('d-baika',    formatPrice(price, true)); // 営業先提出はマスク表示
+  setText('d-baika',    formatPrice(price, false)); // v20260519d: マスク解除して実額表示
   setText('d-chinryo',  chinryo);
   setText('d-noshin',   noushinhou);
   setText('d-bassai',   bassai);
@@ -2206,6 +2223,9 @@ function render(c, land, owner, snowDepth, extraLands, survey) {
 
   // ===== v20260519a: field_survey_status 写真の差し込み =====
   applyFieldSurveyPhotos(survey);
+
+  // ===== v20260519d: 手入力UI（contenteditable + 自動保存） =====
+  setupEditableCells(c, land);
 
   // ===== セル内テキスト自動フィット =====
   // DOM 反映後に適用するため setTimeout で遅延実行
@@ -2271,6 +2291,95 @@ function closeFsLightbox() {
   box.style.display = 'none';
   const img = document.getElementById('fs-lightbox-img');
   if (img) img.src = '';
+}
+
+// ============================================================
+// v20260519d: 手入力UI（contenteditable + blur で自動保存）
+// ============================================================
+
+// セルを編集可能にし、blur 時に Supabase へ自動保存
+function makeEditable(cellId, table, col, recordId, isNumeric) {
+  const cell = document.getElementById(cellId);
+  if (!cell || !recordId) return;
+  cell.dataset.table = table;
+  cell.dataset.col = col;
+  cell.dataset.id = recordId;
+  cell.contentEditable = 'true';
+  cell.classList.add('editable-cell');
+  cell.title = 'クリックして編集（外をクリックで保存）';
+
+  // 初期値の記憶（変更検知用）
+  cell.dataset.lastVal = cell.textContent.trim();
+
+  // フォーカス時の文字選択
+  cell.addEventListener('focus', () => {
+    if (cell.textContent.trim() === 'ーーー') cell.textContent = '';
+  });
+
+  cell.addEventListener('blur', async () => {
+    let val = cell.textContent.trim();
+    if (val === '' || val === 'ーーー') val = null;
+    if (cell.dataset.lastVal === (val ?? '')) return; // 変更なし
+
+    // 数値カラムは数値変換（失敗時は null）
+    let saveVal = val;
+    if (isNumeric && val != null) {
+      const num = parseFloat(String(val).replace(/[^0-9.\-]/g, ''));
+      saveVal = isNaN(num) ? null : num;
+    }
+
+    cell.classList.add('saving');
+    cell.classList.remove('save-ok','save-error');
+    try {
+      const { error } = await sbClient.from(table).update({ [col]: saveVal }).eq('id', recordId);
+      if (error) throw error;
+      cell.dataset.lastVal = val ?? '';
+      // 表示を整える（数値なら kW 単位など）
+      if (val == null) cell.textContent = 'ーーー';
+      cell.classList.remove('saving');
+      cell.classList.add('save-ok');
+      setTimeout(() => cell.classList.remove('save-ok'), 1500);
+    } catch (err) {
+      console.error(`保存失敗 [${table}.${col}]:`, err);
+      cell.classList.remove('saving');
+      cell.classList.add('save-error');
+      cell.title = `保存失敗: ${err.message || err}`;
+      // 元の値に戻す
+      cell.textContent = cell.dataset.lastVal || 'ーーー';
+    }
+  });
+
+  // Enter で blur（改行ではなく保存）
+  cell.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      cell.blur();
+    }
+  });
+}
+
+// 全手入力セルの一括設定
+function setupEditableCells(c, land) {
+  if (!land || !land.id) {
+    console.warn('land.id が無いため手入力UIは設定しません');
+    return;
+  }
+  // land_info 連動セル
+  makeEditable('d-setsu',     'land_info', 'setsudo_status', land.id);          // #1 接道（あり/なし）
+  makeEditable('d-tokijo',    'land_info', 'touki_setsudo',  land.id);          // #2 登記上（接道あり/なし）暫定手入力
+  makeEditable('d-haba',      'land_info', 'road_width',     land.id);          // #3 幅
+  makeEditable('d-pavement',  'land_info', 'road_pavement',  land.id);          // #4 舗装状況
+  makeEditable('d-bassai',    'land_info', 'logging_permit', land.id);          // #10 伐採届
+  makeEditable('d-pole-l',    'land_info', 'pole_left',      land.id);          // #11 電柱左
+  makeEditable('d-pole-c',    'land_info', 'pole_center',    land.id);          // #11 電柱中央
+  makeEditable('d-pole-r',    'land_info', 'pole_right',     land.id);          // #11 電柱右
+  makeEditable('d-jorei',     'land_info', 'jourei',         land.id);          // #12 条例
+  makeEditable('d-guideline', 'land_info', 'guideline',      land.id);          // ガイドライン
+  // cases 連動セル
+  if (c && c.id) {
+    makeEditable('d-ac', 'cases', 'ac_kw', c.id, true);                          // #5 AC（数値）
+    makeEditable('d-dc', 'cases', 'dc_kw', c.id, true);                          // #6 DC（数値）
+  }
 }
 
 // ============================================================
