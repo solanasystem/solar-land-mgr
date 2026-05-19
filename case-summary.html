@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260519h / P2: 幅セル表示を幅員のみに簡素化、距離/道路種別はホバー時title表示 -->
+<!-- BUILD: case-summary v20260519j / P2: 距離表示廃止（土地重心からの距離は誤解を招くため、要件外）。幅セルは幅員カテゴリのみ表示 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -2439,21 +2439,44 @@ async function fetchRoadTile(tileName) {
 }
 
 // 最寄り道路の検索（1タイル分のfeaturesを評価）
+// v20260519i: 幅員カテゴリ有効/無効で分離して返す
 function findNearestRoadInFeatures(point, features) {
   if (typeof turf === 'undefined') return null;
-  let best = null;
+  const candidates = [];
   for (const feature of features) {
     if (!feature.geometry) continue;
     const t = feature.geometry.type;
     if (t !== 'LineString' && t !== 'MultiLineString') continue;
     try {
       const dist = turf.pointToLineDistance(point, feature, { units: 'meters' });
-      if (best === null || dist < best.dist) {
-        best = { dist, feature };
-      }
+      candidates.push({ dist, feature });
     } catch (_) { /* 不正geometry skip */ }
   }
-  return best;
+  candidates.sort((a, b) => a.dist - b.dist);
+  return candidates;  // 距離昇順で配列を返す
+}
+
+// 配列を統合して最寄り順に並べ替える
+function mergeAndSortCandidates(...arrays) {
+  const all = [];
+  for (const arr of arrays) {
+    if (Array.isArray(arr)) all.push(...arr);
+  }
+  return all.sort((a, b) => a.dist - b.dist);
+}
+
+// 候補リストから「有効な幅員値を持つ最寄り道路」を選ぶ。なければ最寄り（不明含む）を返す
+function pickBestRoad(candidates) {
+  if (!candidates || candidates.length === 0) return null;
+  // 有効な width_category を持つもの優先
+  for (const c of candidates) {
+    const w = extractWidthCategory(c.feature.properties);
+    if (w && w.trim() !== '' && w !== '不明' && w !== 'null') {
+      return { ...c, _validWidth: true };
+    }
+  }
+  // 全部不明 → 最寄りを返す
+  return { ...candidates[0], _validWidth: false };
 }
 
 // 幅員カテゴリの取得（複数プロパティ名に対応）
@@ -2517,43 +2540,55 @@ async function applyRoadWidthAuto(land) {
     const point = turf.point([lng, lat]);
     const centerTile = roadTileName(lat, lng);
     let tile = await fetchRoadTile(centerTile);
-    let best = tile ? findNearestRoadInFeatures(point, tile.features || []) : null;
+    let candidates = tile ? findNearestRoadInFeatures(point, tile.features || []) : [];
 
-    // 中心タイルで最寄りが20m超 or 取得失敗 → 周辺8タイル並列取得して再検索
-    if (!best || best.dist > 10) {
+    // v20260519i: 中心タイルが空 or 全道路が「不明」値しか持たない場合、周辺タイルも取得
+    const centerHasValid = candidates.some(c => {
+      const w = extractWidthCategory(c.feature.properties);
+      return w && w.trim() !== '' && w !== '不明' && w !== 'null';
+    });
+
+    if (candidates.length === 0 || !centerHasValid || candidates[0].dist > 10) {
       const otherTiles = getSurroundingRoadTiles(lat, lng).filter(n => n !== centerTile);
       const others = await Promise.all(otherTiles.map(fetchRoadTile));
+      const otherCandidates = [];
       for (const t of others) {
         if (!t) continue;
-        const candidate = findNearestRoadInFeatures(point, t.features || []);
-        if (candidate && (!best || candidate.dist < best.dist)) best = candidate;
+        otherCandidates.push(...findNearestRoadInFeatures(point, t.features || []));
       }
+      candidates = mergeAndSortCandidates(candidates, otherCandidates);
     }
 
     if (cell) { cell.style.color = ''; cell.style.fontStyle = ''; }
 
+    const best = pickBestRoad(candidates);
     if (!best) {
       if (cell) cell.textContent = 'ーーー';
       console.warn('[P2] 周辺道路データなし');
       return;
     }
 
-    // v20260519g: extractWidthCategory が日本語ラベルを直接返すように修正済み
     const widthLabel = extractWidthCategory(best.feature.properties) || '不明';
     const routeType  = extractRouteType(best.feature.properties) || '不明';
-    const distM = best.dist.toFixed(1);
 
-    // v20260519h: セル表示は幅員のみ（距離はホバー時の title へ）
+    // v20260519h: セル表示は幅員のみ
+    // v20260519j: 「重心からの距離」は土地が面積を持つため誤解を招く → titleからも削除
+    //             正確な土地-道路距離は P3 公図接道判定で実装予定
     const displayValue = widthLabel;
 
     if (cell) {
       cell.textContent = displayValue;
-      cell.title = `自動取得（N02道路データ）\n幅員: ${widthLabel}\n最寄距離: ${distM}m\n道路種別: ${routeType}`;
+      // v20260519j: title は幅員・道路種別のみ。距離情報は削除
+      let titleText = `自動取得（N02道路データ）\n幅員: ${widthLabel}\n道路種別: ${routeType}`;
+      if (!best._validWidth) {
+        titleText += `\n\n⚠️ 最寄り道路の幅員値が空のため、N02 データ上幅員不明と判定されています。`;
+      }
+      cell.title = titleText;
     }
 
     // DB保存：幅員カテゴリのみ road_width に保存（接道判定は #1 手入力 / #2 公図接道判定 P3 に任せる）
-    // v20260519g: setsudo_status の自動上書きは廃止（手入力優先・写真確認優先のため）
-    if (widthLabel !== '不明') {
+    // v20260519g: setsudo_status の自動上書きは廃止
+    if (widthLabel !== '不明' && best._validWidth) {
       const { error } = await sbClient
         .from('land_info')
         .update({ road_width: widthLabel })
