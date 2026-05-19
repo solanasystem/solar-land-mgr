@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260519o / P4改修: 航空写真ベース、5項目独立on/offチェックボックス、マーカーを位置図と同じ赤丸スタイル -->
+<!-- BUILD: case-summary v20260519p / GoogleMAP重ねの赤丸マーカーをドラッグ可能化（案件位置の微調整）→ DB保存→全マップ追従 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -1534,6 +1534,8 @@ window.addEventListener('load', function() {
         <span class="img-cell-label" style="z-index:1000;">Google MAP 重ね</span>
         <div id="satellite-map" class="location-map-container"></div>
         <span class="img-cell-placeholder" id="satellite-map-placeholder">位置情報未登録</span>
+        <!-- v20260519p: マーカー微調整ヒント -->
+        <span style="position:absolute; bottom:18px; left:6px; z-index:402; background:rgba(255,255,255,.85); padding:1px 5px; border-radius:3px; font-size:6.5pt; color:#374151; pointer-events:none; border:1px solid #d1d5db;">⇕ 赤丸をドラッグで位置微調整</span>
         <button class="overlay-edit-btn" id="overlay-edit-btn" onclick="openOverlayModal()">📍 公図を重ねる</button>
       </div>
       <div class="img-cell" id="koz-cell">
@@ -4463,13 +4465,50 @@ function renderSatelliteMap(lat, lng, land) {
       minZoom: 5
     }).addTo(map);
 
-    // 赤丸マーカー（塗りなし枠線のみ：衛星写真の地表が見えるように）
-    L.circleMarker([flat, flng], {
-      radius: 5,
-      color: '#FF0000',
-      weight: 2,
-      fillOpacity: 0
+    // v20260519p: 赤丸マーカー（ドラッグで案件位置を微調整可能）
+    // GoogleMAP重ねは衛星写真とずれることがあるため、人間がドラッグで補正できる仕組み
+    const redCircleIcon = L.divIcon({
+      className: '',
+      html: '<div style="width:14px; height:14px; background:transparent; border:2.5px solid #FF0000; border-radius:50%; box-sizing:border-box; cursor:move;" title="ドラッグで案件位置を微調整"></div>',
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    });
+    const adjustableMarker = L.marker([flat, flng], {
+      icon: redCircleIcon,
+      draggable: true,
+      title: 'ドラッグで案件位置を微調整できます'
     }).addTo(map);
+
+    // ドラッグ完了で確認→DB保存→案件再読込
+    adjustableMarker.on('dragend', async (e) => {
+      const newLatLng = e.target.getLatLng();
+      const newLat = +newLatLng.lat.toFixed(6);
+      const newLng = +newLatLng.lng.toFixed(6);
+      if (!land || !land.id) {
+        adjustableMarker.setLatLng([flat, flng]);
+        return;
+      }
+      const msg = `案件位置を以下の座標に更新しますか？\n\n緯度: ${newLat}\n経度: ${newLng}\n\n位置図・ハザードMAPも追従します。`;
+      if (!confirm(msg)) {
+        // キャンセル → 元の位置に戻す
+        adjustableMarker.setLatLng([flat, flng]);
+        return;
+      }
+      try {
+        const { error } = await sbClient
+          .from('land_info')
+          .update({ lat: newLat, lng: newLng })
+          .eq('id', land.id);
+        if (error) throw error;
+        // 案件を再読込（全マップ・公図など追従）
+        const input = document.getElementById('caseIdInput');
+        const caseRef = (input && input.value.trim()) || land.id;
+        await loadCase(caseRef);
+      } catch (err) {
+        alert('座標保存失敗: ' + (err.message || err));
+        adjustableMarker.setLatLng([flat, flng]);
+      }
+    });
 
     // スケールバー（右下）
     L.control.scale({
