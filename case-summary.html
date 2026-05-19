@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260519j / P2: 距離表示廃止（土地重心からの距離は誤解を招くため、要件外）。幅セルは幅員カテゴリのみ表示 -->
+<!-- BUILD: case-summary v20260519k / version.json 自動リロード機構(_vchk)を実装。次回からCtrl+Shift+R不要 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -15,6 +15,40 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
+
+<!-- ===== v20260519k: version.json 自動更新チェック =====
+     修正時は version.json のバージョン文字列を更新すること。
+     ユーザーは Ctrl+Shift+R 不要。次回アクセス時に自動でリロード。
+     field-survey.html と同一の仕組み。case-summary.html に実装漏れていたため追加。 -->
+<script>
+(async function _vchk(){
+  try {
+    var lastCheck = parseInt(sessionStorage.getItem('vchk_cs_at') || '0', 10);
+    if (Date.now() - lastCheck < 30000) return;
+    sessionStorage.setItem('vchk_cs_at', String(Date.now()));
+    var ctrl = new AbortController();
+    setTimeout(function(){ ctrl.abort(); }, 3000);
+    var r = await fetch('./version.json?t=' + Date.now(), { cache: 'no-store', signal: ctrl.signal });
+    if (!r.ok) return;
+    var j = await r.json();
+    if (!j || !j.version) return;
+    var stored = localStorage.getItem('app_version');
+    if (!stored) { localStorage.setItem('app_version', j.version); return; }
+    if (stored !== j.version) {
+      localStorage.setItem('app_version', j.version);
+      // 編集中の手入力セルがあれば確認
+      var hasEditing = !!document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('editable-cell');
+      if (hasEditing) {
+        if (!confirm('新しいバージョン (' + j.version + ') が利用可能です。編集中の内容は失われる可能性があります。更新しますか？')) return;
+      }
+      // キャッシュバイパスのためタイムスタンプ付きで再読込
+      var u = location.pathname + (location.search ? location.search + '&' : '?') + '_v=' + Date.now();
+      location.replace(u);
+    }
+  } catch(e) {}
+})();
+</script>
+
 <title>案件概要書 v19 - GRID LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
 <script>
