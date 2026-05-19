@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260517a / extraLandsスコープバグ修正(render引数化) -->
+<!-- BUILD: case-summary v20260519a / field_survey_status写真を概要書6セル(該当地A/B,接道,電柱左/中央/右)に反映、クリックで拡大ライトボックス、EXIF GPSをtitleで表示 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -15,7 +15,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>案件概要書 v16 - GRID LAND MGR</title>
+<title>案件概要書 v17 - GRID LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
 <script>
 // グローバルJSエラーを画面に表示する保険（DevToolsを開かなくても診断可能にする）
@@ -1287,7 +1287,7 @@ window.addEventListener('load', function() {
 
 <!-- ======== ツールバー ======== -->
 <div class="toolbar no-print">
-  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v16</span></h1>
+  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v17</span></h1>
   <input type="text" class="case-id-input" id="caseIdInput" placeholder="案件番号 / 業務番号 (例: AICHI-001)" />
   <button onclick="loadByInput()">📥 読込</button>
   <button class="primary" onclick="window.print()">🖨 印刷 / PDF出力</button>
@@ -1519,34 +1519,34 @@ window.addEventListener('load', function() {
         <div class="img-cell-bottom" id="d-haz-cap">該当地</div>
       </div>
       <!-- 該当地写真A（蓄電池所でも現地写真として必要） -->
-      <div class="img-cell">
+      <div class="img-cell" id="cell-genchi-a">
         <span class="img-cell-label">該当地</span>
-        <span class="img-cell-placeholder">Phase 3で<br>現地写真を表示</span>
+        <span class="img-cell-placeholder" id="ph-genchi-a">Phase 3で<br>現地写真を表示</span>
         <div class="img-cell-bottom" id="d-genchi-a-cap">該当地</div>
       </div>
       <!-- 該当地写真B -->
-      <div class="img-cell">
+      <div class="img-cell" id="cell-genchi-b">
         <span class="img-cell-label">該当地</span>
-        <span class="img-cell-placeholder">Phase 3で<br>現地写真を表示</span>
+        <span class="img-cell-placeholder" id="ph-genchi-b">Phase 3で<br>現地写真を表示</span>
         <div class="img-cell-bottom" id="d-genchi-b-cap">該当地</div>
       </div>
-      <div class="img-cell setsudo">
+      <div class="img-cell setsudo" id="cell-setsudo">
         <span class="img-cell-label">接道</span>
-        <span class="img-cell-placeholder">Phase 3で<br>field_survey写真を流用</span>
+        <span class="img-cell-placeholder" id="ph-setsudo">Phase 3で<br>field_survey写真を流用</span>
         <div class="img-cell-bottom" id="d-setsu-cap">接道</div>
       </div>
       <div class="img-cell dench">
         <span class="img-cell-label">電柱番号</span>
-        <div class="dench-mini">
-          <span class="img-cell-placeholder" style="font-size:6.5pt;">電柱<br>左側</span>
+        <div class="dench-mini" id="dench-l">
+          <span class="img-cell-placeholder" id="ph-pole-l" style="font-size:6.5pt;">電柱<br>左側</span>
           <span class="dench-mini-label" id="d-pole-l-cap">(左側)ーーー</span>
         </div>
-        <div class="dench-mini">
-          <span class="img-cell-placeholder" style="font-size:6.5pt;">電柱<br>中央</span>
+        <div class="dench-mini" id="dench-c">
+          <span class="img-cell-placeholder" id="ph-pole-c" style="font-size:6.5pt;">電柱<br>中央</span>
           <span class="dench-mini-label" id="d-pole-c-cap">(中央)ーーー</span>
         </div>
-        <div class="dench-mini">
-          <span class="img-cell-placeholder" style="font-size:6.5pt;">電柱<br>右側</span>
+        <div class="dench-mini" id="dench-r">
+          <span class="img-cell-placeholder" id="ph-pole-r" style="font-size:6.5pt;">電柱<br>右側</span>
           <span class="dench-mini-label" id="d-pole-r-cap">(右側)ーーー</span>
         </div>
       </div>
@@ -1970,11 +1970,13 @@ async function loadCase(caseNoOrId) {
       try { renderSellabilityBanner(c, []); } catch(_) {}
     });
 
-    // ----- ② land_info / landowner_info を case_id で取得 -----
+    // ----- ② land_info / landowner_info / field_survey_status を case_id で取得 -----
     // v20260516z8: 複数筆対応 - 全筆取得して 2筆目以降は備考に追記
-    const [landR, ownerR] = await Promise.all([
+    // v20260519a: field_survey_status を追加（現地写真の概要書反映用）
+    const [landR, ownerR, surveyR] = await Promise.all([
       sbClient.from('land_info').select('*').eq('case_id', c.id).order('id'),
       sbClient.from('landowner_info').select('*').eq('case_id', c.id).limit(1),
+      sbClient.from('field_survey_status').select('*').eq('case_id', c.id).limit(1),
     ]);
 
     if (landR.error) {
@@ -1984,11 +1986,15 @@ async function loadCase(caseNoOrId) {
     if (ownerR.error) {
       console.warn('landowner_info取得エラー:', ownerR.error);
     }
+    if (surveyR.error) {
+      console.warn('field_survey_status取得エラー:', surveyR.error);
+    }
 
     const lands = (landR.data || []);
     const land = lands[0] || {};
     const extraLands = lands.slice(1); // v20260516z8: 2筆目以降（備考に追記）
     const owner = (ownerR.data && ownerR.data[0]) || {};
+    const survey = (surveyR.data && surveyR.data[0]) || null; // v20260519a
 
     // ----- ③ 垂直積雪量を snow_load_master から照合 -----
     let snowDepth = null;
@@ -2029,7 +2035,7 @@ async function loadCase(caseNoOrId) {
     }
     console.log('Snow lookup:', snowDebug);
 
-    render(c, land, owner, snowDepth, extraLands);
+    render(c, land, owner, snowDepth, extraLands, survey);
     setStatus(`読込完了: ${c.case_no || c.id} | land=${landR.data?.length||0}件, owner=${ownerR.data?.length||0}件, snow=${snowDepth??'NA'}cm [${snowDebug}]`);
     document.getElementById('sheet').style.display = '';
   } catch (e) {
@@ -2040,8 +2046,9 @@ async function loadCase(caseNoOrId) {
 }
 
 // ====== 描画 ======
-function render(c, land, owner, snowDepth, extraLands) {
+function render(c, land, owner, snowDepth, extraLands, survey) {
   extraLands = extraLands || []; // v20260516z8 スコープ修正 (v20260517: 引数経由に変更)
+  survey = survey || null; // v20260519a: 現地調査写真
   // 案件番号・発電区分（業務番号モードなら業務番号を優先表示）
   const caseNo = caseDisplayNo(c) || c.no || '';
   const kubun  = c.kubun || c.power_kubun || '';
@@ -2197,9 +2204,73 @@ function render(c, land, owner, snowDepth, extraLands) {
   // ===== Phase 3-3a+b: 公図表示 =====
   loadCadastralMap(land);
 
+  // ===== v20260519a: field_survey_status 写真の差し込み =====
+  applyFieldSurveyPhotos(survey);
+
   // ===== セル内テキスト自動フィット =====
   // DOM 反映後に適用するため setTimeout で遅延実行
   setTimeout(applyTextFitToCells, 50);
+}
+
+// ============================================================
+// v20260519a: field_survey_status 写真を概要書の各セルに反映
+// ============================================================
+function applyFieldSurveyPhotos(survey) {
+  // セル⇔カラムのマッピング
+  // 該当地A=土地①東, 該当地B=土地②西, 接道=接道①, 電柱左/中央/右=電柱①/②/③
+  const cells = [
+    { placeholderId: 'ph-genchi-a', url: survey?.photo_land1, label: '土地① 東',  gpsKey: 'land1' },
+    { placeholderId: 'ph-genchi-b', url: survey?.photo_land2, label: '土地② 西',  gpsKey: 'land2' },
+    { placeholderId: 'ph-setsudo',  url: survey?.photo_road1, label: '接道 ①',    gpsKey: 'road1' },
+    { placeholderId: 'ph-pole-l',   url: survey?.photo_pole1, label: '電柱 左側', gpsKey: 'pole1' },
+    { placeholderId: 'ph-pole-c',   url: survey?.photo_pole2, label: '電柱 中央', gpsKey: 'pole2' },
+    { placeholderId: 'ph-pole-r',   url: survey?.photo_pole3, label: '電柱 右側', gpsKey: 'pole3' },
+  ];
+
+  const gpsJson = survey?.photo_gps_json || null;
+
+  for (const cfg of cells) {
+    const ph = document.getElementById(cfg.placeholderId);
+    if (!ph) continue;
+    if (!cfg.url) {
+      // 写真が無ければプレースホルダーのまま（未調査の案件用）
+      continue;
+    }
+    // GPS情報があればtitleに表示（マウスホバーで確認できる）
+    let titleText = `${cfg.label}\nクリックで拡大`;
+    if (gpsJson && gpsJson[cfg.gpsKey]) {
+      const g = gpsJson[cfg.gpsKey];
+      if (g.lat && g.lng) titleText += `\nGPS: ${g.lat.toFixed(6)}, ${g.lng.toFixed(6)}`;
+    }
+    // <img> へ置換（クリックで拡大表示）
+    const img = document.createElement('img');
+    img.src = cfg.url;
+    img.alt = cfg.label;
+    img.title = titleText;
+    img.loading = 'lazy';
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;cursor:zoom-in;display:block;border-radius:2px';
+    img.onclick = (e) => { e.stopPropagation(); openFsLightbox(cfg.url); };
+    img.onerror = () => {
+      // 画像読込失敗時はプレースホルダーへ戻す
+      img.replaceWith(ph.cloneNode(true));
+    };
+    ph.replaceWith(img);
+  }
+}
+
+function openFsLightbox(url) {
+  const box = document.getElementById('fs-lightbox');
+  const img = document.getElementById('fs-lightbox-img');
+  if (!box || !img) return;
+  img.src = url;
+  box.style.display = 'flex';
+}
+function closeFsLightbox() {
+  const box = document.getElementById('fs-lightbox');
+  if (!box) return;
+  box.style.display = 'none';
+  const img = document.getElementById('fs-lightbox-img');
+  if (img) img.src = '';
 }
 
 // ============================================================
@@ -4528,6 +4599,12 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     </div>
   </div>
+</div>
+
+<!-- ======== 現地写真ライトボックスモーダル（v20260519a） ======== -->
+<div id="fs-lightbox" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.85);align-items:center;justify-content:center;cursor:zoom-out" onclick="closeFsLightbox()">
+  <img id="fs-lightbox-img" src="" alt="現地写真" style="max-width:95vw;max-height:95vh;object-fit:contain;box-shadow:0 8px 32px rgba(0,0,0,.5);border-radius:4px">
+  <button onclick="closeFsLightbox()" style="position:absolute;top:16px;right:16px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.9);border:none;font-size:24px;cursor:pointer;line-height:1">✕</button>
 </div>
 
 </body>
