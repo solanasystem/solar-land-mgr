@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260519m / P3公図接道判定追加(cadastral_polygon×N02道路の幾何交差判定→touki_setsudo自動更新) -->
+<!-- BUILD: case-summary v20260519n / P4ハザード周辺マップ実装(disaportal埋込+4種切替+拡大縮小+案件フラグ) -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -1566,10 +1566,20 @@ window.addEventListener('load', function() {
 
         <div class="img-cell-bottom" id="d-koz-cap">該当地</div>
       </div>
-      <div class="img-cell">
-        <span class="img-cell-label">ハザードMAP</span>
-        <span class="img-cell-placeholder">Phase 3で<br>disaportalを自動取得</span>
-        <div class="img-cell-bottom" id="d-haz-cap">該当地</div>
+      <div class="img-cell" id="cell-hazard-map" style="padding:0; position:relative; overflow:hidden;">
+        <span class="img-cell-label" style="z-index:401;">ハザードMAP</span>
+        <div id="hazard-map-container" style="position:absolute; inset:0; background:#f3f4f6;">
+          <div id="hazard-map-placeholder" style="display:flex; align-items:center; justify-content:center; width:100%; height:100%; color:#9ca3af; font-size:8.5pt; text-align:center;">案件位置を取得中...</div>
+        </div>
+        <!-- ハザード切替UI（マップ初期化後に表示） -->
+        <div id="hazard-layer-switcher" style="display:none; position:absolute; top:18px; right:6px; z-index:402; background:rgba(255,255,255,.95); border:1px solid #d1d5db; border-radius:4px; padding:3px 4px; font-size:6.5pt; box-shadow:0 1px 3px rgba(0,0,0,.15);">
+          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="radio" name="hzlayer" value="flood" checked style="margin-right:2px; vertical-align:middle;">洪水</label>
+          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="radio" name="hzlayer" value="dosaigai" style="margin-right:2px; vertical-align:middle;">土砂</label>
+          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="radio" name="hzlayer" value="hightide" style="margin-right:2px; vertical-align:middle;">高潮</label>
+          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="radio" name="hzlayer" value="tsunami" style="margin-right:2px; vertical-align:middle;">津波</label>
+          <label style="display:block; padding:1px 2px; cursor:pointer; white-space:nowrap;"><input type="radio" name="hzlayer" value="none" style="margin-right:2px; vertical-align:middle;">なし</label>
+        </div>
+        <div class="img-cell-bottom" id="d-haz-cap">ハザードMAP</div>
       </div>
       <!-- 該当地写真A（蓄電池所でも現地写真として必要） -->
       <div class="img-cell" id="cell-genchi-a">
@@ -2263,14 +2273,16 @@ function render(c, land, owner, snowDepth, extraLands, survey) {
   // ===== v20260519d: 手入力UI（contenteditable + 自動保存） =====
   setupEditableCells(c, land);
 
-  // ===== v20260519f: P2 道路幅員自動取得（手入力値が無ければR2タイルから取得） =====
+  // ===== v20260519f: P2 道路幅員自動取得 =====
   applyRoadWidthAuto(land);
 
-  // ===== v20260519m: P3 公図接道判定（公図ポリゴン×道路LineString幾何演算） =====
+  // ===== v20260519m: P3 公図接道判定 =====
   applyTouriSetsudoAuto(land);
 
+  // ===== v20260519n: P4 ハザード周辺マップ（disaportal埋込＋拡大縮小） =====
+  applyHazardMap(land);
+
   // ===== セル内テキスト自動フィット =====
-  // DOM 反映後に適用するため setTimeout で遅延実行
   setTimeout(applyTextFitToCells, 50);
 }
 
@@ -2809,6 +2821,113 @@ async function applyTouriSetsudoAuto(land) {
       cell.style.color = '';
       cell.style.fontStyle = '';
       cell.textContent = 'ーーー';
+    }
+  }
+}
+
+// ============================================================
+// v20260519n: P4 ハザード周辺マップ
+// 国土地理院 disaportal タイルを Leaflet で表示。
+// 案件位置にマーカー、4種ハザード切替、ズーム +/- 可能。
+// ============================================================
+
+const HAZARD_TILE_URLS = {
+  flood:    'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  dosaigai: 'https://disaportaldata.gsi.go.jp/raster/05_dosaigai_warning_area_data/{z}/{x}/{y}.png',
+  hightide: 'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  tsunami:  'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',
+};
+
+let _hazardMap = null;
+let _hazardOverlayLayer = null;
+let _hazardMarker = null;
+
+function applyHazardMap(land) {
+  if (!land) return;
+  const lat = parseFloat(land.lat);
+  const lng = parseFloat(land.lng);
+  const container = document.getElementById('hazard-map-container');
+  const placeholder = document.getElementById('hazard-map-placeholder');
+  const switcher = document.getElementById('hazard-layer-switcher');
+  if (!container || typeof L === 'undefined') return;
+
+  if (isNaN(lat) || isNaN(lng)) {
+    if (placeholder) placeholder.textContent = '座標未設定';
+    return;
+  }
+
+  // 既存マップを破棄して再生成（案件切替時の残骸防止）
+  if (_hazardMap) {
+    try { _hazardMap.remove(); } catch (_) {}
+    _hazardMap = null;
+    _hazardOverlayLayer = null;
+    _hazardMarker = null;
+  }
+
+  // placeholder を非表示にして地図用 div を準備
+  if (placeholder) placeholder.style.display = 'none';
+  let mapDiv = container.querySelector('#hazard-map-leaflet');
+  if (!mapDiv) {
+    mapDiv = document.createElement('div');
+    mapDiv.id = 'hazard-map-leaflet';
+    mapDiv.style.cssText = 'position:absolute; inset:0;';
+    container.appendChild(mapDiv);
+  }
+
+  try {
+    _hazardMap = L.map(mapDiv, {
+      center: [lat, lng],
+      zoom: 15,
+      zoomControl: true,
+      attributionControl: false,
+    });
+
+    // 国土地理院 標準地図ベース
+    L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+    }).addTo(_hazardMap);
+
+    // 初期ハザードレイヤー（洪水）
+    _hazardOverlayLayer = L.tileLayer(HAZARD_TILE_URLS.flood, {
+      opacity: 0.6,
+      maxZoom: 18,
+    }).addTo(_hazardMap);
+
+    // 案件位置フラグ（赤マーカー）
+    const flagIcon = L.divIcon({
+      className: '',
+      html: '<div style="width:30px; height:30px; background:#ef4444; border:3px solid #fff; border-radius:50% 50% 50% 0; transform:rotate(-45deg); box-shadow:0 2px 6px rgba(0,0,0,.4);"></div>',
+      iconSize: [30, 30],
+      iconAnchor: [15, 30],
+    });
+    _hazardMarker = L.marker([lat, lng], { icon: flagIcon }).addTo(_hazardMap);
+
+    // ハザード切替ハンドラ
+    if (switcher) {
+      switcher.style.display = 'block';
+      const radios = switcher.querySelectorAll('input[name="hzlayer"]');
+      radios.forEach(r => {
+        r.addEventListener('change', (e) => {
+          if (!_hazardMap) return;
+          if (_hazardOverlayLayer) { _hazardMap.removeLayer(_hazardOverlayLayer); _hazardOverlayLayer = null; }
+          const v = e.target.value;
+          if (v !== 'none' && HAZARD_TILE_URLS[v]) {
+            _hazardOverlayLayer = L.tileLayer(HAZARD_TILE_URLS[v], {
+              opacity: 0.6,
+              maxZoom: 18,
+            }).addTo(_hazardMap);
+          }
+        });
+      });
+    }
+
+    // タイル描画安定化
+    setTimeout(() => { try { _hazardMap.invalidateSize(); } catch (_) {} }, 100);
+  } catch (err) {
+    console.error('[P4] ハザードマップ初期化失敗:', err);
+    if (placeholder) {
+      placeholder.style.display = '';
+      placeholder.textContent = '地図表示エラー';
     }
   }
 }
