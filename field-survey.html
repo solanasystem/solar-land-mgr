@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260515h / 折りたたみパネル ▽ トグル動作の CSS 修正（.mc-collapsible.collapsed .mc-panel-body の display:none ルール追加）／v4.0 にバージョンアップ -->
+<!-- BUILD: field-survey v20260519a / 写真アップロードsilent failure撲滅・iPhone標準カメラ運用・EXIF GPS抽出対応／v4.1 にバージョンアップ -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -42,7 +42,7 @@
   } catch(e) {}
 })();
 </script>
-<title>現地調査マップ | GRID LAND MGR v4.0</title>
+<title>現地調査マップ | GRID LAND MGR v4.1</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="mobile-responsive.css?v=20260516u">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -51,6 +51,8 @@
 <script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- v20260519a: EXIF GPS抽出用ライブラリ -->
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
 <style>
   :root {
     --bg: #0d1117;
@@ -454,7 +456,7 @@
     <a class="logo" href="index.html">
       <div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div>
       <span class="logo-text">GRID LAND MGR</span>
-      <span class="logo-version">v4.0</span>
+      <span class="logo-version">v4.1</span>
     </a>
     <span class="page-title">&#128506; 現地調査マップ</span>
   </div>
@@ -687,24 +689,24 @@
         <textarea class="form-textarea" id="confirmComment" placeholder="確認した内容・状況・所感などを記入してください..."></textarea>
       </div>
       <div style="margin-top:16px">
-        <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">&#128248; 現地写真（任意）</div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">&#128248; 現地写真（任意）<span style="display:block;font-size:10px;font-weight:400;color:var(--accent);margin-top:4px;text-transform:none;letter-spacing:0">📱 iPhone標準カメラで撮影 → 下のエリアをタップして写真ライブラリから選択（GPS情報も保存されます）</span></div>
         <!-- 接道写真 2カット -->
         <div style="font-size:10px;color:var(--text-muted);margin:8px 0 4px;font-weight:600">接道写真</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div>
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">接道 &#9312;</div>
             <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
-              <input type="file" accept="image/*" capture="environment" id="photo_road1" style="display:none" onchange="previewPhoto(this,'prev_road1')">
+              <input type="file" accept="image/*" id="photo_road1" style="display:none" onchange="previewPhoto(this,'prev_road1')">
               <img id="prev_road1" src="" style="width:100%;height:100%;object-fit:cover;display:none">
-              <div id="placeholder_road1" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして撮影</span></div>
+              <div id="placeholder_road1" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして選択</span></div>
             </label>
           </div>
           <div>
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">接道 &#9313;</div>
             <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
-              <input type="file" accept="image/*" capture="environment" id="photo_road2" style="display:none" onchange="previewPhoto(this,'prev_road2')">
+              <input type="file" accept="image/*" id="photo_road2" style="display:none" onchange="previewPhoto(this,'prev_road2')">
               <img id="prev_road2" src="" style="width:100%;height:100%;object-fit:cover;display:none">
-              <div id="placeholder_road2" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして撮影</span></div>
+              <div id="placeholder_road2" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして選択</span></div>
             </label>
           </div>
         </div>
@@ -714,33 +716,33 @@
           <div>
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">土地 &#9312; 東</div>
             <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
-              <input type="file" accept="image/*" capture="environment" id="photo_land1" style="display:none" onchange="previewPhoto(this,'prev_land1')">
+              <input type="file" accept="image/*" id="photo_land1" style="display:none" onchange="previewPhoto(this,'prev_land1')">
               <img id="prev_land1" src="" style="width:100%;height:100%;object-fit:cover;display:none">
-              <div id="placeholder_land1" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして撮影</span></div>
+              <div id="placeholder_land1" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして選択</span></div>
             </label>
           </div>
           <div>
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">土地 &#9313; 西</div>
             <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
-              <input type="file" accept="image/*" capture="environment" id="photo_land2" style="display:none" onchange="previewPhoto(this,'prev_land2')">
+              <input type="file" accept="image/*" id="photo_land2" style="display:none" onchange="previewPhoto(this,'prev_land2')">
               <img id="prev_land2" src="" style="width:100%;height:100%;object-fit:cover;display:none">
-              <div id="placeholder_land2" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして撮影</span></div>
+              <div id="placeholder_land2" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして選択</span></div>
             </label>
           </div>
           <div>
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">土地 &#9314; 南</div>
             <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
-              <input type="file" accept="image/*" capture="environment" id="photo_land3" style="display:none" onchange="previewPhoto(this,'prev_land3')">
+              <input type="file" accept="image/*" id="photo_land3" style="display:none" onchange="previewPhoto(this,'prev_land3')">
               <img id="prev_land3" src="" style="width:100%;height:100%;object-fit:cover;display:none">
-              <div id="placeholder_land3" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして撮影</span></div>
+              <div id="placeholder_land3" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして選択</span></div>
             </label>
           </div>
           <div>
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">土地 &#9315; 北</div>
             <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
-              <input type="file" accept="image/*" capture="environment" id="photo_land4" style="display:none" onchange="previewPhoto(this,'prev_land4')">
+              <input type="file" accept="image/*" id="photo_land4" style="display:none" onchange="previewPhoto(this,'prev_land4')">
               <img id="prev_land4" src="" style="width:100%;height:100%;object-fit:cover;display:none">
-              <div id="placeholder_land4" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして撮影</span></div>
+              <div id="placeholder_land4" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;gap:6px"><span style="font-size:24px">&#128247;</span><span>タップして選択</span></div>
             </label>
           </div>
         </div>
@@ -750,25 +752,25 @@
           <div>
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">電柱 &#9312;</div>
             <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
-              <input type="file" accept="image/*" capture="environment" id="photo_pole1" style="display:none" onchange="previewPhoto(this,'prev_pole1')">
+              <input type="file" accept="image/*" id="photo_pole1" style="display:none" onchange="previewPhoto(this,'prev_pole1')">
               <img id="prev_pole1" src="" style="width:100%;height:100%;object-fit:cover;display:none">
-              <div id="placeholder_pole1" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>撮影</span></div>
+              <div id="placeholder_pole1" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>選択</span></div>
             </label>
           </div>
           <div>
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">電柱 &#9313;</div>
             <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
-              <input type="file" accept="image/*" capture="environment" id="photo_pole2" style="display:none" onchange="previewPhoto(this,'prev_pole2')">
+              <input type="file" accept="image/*" id="photo_pole2" style="display:none" onchange="previewPhoto(this,'prev_pole2')">
               <img id="prev_pole2" src="" style="width:100%;height:100%;object-fit:cover;display:none">
-              <div id="placeholder_pole2" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>撮影</span></div>
+              <div id="placeholder_pole2" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>選択</span></div>
             </label>
           </div>
           <div>
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">電柱 &#9314;</div>
             <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
-              <input type="file" accept="image/*" capture="environment" id="photo_pole3" style="display:none" onchange="previewPhoto(this,'prev_pole3')">
+              <input type="file" accept="image/*" id="photo_pole3" style="display:none" onchange="previewPhoto(this,'prev_pole3')">
               <img id="prev_pole3" src="" style="width:100%;height:100%;object-fit:cover;display:none">
-              <div id="placeholder_pole3" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>撮影</span></div>
+              <div id="placeholder_pole3" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>選択</span></div>
             </label>
           </div>
         </div>
@@ -779,25 +781,25 @@
             <div>
               <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px">朝の軌道（7-11h）</div>
               <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
-                <input type="file" accept="image/*" capture="environment" id="photo_shadow_am" style="display:none" onchange="previewPhoto(this,'prev_shadow_am')">
+                <input type="file" accept="image/*" id="photo_shadow_am" style="display:none" onchange="previewPhoto(this,'prev_shadow_am')">
                 <img id="prev_shadow_am" src="" style="width:100%;height:100%;object-fit:cover;display:none">
-                <div id="placeholder_shadow_am" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>撮影</span></div>
+                <div id="placeholder_shadow_am" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>選択</span></div>
               </label>
             </div>
             <div>
               <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px">南中時（9-13h）</div>
               <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
-                <input type="file" accept="image/*" capture="environment" id="photo_shadow_noon" style="display:none" onchange="previewPhoto(this,'prev_shadow_noon')">
+                <input type="file" accept="image/*" id="photo_shadow_noon" style="display:none" onchange="previewPhoto(this,'prev_shadow_noon')">
                 <img id="prev_shadow_noon" src="" style="width:100%;height:100%;object-fit:cover;display:none">
-                <div id="placeholder_shadow_noon" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>撮影</span></div>
+                <div id="placeholder_shadow_noon" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>選択</span></div>
               </label>
             </div>
             <div>
               <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px">夕の軌道（11-15h）</div>
               <label style="display:block;border:1px dashed var(--border);border-radius:8px;aspect-ratio:4/3;cursor:pointer;overflow:hidden;position:relative;background:var(--bg)">
-                <input type="file" accept="image/*" capture="environment" id="photo_shadow_pm" style="display:none" onchange="previewPhoto(this,'prev_shadow_pm')">
+                <input type="file" accept="image/*" id="photo_shadow_pm" style="display:none" onchange="previewPhoto(this,'prev_shadow_pm')">
                 <img id="prev_shadow_pm" src="" style="width:100%;height:100%;object-fit:cover;display:none">
-                <div id="placeholder_shadow_pm" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>撮影</span></div>
+                <div id="placeholder_shadow_pm" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;gap:4px"><span style="font-size:20px">&#128247;</span><span>選択</span></div>
               </label>
             </div>
           </div>
@@ -1912,6 +1914,20 @@ async function compressImage(file) {
   });
 }
 
+// EXIF GPS抽出（exifrライブラリ使用、失敗してもアップロード処理は継続）
+async function extractGPS(file) {
+  if (typeof exifr === 'undefined') return null;
+  try {
+    const gps = await exifr.gps(file);
+    if (gps && typeof gps.latitude === 'number' && typeof gps.longitude === 'number') {
+      return { lat: gps.latitude, lng: gps.longitude };
+    }
+  } catch (e) {
+    console.warn('GPS extract failed:', e);
+  }
+  return null;
+}
+
 async function uploadPhoto(file, caseId, label) {
   if (!file) return null;
   // 圧縮処理
@@ -1920,11 +1936,18 @@ async function uploadPhoto(file, caseId, label) {
     compressed = await compressImage(file);
   } catch (e) {
     console.error('compress error', e);
-    compressed = file;  // 圧縮失敗時は元ファイル使用
+    // 圧縮失敗時、元ファイルが2MB超なら明示的にエラーとする（HEIC等が想定される）
+    if (file.size > 2 * 1024 * 1024) {
+      throw new Error(`圧縮失敗（${(file.size/1024/1024).toFixed(1)}MB／形式：${file.type||'不明'}）`);
+    }
+    compressed = file;
   }
   const path = `${caseId}/${label}_${Date.now()}.jpg`;
   const { error } = await db.storage.from('survey-photos').upload(path, compressed, { upsert: true, contentType: 'image/jpeg' });
-  if (error) { console.error('upload error', error); return null; }
+  if (error) {
+    console.error('upload error', error);
+    throw new Error(error.message || error.error || JSON.stringify(error));
+  }
   const { data } = db.storage.from('survey-photos').getPublicUrl(path);
   return data.publicUrl;
 }
@@ -1947,6 +1970,8 @@ async function saveConfirm() {
   const photoKeys = ['road1','road2','land1','land2','land3','land4','pole1','pole2','pole3'];
   if (isSolar) photoKeys.push('shadow_am','shadow_noon','shadow_pm');
   const photoUrls = {};
+  const photoGps = {};
+  const errors = [];
   let done = 0;
   const total = photoKeys.length;
   for (const key of photoKeys) {
@@ -1954,8 +1979,26 @@ async function saveConfirm() {
     const file = input?.files[0];
     status.textContent = `\u5199\u771f\u3092\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u4e2d... (${done+1}/${total})`;
     bar.style.width = `${(done / total) * 100}%`;
-    if (file) photoUrls[key] = await uploadPhoto(file, caseId, key);
+    if (file) {
+      // GPS情報抽出（圧縮前に実施／失敗してもアップロードは継続）
+      const gps = await extractGPS(file);
+      if (gps) photoGps[key] = gps;
+      // Storage アップロード
+      try {
+        photoUrls[key] = await uploadPhoto(file, caseId, key);
+      } catch (e) {
+        errors.push({ key, message: e.message || String(e) });
+      }
+    }
     done++;
+  }
+  // アップロード失敗があった場合、DB保存せずに中止
+  if (errors.length > 0) {
+    btn.disabled = false; btn.textContent = '\u78ba\u8a8d\u7d42\u4e86\u30fb\u30d5\u30e9\u30b0\u3092\u8d64\u306b\u5909\u66f4';
+    progress.style.display = 'none';
+    const detail = errors.map(e => `・${e.key}: ${e.message}`).join('\n');
+    alert(`\u5199\u771f\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u306b\u5931\u6557\u3057\u307e\u3057\u305f\uff08${errors.length}\u679a\uff09\n\n${detail}\n\n\u30c7\u30fc\u30bf\u306f\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002\u518d\u5ea6\u304a\u8a66\u3057\u304f\u3060\u3055\u3044\u3002`);
+    return;
   }
   bar.style.width = '100%'; status.textContent = '\u30c7\u30fc\u30bf\u3092\u4fdd\u5b58\u4e2d...';
 
@@ -1968,7 +2011,8 @@ async function saveConfirm() {
     photo_pole1: photoUrls['pole1']||null, photo_pole2: photoUrls['pole2']||null, photo_pole3: photoUrls['pole3']||null,
     photo_shadow_am:   photoUrls['shadow_am']  ||null,
     photo_shadow_noon: photoUrls['shadow_noon']||null,
-    photo_shadow_pm:   photoUrls['shadow_pm']  ||null
+    photo_shadow_pm:   photoUrls['shadow_pm']  ||null,
+    photo_gps_json: Object.keys(photoGps).length > 0 ? photoGps : null
   };
   let error;
   if (existing) { ({ error } = await db.from('field_survey_status').update(payload).eq('case_id', caseId)); }
