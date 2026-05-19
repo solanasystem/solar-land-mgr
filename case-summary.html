@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260519e / ハザードNULLは「なし」レ点扱いに変更、農振法区分セル手入力対応追加 -->
+<!-- BUILD: case-summary v20260519f / P2 道路幅員自動取得(Turf.js + R2 N02タイル) - 緯度経度から0.1度タイル特定→最寄り道路距離計算→幅員カテゴリ表示→setsudo_status/road_width自動更新 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -15,7 +15,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>案件概要書 v18 - GRID LAND MGR</title>
+<title>案件概要書 v19 - GRID LAND MGR</title>
 <link rel="stylesheet" href="mobile-responsive.css">
 <script>
 // グローバルJSエラーを画面に表示する保険（DevToolsを開かなくても診断可能にする）
@@ -1299,12 +1299,14 @@ window.addEventListener('load', function() {
     .editable-cell { outline: none !important; background: transparent !important; cursor: default !important; }
   }
 </style>
+<!-- v20260519f: 道路幅員自動取得用 Turf.js (P2) -->
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
 </head>
 <body>
 
 <!-- ======== ツールバー ======== -->
 <div class="toolbar no-print">
-  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v18</span></h1>
+  <h1>📄 案件概要書 <span style="font-size:10px;font-weight:normal;color:#16a34a;background:#dcfce7;padding:2px 6px;border-radius:3px;margin-left:4px;">v19</span></h1>
   <input type="text" class="case-id-input" id="caseIdInput" placeholder="案件番号 / 業務番号 (例: AICHI-001)" />
   <button onclick="loadByInput()">📥 読込</button>
   <button class="primary" onclick="window.print()">🖨 印刷 / PDF出力</button>
@@ -2227,6 +2229,9 @@ function render(c, land, owner, snowDepth, extraLands, survey) {
   // ===== v20260519d: 手入力UI（contenteditable + 自動保存） =====
   setupEditableCells(c, land);
 
+  // ===== v20260519f: P2 道路幅員自動取得（手入力値が無ければR2タイルから取得） =====
+  applyRoadWidthAuto(land);
+
   // ===== セル内テキスト自動フィット =====
   // DOM 反映後に適用するため setTimeout で遅延実行
   setTimeout(applyTextFitToCells, 50);
@@ -2380,6 +2385,201 @@ function setupEditableCells(c, land) {
   if (c && c.id) {
     makeEditable('d-ac', 'cases', 'ac_kw', c.id, true);                          // #5 AC（数値）
     makeEditable('d-dc', 'cases', 'dc_kw', c.id, true);                          // #6 DC（数値）
+  }
+}
+
+// ============================================================
+// v20260519f: P2 道路幅員自動取得（国土数値情報N02 / Cloudflare R2タイル）
+// ============================================================
+
+// R2 公開URLベース
+const ROAD_R2_BASE = 'https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/infra/roads/n02_2024';
+
+// 幅員カテゴリ値 → 表示文字列マッピング
+// N02のwideRouteCategory: 1=3m未満, 2=3-5.5m, 3=5.5-13m, 4=13m以上
+const WIDTH_CATEGORY_LABELS = {
+  '1': '3m未満',  '2': '3m-5.5m',  '3': '5.5m-13m',  '4': '13m以上',
+   1:  '3m未満',   2:  '3m-5.5m',   3:  '5.5m-13m',   4:  '13m以上',
+};
+
+// 接道判定の距離閾値（m）
+const ROAD_NEAR_THRESHOLD_M = 20;
+
+// タイルキャッシュ（同一セッション内で再fetch防止）
+const _roadTileCache = new Map();
+
+// lat/lng → タイルファイル名
+function roadTileName(lat, lng) {
+  const tLat = Math.floor(lat * 10) / 10;
+  const tLng = Math.floor(lng * 10) / 10;
+  return `tile_${tLat.toFixed(1)}_${tLng.toFixed(1)}.geojson`;
+}
+
+// 該当タイル + 周辺8タイル（計9タイル）のファイル名を返す
+function getSurroundingRoadTiles(lat, lng) {
+  const offsets = [[0,0], [0.1,0], [-0.1,0], [0,0.1], [0,-0.1],
+                   [0.1,0.1], [0.1,-0.1], [-0.1,0.1], [-0.1,-0.1]];
+  return offsets.map(([dLat, dLng]) => roadTileName(lat + dLat, lng + dLng));
+}
+
+// R2から単一タイル fetch（404やエラーは null 返却）
+async function fetchRoadTile(tileName) {
+  if (_roadTileCache.has(tileName)) return _roadTileCache.get(tileName);
+  try {
+    const res = await fetch(`${ROAD_R2_BASE}/${tileName}`, { method: 'GET' });
+    if (!res.ok) { _roadTileCache.set(tileName, null); return null; }
+    const json = await res.json();
+    _roadTileCache.set(tileName, json);
+    return json;
+  } catch (err) {
+    console.warn('road tile fetch failed:', tileName, err);
+    _roadTileCache.set(tileName, null);
+    return null;
+  }
+}
+
+// 最寄り道路の検索（1タイル分のfeaturesを評価）
+function findNearestRoadInFeatures(point, features) {
+  if (typeof turf === 'undefined') return null;
+  let best = null;
+  for (const feature of features) {
+    if (!feature.geometry) continue;
+    const t = feature.geometry.type;
+    if (t !== 'LineString' && t !== 'MultiLineString') continue;
+    try {
+      const dist = turf.pointToLineDistance(point, feature, { units: 'meters' });
+      if (best === null || dist < best.dist) {
+        best = { dist, feature };
+      }
+    } catch (_) { /* 不正geometry skip */ }
+  }
+  return best;
+}
+
+// 幅員カテゴリの取得（複数プロパティ名に対応）
+function extractWidthCategory(props) {
+  if (!props) return null;
+  // N02標準: wideRouteCategory（GMLから変換時の正式名）
+  // 過去会話の変換スクリプト: width_category
+  // 一部ツール: N02_004, fukuin_kubun 等
+  return props.wideRouteCategory ?? props.width_category
+      ?? props.N02_004 ?? props.fukuin_kubun ?? props.fukuin ?? null;
+}
+
+// 道路種別の取得（参考表示用）
+function extractRouteType(props) {
+  if (!props) return null;
+  return props.routeType ?? props.route_type ?? props.N02_003 ?? null;
+}
+
+// メイン: 自動取得＆セル反映＆DB保存
+async function applyRoadWidthAuto(land) {
+  if (!land || !land.id) return;
+
+  // 手入力値が既にあれば自動取得スキップ（手入力優先）
+  if (land.road_width && String(land.road_width).trim() !== '') {
+    console.log('[P2] road_width 手入力値あり、自動取得スキップ:', land.road_width);
+    return;
+  }
+
+  const lat = parseFloat(land.lat);
+  const lng = parseFloat(land.lng);
+  if (isNaN(lat) || isNaN(lng)) {
+    console.warn('[P2] lat/lng が無効、道路幅員自動取得スキップ');
+    return;
+  }
+
+  if (typeof turf === 'undefined') {
+    console.warn('[P2] Turf.js が読み込まれていません');
+    return;
+  }
+
+  // セルに「取得中...」表示
+  const cell = document.getElementById('d-haba');
+  if (cell) {
+    cell.textContent = '取得中...';
+    cell.style.color = '#6b7280';
+    cell.style.fontStyle = 'italic';
+  }
+
+  try {
+    // 該当タイル1枚をまず取得
+    const point = turf.point([lng, lat]);
+    const centerTile = roadTileName(lat, lng);
+    let tile = await fetchRoadTile(centerTile);
+    let best = tile ? findNearestRoadInFeatures(point, tile.features || []) : null;
+
+    // 中心タイルで最寄りが20m超 or 取得失敗 → 周辺8タイル並列取得して再検索
+    if (!best || best.dist > 10) {
+      const otherTiles = getSurroundingRoadTiles(lat, lng).filter(n => n !== centerTile);
+      const others = await Promise.all(otherTiles.map(fetchRoadTile));
+      for (const t of others) {
+        if (!t) continue;
+        const candidate = findNearestRoadInFeatures(point, t.features || []);
+        if (candidate && (!best || candidate.dist < best.dist)) best = candidate;
+      }
+    }
+
+    if (cell) { cell.style.color = ''; cell.style.fontStyle = ''; }
+
+    if (!best) {
+      if (cell) cell.textContent = 'ーーー';
+      console.warn('[P2] 周辺道路データなし');
+      return;
+    }
+
+    const widthCat = extractWidthCategory(best.feature.properties);
+    const widthLabel = WIDTH_CATEGORY_LABELS[widthCat] || '不明';
+    const distM = best.dist.toFixed(1);
+
+    let displayValue;
+    let saveValue;
+    if (best.dist > ROAD_NEAR_THRESHOLD_M) {
+      // 20m超 → 接道なし
+      displayValue = `接道なし (最寄${distM}m)`;
+      saveValue = null;  // road_widthはNULLのまま
+      // setsudo_status を「なし」に自動設定（手入力済みなら上書きしない）
+      if (!land.setsudo_status) {
+        await sbClient.from('land_info').update({ setsudo_status: 'なし' }).eq('id', land.id);
+        const sCell = document.getElementById('d-setsu');
+        if (sCell) sCell.textContent = 'なし';
+      }
+    } else {
+      // 接道あり
+      displayValue = `${widthLabel} (${distM}m)`;
+      saveValue = widthLabel;
+      // setsudo_status を「あり」に自動設定（手入力済みなら上書きしない）
+      if (!land.setsudo_status) {
+        await sbClient.from('land_info').update({ setsudo_status: 'あり' }).eq('id', land.id);
+        const sCell = document.getElementById('d-setsu');
+        if (sCell) sCell.textContent = 'あり';
+      }
+    }
+
+    if (cell) {
+      cell.textContent = displayValue;
+      cell.title = `自動取得（N02道路データ）: ${widthLabel} / 最寄${distM}m / 道路種別=${extractRouteType(best.feature.properties)||'不明'}`;
+    }
+
+    // DB保存（road_width）
+    if (saveValue !== null) {
+      const { error } = await sbClient
+        .from('land_info')
+        .update({ road_width: saveValue })
+        .eq('id', land.id);
+      if (error) {
+        console.warn('[P2] road_width DB保存失敗:', error);
+      } else {
+        console.log('[P2] road_width 自動保存成功:', saveValue);
+      }
+    }
+  } catch (err) {
+    console.error('[P2] 道路幅員自動取得エラー:', err);
+    if (cell) {
+      cell.style.color = '';
+      cell.style.fontStyle = '';
+      cell.textContent = 'ーーー';
+    }
   }
 }
 
