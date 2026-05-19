@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260519a / field_survey_status写真を概要書6セル(該当地A/B,接道,電柱左/中央/右)に反映、クリックで拡大ライトボックス、EXIF GPSをtitleで表示 -->
+<!-- BUILD: case-summary v20260519c / 公図アップロードのファイル名サニタイズ強化(Invalid keyエラー対策: 全角→半角、ASCII safe文字以外を_に置換、timestamp付与で衝突回避) -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -2396,8 +2396,18 @@ function setupKozUploadHandler() {
       setStatus('公図をアップロード中...');
       // 元のファイル名（拡張子除く）を取得し、ファイル名として使用可能な形にサニタイズ
       // 「案件ID/元ファイル名.拡張子」とすることで、右クリック保存時に元のファイル名で保存される
-      const origName = (file.name || '').replace(/\.[^.]+$/, '').replace(/[\/\\?%*:|"<>]/g, '_').slice(0, 80) || 'cadastral';
-      const fileName = `${_kozCurrentCaseId}/${origName}.${extension}`;
+      // v20260519c: Supabase Storage の「Invalid key」エラー対策で厳格サニタイズ
+      //   許容文字 = 英数字、ハイフン、アンダースコア、ドット のみ
+      //   それ以外（全角括弧・全角数字・日本語・全角空白等）は全て _ に置換
+      const sanitize = (s) => (s || '')
+        .replace(/\.[^.]+$/, '')                  // 拡張子除去
+        .normalize('NFKC')                         // 全角→半角 (２５→25, （）→())
+        .replace(/[^A-Za-z0-9._-]/g, '_')          // 許可文字以外を _ に
+        .replace(/_{2,}/g, '_')                    // 連続 _ を 1個に
+        .replace(/^_+|_+$/g, '')                   // 先頭末尾の _ 除去
+        .slice(0, 80);
+      const origName = sanitize(file.name) || 'cadastral';
+      const fileName = `${_kozCurrentCaseId}/${origName}_${Date.now()}.${extension}`;
       const { data: upData, error: upError } = await sbClient.storage
         .from('cadastral-maps')
         .upload(fileName, imageBlob, {
