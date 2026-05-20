@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: noten-request v20260520b / 選択確定ボタンをstickyアクションバー化、選択件数カウンター追加 -->
+<!-- BUILD: noten-request v20260520c / A4横レイアウト化、位置図マーカーをドラッグ微調整可能に -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -129,10 +129,10 @@
   .case-picker .case-item .case-no { font-weight: 600; color: #1f2937; }
   .case-picker .case-item .owner-name { color: #6b7280; margin-left: 6px; font-size: 8.5pt; }
 
-  /* ============ 文書本体（A4） ============ */
+  /* ============ 文書本体（A4横） ============ */
   .doc-wrap { padding: 20px; }
   .a4-page {
-    width: 210mm; min-height: 297mm; padding: 18mm 16mm;
+    width: 297mm; min-height: 210mm; padding: 14mm 16mm;
     margin: 0 auto 18px; background: #fff;
     box-shadow: 0 2px 10px rgba(0,0,0,.15);
     font-size: 10.5pt; line-height: 1.55; color: #111;
@@ -173,16 +173,23 @@
   .doc-footer { margin-top: 6mm; font-size: 9.5pt; color: #374151; }
   .doc-footer .note { margin-bottom: 2mm; }
 
-  /* 位置図ページ */
-  .position-page { width: 210mm; min-height: 297mm; padding: 18mm 16mm; margin: 0 auto 18px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.15); page-break-after: always; display: flex; flex-direction: column; }
+  /* 位置図ページ（A4横：左に案件情報、右に地図） */
+  .position-page { width: 297mm; min-height: 210mm; padding: 14mm 16mm; margin: 0 auto 18px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.15); page-break-after: always; display: flex; flex-direction: column; }
   .position-page:last-child { page-break-after: auto; }
   .position-page .pos-title { font-size: 14pt; font-weight: 700; margin-bottom: 4mm; text-align: center; border-bottom: 1px solid #111; padding-bottom: 2mm; }
-  .position-page .pos-info { font-size: 10.5pt; margin-bottom: 4mm; display: grid; grid-template-columns: auto 1fr; gap: 2mm 6mm; }
-  .position-page .pos-info dt { font-weight: 600; color: #374151; }
-  .position-page .pos-info dd { color: #111; }
-  .position-page .pos-map { flex: 1; min-height: 180mm; border: 1px solid #111; background: #f3f4f6; position: relative; }
+  .position-page .pos-body { flex: 1; display: grid; grid-template-columns: 95mm 1fr; gap: 8mm; }
+  .position-page .pos-info { font-size: 10.5pt; align-self: start; }
+  .position-page .pos-info dt { font-weight: 600; color: #374151; margin-top: 3mm; font-size: 9.5pt; }
+  .position-page .pos-info dd { color: #111; margin-top: 0.5mm; padding-left: 2mm; line-height: 1.5; }
+  .position-page .pos-info .first-dt { margin-top: 0; }
+  .position-page .pos-map { border: 1px solid #111; background: #f3f4f6; position: relative; min-height: 150mm; }
   .position-page .pos-map-leaflet { position: absolute; inset: 0; }
+  .position-page .pos-hint { position: absolute; bottom: 4px; left: 4px; z-index: 402; background: rgba(255,255,255,.85); padding: 1px 6px; border-radius: 3px; font-size: 7.5pt; color: #374151; border: 1px solid #d1d5db; }
   .position-page .pos-footer { font-size: 9pt; margin-top: 3mm; color: #6b7280; }
+  /* v20260520c: ドラッグ可能マーカー */
+  .leaflet-marker-icon.noten-adj-marker { cursor: grab !important; }
+  .leaflet-marker-icon.noten-adj-marker.leaflet-dragging,
+  .leaflet-marker-icon.noten-adj-marker:active { cursor: grabbing !important; }
 
   /* ============ 印刷時 ============ */
   @media print {
@@ -190,7 +197,8 @@
     .no-print, .control-panel, .case-picker { display: none !important; }
     .doc-wrap { padding: 0; }
     .a4-page, .position-page { margin: 0; box-shadow: none; }
-    @page { size: A4 portrait; margin: 0; }
+    .pos-hint { display: none !important; }
+    @page { size: A4 landscape; margin: 0; }
   }
 </style>
 </head>
@@ -557,7 +565,7 @@ async function generateDocument(cases) {
   await renderPositionPages(cases, caseMap);
 }
 
-// ====== 位置図ページ生成（各案件1ページ、Leaflet衛星写真） ======
+// ====== 位置図ページ生成（各案件1ページ、Leaflet衛星写真、A4横） ======
 async function renderPositionPages(cases, caseMap) {
   const container = document.getElementById('position-pages');
   container.innerHTML = '';
@@ -571,35 +579,38 @@ async function renderPositionPages(cases, caseMap) {
     const mapId = `pos-map-${i}`;
     const lat = land ? parseFloat(land.lat) : null;
     const lng = land ? parseFloat(land.lng) : null;
+    const hasCoord = !isNaN(lat) && !isNaN(lng) && lat !== null && lng !== null;
     const chibanList = lands.map(l => `${l.location || ''}${l.chiban ? ` ${l.chiban}` : ''}`).filter(s => s.trim()).join('、');
     const areaList = lands.map(l => l.area_sqm).filter(a => a != null).join('+') + ' ㎡';
     const chimoku = lands.map(l => l.chimoku).filter(c => c).join('・');
     const zoneRaw = obj.city_planning_zone || '';
-    const zoneText = zoneRaw === 'control' ? '調整区域' : zoneRaw === 'urban' ? '市街化区域' : zoneRaw || '';
+    const zoneText = zoneRaw === 'control' ? '調整区域' : zoneRaw === 'urban' ? '市街化区域' : zoneRaw || '（未設定）';
 
     const page = document.createElement('div');
     page.className = 'position-page';
     page.id = pageId;
     page.innerHTML = `
       <div class="pos-title">位置図 - ${obj.case_no || ''}</div>
-      <dl class="pos-info">
-        <dt>地権者氏名</dt><dd>${owner.name || ''}</dd>
-        <dt>地権者住所</dt><dd>${owner.address || ''}</dd>
-        <dt>所在地</dt><dd>${chibanList}</dd>
-        <dt>登記面積</dt><dd>${areaList}</dd>
-        <dt>地目</dt><dd>${chimoku}</dd>
-        <dt>都市計画区域</dt><dd>${zoneText}</dd>
-      </dl>
-      <div class="pos-map">
-        <div class="pos-map-leaflet" id="${mapId}"></div>
-        ${(isNaN(lat) || isNaN(lng) || lat === null || lng === null) ? '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;">位置情報未登録</div>' : ''}
+      <div class="pos-body">
+        <dl class="pos-info">
+          <dt class="first-dt">地権者氏名</dt><dd>${owner.name || ''}</dd>
+          <dt>地権者住所</dt><dd>${owner.address || ''}</dd>
+          <dt>所在地</dt><dd>${chibanList}</dd>
+          <dt>登記面積</dt><dd>${areaList}</dd>
+          <dt>地目</dt><dd>${chimoku}</dd>
+          <dt>都市計画区域</dt><dd>${zoneText}</dd>
+        </dl>
+        <div class="pos-map">
+          <div class="pos-map-leaflet" id="${mapId}"></div>
+          ${hasCoord ? '<span class="pos-hint">⇕ 赤丸をドラッグで位置微調整</span>' : '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;">位置情報未登録</div>'}
+        </div>
       </div>
-      <div class="pos-footer">出典: ESRI World Imagery（衛星写真）／国土地理院 標準地図</div>
+      <div class="pos-footer">出典: ESRI World Imagery（衛星写真）</div>
     `;
     container.appendChild(page);
 
     // Leaflet マップ初期化
-    if (!isNaN(lat) && !isNaN(lng) && lat !== null && lng !== null) {
+    if (hasCoord) {
       try {
         await new Promise(r => setTimeout(r, 50)); // DOM挿入待ち
         const map = L.map(mapId, {
@@ -617,15 +628,47 @@ async function renderPositionPages(cases, caseMap) {
         L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
           maxZoom: 19,
         }).addTo(map);
-        L.circleMarker([lat, lng], {
-          radius: 7,
-          color: '#FF0000',
-          weight: 3,
-          fillColor: '#FF0000',
-          fillOpacity: 0.25,
+        // ドラッグ可能な赤丸マーカー（外側に透明ヒットエリア）
+        const redIcon = L.divIcon({
+          className: 'noten-adj-marker',
+          html: '<div style="width:26px;height:26px;cursor:grab;background:rgba(255,0,0,0.001);border-radius:50%;position:relative;">'
+              + '<div style="position:absolute;top:50%;left:50%;width:16px;height:16px;background:rgba(255,0,0,0.18);border:3px solid #FF0000;border-radius:50%;transform:translate(-50%,-50%);box-sizing:border-box;pointer-events:none;"></div>'
+              + '</div>',
+          iconSize: [26, 26],
+          iconAnchor: [13, 13],
+        });
+        const marker = L.marker([lat, lng], {
+          icon: redIcon, draggable: true, autoPan: false,
+          title: 'ドラッグで案件位置を微調整できます'
         }).addTo(map);
         L.control.scale({ position: 'bottomright', metric: true, imperial: false, maxWidth: 120 }).addTo(map);
         setTimeout(() => { try { map.invalidateSize(); } catch(_){} }, 300);
+
+        // ドラッグ完了で land_info.lat/lng を更新（land.id 単位）
+        if (land && land.id) {
+          marker.on('dragend', async (e) => {
+            const nl = e.target.getLatLng();
+            const newLat = +nl.lat.toFixed(6);
+            const newLng = +nl.lng.toFixed(6);
+            if (!confirm(`案件「${obj.case_no}」の位置を更新しますか？\n\n緯度: ${newLat}\n経度: ${newLng}`)) {
+              marker.setLatLng([lat, lng]);
+              return;
+            }
+            try {
+              const { error } = await sbClient
+                .from('land_info')
+                .update({ lat: newLat, lng: newLng })
+                .eq('id', land.id);
+              if (error) throw error;
+              land.lat = newLat;  // ローカルにも反映
+              land.lng = newLng;
+              setStatus(`位置更新: ${obj.case_no}（${newLat}, ${newLng}）`);
+            } catch (err) {
+              alert('座標保存失敗: ' + (err.message || err));
+              marker.setLatLng([lat, lng]);
+            }
+          });
+        }
       } catch (e) {
         console.warn(`位置図 #${i} 初期化失敗:`, e);
       }
