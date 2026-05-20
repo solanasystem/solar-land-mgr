@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: noten-request v20260520e / 表題部コンパクト化(1ページに表が収まるよう余白圧縮) -->
+<!-- BUILD: noten-request v20260520h / Supabase接続ボタン削除、DB記録は印刷時に自動実行 -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -196,7 +196,10 @@
     body { background: #fff; }
     .no-print, .control-panel, .case-picker { display: none !important; }
     .doc-wrap { padding: 0; }
-    .a4-page, .position-page { margin: 0; box-shadow: none; }
+    /* a4-page（表ページ）は内容に応じた高さに（min-height固定が改ページの原因） */
+    .a4-page { margin: 0; box-shadow: none; min-height: 0; height: auto; page-break-inside: avoid; }
+    /* position-page（位置図）は1ページ占有を維持 */
+    .position-page { margin: 0; box-shadow: none; }
     .pos-hint { display: none !important; }
     @page { size: A4 landscape; margin: 0; }
   }
@@ -207,12 +210,10 @@
 <!-- 操作パネル -->
 <div class="control-panel">
   <h1>📋 農地種別確認のお願い</h1>
-  <button onclick="openConfigModal()">⚙️ Supabase接続</button>
   <button onclick="loadAllCases()">案件一覧読込</button>
   <input type="text" id="case-input" placeholder="案件番号をスペース/カンマ区切りで入力（例: 中部-04 中部-05）" />
   <button onclick="loadByInput()">📥 読込</button>
   <button class="primary" onclick="doPrint()">🖨️ 印刷 / PDF</button>
-  <button class="primary" onclick="saveToDb()">💾 DB記録</button>
   <span id="status" class="status">案件を読み込んでください</span>
 </div>
 
@@ -241,54 +242,9 @@
 
 <!-- 文書本体 -->
 <div class="doc-wrap" id="doc-wrap">
-  <!-- 1ページ目: 表 -->
-  <div class="a4-page" id="page-table" style="display:none;">
-    <div class="doc-header">
-      <div class="doc-date" id="doc-date">2026年5月20日</div>
-      <div class="doc-recipient">
-        <div class="city" id="doc-city">蒲郡市</div>
-        <div class="committee">農業委員会</div>
-        <div class="person">ご担当者様：</div>
-      </div>
-      <div class="doc-sender">
-        <div>〒472-0045 知立市長篠町新田38-4-102</div>
-        <div>株式会社 XAMAX &amp; In the cloud</div>
-        <div>担当：栗本</div>
-        <div>TEL：070-8566-0679</div>
-      </div>
-    </div>
-    <div class="doc-title">農地種別確認のお願い</div>
-    <p class="doc-intro">
-      平素より格別のご高配を賜り、誠にありがとうございます。下記の物件につきまして、農地種別（青地・農振農用地区域内農地／第1種〜第3種農地等）の確認をお願い申し上げます。<br>
-      ご多忙のところ大変恐縮ですが、何卒ご協力のほどよろしくお願い申し上げます。
-    </p>
-    <table class="doc-table">
-      <thead>
-        <tr>
-          <th rowspan="2" class="col-no">NO</th>
-          <th rowspan="2" class="col-caseno">案件番号</th>
-          <th rowspan="2" class="col-name">地権者氏名</th>
-          <th rowspan="2" class="col-addr">住所</th>
-          <th rowspan="2" class="col-loc">売却ご希望の所在地</th>
-          <th rowspan="2" class="col-area">登記面積</th>
-          <th rowspan="2" class="col-chimoku">地目</th>
-          <th rowspan="2" class="col-zone">都市計画区域</th>
-          <th colspan="3">添付資料</th>
-        </tr>
-        <tr>
-          <th class="col-attach">位置図</th>
-          <th class="col-attach">登記簿</th>
-          <th class="col-attach">公図</th>
-        </tr>
-      </thead>
-      <tbody id="case-rows"></tbody>
-    </table>
-    <div class="doc-footer">
-      <div class="note">※ 各案件の位置図は次ページ以降に添付しております。</div>
-      <div class="note">※ 登記簿・公図は別途、各案件ごとに用意しております。</div>
-    </div>
-  </div>
-  <!-- 2ページ目以降: 各案件の位置図 -->
+  <!-- 表ページ群（10案件/ページで自動分割、JSで動的生成） -->
+  <div id="table-pages"></div>
+  <!-- 各案件の位置図ページ -->
   <div id="position-pages"></div>
 </div>
 
@@ -521,13 +477,65 @@ async function generateDocument(cases) {
   // 日付セット
   const now = new Date();
   const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
-  document.getElementById('doc-date').textContent = dateStr;
-  document.getElementById('doc-city').textContent = cityName || '（市区町村未設定）';
 
-  // 表の行を生成
-  const tbody = document.getElementById('case-rows');
-  tbody.innerHTML = '';
-  let no = 1;
+  // v20260520g: 10案件/ページで自動分割
+  const PER_PAGE = 10;
+  const orderedIds = caseIds.slice();
+  const chunks = [];
+  for (let i = 0; i < orderedIds.length; i += PER_PAGE) {
+    chunks.push(orderedIds.slice(i, i + PER_PAGE));
+  }
+  const totalPages = chunks.length;
+
+  const tableContainer = document.getElementById('table-pages');
+  tableContainer.innerHTML = '';
+  chunks.forEach((chunk, pageIdx) => {
+    const startNo = pageIdx * PER_PAGE + 1;
+    const page = createTablePage(chunk, caseMap, pageIdx, totalPages, cityName, dateStr, startNo);
+    tableContainer.appendChild(page);
+  });
+
+  // 位置図ページ生成
+  await renderPositionPages(cases, caseMap);
+}
+
+// 表ページ1枚を生成（10案件まで）
+function createTablePage(caseIds, caseMap, pageIdx, totalPages, cityName, dateStr, startNo) {
+  const page = document.createElement('div');
+  page.className = 'a4-page';
+
+  // ヘッダー部（1ページ目はフル、2ページ目以降は簡易）
+  let headerHtml;
+  if (pageIdx === 0) {
+    headerHtml = `
+      <div class="doc-header">
+        <div class="doc-date">${dateStr}</div>
+        <div class="doc-recipient">
+          <div class="city">${cityName || '（市区町村未設定）'}</div>
+          <div class="committee">農業委員会</div>
+          <div class="person">ご担当者様：</div>
+        </div>
+        <div class="doc-sender">
+          <div>〒472-0045 知立市長篠町新田38-4-102</div>
+          <div>株式会社 XAMAX &amp; In the cloud</div>
+          <div>担当：栗本</div>
+          <div>TEL：070-8566-0679</div>
+        </div>
+      </div>
+      <div class="doc-title">農地種別確認のお願い${totalPages > 1 ? `（1 / ${totalPages}）` : ''}</div>
+      <p class="doc-intro">
+        平素より格別のご高配を賜り、誠にありがとうございます。下記の物件につきまして、農地種別（青地・農振農用地区域内農地／第1種〜第3種農地等）の確認をお願い申し上げます。<br>
+        ご多忙のところ大変恐縮ですが、何卒ご協力のほどよろしくお願い申し上げます。
+      </p>`;
+  } else {
+    headerHtml = `
+      <div class="doc-date" style="margin-bottom:1mm;">${dateStr}</div>
+      <div class="doc-title">農地種別確認のお願い（${pageIdx + 1} / ${totalPages}）</div>`;
+  }
+
+  // 表の行
+  let rowsHtml = '';
+  let no = startNo;
   for (const cid of caseIds) {
     const obj = caseMap[cid];
     if (!obj) continue;
@@ -542,27 +550,55 @@ async function generateDocument(cases) {
     const zoneText = zoneRaw === 'control' ? '調整区域'
                    : zoneRaw === 'urban'   ? '市街化区域'
                    : zoneRaw || '';
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${no}</td>
-      <td>${obj.case_no || ''}</td>
-      <td class="text-left">${owner.name || ''}</td>
-      <td class="text-left">${owner.address || ''}</td>
-      <td class="text-left">${locText}</td>
-      <td>${areaText}</td>
-      <td>${chimoku}</td>
-      <td>${zoneText}</td>
-      <td>あり</td>
-      <td>あり</td>
-      <td>あり</td>
-    `;
-    tbody.appendChild(tr);
+    rowsHtml += `
+      <tr>
+        <td>${no}</td>
+        <td>${obj.case_no || ''}</td>
+        <td class="text-left">${owner.name || ''}</td>
+        <td class="text-left">${owner.address || ''}</td>
+        <td class="text-left">${locText}</td>
+        <td>${areaText}</td>
+        <td>${chimoku}</td>
+        <td>${zoneText}</td>
+        <td>あり</td>
+        <td>あり</td>
+        <td>あり</td>
+      </tr>`;
     no++;
   }
-  document.getElementById('page-table').style.display = '';
 
-  // 位置図ページ生成
-  await renderPositionPages(cases, caseMap);
+  // フッター（最終ページのみ）
+  const footerHtml = (pageIdx === totalPages - 1) ? `
+    <div class="doc-footer">
+      <div class="note">※ 各案件の位置図は次ページ以降に添付しております。</div>
+      <div class="note">※ 登記簿・公図は別途、各案件ごとに用意しております。</div>
+    </div>` : '';
+
+  page.innerHTML = `
+    ${headerHtml}
+    <table class="doc-table">
+      <thead>
+        <tr>
+          <th rowspan="2" class="col-no">NO</th>
+          <th rowspan="2" class="col-caseno">案件番号</th>
+          <th rowspan="2" class="col-name">地権者氏名</th>
+          <th rowspan="2" class="col-addr">住所</th>
+          <th rowspan="2" class="col-loc">売却ご希望の所在地</th>
+          <th rowspan="2" class="col-area">登記面積</th>
+          <th rowspan="2" class="col-chimoku">地目</th>
+          <th rowspan="2" class="col-zone">都市計画区域</th>
+          <th colspan="3">添付資料</th>
+        </tr>
+        <tr>
+          <th class="col-attach">位置図</th>
+          <th class="col-attach">登記簿</th>
+          <th class="col-attach">公図</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    ${footerHtml}`;
+  return page;
 }
 
 // ====== 位置図ページ生成（各案件1ページ、Leaflet衛星写真、A4横） ======
@@ -676,35 +712,39 @@ async function renderPositionPages(cases, caseMap) {
   }
 }
 
-// ====== 印刷 ======
-function doPrint() {
-  if (!document.getElementById('page-table') || document.getElementById('page-table').style.display === 'none') {
+// ====== 印刷（印刷前にDB自動記録） ======
+async function doPrint() {
+  const tp = document.getElementById('table-pages');
+  if (!tp || tp.children.length === 0) {
     alert('先に案件を読み込んでください');
     return;
   }
+  // v20260520h: 印刷時にDB記録を自動実行（要件7）
+  await saveToDb(true);  // silent=true：成功alertは出さない
   window.print();
 }
 
-// ====== DB保存 ======
-async function saveToDb() {
+// ====== DB保存（silent=true で成功alert抑制：印刷時の自動記録用） ======
+async function saveToDb(silent) {
   if (!sbClient && !initSupabase()) return;
   if (!_selectedCases || _selectedCases.length === 0) {
-    alert('保存する案件データがありません');
+    if (!silent) alert('保存する案件データがありません');
     return;
   }
   const cityName = (_selectedCases[0].area_name || '').trim();
   const caseIds = _selectedCases.map(c => c.id);
   const caseNos = _selectedCases.map(c => c.case_no);
   // ドキュメントスナップショット
+  const now = new Date();
   const docData = {
-    date: document.getElementById('doc-date').textContent,
+    date: `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`,
     city: cityName,
     cases: _selectedCases.map(c => ({
       case_no: c.case_no,
       area_name: c.area_name,
       city_planning_zone: c.city_planning_zone,
     })),
-    table_html: document.getElementById('case-rows').outerHTML.slice(0, 5000), // 最大5000字
+    page_count: document.getElementById('table-pages').children.length,
   };
   try {
     const { error } = await sbClient
@@ -717,10 +757,10 @@ async function saveToDb() {
       });
     if (error) throw error;
     setStatus(`💾 DB記録成功（${cityName} / ${caseIds.length}件）`);
-    alert(`DBに記録しました\n\n市区町村: ${cityName}\n案件数: ${caseIds.length}件`);
+    if (!silent) alert(`DBに記録しました\n\n市区町村: ${cityName}\n案件数: ${caseIds.length}件`);
   } catch (err) {
     setStatus('DB記録失敗: ' + (err.message || err), true);
-    alert('DB記録失敗: ' + (err.message || err));
+    if (!silent) alert('DB記録失敗: ' + (err.message || err));
   }
 }
 
