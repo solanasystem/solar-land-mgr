@@ -1,11 +1,38 @@
 <!DOCTYPE html>
-<!-- BUILD: public-farmland v20260509i / 業務番号(display_case_no) 対応 -->
+<!-- BUILD: public-farmland v20260519s / version.json 自動リロード機構(_vchk)を実装 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
+<!-- ===== v20260519s: version.json 自動更新チェック（_vchk）=====
+     修正時は version.json のバージョン文字列を更新すること。
+     ユーザーは Ctrl+Shift+R 不要。次回アクセス時に自動でリロード。 -->
+<script>
+(async function _vchk(){
+  try {
+    var lastCheck = parseInt(sessionStorage.getItem('vchk_pf_at') || '0', 10);
+    if (Date.now() - lastCheck < 30000) return;
+    sessionStorage.setItem('vchk_pf_at', String(Date.now()));
+    var ctrl = new AbortController();
+    setTimeout(function(){ ctrl.abort(); }, 3000);
+    var r = await fetch('./version.json?t=' + Date.now(), { cache: 'no-store', signal: ctrl.signal });
+    if (!r.ok) return;
+    var j = await r.json();
+    if (!j || !j.version) return;
+    var stored = localStorage.getItem('app_version');
+    if (!stored) { localStorage.setItem('app_version', j.version); return; }
+    if (stored !== j.version) {
+      localStorage.setItem('app_version', j.version);
+      var url = new URL(location.href);
+      url.searchParams.delete('_v');
+      url.searchParams.set('_v', String(Date.now()));
+      location.replace(url.toString());
+    }
+  } catch(e) {}
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- ===== 権限管理ガード v1.0 (2026-05-10) - 必ず他スクリプトより前に配置 ===== -->

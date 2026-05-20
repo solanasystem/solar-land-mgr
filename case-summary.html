@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260519q / GoogleMAP重ねマーカーのドラッグ領域拡大(透明24x24ヒットエリア+見た目14x14赤丸維持) -->
+<!-- BUILD: case-summary v20260519s / デバッグ用DRAGログ削除(本番クリーンアップ) -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -41,9 +41,11 @@
       if (hasEditing) {
         if (!confirm('新しいバージョン (' + j.version + ') が利用可能です。編集中の内容は失われる可能性があります。更新しますか？')) return;
       }
-      // キャッシュバイパスのためタイムスタンプ付きで再読込
-      var u = location.pathname + (location.search ? location.search + '&' : '?') + '_v=' + Date.now();
-      location.replace(u);
+      // キャッシュバイパスのためタイムスタンプ付きで再読込（既存_vは削除して累積防止）
+      var url = new URL(location.href);
+      url.searchParams.delete('_v');
+      url.searchParams.set('_v', String(Date.now()));
+      location.replace(url.toString());
     }
   } catch(e) {}
 })();
@@ -1321,6 +1323,14 @@ window.addEventListener('load', function() {
     outline: 1px dashed transparent;
     transition: outline-color 0.15s, background 0.15s;
     min-width: 30px;
+  }
+  /* v20260519r: ドラッグ可能マーカー（位置微調整） */
+  .leaflet-marker-icon.adjustable-red-marker {
+    cursor: grab !important;
+  }
+  .leaflet-marker-icon.adjustable-red-marker.leaflet-dragging,
+  .leaflet-marker-icon.adjustable-red-marker:active {
+    cursor: grabbing !important;
   }
   .editable-cell:hover { outline-color: #93c5fd; background: rgba(147,197,253,.08); }
   .editable-cell:focus { outline: 2px solid #2563eb; background: #fff; }
@@ -4465,12 +4475,12 @@ function renderSatelliteMap(lat, lng, land) {
       minZoom: 5
     }).addTo(map);
 
-    // v20260519q: 赤丸マーカー（ドラッグで案件位置を微調整可能）
+    // v20260519r: 赤丸マーカー（ドラッグで案件位置を微調整可能）
     // 見た目は位置図と同じ赤丸サイズ。外側に透明なヒットエリア(24×24)を設けてクリック/ドラッグしやすくする。
     const redCircleIcon = L.divIcon({
       className: 'adjustable-red-marker',
-      html: '<div style="width:24px;height:24px;background:rgba(255,0,0,0.001);cursor:move;position:relative;border-radius:50%;">'
-          + '<div style="position:absolute;top:50%;left:50%;width:14px;height:14px;background:rgba(255,0,0,0.1);border:2.5px solid #FF0000;border-radius:50%;transform:translate(-50%,-50%);box-sizing:border-box;pointer-events:none;"></div>'
+      html: '<div style="width:24px;height:24px;cursor:grab;background:rgba(255,0,0,0.001);border-radius:50%;position:relative;">'
+          + '<div style="position:absolute;top:50%;left:50%;width:14px;height:14px;background:rgba(255,0,0,0.15);border:2.5px solid #FF0000;border-radius:50%;transform:translate(-50%,-50%);box-sizing:border-box;pointer-events:none;"></div>'
           + '</div>',
       iconSize: [24, 24],
       iconAnchor: [12, 12],
@@ -4478,6 +4488,7 @@ function renderSatelliteMap(lat, lng, land) {
     const adjustableMarker = L.marker([flat, flng], {
       icon: redCircleIcon,
       draggable: true,
+      autoPan: false,
       title: 'ドラッグで案件位置を微調整できます'
     }).addTo(map);
 
