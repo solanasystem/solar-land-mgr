@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: emaff-importer v20260515e / address+tiban 結合時の地番重複を防止（_joinAddrTiban ヘルパー導入）／MODE SELECTボタン重なりは mode-back.js v20260515e で全ページ一括対応 -->
+<!-- BUILD: emaff-importer v20260520a / モードD（青地除去・広域取込）新規追加：emaffD_ プレフィックス・source_type=emaff_d で投入。モードA/B/Cは無改変 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -9,12 +9,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <!-- ===== 権限管理ガード v1.0 (2026-05-10) - 必ず他スクリプトより前に配置 ===== -->
-<script src="common-auth.js?v=20260516u"></script>
-<link rel="stylesheet" href="viewer-mode.css?v=20260516u">
-<script src="viewer-mode.js?v=20260516u"></script>
+<script src="common-auth.js?v=20260520a"></script>
+<link rel="stylesheet" href="viewer-mode.css?v=20260520a">
+<script src="viewer-mode.js?v=20260520a"></script>
 
 <title>eMAFF Importer | GRID LAND MGR</title>
-<link rel="stylesheet" href="mobile-responsive.css?v=20260516u">
+<link rel="stylesheet" href="mobile-responsive.css?v=20260520a">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -564,6 +564,7 @@ body{
 .mode-card.mode-a:hover{border-color:var(--accent);}
 .mode-card.mode-b:hover{border-color:#0ea5e9;}
 .mode-card.mode-c:hover{border-color:#a855f7;}
+.mode-card.mode-d:hover{border-color:#14b8a6;}
 .mode-card .mode-icon{font-size:28px;}
 .mode-card .mode-title{
   font-size:15px;
@@ -601,6 +602,7 @@ body{
 .mode-card.mode-a .mode-cta{background:var(--accent);color:#0d1117;}
 .mode-card.mode-b .mode-cta{background:#0ea5e9;color:#fff;}
 .mode-card.mode-c .mode-cta{background:#a855f7;color:#fff;}
+.mode-card.mode-d .mode-cta{background:#14b8a6;color:#fff;}
 .back-link{
   margin-bottom:16px;
 }
@@ -665,7 +667,7 @@ body{
   <div id="modeSelector" class="mode-selector">
     <h2>🎯 取込モードを選択してください</h2>
     <div class="mode-warning">
-      ⚠️ このページには<strong style="color:var(--text);">用途が異なる2つのモード</strong>があります。<br>
+      ⚠️ このページには<strong style="color:var(--text);">用途が異なる4つのモード</strong>があります。<br>
       取り違えると既存データを壊す恐れがあるため、必ず正しいモードを選んでください。
     </div>
     <div class="mode-cards">
@@ -711,6 +713,21 @@ body{
           入力 : 市町村名（全国対応）<br>
           出力 : farmland_snapshots に emaffN_ 投入<br>
           目的 : 大規模エリアの漏れなき網羅取込
+        </div>
+        <div class="mode-cta">このモードで進む →</div>
+      </div>
+      <!-- モードD -->
+      <div class="mode-card mode-d" onclick="selectMode('D')">
+        <div class="mode-icon">🌱</div>
+        <div class="mode-title">モードD：青地除去・広域取込</div>
+        <div class="mode-subtitle">市町村全域から青地のみ除去して全農地を取込</div>
+        <div class="mode-desc">
+          指定した市町村の全域を<strong style="color:#14b8a6;">ズーム14のタイルグリッド</strong>に分割して順次DL。モードCと違い<strong style="color:var(--text);">「売りたい」絞り込みはせず</strong>、<strong style="color:var(--text);">青地（農用地区域内）のみを除外</strong>して白地・農振外・調査中の全農地を取り込みます。<code>farmland_snapshots</code> に <code>emaffD_</code> プレフィックス（source_type=<code>emaff_d</code>）で投入。耕作放棄地発掘事業の分析母集団用です。
+        </div>
+        <div class="mode-meta">
+          入力 : 市町村名（全国対応）<br>
+          出力 : farmland_snapshots に emaffD_ 投入<br>
+          目的 : 発掘事業の分析母集団生成（青地のみ除外）
         </div>
         <div class="mode-cta">このモードで進む →</div>
       </div>
@@ -1071,6 +1088,83 @@ body{
 
   </div><!-- /#modeCContent -->
 
+  <!-- ============================================================ -->
+  <!-- モードD：青地除去・広域取込（新規） -->
+  <!-- ============================================================ -->
+  <div id="modeDContent" style="display:none;">
+    <div class="step-card">
+      <div class="step-number" style="background:#14b8a6;color:#fff;">D1</div>
+      <div class="step-title">市町村を選択（全国対応）</div>
+      <div class="step-body">
+        <p style="margin-top:0;color:var(--text-muted);font-size:12px;">
+          🔍 例：<strong>蒲郡市</strong>、<strong>豊橋市</strong>、<strong>田原市</strong>、<strong>浜松市浜名区</strong>など。<br>
+          市区町村名を入力すると、Nominatim経由で行政境界を取得し、ズーム14のタイル単位でグリッド分割します。
+        </p>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <input id="modeDCityInput" type="text" placeholder="例: 蒲郡市" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;color:var(--text);font-size:14px;outline:none;">
+          <button id="modeDBtnGenerate" style="padding:10px 18px;background:#14b8a6;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">🗺️ グリッド生成</button>
+        </div>
+        <div id="modeDBoundaryInfo" style="margin-top:10px;font-size:12px;color:var(--text-muted);"></div>
+      </div>
+    </div>
+
+    <div id="modeDGridCard" class="step-card" style="display:none;">
+      <div class="step-number" style="background:#14b8a6;color:#fff;">D2</div>
+      <div class="step-title">グリッドセル一覧（順次取込）</div>
+      <div class="step-body">
+        <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+          <div id="modeDProgress" style="font-size:14px;font-weight:600;">取込済 0 / 全 0 セル</div>
+          <div style="flex:1;min-width:180px;height:10px;background:var(--surface2);border-radius:5px;overflow:hidden;border:1px solid var(--border);">
+            <div id="modeDProgressBar" style="height:100%;width:0%;background:#14b8a6;transition:width 0.3s;"></div>
+          </div>
+          <button id="modeDBtnReset" style="padding:6px 12px;background:rgba(248,81,73,0.15);color:#f85149;border:1px solid rgba(248,81,73,0.4);border-radius:5px;font-size:11px;cursor:pointer;">⟲ 進捗リセット</button>
+        </div>
+        <div id="modeDMap" style="height:380px;border:1px solid var(--border);border-radius:8px;background:#1a1f26;margin-bottom:12px;"></div>
+        <div id="modeDCellList" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--surface2);padding:6px;"></div>
+      </div>
+    </div>
+
+    <div id="modeDActiveCellCard" class="step-card" style="display:none;">
+      <div class="step-number" style="background:#14b8a6;color:#fff;">D3</div>
+      <div class="step-title">選択中セル：<span id="modeDActiveCellLabel">-</span></div>
+      <div class="step-body">
+        <p style="margin-top:0;color:var(--text-muted);font-size:12px;">
+          このセルをeMAFF農地ナビで開き、<strong style="color:var(--text);">絞り込みをかけず</strong>にGeoJSONをDLしてください（青地はこのシステム側で自動除外します）。<br>
+          📋 ボタンを押すとセル中心の<strong style="color:var(--text);">住所</strong>を取得→クリップボードへコピー → eMAFFの「住所から探す」検索ボックスに貼り付け（Ctrl+V）。
+        </p>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+          <button id="modeDBtnCopy" style="padding:9px 16px;background:rgba(20,184,166,0.15);color:#14b8a6;border:1px solid rgba(20,184,166,0.4);border-radius:5px;font-size:13px;font-weight:600;cursor:pointer;">📋 セル中心の住所をコピー</button>
+          <a id="modeDBtnOpen" href="https://map.maff.go.jp/" target="_blank" style="padding:9px 16px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.4);border-radius:5px;font-size:13px;font-weight:600;text-decoration:none;cursor:pointer;">↗ eMAFF農地ナビを開く</a>
+          <button id="modeDBtnSkip" style="padding:9px 16px;background:rgba(139,148,158,0.15);color:var(--text-muted);border:1px solid var(--border);border-radius:5px;font-size:13px;cursor:pointer;">↷ このセルをスキップ</button>
+        </div>
+        <div id="modeDDropZone" style="margin-top:14px;border:2px dashed rgba(20,184,166,0.5);border-radius:8px;padding:30px;text-align:center;cursor:pointer;background:rgba(20,184,166,0.04);transition:background 0.15s;">
+          <div style="font-size:32px;margin-bottom:6px;">📂</div>
+          <div style="font-size:13px;color:var(--text);">このセルのGeoJSONファイルをここにドロップ</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">または <button id="modeDBtnPickFile" style="padding:4px 12px;background:transparent;color:#14b8a6;border:1px solid rgba(20,184,166,0.5);border-radius:4px;font-size:11px;cursor:pointer;">ファイルを選択</button></div>
+          <input type="file" id="modeDFileInput" accept=".geojson,.json" style="display:none;">
+        </div>
+        <div id="modeDDropResult" style="margin-top:12px;"></div>
+      </div>
+    </div>
+
+    <div id="modeDSubmitCard" class="step-card" style="display:none;">
+      <div class="step-number" style="background:#14b8a6;color:#fff;">D4</div>
+      <div class="step-title">farmland_snapshots に投入</div>
+      <div class="step-body">
+        <p style="margin-top:0;color:var(--text-muted);font-size:12px;">
+          全セル（または現時点で取込済みのセル）をマージし、<strong style="color:var(--text);">青地（農用地区域内）のみを除外</strong>して残りを全件 <code>farmland_snapshots</code> に <code>emaffD_</code> プレフィックス（source_type=<code>emaff_d</code>）で投入します。売却意思の有無による絞り込みは行いません。<br>
+          投入後、<a href="farmland-tracker.html" style="color:#14b8a6;">農地変更トラッカー</a>で本日の日付のマーカーを確認してください。
+        </p>
+        <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
+          <button id="modeDBtnSubmit" style="padding:10px 20px;background:#14b8a6;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">💾 取込済みセルをまとめて投入する</button>
+          <button id="modeDBtnPreview" style="padding:10px 20px;background:rgba(139,148,158,0.15);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:14px;cursor:pointer;">👁 投入対象を集計表示</button>
+        </div>
+        <div id="modeDSubmitResult" style="margin-top:12px;"></div>
+      </div>
+    </div>
+
+  </div><!-- /#modeDContent -->
+
 </div>
 
 <div class="loading-overlay" id="loadingOverlay">
@@ -1169,6 +1263,7 @@ function selectMode(mode){
   document.getElementById('modeAContent').style.display='none';
   document.getElementById('modeBContent').style.display='none';
   document.getElementById('modeCContent').style.display='none';
+  document.getElementById('modeDContent').style.display='none';
   if(mode==='A'){
     document.getElementById('modeAContent').style.display='block';
   }else if(mode==='B'){
@@ -1180,6 +1275,13 @@ function selectMode(mode){
       // map初期化後・サイズ確定後の追加invalidate
       setTimeout(function(){if(modeC.map)try{modeC.map.invalidateSize();}catch(_){}},250);
     },100);
+  }else if(mode==='D'){
+    document.getElementById('modeDContent').style.display='block';
+    setTimeout(function(){
+      initModeD();
+      // map初期化後・サイズ確定後の追加invalidate
+      setTimeout(function(){if(modeD.map)try{modeD.map.invalidateSize();}catch(_){}},250);
+    },100);
   }
   window.scrollTo({top:0,behavior:'smooth'});
 }
@@ -1188,6 +1290,7 @@ function backToSelector(){
   document.getElementById('modeAContent').style.display='none';
   document.getElementById('modeBContent').style.display='none';
   document.getElementById('modeCContent').style.display='none';
+  document.getElementById('modeDContent').style.display='none';
   window.scrollTo({top:0,behavior:'smooth'});
 }
 
@@ -3124,8 +3227,522 @@ async function modeCSubmit(){
     '</div>';
   showToast('完了：投入 '+saved+'件 / 失敗 '+failed+'件',failed>0?'warning':'success');
 }
+
+// ============================================================
+// モードD：青地除去・広域取込（モードCのタイル分割基盤を複製）
+//   - 「売りたい」絞り込みはしない／青地（isAochi=コード1）のみ除外
+//   - 白地・農振外・調査中を全件、emaffD_ プレフィックス・source_type=emaff_d で投入
+// ============================================================
+var modeD={
+  city:'',
+  boundary:null,         // GeoJSON polygon/multipolygon
+  cells:[],              // [{i,j,bounds:[s,w,n,e],center:{lat,lng},done:bool,features:[]}]
+  activeCellIdx:-1,
+  map:null,
+  cellLayer:null,
+  initialized:false
+};
+var MODED_ZOOM=14;
+var MODED_LS_PREFIX='emaff_moded_';
+
+// emaffD_ feature_id 生成
+function makeEmaffDFeatureId(f){
+  var p=f.properties||{};
+  if(p.uid)return 'emaffD_uid_'+p.uid;
+  if(p.fid)return 'emaffD_fid_'+p.fid;
+  var c=f.geometry&&f.geometry.coordinates;
+  if(c&&c.length>=2)return 'emaffD_'+Number(c[1]).toFixed(6)+'_'+Number(c[0]).toFixed(6);
+  return 'emaffD_unk_'+Math.random().toString(36).slice(2,10);
+}
+
+// 出手意向ラベルの取得（モードDは絞り込まず実値を記録）
+function modeDGetIntent(p){
+  var v=String((p&&p.OwnerFarmIntentionCodeName)||'').trim();
+  if(v)return v;
+  var code=String((p&&p.OwnerFarmIntention)||'').trim();
+  if(code==='1')return '売りたい';
+  if(code==='2')return '貸したい';
+  if(code==='3'||code==='4')return '貸したい・売りたい';
+  if(code==='5')return '自ら耕作したい';
+  if(code==='999')return '非公表';
+  return '';
+}
+
+function initModeD(){
+  if(modeD.initialized)return;
+  modeD.initialized=true;
+  modeD.map=L.map('modeDMap',{zoomControl:true,maxZoom:18}).setView([35.7,139.5],10);
+
+  var satLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
+    attribution:'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics',
+    maxZoom:18,maxNativeZoom:18
+  });
+  var gsiLayer=L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{
+    attribution:'© 国土地理院',maxZoom:18,maxNativeZoom:18
+  });
+  satLayer.addTo(modeD.map);
+
+  var HZ={
+    flood:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
+    inner:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_kuni_data/{z}/{x}/{y}.png',
+    sediment:'https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki_data/{z}/{x}/{y}.png',
+    tide:'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
+    tsunami:'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png'
+  };
+  var hzOpts={opacity:0.55,maxZoom:18,maxNativeZoom:17,attribution:'国土交通省'};
+  var hazFlood=L.tileLayer(HZ.flood,hzOpts);
+  var hazInner=L.tileLayer(HZ.inner,hzOpts);
+  var hazSediment=L.tileLayer(HZ.sediment,hzOpts);
+  var hazTide=L.tileLayer(HZ.tide,hzOpts);
+  var hazTsunami=L.tileLayer(HZ.tsunami,hzOpts);
+
+  L.control.layers(
+    {'🛰 衛星':satLayer,'🗾 地図':gsiLayer},
+    {
+      '💧 浸水':hazFlood,
+      '🌧 内水':hazInner,
+      '⛰ 土砂':hazSediment,
+      '🌊 高潮':hazTide,
+      '🌀 津波':hazTsunami
+    },
+    {position:'topright',collapsed:false}
+  ).addTo(modeD.map);
+
+  document.getElementById('modeDBtnGenerate').addEventListener('click',modeDGenerateGrid);
+  document.getElementById('modeDCityInput').addEventListener('keydown',function(e){
+    if(e.key==='Enter')modeDGenerateGrid();
+  });
+  document.getElementById('modeDBtnReset').addEventListener('click',modeDResetProgress);
+  document.getElementById('modeDBtnCopy').addEventListener('click',modeDCopyCenter);
+  document.getElementById('modeDBtnSkip').addEventListener('click',modeDSkipCell);
+  document.getElementById('modeDBtnPickFile').addEventListener('click',function(){
+    document.getElementById('modeDFileInput').click();
+  });
+  document.getElementById('modeDFileInput').addEventListener('change',function(e){
+    if(e.target.files&&e.target.files[0])modeDHandleFile(e.target.files[0]);
+  });
+  document.getElementById('modeDBtnSubmit').addEventListener('click',modeDSubmit);
+  document.getElementById('modeDBtnPreview').addEventListener('click',modeDPreview);
+
+  var dz=document.getElementById('modeDDropZone');
+  dz.addEventListener('dragover',function(e){e.preventDefault();dz.style.background='rgba(20,184,166,0.18)';});
+  dz.addEventListener('dragleave',function(e){dz.style.background='rgba(20,184,166,0.04)';});
+  dz.addEventListener('drop',function(e){
+    e.preventDefault();
+    dz.style.background='rgba(20,184,166,0.04)';
+    if(e.dataTransfer.files&&e.dataTransfer.files[0])modeDHandleFile(e.dataTransfer.files[0]);
+  });
+}
+
+// 市町村名→Nominatim経由で境界取得→グリッド生成
+async function modeDGenerateGrid(){
+  var city=document.getElementById('modeDCityInput').value.trim();
+  if(!city){showToast('市町村名を入力してください','warning');return;}
+  showLoading('境界を取得中...');
+  try{
+    var url='https://nominatim-proxy.takumi-kurimoto.workers.dev/nominatim/search?q='+encodeURIComponent(city)+'&polygon_geojson=1&format=json&countrycodes=jp&limit=5&accept-language=ja';
+    var res=await fetch(url);
+    var data=await res.json();
+    var hit=null;
+    for(var i=0;i<data.length;i++){
+      var d=data[i];
+      if(d.geojson&&d.class==='boundary'&&d.type==='administrative'&&(d.geojson.type==='Polygon'||d.geojson.type==='MultiPolygon')){
+        hit=d;break;
+      }
+    }
+    if(!hit){
+      hideLoading();
+      showToast('行政境界が見つかりませんでした。市町村名を見直してください','error');
+      return;
+    }
+    modeD.city=hit.display_name.split(',')[0];
+    modeD.boundary=hit.geojson;
+    document.getElementById('modeDBoundaryInfo').innerHTML='✅ 境界取得：<strong style="color:var(--text);">'+modeD.city+'</strong>（'+(hit.geojson.type)+'）';
+    var bbox=getGeoJSONBBox(modeD.boundary); // [minLng,minLat,maxLng,maxLat]
+    modeD.cells=generateGridCells(bbox,modeD.boundary,MODED_ZOOM);
+    if(modeD.cells.length===0){
+      hideLoading();
+      showToast('グリッドセルが生成できませんでした','error');
+      return;
+    }
+    modeDRestoreProgress();
+    modeDRenderMap();
+    modeDRenderCellList();
+    modeDUpdateProgress();
+    document.getElementById('modeDGridCard').style.display='block';
+    document.getElementById('modeDSubmitCard').style.display='block';
+    hideLoading();
+    showToast(modeD.cells.length+'セルを生成しました','success');
+  }catch(e){
+    hideLoading();
+    showToast('境界取得失敗: '+e.message,'error');
+  }
+}
+
+// 地図にグリッド描画
+function modeDRenderMap(){
+  if(modeD.cellLayer){modeD.map.removeLayer(modeD.cellLayer);}
+  modeD.cellLayer=L.featureGroup();
+  L.geoJSON(modeD.boundary,{
+    style:{color:'#14b8a6',weight:2.5,fillColor:'#14b8a6',fillOpacity:0.05,dashArray:'8,4'}
+  }).addTo(modeD.cellLayer);
+  modeD.cells.forEach(function(cell,idx){
+    var color=cell.done?'#22c55e':(idx===modeD.activeCellIdx?'#f0b429':'#fbbf24');
+    var fillOp=cell.done?0.35:(idx===modeD.activeCellIdx?0.30:0.10);
+    var rect=L.rectangle([[cell.bounds[0],cell.bounds[1]],[cell.bounds[2],cell.bounds[3]]],{
+      color:color,weight:1.8,fillColor:color,fillOpacity:fillOp
+    });
+    rect.bindTooltip('セル '+(idx+1)+(cell.done?' ✅取込済':' 未取込'),{direction:'top',opacity:0.9});
+    rect.on('click',function(){modeDSelectCell(idx);});
+    rect.addTo(modeD.cellLayer);
+  });
+  modeD.cellLayer.addTo(modeD.map);
+  setTimeout(function(){
+    try{
+      modeD.map.invalidateSize();
+      var b=modeD.cellLayer.getBounds();
+      if(b.isValid())modeD.map.fitBounds(b,{padding:[20,20]});
+    }catch(e){console.warn('fitBounds error:',e);}
+  },150);
+}
+
+// セル一覧描画
+function modeDRenderCellList(){
+  var html='';
+  modeD.cells.forEach(function(cell,idx){
+    var bg=cell.done?'rgba(34,197,94,0.10)':(idx===modeD.activeCellIdx?'rgba(240,180,41,0.10)':'transparent');
+    var border=cell.done?'rgba(34,197,94,0.4)':(idx===modeD.activeCellIdx?'rgba(240,180,41,0.4)':'var(--border)');
+    var icon=cell.done?'✅':'⬜';
+    html+='<div onclick="modeDSelectCell('+idx+')" style="padding:6px 10px;margin-bottom:3px;background:'+bg+';border:1px solid '+border+';border-radius:5px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px;">'+
+      '<span style="width:24px;text-align:center;">'+icon+'</span>'+
+      '<span style="flex:1;">セル '+(idx+1)+'/'+modeD.cells.length+' （'+cell.center.lat.toFixed(4)+', '+cell.center.lng.toFixed(4)+'）'+(cell.done?' / '+cell.features.length+'件':'')+'</span>'+
+    '</div>';
+  });
+  document.getElementById('modeDCellList').innerHTML=html||'<div style="padding:20px;text-align:center;color:var(--text-muted);">セルなし</div>';
+}
+
+// セル選択
+function modeDSelectCell(idx){
+  if(idx<0||idx>=modeD.cells.length)return;
+  modeD.activeCellIdx=idx;
+  var cell=modeD.cells[idx];
+  document.getElementById('modeDActiveCellLabel').textContent='セル '+(idx+1)+' / '+modeD.cells.length+'  ('+cell.center.lat.toFixed(5)+', '+cell.center.lng.toFixed(5)+')'+(cell.done?'  ✅取込済':'');
+  document.getElementById('modeDActiveCellCard').style.display='block';
+  document.getElementById('modeDDropResult').innerHTML=cell.done?'<div style="color:#22c55e;font-size:12px;">✅ このセルは取込済み（'+cell.features.length+'件）。再ドロップで上書き可能</div>':'';
+  modeDRenderMap();
+  modeDRenderCellList();
+}
+
+// セル中心の住所を逆ジオコーディング取得→クリップボードコピー
+async function modeDCopyCenter(){
+  if(modeD.activeCellIdx<0)return;
+  var c=modeD.cells[modeD.activeCellIdx].center;
+  var btn=document.getElementById('modeDBtnCopy');
+  var origLabel=btn.textContent;
+  btn.disabled=true;
+  btn.textContent='⏳ 住所取得中...';
+  try{
+    var url='https://nominatim-proxy.takumi-kurimoto.workers.dev/nominatim/reverse?lat='+c.lat.toFixed(6)+'&lon='+c.lng.toFixed(6)+'&format=json&accept-language=ja&zoom=18';
+    var res=await fetch(url);
+    var data=await res.json();
+    var addr=null;
+    if(data&&data.address){
+      var a=data.address;
+      var parts=[];
+      if(a.province)parts.push(a.province);
+      else if(a.state)parts.push(a.state);
+      if(a.city)parts.push(a.city);
+      else if(a.town)parts.push(a.town);
+      else if(a.county)parts.push(a.county);
+      if(a.suburb)parts.push(a.suburb);
+      else if(a.village)parts.push(a.village);
+      else if(a.hamlet)parts.push(a.hamlet);
+      else if(a.neighbourhood)parts.push(a.neighbourhood);
+      else if(a.quarter)parts.push(a.quarter);
+      addr=parts.join('');
+      if(!addr&&data.display_name){
+        addr=data.display_name.split(',').slice(0,3).reverse().join('').replace(/\s+/g,'');
+      }
+    }
+    var fallbackMsg='';
+    if(!addr){
+      addr=c.lat.toFixed(6)+', '+c.lng.toFixed(6);
+      fallbackMsg=' （住所取得失敗のため座標）';
+    }
+    try{
+      await navigator.clipboard.writeText(addr);
+      showToast('📋 コピー：「'+addr+'」 → eMAFFの「住所から探す」に貼り付けてください'+fallbackMsg,'success');
+    }catch(_){
+      var ta=document.createElement('textarea');
+      ta.value=addr;document.body.appendChild(ta);ta.select();
+      try{document.execCommand('copy');showToast('コピー：'+addr,'success');}catch(_2){showToast('コピー失敗。手動で：'+addr,'warning');}
+      document.body.removeChild(ta);
+    }
+  }catch(e){
+    showToast('住所取得失敗: '+e.message,'error');
+  }finally{
+    btn.disabled=false;
+    btn.textContent=origLabel;
+  }
+}
+
+// セルスキップ
+function modeDSkipCell(){
+  if(modeD.activeCellIdx<0)return;
+  if(modeD.activeCellIdx<modeD.cells.length-1){
+    modeDSelectCell(modeD.activeCellIdx+1);
+  }else{
+    showToast('最後のセルです','warning');
+  }
+}
+
+// ファイルドロップ→セルにフィーチャ格納
+async function modeDHandleFile(file){
+  if(modeD.activeCellIdx<0){
+    showToast('先にセルを選択してください','warning');
+    return;
+  }
+  var reader=new FileReader();
+  reader.onload=function(){
+    try{
+      var data=JSON.parse(reader.result);
+      var feats=Array.isArray(data)?data:(data.features||[]);
+      if(feats.length===0){
+        showToast('feature が0件のファイルです','warning');
+        return;
+      }
+      var cell=modeD.cells[modeD.activeCellIdx];
+      cell.features=feats;
+      cell.done=true;
+      modeDSaveProgress();
+      modeDRenderMap();
+      modeDRenderCellList();
+      modeDUpdateProgress();
+      document.getElementById('modeDDropResult').innerHTML='<div style="padding:10px 12px;background:rgba(34,197,94,0.10);border:1px solid rgba(34,197,94,0.4);border-radius:6px;color:#22c55e;font-size:13px;">✅ '+feats.length+'件のfeatureをこのセルに登録しました（保存済み）</div>';
+      showToast('セル '+(modeD.activeCellIdx+1)+' に '+feats.length+'件登録','success');
+      setTimeout(function(){
+        for(var k=modeD.activeCellIdx+1;k<modeD.cells.length;k++){
+          if(!modeD.cells[k].done){modeDSelectCell(k);return;}
+        }
+      },800);
+    }catch(e){
+      showToast('JSONパース失敗: '+e.message,'error');
+    }
+  };
+  reader.readAsText(file);
+}
+
+// 進捗の保存
+function modeDSaveProgress(){
+  if(!modeD.city)return;
+  try{
+    var key=MODED_LS_PREFIX+modeD.city;
+    var data={
+      city:modeD.city,
+      cellCount:modeD.cells.length,
+      doneIdx:modeD.cells.map(function(c,i){return c.done?i:-1;}).filter(function(i){return i>=0;}),
+      cellsData:modeD.cells.map(function(c){return c.done?{features:c.features}:null;})
+    };
+    localStorage.setItem(key,JSON.stringify(data));
+  }catch(e){console.warn('progress save failed:',e);}
+}
+
+// 進捗復元
+function modeDRestoreProgress(){
+  try{
+    var key=MODED_LS_PREFIX+modeD.city;
+    var raw=localStorage.getItem(key);
+    if(!raw)return;
+    var data=JSON.parse(raw);
+    if(!data||data.cellCount!==modeD.cells.length)return;
+    (data.doneIdx||[]).forEach(function(i){
+      if(modeD.cells[i]&&data.cellsData[i]){
+        modeD.cells[i].done=true;
+        modeD.cells[i].features=data.cellsData[i].features||[];
+      }
+    });
+    showToast('保存済み進捗を復元しました（'+(data.doneIdx||[]).length+'/'+modeD.cells.length+'）','success');
+  }catch(e){console.warn('progress restore failed:',e);}
+}
+
+// 進捗リセット
+function modeDResetProgress(){
+  if(!confirm(modeD.city+' の進捗をリセットしますか？取込済セルのデータも消えます。'))return;
+  modeD.cells.forEach(function(c){c.done=false;c.features=[];});
+  modeD.activeCellIdx=-1;
+  try{localStorage.removeItem(MODED_LS_PREFIX+modeD.city);}catch(_){}
+  modeDRenderMap();
+  modeDRenderCellList();
+  modeDUpdateProgress();
+  document.getElementById('modeDActiveCellCard').style.display='none';
+  showToast('リセットしました','success');
+}
+
+// 進捗表示更新
+function modeDUpdateProgress(){
+  var done=modeD.cells.filter(function(c){return c.done;}).length;
+  var total=modeD.cells.length;
+  document.getElementById('modeDProgress').textContent='取込済 '+done+' / 全 '+total+' セル';
+  document.getElementById('modeDProgressBar').style.width=(total>0?Math.round(done/total*100):0)+'%';
+}
+
+// 集計プレビュー（青地のみ除外／意向は問わない）
+function modeDPreview(){
+  var total=0;
+  var aochi=0;             // 青地 = 除外
+  var noCoord=0;           // 座標欠損 = 除外
+  var target=0;            // 投入対象 = 非青地・座標あり
+  var byIntent={};         // 意向別内訳（参考表示）
+  var byNoushin={};        // 農振区分別内訳（参考表示）
+  modeD.cells.forEach(function(c){
+    if(!c.done)return;
+    c.features.forEach(function(f){
+      total++;
+      var p=f.properties||{};
+      var co=f.geometry&&f.geometry.coordinates;
+      if(!co||co.length<2||isNaN(parseFloat(co[0]))||isNaN(parseFloat(co[1]))){noCoord++;return;}
+      if(isAochi(p)){aochi++;return;}
+      // 投入対象：農振区分・意向の内訳をカウント
+      var nl=getNoushinhouLabel(p)||'不明';
+      byNoushin[nl]=(byNoushin[nl]||0)+1;
+      var il=modeDGetIntent(p)||'(空)';
+      byIntent[il]=(byIntent[il]||0)+1;
+      target++;
+    });
+  });
+  var noushinList=Object.keys(byNoushin).map(function(k){return{k:k,n:byNoushin[k]};}).sort(function(a,b){return b.n-a.n;});
+  var noushinTxt=noushinList.map(function(o){return o.k+': '+o.n+'件';}).join(' / ');
+  var intentList=Object.keys(byIntent).map(function(k){return{k:k,n:byIntent[k]};}).sort(function(a,b){return b.n-a.n;});
+  var intentTxt=intentList.map(function(o){return o.k+': '+o.n+'件';}).join(' / ');
+  document.getElementById('modeDSubmitResult').innerHTML=
+    '<div style="padding:12px 14px;background:rgba(20,184,166,0.12);border:1px solid rgba(20,184,166,0.5);border-radius:6px;font-size:14px;margin-bottom:8px;">'+
+      '✅ 投入対象（青地を除いた全農地）：<strong style="color:#14b8a6;font-size:18px;">'+target+'件</strong>'+
+    '</div>'+
+    '<div style="padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text-muted);line-height:1.7;">'+
+      '<div>📊 <strong>取込済セルの内訳</strong></div>'+
+      '<div>　・取込済feature総数：<strong>'+total+'件</strong></div>'+
+      '<div>　・座標欠損：<strong>'+noCoord+'件</strong>（除外）</div>'+
+      '<div>　・青地（農用地区域内）：<strong>'+aochi+'件</strong>（青地ルールで除外）</div>'+
+      '<div>　・<span style="color:#14b8a6;font-weight:600;">投入対象（白地・農振外・調査中）：'+target+'件</span></div>'+
+      '<div style="margin-top:6px;color:var(--text-muted);font-size:11px;">農振区分の内訳：'+noushinTxt+'</div>'+
+      '<div style="color:var(--text-muted);font-size:11px;">意向の内訳：'+intentTxt+'</div>'+
+    '</div>';
+}
+
+// 投入：取込済セルの非青地featureをまとめてfarmland_snapshotsへ
+async function modeDSubmit(){
+  var allFeats=[];
+  modeD.cells.forEach(function(c){if(c.done)allFeats=allFeats.concat(c.features);});
+  if(allFeats.length===0){
+    showToast('取込済セルがありません','warning');
+    return;
+  }
+
+  // 事前カウント
+  var preTarget=0,preAochi=0,preNoCoord=0;
+  allFeats.forEach(function(f){
+    var p=f.properties||{};
+    var co=f.geometry&&f.geometry.coordinates;
+    if(!co||co.length<2||isNaN(parseFloat(co[0]))||isNaN(parseFloat(co[1]))){preNoCoord++;return;}
+    if(isAochi(p)){preAochi++;return;}
+    preTarget++;
+  });
+  if(preTarget===0){
+    showToast('投入対象（青地除外後）が0件です','warning');
+    return;
+  }
+  if(!confirm('取込済 '+allFeats.length+'件のうち、青地を除いた '+preTarget+'件を farmland_snapshots に投入します。\n（青地 '+preAochi+'件 / 座標欠損 '+preNoCoord+'件 は除外）\n\nfeature_idは「emaffD_」プレフィックス、source_typeは「emaff_d」。\n売却意思の有無による絞り込みは行いません。\n\nよろしいですか？'))return;
+
+  showLoading('投入準備中...');
+  var today=new Date().toISOString().substring(0,10);
+  var rows=[];
+  allFeats.forEach(function(f){
+    var p=f.properties||{};
+    var c=f.geometry&&f.geometry.coordinates;
+    if(!c||c.length<2)return;
+    var lng=parseFloat(c[0]),lat=parseFloat(c[1]);
+    if(isNaN(lat)||isNaN(lng))return;
+    if(isAochi(p))return;
+    var fid=makeEmaffDFeatureId(f);
+    var addr=String(p.Address||p.address||'');
+    var tiban=String(p.Tiban||p.tiban||'');
+    var city=null;
+    var m=addr.match(/^([^\u770c\u5e9c\u90fd\u9053]+?\u770c|[^\u5e9c]+?\u5e9c|[^\u9053]+?\u9053|[^\u90fd]+?\u90fd)?([^\u5e02\u533a\u753a\u6751]+?[\u5e02\u533a\u753a\u6751])/);
+    if(m)city=m[2];
+    var area=parseFloat(p.AreaOnRegistry||p.RegisteredArea||p.Area||0)||null;
+    var chimoku=String(p.ClassificationOfLandCodeName||p.ClassificationOfLandName||'');
+    var kousa=String(p.CultivationStatusCodeName||p.CultivationStatusName||'');
+    var uri=String(p.SaleHopeAmount||p.DesiredSaleAmount||'');
+    var chintai=String(p.RentHopeAmount||p.DesiredRentAmount||'');
+    var noshinLabel=getNoushinhouLabel(p);
+    var intentLabel=modeDGetIntent(p);
+    var ownerHash=String(p.FarmerIndicationNumberHash||p.OwnerHash||'');
+    var remarksParts=['[eMAFF\u9752\u5730\u9664\u5916/\u30e2\u30fc\u30c9D]'];
+    if(noshinLabel&&noshinLabel!=='\u4e0d\u660e')remarksParts.push('\u8fb2\u632f\u533a\u5206:'+noshinLabel);
+    if(intentLabel)remarksParts.push('\u610f\u5411:'+intentLabel);
+    if(ownerHash)remarksParts.push('\u8015\u4f5c\u8005ID:'+ownerHash);
+    if(p.OwnerName)remarksParts.push('\u6240\u6709\u8005:'+String(p.OwnerName).substring(0,40));
+    if(tiban)remarksParts.push('\u5730\u756a:'+tiban);
+    var remarks=remarksParts.join(' / ');
+    rows.push({
+      feature_id:fid,snapshot_date:today,lat:lat,lng:lng,
+      address:_joinAddrTiban(addr,tiban),city:city,intent:(intentLabel||null),
+      area_sqm:area,price:uri,
+      registered_date:chimoku+'|'+kousa+'||'+chintai,
+      remarks:remarks,status:'active',source_type:'emaff_d'
+    });
+  });
+
+  if(rows.length===0){hideLoading();showToast('投入対象が0件です','warning');return;}
+
+  // 重複除去（同一feature_id）
+  var seen={};
+  rows=rows.filter(function(r){if(seen[r.feature_id])return false;seen[r.feature_id]=true;return true;});
+
+  // ピンポイントDELETE→INSERT
+  showLoading('既存データをクリーンアップ中...');
+  try{
+    var ids=rows.map(function(r){return r.feature_id;});
+    var DEL_CHUNK=500;
+    for(var di=0;di<ids.length;di+=DEL_CHUNK){
+      var chunk=ids.slice(di,di+DEL_CHUNK);
+      await db.from('farmland_snapshots').delete().eq('snapshot_date',today).in('feature_id',chunk);
+    }
+  }catch(e){console.warn('cleanup error:',e);}
+
+  var saved=0,failed=0,errs=[];
+  var BATCH=100;
+  showLoading('投入中... (0/'+rows.length+')');
+  var fbMode=0;
+  function buildPayload(batch,m){
+    if(m===0)return batch;
+    if(m===1)return batch.map(function(r){var c={};Object.keys(r).forEach(function(k){if(k!=='source_type')c[k]=r[k];});return c;});
+    return batch.map(function(r){return{feature_id:r.feature_id,snapshot_date:r.snapshot_date,lat:r.lat,lng:r.lng,address:r.address,city:r.city,intent:r.intent,status:'active'};});
+  }
+  for(var i=0;i<rows.length;i+=BATCH){
+    var batch=rows.slice(i,i+BATCH);
+    var ok=false;
+    while(!ok&&fbMode<=2){
+      try{
+        var r=await db.from('farmland_snapshots').insert(buildPayload(batch,fbMode));
+        if(r.error){
+          if(fbMode<2&&/column|schema cache/i.test(r.error.message||'')){fbMode++;continue;}
+          failed+=batch.length;errs.push(r.error.message);ok=true;
+        }else{saved+=batch.length;ok=true;}
+      }catch(e){failed+=batch.length;errs.push(e.message);ok=true;}
+    }
+    document.getElementById('loadingText').textContent='投入中... ('+Math.min(i+BATCH,rows.length)+'/'+rows.length+')';
+    await new Promise(function(r){setTimeout(r,0);});
+  }
+  hideLoading();
+  document.getElementById('modeDSubmitResult').innerHTML='<div style="padding:10px 12px;background:rgba(20,184,166,0.10);border:1px solid rgba(20,184,166,0.4);border-radius:6px;color:var(--text);">'+
+    '✅ <strong>'+saved+'件</strong>を投入しました（emaffD_ / source_type=emaff_d）'+(failed>0?'（失敗 '+failed+'件: '+escapeHtml((errs[0]||'').substring(0,150))+'）':'')+'<br>'+
+    '🌾 <a href="farmland-tracker.html" style="color:#14b8a6;">農地変更トラッカー</a>を開いて、本日の日付でマーカーを確認してください。'+
+    '</div>';
+  showToast('完了：投入 '+saved+'件 / 失敗 '+failed+'件',failed>0?'warning':'success');
+}
 </script>
-<script src="mobile-responsive.js?v=20260516u"></script>
+<script src="mobile-responsive.js?v=20260520a"></script>
 
 </body>
 </html>
