@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: noten-request v20260520h / Supabase接続ボタン削除、DB記録は印刷時に自動実行 -->
+<!-- BUILD: noten-request v20260520i / 市区町村グルーピングを実所在地(land_info.location)ベースに変更（中部-140が田原市グループに正しく入る） -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -293,11 +293,30 @@ function saveConfig() {
 }
 
 // ====== 案件一覧読込（市区町村別グルーピング） ======
+// v20260520i: 土地所在地(location)から実際の市区町村名を抽出
+// area_name(中部/田原市等の案件番号プレフィックス)ではなく、実所在地で判定するため
+function extractCityFromLocation(location) {
+  if (!location) return '';
+  let s = String(location).trim();
+  // 先頭の都道府県を除去
+  s = s.replace(/^(北海道|東京都|京都府|大阪府|[^\s0-9]{2,3}県)/, '');
+  // 市 → 区 → 郡+町村 → 町村 の順で抽出
+  let m = s.match(/^(.+?市)/);
+  if (m) return m[1];
+  m = s.match(/^(.+?郡.+?[町村])/);
+  if (m) return m[1];
+  m = s.match(/^(.+?区)/);
+  if (m) return m[1];
+  m = s.match(/^(.+?[町村])/);
+  if (m) return m[1];
+  return s;
+}
+
 async function loadAllCases() {
   if (!sbClient && !initSupabase()) return;
   setStatus('案件一覧を取得中...');
   try {
-    // NG除外＆area_name必須
+    // NG除外
     let all = [];
     let from = 0;
     const step = 1000;
@@ -314,6 +333,12 @@ async function loadAllCases() {
       if (data.length < step) break;
       from += step;
     }
+    // v20260520i: 全案件のland_info.locationを取得し、実市区町村名を判定
+    setStatus(`案件 ${all.length}件の所在地を判定中...`);
+    const cityByCaseId = await fetchRealCities(all.map(c => c.id));
+    for (const c of all) {
+      c._realCity = cityByCaseId[c.id] || (c.area_name || '（所在地未設定）');
+    }
     _allCases = all;
     renderCasePicker(all);
     setStatus(`案件一覧読込完了: ${all.length}件`);
@@ -322,16 +347,38 @@ async function loadAllCases() {
   }
 }
 
+// 案件IDリスト → 各案件の代表市区町村名（1筆目のlocationから抽出）
+async function fetchRealCities(caseIds) {
+  const cityByCaseId = {};
+  const CHUNK = 200;
+  for (let i = 0; i < caseIds.length; i += CHUNK) {
+    const chunk = caseIds.slice(i, i + CHUNK);
+    const { data, error } = await sbClient
+      .from('land_info')
+      .select('case_id, location')
+      .in('case_id', chunk);
+    if (error) throw error;
+    for (const ld of (data || [])) {
+      // 各案件の最初に見つかった有効なlocationを採用
+      if (!cityByCaseId[ld.case_id] && ld.location) {
+        const city = extractCityFromLocation(ld.location);
+        if (city) cityByCaseId[ld.case_id] = city;
+      }
+    }
+  }
+  return cityByCaseId;
+}
+
 function renderCasePicker(cases) {
   const picker = document.getElementById('case-picker');
   const groupsEl = document.getElementById('case-groups');
   picker.style.display = '';
   groupsEl.innerHTML = '';
 
-  // 市区町村別グルーピング
+  // 市区町村別グルーピング（v20260520i: 実所在地ベース _realCity）
   const groups = {};
   for (const c of cases) {
-    const city = (c.area_name || '（市区町村未設定）').trim();
+    const city = (c._realCity || c.area_name || '（市区町村未設定）').trim();
     if (!groups[city]) groups[city] = [];
     groups[city].push(c);
   }
@@ -416,6 +463,11 @@ async function loadByInput() {
       setStatus('該当案件なし', true);
       return;
     }
+    // v20260520i: 実所在地から市区町村名を判定
+    const cityByCaseId = await fetchRealCities(data.map(c => c.id));
+    for (const c of data) {
+      c._realCity = cityByCaseId[c.id] || (c.area_name || '（所在地未設定）');
+    }
     await generateDocument(data);
     setStatus(`文書生成完了: ${data.length}件`);
   } catch (err) {
@@ -428,14 +480,14 @@ async function applySelection() {
   const checkedIds = Array.from(document.querySelectorAll('#case-groups input[type=checkbox]:checked'))
     .map(cb => cb.getAttribute('data-case-id'));
   if (checkedIds.length === 0) { alert('案件を1件以上選択してください'); return; }
-  // 市区町村別に分割
+  // v20260520i: 実所在地(_realCity)で市区町村チェック
   const checkedCities = new Set(Array.from(document.querySelectorAll('#case-groups input[type=checkbox]:checked'))
     .map(cb => cb.getAttribute('data-city')));
   if (checkedCities.size > 1) {
     if (!confirm(`複数の市区町村が選択されています（${Array.from(checkedCities).join('、')}）。\n1つの市区町村ごとに別文書として作成する必要があります。\n\n最初の市区町村のみを文書化します。よろしいですか？`)) return;
   }
   const targetCity = Array.from(checkedCities)[0];
-  const cases = _allCases.filter(c => checkedIds.includes(c.id) && (c.area_name || '').trim() === targetCity);
+  const cases = _allCases.filter(c => checkedIds.includes(c.id) && (c._realCity || '').trim() === targetCity);
   await generateDocument(cases);
   document.getElementById('case-picker').style.display = 'none';
   setStatus(`文書生成完了: ${cases.length}件（${targetCity}）`);
@@ -471,8 +523,8 @@ async function generateDocument(cases) {
     if (caseMap[ow.case_id]) caseMap[ow.case_id].owner = ow;
   }
 
-  // 同一市区町村チェック
-  const cityName = (cases[0].area_name || '').trim();
+  // 宛名の市区町村（v20260520i: 実所在地ベース _realCity）
+  const cityName = (cases[0]._realCity || cases[0].area_name || '').trim();
 
   // 日付セット
   const now = new Date();
@@ -731,7 +783,7 @@ async function saveToDb(silent) {
     if (!silent) alert('保存する案件データがありません');
     return;
   }
-  const cityName = (_selectedCases[0].area_name || '').trim();
+  const cityName = (_selectedCases[0]._realCity || _selectedCases[0].area_name || '').trim();
   const caseIds = _selectedCases.map(c => c.id);
   const caseNos = _selectedCases.map(c => c.case_no);
   // ドキュメントスナップショット
