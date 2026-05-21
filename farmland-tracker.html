@@ -3,18 +3,19 @@
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
+<!-- v20260521a: 衛星分析レイヤー追加（条件5：母集団パイプライン 耕作放棄判定の地図表示・筆ポリゴンあり=面/なし=点のハイブリッド表示） -->
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- ===== 権限管理ガード v1.0 (2026-05-10) - 必ず他スクリプトより前に配置 ===== -->
-<script src="common-auth.js?v=20260516u"></script>
+<script src="common-auth.js?v=20260521a"></script>
 <!-- ===== MODE SELECT 戻るボタン v20260515ad (mode-back.js) ===== -->
-<script src="mode-back.js?v=20260516u"></script>
+<script src="mode-back.js?v=20260521a"></script>
 
-<link rel="stylesheet" href="viewer-mode.css?v=20260516u">
-<script src="viewer-mode.js?v=20260516u"></script>
+<link rel="stylesheet" href="viewer-mode.css?v=20260521a">
+<script src="viewer-mode.js?v=20260521a"></script>
 
 <script>
 /* ===== version.json による自動更新チェック =====
@@ -46,7 +47,7 @@
 </script>
 <title>農地変更トラッカー | GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="mobile-responsive.css?v=20260516u">
+<link rel="stylesheet" href="mobile-responsive.css?v=20260521a">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- ベクトルタイル＋面積計算 用ライブラリ -->
@@ -573,6 +574,19 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
         <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#eab308;opacity:0.4;border:1px solid #ca8a04;flex-shrink:0"></div>採草放牧地</div>
       </div>
       <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.3;">※ ズーム15以上で表示<br>※ 出典: 農林水産省 筆ポリゴン</div>
+    </div>
+    <!-- 衛星分析（条件5：母集団パイプライン 衛星分析結果の地図表示） v20260521a -->
+    <div class="hazard-divider"></div>
+    <button class="hazard-btn" id="hzSatAnalysis" onclick="toggleSatAnalysis()">&#128752; 衛星分析</button>
+    <div id="satAnalysisLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);">
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">耕作放棄判定</div>
+      <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#dc2626;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div>★★ 耕作放棄の可能性・強</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#f97316;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div>★ 耕作放棄の可能性あり</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#eab308;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div>△ 要目視確認</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#22c55e;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div>○ 耕作中の可能性</div>
+      </div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.3;">※ 面=筆ポリゴンあり / 点=筆ポリゴンなし<br>※ 出典: 衛星時系列分析 v4.7.1</div>
     </div>
     </div><!-- /.hazard-body -->
   </div>
@@ -2714,7 +2728,7 @@ initDraggablePanels('farmlandTracker', [
   { id: '#mapLegend', handle: '.mc-panel-header' }
 ]);
 </script>
-<script src="case-candidates-recorder.js?v=20260516u"></script>
+<script src="case-candidates-recorder.js?v=20260521a"></script>
 <script>
   (function waitForMap(){
     if (typeof map !== 'undefined' && map && typeof db !== 'undefined' && db) {
@@ -2724,7 +2738,7 @@ initDraggablePanels('farmlandTracker', [
     }
   })();
 </script>
-<script src="mobile-responsive.js?v=20260516u"></script>
+<script src="mobile-responsive.js?v=20260521a"></script>
 <script>
 /* ============================================================================
  * 選択フラグ点滅機能（3マップ共通）
@@ -3237,6 +3251,88 @@ window.toggleOwnerColorMode=function(){
     }
   }
 };
+/* ============================================================================
+ * 衛星分析レイヤー（条件5：母集団パイプライン 衛星分析結果の地図表示）v20260521a
+ * - VIEW v_satellite_analysis_map（satellite_analysis × farmland_snapshots）から取得
+ * - has_polygon=true は筆ポリゴン(面)、false は点マーカーで表示（ハイブリッド表示）
+ * - verdict で色分け。★★/★（耕作放棄候補）を強調表示
+ * ============================================================================ */
+var satAnalysisEnabled=false;
+var satAnalysisLayer=null;
+var SAT_VERDICT_STYLE={
+  'ABANDONED_STRONG' :{c:'#dc2626',label:'★★ 耕作放棄の可能性・強'},
+  'ABANDONED_LIKELY' :{c:'#f97316',label:'★ 耕作放棄の可能性あり'},
+  'UNCERTAIN'        :{c:'#eab308',label:'△ 要目視確認'},
+  'CULTIVATED_LIKELY':{c:'#22c55e',label:'○ 耕作中の可能性'},
+  'CULTIVATED_STRONG':{c:'#15803d',label:'○○ 耕作中の可能性・強'}
+};
+function _satStyle(v){return SAT_VERDICT_STYLE[v]||{c:'#9ca3af',label:String(v||'不明')};}
+
+window.toggleSatAnalysis=function(){
+  var btn=document.getElementById('hzSatAnalysis');
+  var legend=document.getElementById('satAnalysisLegend');
+  if(satAnalysisEnabled){
+    satAnalysisEnabled=false;
+    if(btn)btn.classList.remove('active');
+    if(satAnalysisLayer){map.removeLayer(satAnalysisLayer);satAnalysisLayer=null;}
+    if(legend)legend.style.display='none';
+    if(typeof showToast==='function')showToast('衛星分析を非表示にしました','success');
+    return;
+  }
+  satAnalysisEnabled=true;
+  if(btn)btn.classList.add('active');
+  if(legend)legend.style.display='';
+  renderSatAnalysis();
+};
+
+async function renderSatAnalysis(){
+  if(satAnalysisLayer){map.removeLayer(satAnalysisLayer);satAnalysisLayer=null;}
+  if(typeof showLoading==='function')showLoading('衛星分析結果を読み込み中...');
+  try{
+    var res=await _fetchAllPaged(function(){
+      return db.from('v_satellite_analysis_map')
+        .select('feature_id,verdict,score_total,lat,lng,address,area_sqm,infra_status,has_polygon,polygon_geojson');
+    });
+    if(res.error){
+      if(typeof hideLoading==='function')hideLoading();
+      showToast('衛星分析の取得エラー: '+res.error.message,'error');return;
+    }
+    var rows=res.data||[];
+    if(!rows.length){
+      if(typeof hideLoading==='function')hideLoading();
+      showToast('衛星分析の結果がまだありません','warning');return;
+    }
+    satAnalysisLayer=L.featureGroup();
+    var cnt={};
+    rows.forEach(function(r){
+      if(r.lat==null||r.lng==null)return;
+      var st=_satStyle(r.verdict);
+      cnt[r.verdict]=(cnt[r.verdict]||0)+1;
+      var popup='<div style="font-size:12px;line-height:1.7;min-width:170px;">'
+        +'<b>'+st.label+'</b><br>'
+        +'スコア: '+(r.score_total!=null?(+r.score_total).toFixed(2):'-')+'<br>'
+        +'所在地: '+(r.address||'-')+'<br>'
+        +'面積: '+(r.area_sqm!=null?Math.round(r.area_sqm)+'\u33a1':'-')+'<br>'
+        +'接道: '+(r.infra_status||'-')+'</div>';
+      var lyr;
+      if(r.has_polygon&&r.polygon_geojson){
+        lyr=L.geoJSON(r.polygon_geojson,{style:{color:st.c,weight:2,fillColor:st.c,fillOpacity:0.45}});
+      }else{
+        lyr=L.circleMarker([r.lat,r.lng],{radius:7,fillColor:st.c,color:'#1f2937',weight:1,fillOpacity:0.9});
+      }
+      lyr.bindPopup(popup);
+      satAnalysisLayer.addLayer(lyr);
+    });
+    satAnalysisLayer.addTo(map);
+    satAnalysisLayer.bringToFront();
+    if(typeof hideLoading==='function')hideLoading();
+    var ab=(cnt['ABANDONED_STRONG']||0)+(cnt['ABANDONED_LIKELY']||0);
+    showToast('\ud83d\udef0 衛星分析 '+rows.length+'件表示（★以上 '+ab+'件）','success');
+  }catch(e){
+    if(typeof hideLoading==='function')hideLoading();
+    showToast('衛星分析エラー: '+e.message,'error');
+  }
+}
 </script>
 </body>
 </html>
