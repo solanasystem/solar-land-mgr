@@ -5,18 +5,20 @@
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
 <!-- v20260521a: 衛星分析レイヤー追加（条件5：母集団パイプライン 耕作放棄判定の地図表示・筆ポリゴンあり=面/なし=点のハイブリッド表示） -->
 <!-- v20260521b: 紫マーカー(変更状況レイヤー)を表示廃止 / 衛星分析レイヤーにズーム15＋画面内のみ描画の軽量化を追加 -->
+<!-- v20260521c: 衛星分析レイヤーの凡例にverdict別件数カウンター＋合計を追加 -->
+<!-- v20260521d: 衛星分析ポップアップに現地確認リンク(Google地図/ストリートビュー)と手動除外ボタン(farmland_ng_list登録)を追加 -->
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- ===== 権限管理ガード v1.0 (2026-05-10) - 必ず他スクリプトより前に配置 ===== -->
-<script src="common-auth.js?v=20260521b"></script>
+<script src="common-auth.js?v=20260521d"></script>
 <!-- ===== MODE SELECT 戻るボタン v20260515ad (mode-back.js) ===== -->
-<script src="mode-back.js?v=20260521b"></script>
+<script src="mode-back.js?v=20260521d"></script>
 
-<link rel="stylesheet" href="viewer-mode.css?v=20260521b">
-<script src="viewer-mode.js?v=20260521b"></script>
+<link rel="stylesheet" href="viewer-mode.css?v=20260521d">
+<script src="viewer-mode.js?v=20260521d"></script>
 
 <script>
 /* ===== version.json による自動更新チェック =====
@@ -48,7 +50,7 @@
 </script>
 <title>農地変更トラッカー | GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="mobile-responsive.css?v=20260521b">
+<link rel="stylesheet" href="mobile-responsive.css?v=20260521d">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- ベクトルタイル＋面積計算 用ライブラリ -->
@@ -582,11 +584,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <div id="satAnalysisLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);">
       <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">耕作放棄判定</div>
       <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#dc2626;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div>★★ 耕作放棄の可能性・強</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#f97316;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div>★ 耕作放棄の可能性あり</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#eab308;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div>△ 要目視確認</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#22c55e;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div>○ 耕作中の可能性</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#dc2626;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div><span style="flex:1">★★ 耕作放棄の可能性・強</span><span id="satCntStrong" style="font-weight:700;font-variant-numeric:tabular-nums;">-</span></div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#f97316;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div><span style="flex:1">★ 耕作放棄の可能性あり</span><span id="satCntLikely" style="font-weight:700;font-variant-numeric:tabular-nums;">-</span></div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#eab308;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div><span style="flex:1">△ 要目視確認</span><span id="satCntUncertain" style="font-weight:700;font-variant-numeric:tabular-nums;">-</span></div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#22c55e;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div><span style="flex:1">○ 耕作中の可能性</span><span id="satCntCultivated" style="font-weight:700;font-variant-numeric:tabular-nums;">-</span></div>
       </div>
+      <div style="display:flex;align-items:center;gap:5px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-size:10px;font-weight:700;"><span style="flex:1">合計</span><span id="satCntTotal" style="font-variant-numeric:tabular-nums;">-</span></div>
       <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.3;">※ 面=筆ポリゴンあり / 点=筆ポリゴンなし<br>※ 出典: 衛星時系列分析 v4.7.1</div>
     </div>
     </div><!-- /.hazard-body -->
@@ -2738,7 +2741,7 @@ initDraggablePanels('farmlandTracker', [
   { id: '#mapLegend', handle: '.mc-panel-header' }
 ]);
 </script>
-<script src="case-candidates-recorder.js?v=20260521b"></script>
+<script src="case-candidates-recorder.js?v=20260521d"></script>
 <script>
   (function waitForMap(){
     if (typeof map !== 'undefined' && map && typeof db !== 'undefined' && db) {
@@ -2748,7 +2751,7 @@ initDraggablePanels('farmlandTracker', [
     }
   })();
 </script>
-<script src="mobile-responsive.js?v=20260521b"></script>
+<script src="mobile-responsive.js?v=20260521d"></script>
 <script>
 /* ============================================================================
  * 選択フラグ点滅機能（3マップ共通）
@@ -3313,10 +3316,12 @@ async function loadSatAnalysisData(){
       _satData=res.data||[];
     }
     if(!_satData.length){showToast('衛星分析の結果がまだありません','warning');return;}
-    var ab=0;
+    _updateSatCounters();
+    var _ab=0;
     _satData.forEach(function(r){
-      if(r.verdict==='ABANDONED_STRONG'||r.verdict==='ABANDONED_LIKELY')ab++;
+      if(r.verdict==='ABANDONED_STRONG'||r.verdict==='ABANDONED_LIKELY')_ab++;
     });
+    var ab=_ab;
     if(map.getZoom()<SAT_MIN_ZOOM){
       showToast('\ud83d\udef0 衛星分析ON：'+_satData.length+'件（★以上 '+ab+'件）／ズーム'+SAT_MIN_ZOOM+'以上で地図に表示されます','success');
     }else{
@@ -3328,6 +3333,36 @@ async function loadSatAnalysisData(){
     showToast('衛星分析エラー: '+e.message,'error');
   }
 }
+
+/* 凡例カウンター更新(全体・農転不可除外後の総数) */
+function _updateSatCounters(){
+  var vc={ABANDONED_STRONG:0,ABANDONED_LIKELY:0,UNCERTAIN:0,CULTIVATED_LIKELY:0,CULTIVATED_STRONG:0};
+  (_satData||[]).forEach(function(r){ if(vc[r.verdict]!==undefined)vc[r.verdict]++; });
+  var _set=function(id,n){var el=document.getElementById(id);if(el)el.textContent=n;};
+  _set('satCntStrong',vc.ABANDONED_STRONG);
+  _set('satCntLikely',vc.ABANDONED_LIKELY);
+  _set('satCntUncertain',vc.UNCERTAIN);
+  _set('satCntCultivated',vc.CULTIVATED_LIKELY+vc.CULTIVATED_STRONG);
+  _set('satCntTotal',(_satData||[]).length);
+}
+
+/* クリックした筆を手動除外（farmland_ng_list に ng_reason='manual' で登録） */
+window.deleteSatFeature=function(featureId){
+  if(!featureId)return;
+  if(!confirm('この筆を発掘候補から除外しますか？\n（farmland_ng_list に手動除外として登録され、地図から消えます）'))return;
+  db.from('farmland_ng_list').upsert(
+    {feature_id:featureId,ng_reason:'manual',updated_at:new Date().toISOString()},
+    {onConflict:'feature_id'}
+  ).then(function(res){
+    if(res.error){showToast('除外に失敗しました: '+res.error.message,'error');return;}
+    if(typeof ngFeatureIds!=='undefined')ngFeatureIds[featureId]=true;
+    if(_satData)_satData=_satData.filter(function(r){return r.feature_id!==featureId;});
+    _updateSatCounters();
+    map.closePopup();
+    _renderSatInView();
+    showToast('筆を除外しました（手動除外として記録）','success');
+  });
+};
 
 /* 画面内かつズーム15以上の筆だけを描画（移動・ズームのたびに呼ばれる） */
 function _renderSatInView(){
@@ -3341,12 +3376,27 @@ function _renderSatInView(){
     if(r.lat==null||r.lng==null)return;
     if(!b.contains([r.lat,r.lng]))return;  // 画面外はスキップ
     var st=_satStyle(r.verdict);
-    var popup='<div style="font-size:12px;line-height:1.7;min-width:170px;">'
+    var ll=r.lat+','+r.lng;
+    var fid=String(r.feature_id||'').replace(/'/g,'');
+    var popup='<div style="font-size:12px;line-height:1.7;min-width:190px;">'
       +'<b>'+st.label+'</b><br>'
       +'スコア: '+(r.score_total!=null?(+r.score_total).toFixed(2):'-')+'<br>'
       +'所在地: '+(r.address||'-')+'<br>'
       +'面積: '+(r.area_sqm!=null?Math.round(r.area_sqm)+'\u33a1':'-')+'<br>'
-      +'接道: '+(r.infra_status||'-')+'</div>';
+      +'接道: '+(r.infra_status||'-')+'<br>'
+      +'<div style="margin-top:6px;display:flex;gap:6px;">'
+      +'<a href="https://www.google.com/maps?q='+ll+'" target="_blank" rel="noopener" '
+      +'style="flex:1;text-align:center;padding:5px 4px;background:#1a73e8;color:#fff;'
+      +'border-radius:4px;text-decoration:none;font-size:11px;">\ud83d\uddfa 地図</a>'
+      +'<a href="https://www.google.com/maps?q=&layer=c&cbll='+ll+'" target="_blank" rel="noopener" '
+      +'style="flex:1;text-align:center;padding:5px 4px;background:#34a853;color:#fff;'
+      +'border-radius:4px;text-decoration:none;font-size:11px;">\ud83d\udcf7 ストリートビュー</a>'
+      +'</div>'
+      +'<button onclick="deleteSatFeature(\''+fid+'\')" '
+      +'style="margin-top:6px;width:100%;padding:6px 4px;background:#dc2626;color:#fff;'
+      +'border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;">'
+      +'\u2716 この筆を除外</button>'
+      +'</div>';
     var lyr;
     if(r.has_polygon&&r.polygon_geojson){
       lyr=L.geoJSON(r.polygon_geojson,{style:{color:st.c,weight:2,fillColor:st.c,fillOpacity:0.45}});
