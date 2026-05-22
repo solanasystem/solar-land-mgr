@@ -13,12 +13,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- ===== 権限管理ガード v1.0 (2026-05-10) - 必ず他スクリプトより前に配置 ===== -->
-<script src="common-auth.js?v=20260521d"></script>
+<script src="common-auth.js?v=20260522a"></script>
 <!-- ===== MODE SELECT 戻るボタン v20260515ad (mode-back.js) ===== -->
-<script src="mode-back.js?v=20260521d"></script>
+<script src="mode-back.js?v=20260522a"></script>
 
-<link rel="stylesheet" href="viewer-mode.css?v=20260521d">
-<script src="viewer-mode.js?v=20260521d"></script>
+<link rel="stylesheet" href="viewer-mode.css?v=20260522a">
+<script src="viewer-mode.js?v=20260522a"></script>
 
 <script>
 /* ===== version.json による自動更新チェック =====
@@ -50,7 +50,7 @@
 </script>
 <title>農地変更トラッカー | GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="mobile-responsive.css?v=20260521d">
+<link rel="stylesheet" href="mobile-responsive.css?v=20260522a">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- ベクトルタイル＋面積計算 用ライブラリ -->
@@ -535,14 +535,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
       <span class="hazard-toggle-dot"></span>🗺 都市計画区域
     </button>
     <div id="cityPlanLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);">
-      <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">区域区分</div>
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">区域区分（A09）</div>
       <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FF8C5A;opacity:0.5;border:1px solid #c5532e;flex-shrink:0"></div>市街化区域</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#4CAF50;opacity:0.5;border:1px solid #2e7d32;flex-shrink:0"></div>市街化調整区域</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:transparent;border:1.5px dashed #2196F3;flex-shrink:0"></div>都市計画区域(外周)</div>
-        <div style="display:flex;align-items:center;gap:5px;color:#888"><div style="width:10px;height:10px;background:transparent;border:1px solid #ccc;flex-shrink:0"></div>無色＝区域外</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#43A047;opacity:0.6;border:1px solid #2E7D32;flex-shrink:0"></div><b>非線引き都市計画区域</b>&nbsp;★本命</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:transparent;border:1px dashed #999;flex-shrink:0"></div><b>都市計画区域外</b>&nbsp;★本命</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FDD835;opacity:0.85;border:1px solid #F9A825;flex-shrink:0"></div>市街化区域</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FB8C00;opacity:0.85;border:1px solid #E65100;flex-shrink:0"></div>市街化調整区域</div>
       </div>
-      <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.4;">※外周(青破線)内で無色＝<b>非線引き</b><br>※外周自体が無い＝<b>都市計画区域外</b></div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.4;">緑のまま＝<b>非線引き</b>（調整区域の概念なし）<br>無色＝<b>都市計画区域外</b>（規制最少）<br>※国土数値情報A09／中部3県（愛知・岐阜・静岡）</div>
     </div>
     <div class="hazard-divider"></div>
     <button class="hazard-btn active" id="hzFude" onclick="toggleFudePolygon()">&#128208; 地番境界</button>
@@ -2260,140 +2260,112 @@ async function _fetchAndRenderUrban() {
   if(markersLayer)markersLayer.bringToFront();
 }
 
-// ======== 都市計画区域／区域区分 (XKT001) ========
-// XKT001は area_classification_ja で "都市計画区域" / "市街化区域" / "市街化調整区域" 等を返す。
-// 表記ゆれに強いよう includes による部分一致で判定する。
-var cityPlanLayer = null;
+// ======== 都市計画区域／区域区分 (国土数値情報 A09 / R2) ========
+// 中部3県(愛知2011・岐阜2018・静岡2018)のA09都市地域データをR2から静的取得し、
+// 3レイヤーを z順 緑(都市計画区域)→黄(市街化区域)→橙(市街化調整区域) で重ねる。
+// 幾何差分の計算なしで4区分を表現する：
+//   緑が残って見える = 非線引き都市計画区域 (★本命)
+//   どの色も無い     = 都市計画区域外 (★本命)
+//   黄               = 市街化区域
+//   橙               = 市街化調整区域
+var CITYPLAN_R2_BASE = 'https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/cityplanning/';
+var CITYPLAN_LAYERS = [
+  { key:'cityplan', file:'a09_cityplan.geojson', label:'\u90fd\u5e02\u8a08\u753b\u533a\u57df',
+    style:{ fillColor:'#43A047', fillOpacity:0.35, color:'#2E7D32', weight:1.2, opacity:0.85 } },
+  { key:'urban',    file:'a09_urban.geojson',    label:'\u5e02\u8857\u5316\u533a\u57df',
+    style:{ fillColor:'#FDD835', fillOpacity:0.60, color:'#F9A825', weight:0.6, opacity:0.8 } },
+  { key:'control',  file:'a09_control.geojson',  label:'\u5e02\u8857\u5316\u8abf\u6574\u533a\u57df',
+    style:{ fillColor:'#FB8C00', fillOpacity:0.60, color:'#E65100', weight:0.6, opacity:0.8 } }
+];
+var cityPlanGroup = null;        // 3レイヤーを束ねる L.layerGroup
+var cityPlanChildLayers = [];    // 個々の L.geoJSON（重ね順制御用）
 var cityPlanEnabled = false;
-var cityPlanRenderTimer = null;
-
-function _classifyCityPlan(name) {
-  var s = String(name || '');
-  if (s.indexOf('\u5e02\u8857\u5316\u8abf\u6574') >= 0) return 'chosei';
-  if (s.indexOf('\u5e02\u8857\u5316\u533a\u57df') >= 0) return 'shigai';
-  if (s.indexOf('\u90fd\u5e02\u8a08\u753b\u533a\u57df') >= 0) return 'tokei';
-  return 'other';
-}
-
-function _styleCityPlan(feature) {
-  var cls = _classifyCityPlan((feature.properties || {}).area_classification_ja);
-  if (cls === 'shigai') return { fillColor: '#FF8C5A', fillOpacity: 0.32, color: '#c5532e', weight: 0.6, opacity: 0.7 };
-  if (cls === 'chosei') return { fillColor: '#4CAF50', fillOpacity: 0.28, color: '#2e7d32', weight: 0.6, opacity: 0.7 };
-  if (cls === 'tokei')  return { fillColor: 'transparent', fillOpacity: 0, color: '#2196F3', weight: 1.8, opacity: 0.85, dashArray: '6,4' };
-  return { fillColor: '#CCCCCC', fillOpacity: 0.18, color: '#888888', weight: 0.4, opacity: 0.5 };
-}
+var cityPlanLoading = false;
+var cityPlanCache = null;        // {cityplan,urban,control} GeoJSONキャッシュ（取得は1回のみ）
 
 function toggleCityPlan() {
   var btn = document.getElementById('btnCityPlan');
   var legend = document.getElementById('cityPlanLegend');
   cityPlanEnabled = !cityPlanEnabled;
   if (cityPlanEnabled) {
-    btn.classList.add('active');
+    if (btn) btn.classList.add('active');
     if (legend) legend.style.display = 'block';
-    loadCityPlan();
+    _loadCityPlan();
     showToast('\ud83d\uddfa \u90fd\u5e02\u8a08\u753b\u533a\u57df\u3092ON\u306b\u3057\u307e\u3057\u305f', 'success');
   } else {
-    btn.classList.remove('active');
+    if (btn) btn.classList.remove('active');
     if (legend) legend.style.display = 'none';
-    if (cityPlanLayer) { map.removeLayer(cityPlanLayer); cityPlanLayer = null; }
-    map.off('moveend', renderCityPlanInView);
-    map.off('zoomend', renderCityPlanInView);
+    _removeCityPlan();
     showToast('\ud83d\uddfa \u90fd\u5e02\u8a08\u753b\u533a\u57df\u3092OFF\u306b\u3057\u307e\u3057\u305f', 'success');
   }
 }
 
-function loadCityPlan() {
-  map.on('moveend', renderCityPlanInView);
-  map.on('zoomend', renderCityPlanInView);
-  renderCityPlanInView();
+function _removeCityPlan() {
+  if (cityPlanGroup) { map.removeLayer(cityPlanGroup); cityPlanGroup = null; }
+  cityPlanChildLayers = [];
 }
 
-function renderCityPlanInView() {
-  if (cityPlanRenderTimer) clearTimeout(cityPlanRenderTimer);
-  cityPlanRenderTimer = setTimeout(_doRenderCityPlan, 400);
-}
-
-function _doRenderCityPlan() {
-  if (!cityPlanEnabled) return;
-  if (map.getZoom() < 11) {
-    if (cityPlanLayer) { map.removeLayer(cityPlanLayer); cityPlanLayer = null; }
-    showToast('\u30ba\u30fc\u30e011\u4ee5\u4e0a\u3067\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059', 'error');
-    return;
-  }
-  _fetchAndRenderCityPlan();
-}
-
-async function _fetchAndRenderCityPlan() {
-  var bounds = map.getBounds();
-  var tileZoom = Math.min(Math.max(Math.floor(map.getZoom()), 11), 14);
-  var tiles = getTilesForBounds(bounds, tileZoom);
-
-  if (tiles.length > 36) {
-    if (cityPlanLayer) { map.removeLayer(cityPlanLayer); cityPlanLayer = null; }
-    showToast('\u3082\u3046\u5c11\u3057\u30ba\u30fc\u30e0\u30a4\u30f3\u3059\u308b\u3068\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059', 'error');
-    return;
-  }
-
-  var allFeatures = [];
-  await Promise.all(tiles.map(async function(t) {
-    try {
-      var res = await fetch(URBAN_API_BASE + "/XKT001?response_format=geojson&z=" + t.z + "&x=" + t.x + "&y=" + t.y);
-      if (!res.ok) return;
-      var data = await res.json();
-      if (data.features) allFeatures.push.apply(allFeatures, data.features);
-    } catch (e) { console.warn('cityplan fetch error', e); }
-  }));
-
-  if (!cityPlanEnabled) return;
-  if (cityPlanLayer) { map.removeLayer(cityPlanLayer); cityPlanLayer = null; }
-  if (!allFeatures.length) return;
-
-  var seen = new Set();
-  var uniqueFeatures = allFeatures.filter(function(f) {
-    var firstCoord = (f.geometry && f.geometry.coordinates && f.geometry.coordinates[0] && f.geometry.coordinates[0][0]) || Math.random();
-    var key = ((f.properties && f.properties.area_classification_ja) || '') + '_' + JSON.stringify(firstCoord);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
+function _loadCityPlan() {
+  // キャッシュ済みなら即描画（再取得しない）
+  if (cityPlanCache) { _renderCityPlan(); return; }
+  if (cityPlanLoading) return;
+  cityPlanLoading = true;
+  Promise.all(CITYPLAN_LAYERS.map(function(def) {
+    return fetch(CITYPLAN_R2_BASE + def.file).then(function(res) {
+      if (!res.ok) throw new Error(def.file + ' HTTP ' + res.status);
+      return res.json();
+    });
+  })).then(function(results) {
+    cityPlanCache = {};
+    CITYPLAN_LAYERS.forEach(function(def, i) { cityPlanCache[def.key] = results[i]; });
+    cityPlanLoading = false;
+    if (cityPlanEnabled) _renderCityPlan();
+  }).catch(function(e) {
+    cityPlanLoading = false;
+    console.warn('cityplan load error', e);
+    cityPlanEnabled = false;
+    var btn = document.getElementById('btnCityPlan'); if (btn) btn.classList.remove('active');
+    var legend = document.getElementById('cityPlanLegend'); if (legend) legend.style.display = 'none';
+    showToast('\u90fd\u5e02\u8a08\u753b\u533a\u57df\u30c7\u30fc\u30bf\u306e\u53d6\u5f97\u306b\u5931\u6557\u3057\u307e\u3057\u305f', 'error');
   });
+}
 
-  // 描画順: 都市計画区域(親) → 市街化調整区域 → 市街化区域 の順で上に重ねる
-  var orderRank = { tokei: 0, chosei: 1, shigai: 2, other: 0 };
-  uniqueFeatures.sort(function(a, b) {
-    return (orderRank[_classifyCityPlan((a.properties || {}).area_classification_ja)] || 0)
-         - (orderRank[_classifyCityPlan((b.properties || {}).area_classification_ja)] || 0);
+function _renderCityPlan() {
+  if (!cityPlanEnabled || !cityPlanCache) return;
+  _removeCityPlan();
+  cityPlanGroup = L.layerGroup();
+  CITYPLAN_LAYERS.forEach(function(def) {
+    var gj = cityPlanCache[def.key];
+    if (!gj || !gj.features || !gj.features.length) return;
+    var layer = L.geoJSON(gj, {
+      style: def.style,
+      onEachFeature: (function(d) {
+        return function(feature, lyr) {
+          var p = feature.properties || {};
+          var zone = p.zone || p.area_classification_ja || d.label;
+          lyr.on('click', function(e) {
+            L.popup({ maxWidth: 280, minWidth: 220 }).setLatLng(e.latlng).setContent(
+              '<div class="popup-body">' +
+              '<div class="popup-case-no" style="color:#2E7D32;font-size:13px;margin-bottom:10px">\ud83d\uddfa \u90fd\u5e02\u8a08\u753b\u30fb\u533a\u57df\u533a\u5206</div>' +
+              '<div class="popup-info"><div class="popup-row"><span class="popup-label">\u533a\u57df\u533a\u5206</span><span class="popup-value" style="font-weight:600">' + zone + '</span></div></div>' +
+              '<hr class="popup-divider">' +
+              '<div style="font-size:11px;color:#aaa;line-height:1.5">\u56fd\u571f\u6570\u5024\u60c5\u5831 \u90fd\u5e02\u5730\u57df\u30c7\u30fc\u30bf(A09)<br>\u611b\u77e52011 / \u5c90\u961c\u30fb\u9759\u5ca72018</div>' +
+              '</div>'
+            ).openOn(map);
+          });
+        };
+      })(def)
+    });
+    cityPlanChildLayers.push(layer);
+    cityPlanGroup.addLayer(layer);
   });
-
-  cityPlanLayer = L.geoJSON({ type: 'FeatureCollection', features: uniqueFeatures }, {
-    style: _styleCityPlan,
-    onEachFeature: function(feature, layer) {
-      var p = feature.properties || {};
-      var cls = p.area_classification_ja || '不明';
-      var pref = p.prefecture || '';
-      var city = p.city_name || '';
-      var dd = p.decision_date || '—';
-      layer.on('click', function(e) {
-        L.popup({ maxWidth: 300, minWidth: 240 }).setLatLng(e.latlng).setContent(`
-          <div class="popup-body">
-            <div class="popup-case-no" style="color:#2196F3;font-size:13px;margin-bottom:10px">🗺 都市計画・区域区分</div>
-            <div class="popup-info">
-              <div class="popup-row"><span class="popup-label">区域区分</span><span class="popup-value" style="font-weight:600">${cls}</span></div>
-              ${city ? `<div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">${pref} ${city}</span></div>` : ''}
-              <div class="popup-row"><span class="popup-label">設定年月日</span><span class="popup-value">${dd}</span></div>
-            </div>
-            <hr class="popup-divider">
-            <div style="font-size:11px;color:#aaa;line-height:1.5">国土交通省 不動産情報ライブラリ（XKT001 / 令和6年度）</div>
-          </div>
-        `).openOn(map);
-      });
-      layer.on('mouseover', function() {
-        var s = _styleCityPlan(feature);
-        layer.setStyle({ fillOpacity: Math.min(0.7, (s.fillOpacity || 0) + 0.3) });
-      });
-      layer.on('mouseout', function() { if (cityPlanLayer) cityPlanLayer.resetStyle(layer); });
-    },
-  }).addTo(map);
-  cityPlanLayer.bringToBack();
+  cityPlanGroup.addTo(map);
+  // 重ね順を確定：配列の逆順に bringToBack → 先頭(緑)が最背面、末尾(橙)が最前面
+  for (var i = cityPlanChildLayers.length - 1; i >= 0; i--) {
+    if (cityPlanChildLayers[i].bringToBack) cityPlanChildLayers[i].bringToBack();
+  }
+  // 筆ポリゴン・マーカーは前面維持
+  if (typeof markersLayer !== 'undefined' && markersLayer && markersLayer.bringToFront) markersLayer.bringToFront();
 }
 
 // 地番・住所検索
@@ -2741,7 +2713,7 @@ initDraggablePanels('farmlandTracker', [
   { id: '#mapLegend', handle: '.mc-panel-header' }
 ]);
 </script>
-<script src="case-candidates-recorder.js?v=20260521d"></script>
+<script src="case-candidates-recorder.js?v=20260522a"></script>
 <script>
   (function waitForMap(){
     if (typeof map !== 'undefined' && map && typeof db !== 'undefined' && db) {
@@ -2751,7 +2723,7 @@ initDraggablePanels('farmlandTracker', [
     }
   })();
 </script>
-<script src="mobile-responsive.js?v=20260521d"></script>
+<script src="mobile-responsive.js?v=20260522a"></script>
 <script>
 /* ============================================================================
  * 選択フラグ点滅機能（3マップ共通）
