@@ -8,6 +8,7 @@
 <!-- v20260521c: 衛星分析レイヤーの凡例にverdict別件数カウンター＋合計を追加 -->
 <!-- v20260521d: 衛星分析ポップアップに現地確認リンク(Google地図/ストリートビュー)と手動除外ボタン(farmland_ng_list登録)を追加 -->
 <!-- v20260526a: 範囲NGの対象に衛星分析でピックアップした筆(_satData)を追加（レイヤーON+ズーム15以上時）。NG実行後は衛星分析レイヤーも即時再描画 -->
+<!-- v20260526b: 診断ビルド。範囲NGで対象0件のときトーストに内部状態(衛星ON/OFF・_satData件数・枠内件数・ズーム)を表示 -->
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -2906,7 +2907,22 @@ initDraggablePanels('farmlandTracker', [
     if(rectLayer){try{m.removeLayer(rectLayer);}catch(_){};rectLayer=null;}
     rectStartLatLng=null;
     if(inside.length===0){
-      if(typeof showToast==='function')showToast('範囲内に対象マーカーがありませんでした','warning');
+      /* --- 診断用（v20260526b）：原因特定後に通常メッセージへ戻す --- */
+      var _diag='';
+      try{
+        var _se=(typeof satAnalysisEnabled!=='undefined')?(satAnalysisEnabled?'ON':'OFF'):'未定義';
+        var _sd=(typeof _satData!=='undefined'&&_satData)?_satData.length:'null';
+        var _zm=getMap()?getMap().getZoom():'?';
+        var _ml=(typeof markersLayer!=='undefined'&&markersLayer)?'有':'null';
+        var _valid=0,_inb=0;
+        if(typeof _satData!=='undefined'&&_satData){
+          _satData.forEach(function(r){
+            if(r&&r.lat!=null&&r.lng!=null){_valid++;if(bounds.contains([r.lat,r.lng]))_inb++;}
+          });
+        }
+        _diag='衛星:'+_se+' /データ:'+_sd+'件(座標有'+_valid+') /枠内:'+_inb+'件 /ズーム:'+_zm+' /tracker:'+_ml;
+      }catch(_e){_diag='diag err:'+_e.message;}
+      if(typeof showToast==='function')showToast('範囲内に対象なし｜'+_diag,'warning');
       return;
     }
     // 既にNGの分は除外
