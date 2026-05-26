@@ -7,6 +7,7 @@
 <!-- v20260521b: 紫マーカー(変更状況レイヤー)を表示廃止 / 衛星分析レイヤーにズーム15＋画面内のみ描画の軽量化を追加 -->
 <!-- v20260521c: 衛星分析レイヤーの凡例にverdict別件数カウンター＋合計を追加 -->
 <!-- v20260521d: 衛星分析ポップアップに現地確認リンク(Google地図/ストリートビュー)と手動除外ボタン(farmland_ng_list登録)を追加 -->
+<!-- v20260526a: 範囲NGの対象に衛星分析でピックアップした筆(_satData)を追加（レイヤーON+ズーム15以上時）。NG実行後は衛星分析レイヤーも即時再描画 -->
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -2779,6 +2780,8 @@ initDraggablePanels('farmlandTracker', [
 /* ============================================================================
  * 矩形範囲NG判定機能
  * ツールボタンON → 地図上をドラッグで矩形描画 → 内側のマーカーを一括NG
+ * 対象: 農地変更トラッカーのマーカー(markersLayer) ＋ 衛星分析でピックアップした筆(_satData)
+ *       ※衛星分析は レイヤーON かつ ズーム15以上 のときのみ範囲NGの対象に含む
  * ============================================================================ */
 (function(){
   'use strict';
@@ -2914,9 +2917,14 @@ initDraggablePanels('farmlandTracker', [
       if(typeof showToast==='function')showToast('範囲内のマーカーは全てNG済みでした','warning');
       return;
     }
+    // 内訳カウント（変更トラッカー / 衛星分析）
+    var nTracker=0,nSat=0;
+    targets.forEach(function(t){if(t._ngSource==='sat')nSat++;else nTracker++;});
     // 確認ダイアログ
-    var msg=targets.length+'件のマーカーをNG判定します。\n\n';
-    var sample=targets.slice(0,5).map(function(t){return '・'+(t.city||'')+' '+(t.address||'').substring(0,30);}).join('\n');
+    var msg=targets.length+'件をNG判定します。';
+    if(nSat>0)msg+='（変更トラッカー '+nTracker+'件 / 衛星分析 '+nSat+'件）';
+    msg+='\n\n';
+    var sample=targets.slice(0,5).map(function(t){return '・'+(t._ngSource==='sat'?'[衛星] ':'')+(t.city||'')+' '+(t.address||'').substring(0,30);}).join('\n');
     msg+=sample;
     if(targets.length>5)msg+='\n…他 '+(targets.length-5)+'件';
     msg+='\n\n実行しますか？（NG解除は個別マーカー詳細から可能）';
@@ -2949,26 +2957,50 @@ initDraggablePanels('farmlandTracker', [
       var msg2='範囲NG完了：'+saved+'件登録 / 失敗 '+failed+'件';
       showToast(msg2,failed>0?'warning':'success');
     }
-    // 地図再描画
+    // 地図再描画（農地変更トラッカー）
     if(typeof loadDiff==='function')await loadDiff();
+    // 衛星分析レイヤーからもNG分を即時除去して再描画（NG済み筆は地図から消える）
+    if(nSat>0&&typeof satAnalysisEnabled!=='undefined'&&satAnalysisEnabled&&typeof _satData!=='undefined'&&_satData){
+      _satData=_satData.filter(function(r){
+        return !(typeof ngFeatureIds!=='undefined'&&ngFeatureIds[r.feature_id]);
+      });
+      if(typeof _updateSatCounters==='function')_updateSatCounters();
+      if(typeof _renderSatInView==='function')_renderSatInView();
+    }
     // モード継続（連続して範囲NG可能）。ESC または ボタン再押下で終了。
   }
 
-  // markersLayer内のマーカーから bounds 内のものを抽出
+  // bounds 内のマーカー/筆を抽出（農地変更トラッカー markersLayer ＋ 衛星分析 _satData）
   function collectMarkersInBounds(bounds){
     var result=[];
-    if(typeof markersLayer==='undefined'||!markersLayer)return result;
-    markersLayer.eachLayer(function(mk){
-      try{
-        var ll=mk.getLatLng?mk.getLatLng():null;
-        if(!ll)return;
-        if(!bounds.contains(ll))return;
-        // _item / _featureId は _addMarkerFromItem / loadDiff で付与済み
-        var item=mk._item||{feature_id:mk._featureId,lat:ll.lat,lng:ll.lng};
-        if(!item.feature_id)return;
-        result.push(item);
-      }catch(_){}
-    });
+    var seen={};
+    var m=getMap();
+    // (1) 農地変更トラッカーのマーカー（markersLayer）
+    if(typeof markersLayer!=='undefined'&&markersLayer){
+      markersLayer.eachLayer(function(mk){
+        try{
+          var ll=mk.getLatLng?mk.getLatLng():null;
+          if(!ll||!bounds.contains(ll))return;
+          // _item / _featureId は _addMarkerFromItem / loadDiff で付与済み
+          var item=mk._item||{feature_id:mk._featureId,lat:ll.lat,lng:ll.lng};
+          if(!item.feature_id||seen[item.feature_id])return;
+          seen[item.feature_id]=true;
+          result.push({feature_id:item.feature_id,lat:ll.lat,lng:ll.lng,address:item.address||'',city:item.city||'',_ngSource:'tracker'});
+        }catch(_){}
+      });
+    }
+    // (2) 衛星分析でピックアップした筆（_satData）
+    //     衛星分析レイヤーON かつ ズーム15以上（＝地図に実際に表示中）のときのみ対象。
+    var satZoomOk=m&&typeof SAT_MIN_ZOOM!=='undefined'&&m.getZoom()>=SAT_MIN_ZOOM;
+    if(satZoomOk&&typeof satAnalysisEnabled!=='undefined'&&satAnalysisEnabled&&typeof _satData!=='undefined'&&_satData){
+      _satData.forEach(function(r){
+        if(!r||!r.feature_id||r.lat==null||r.lng==null)return;
+        if(!bounds.contains([r.lat,r.lng]))return;
+        if(seen[r.feature_id])return;
+        seen[r.feature_id]=true;
+        result.push({feature_id:r.feature_id,lat:r.lat,lng:r.lng,address:r.address||'',city:'',_ngSource:'sat'});
+      });
+    }
     return result;
   }
 })();
