@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <!-- BUILD: farmland-candidates v20260515h / MODE SELECT ボタンにクローバを統合（mode-back.js v20260515h） -->
 <!-- v20260528a: 「低圧蓄電池候補」トグル追加。A09市街化調整区域GeoJSON(R2)と各候補座標を点-多角形判定し、調整区域内の筆を除外表示。既存の開拓候補リスト(全件)は温存、トグルOFFで従来通り。クライアント側突合・外部ライブラリ不要 -->
+<!-- v20260528b: 地図列にGoogleマップを開くボタン(🌐)を追加。既存のシステム地図ボタン(🗺=変化トラッカーへジャンプ+ホバープレビュー)は残し、横にGoogleマップ(新タブ)ボタンを並置 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -140,7 +141,9 @@ th.col-area,td.col-area{width:80px;text-align:right;}
 th.col-intent,td.col-intent{width:70px;}
 th.col-price,td.col-price{width:100px;text-align:right;font-family:var(--font-mono);}
 th.col-chintai,td.col-chintai{width:100px;text-align:right;font-family:var(--font-mono);}
-th.col-map,td.col-map{width:50px;text-align:center;}
+th.col-map,td.col-map{width:78px;text-align:center;}
+.map-link.gmap{margin-left:4px;color:#4285F4;}
+.map-link.gmap:hover{color:#1a73e8;}
 th.col-comment,td.col-comment{min-width:180px;}
 th.col-action,td.col-action{width:240px;}
 </style>
@@ -475,7 +478,12 @@ function renderRow(f,rowNo){
       'data-area="'+(f.area_sqm||'')+'" '+
       'onmouseenter="showMapPreview(this)" onmouseleave="hideMapPreview()" '+
       'onclick="jumpToTracker(this)" '+
-      'title="\u30db\u30d0\u30fc\u3067\u5730\u56f3\u30d7\u30ec\u30d3\u30e5\u30fc\u30fb\u30af\u30ea\u30c3\u30af\u3067\u8fb2\u5730\u5909\u5316\u30c8\u30e9\u30c3\u30ab\u30fc\u3078\u30b8\u30e3\u30f3\u30d7">&#128506;</span>';
+      'title="\u30b7\u30b9\u30c6\u30e0\u5730\u56f3\uff1a\u30db\u30d0\u30fc\u3067\u30d7\u30ec\u30d3\u30e5\u30fc\u30fb\u30af\u30ea\u30c3\u30af\u3067\u8fb2\u5730\u5909\u5316\u30c8\u30e9\u30c3\u30ab\u30fc\u3078">&#128506;</span>'+
+      // v20260528b: Googleマップを別タブで開くボタンを追加（システム地図ボタンは残す）
+      '<span class="map-link gmap" '+
+      'data-lat="'+f.lat+'" data-lng="'+f.lng+'" '+
+      'onclick="openGoogleMap(this)" '+
+      'title="Google\u30de\u30c3\u30d7\u3092\u65b0\u3057\u3044\u30bf\u30d6\u3067\u958b\u304f">&#127758;</span>';
   }else{
     mapCellHtml='<span class="map-link disabled" title="\u5ea7\u6a19\u672a\u767b\u9332">&#128506;</span>';
   }
@@ -925,6 +933,16 @@ function jumpToTracker(el){
   if(isNaN(lat)||isNaN(lng))return;
   hideMapPreview();
   window.location.href='farmland-tracker.html?lat='+lat+'&lng='+lng+'&zoom=17&highlight=1';
+}
+// v20260528b: Googleマップ(航空写真)を新しいタブで開く
+function openGoogleMap(el){
+  var lat=parseFloat(el.getAttribute('data-lat'));
+  var lng=parseFloat(el.getAttribute('data-lng'));
+  if(isNaN(lat)||isNaN(lng))return;
+  hideMapPreview();
+  // 衛星写真表示(基準点ピン付き)。ズーム18相当。
+  var url='https://www.google.com/maps/search/?api=1&query='+lat+','+lng;
+  window.open(url,'_blank');
 }
 </script>
 <div id="mapPreview"></div>
