@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- BUILD: farmland-candidates v20260515h / MODE SELECT ボタンにクローバを統合（mode-back.js v20260515h） -->
+<!-- v20260528a: 「低圧蓄電池候補」トグル追加。A09市街化調整区域GeoJSON(R2)と各候補座標を点-多角形判定し、調整区域内の筆を除外表示。既存の開拓候補リスト(全件)は温存、トグルOFFで従来通り。クライアント側突合・外部ライブラリ不要 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -30,6 +31,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 .btn{padding:6px 14px;border-radius:6px;border:1px solid var(--border);font-family:var(--font-main);font-size:12px;font-weight:500;cursor:pointer;transition:all 0.15s;text-decoration:none;display:inline-block;}
 .btn-ghost{background:none;color:var(--text-muted);}
 .btn-ghost:hover{background:var(--surface2);color:var(--text);}
+#btnTeiatsu.active{background:rgba(34,197,94,0.18);color:#22c55e;border-color:#22c55e;}
 .btn-primary{background:var(--accent);color:#000;border-color:var(--accent);}
 
 .stats-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;flex-shrink:0;}
@@ -187,6 +189,7 @@ th.col-action,td.col-action{width:240px;}
     <option value="approached">アプローチ済み</option>
   </select>
   <button class="btn btn-ghost" onclick="resetFilters()" style="font-size:11px;margin-left:auto;">&#8635; リセット</button>
+  <button class="btn btn-ghost" id="btnTeiatsu" onclick="toggleTeiatsu()" style="font-size:11px;">&#128267; 低圧蓄電池候補（調整区域除く）</button>
   <button class="btn btn-ghost" onclick="loadData()" style="font-size:11px;">&#8635; 再読込</button>
 </div>
 
@@ -242,7 +245,7 @@ window.addEventListener('storage',function(e){
 
 
 var farmlands=[];
-var filters={city:'',intent:'all',price:'all',status:'all'};
+var filters={city:'',intent:'all',price:'all',status:'all',teiatsu:false};
 var sortBy='city',sortDir='asc';
 
 function showToast(msg,type){
@@ -391,6 +394,14 @@ function getFilteredSorted(){
   }
   if(filters.status==='none')list=list.filter(function(f){return !f.status;});
   else if(filters.status==='approached')list=list.filter(function(f){return f.status==='approached';});
+  // v20260528a: 低圧蓄電池候補 = 市街化調整区域を除外。A09 control ポリゴン内の筆を落とす。
+  if(filters.teiatsu){
+    list=list.filter(function(f){
+      var la=Number(f.lat),ln=Number(f.lng);
+      if(f.lat==null||f.lng==null||isNaN(la)||isNaN(ln))return true; // 座標なしは判定不能→残す（除外しすぎ防止）
+      return !isInControlZone(la,ln); // 調整区域内なら除外
+    });
+  }
   list.sort(function(a,b){
     var va,vb;
     switch(sortBy){
@@ -541,11 +552,12 @@ function setSort(col){
 }
 
 function resetFilters(){
-  filters={city:'',intent:'all',price:'all',status:'all'};
+  filters={city:'',intent:'all',price:'all',status:'all',teiatsu:false};
   document.getElementById('filterCity').value='';
   document.getElementById('filterIntent').value='all';
   document.getElementById('filterPrice').value='all';
   document.getElementById('filterStatus').value='all';
+  var bt=document.getElementById('btnTeiatsu'); if(bt)bt.classList.remove('active');
   renderTable();
 }
 
@@ -693,6 +705,98 @@ function haversineMeters(lat1,lng1,lat2,lng2){
   var dLng=toRad(lng2-lng1);
   var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)*Math.sin(dLng/2);
   return 2*R*Math.asin(Math.sqrt(a));
+}
+
+// ======== 低圧蓄電池候補：市街化調整区域(A09 control)判定 ========
+// farmland-tracker.html と同じ R2 の a09_control.geojson を読み込み、
+// 各候補の座標が調整区域ポリゴン内かを点-多角形判定する（外部ライブラリ不要）。
+var CITYPLAN_CONTROL_URL='https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/cityplanning/a09_control.geojson';
+var _controlPolys=null;     // [[ [lng,lat],... ], ...] 形式の環配列（バウンディングボックス付き）
+var _controlLoading=false;
+
+// GeoJSON を扱いやすいポリゴン配列へ平坦化（Polygon / MultiPolygon 対応）。各環にbbox付与で高速化。
+function _flattenControlGeoJSON(gj){
+  var polys=[];
+  function addRing(ring){
+    if(!ring||ring.length<3)return;
+    var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    for(var i=0;i<ring.length;i++){
+      var x=ring[i][0],y=ring[i][1];
+      if(x<minX)minX=x; if(x>maxX)maxX=x;
+      if(y<minY)minY=y; if(y>maxY)maxY=y;
+    }
+    polys.push({ring:ring,minX:minX,minY:minY,maxX:maxX,maxY:maxY});
+  }
+  var feats=(gj&&gj.features)?gj.features:[];
+  for(var f=0;f<feats.length;f++){
+    var g=feats[f].geometry; if(!g)continue;
+    if(g.type==='Polygon'){
+      // 外環のみ使用（穴は調整区域の判定では実用上無視）
+      if(g.coordinates&&g.coordinates[0])addRing(g.coordinates[0]);
+    }else if(g.type==='MultiPolygon'){
+      for(var p=0;p<g.coordinates.length;p++){
+        if(g.coordinates[p]&&g.coordinates[p][0])addRing(g.coordinates[p][0]);
+      }
+    }
+  }
+  return polys;
+}
+
+// 点-多角形判定（レイキャスティング）。lng=x, lat=y。
+function _pointInRing(x,y,ring){
+  var inside=false;
+  for(var i=0,j=ring.length-1;i<ring.length;j=i++){
+    var xi=ring[i][0],yi=ring[i][1],xj=ring[j][0],yj=ring[j][1];
+    var intersect=((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi);
+    if(intersect)inside=!inside;
+  }
+  return inside;
+}
+
+// 座標が市街化調整区域内か（bboxで一次足切り→レイキャスティング）
+function isInControlZone(lat,lng){
+  if(!_controlPolys)return false; // 未ロード時は除外しない（安全側）
+  for(var i=0;i<_controlPolys.length;i++){
+    var poly=_controlPolys[i];
+    if(lng<poly.minX||lng>poly.maxX||lat<poly.minY||lat>poly.maxY)continue;
+    if(_pointInRing(lng,lat,poly.ring))return true;
+  }
+  return false;
+}
+
+async function toggleTeiatsu(){
+  var btn=document.getElementById('btnTeiatsu');
+  // すでにONなら→OFFに戻す
+  if(filters.teiatsu){
+    filters.teiatsu=false;
+    if(btn)btn.classList.remove('active');
+    renderTable();
+    showToast('\u5168\u4ef6\u8868\u793a\u306b\u623b\u3057\u307e\u3057\u305f','success');
+    return;
+  }
+  // OFF→ONにする。GeoJSON未ロードなら取得。
+  if(!_controlPolys){
+    if(_controlLoading)return;
+    _controlLoading=true;
+    if(btn)btn.textContent='\u23f3 \u8abf\u6574\u533a\u57df\u30c7\u30fc\u30bf\u53d6\u5f97\u4e2d...';
+    try{
+      var res=await fetch(CITYPLAN_CONTROL_URL);
+      if(!res.ok)throw new Error('HTTP '+res.status);
+      var gj=await res.json();
+      _controlPolys=_flattenControlGeoJSON(gj);
+      _controlLoading=false;
+    }catch(e){
+      _controlLoading=false;
+      if(btn)btn.textContent='\ud83d\udd0b \u4f4e\u5727\u84c4\u96fb\u6c60\u5019\u88dc\uff08\u8abf\u6574\u533a\u57df\u9664\u304f\uff09';
+      showToast('\u8abf\u6574\u533a\u57df\u30c7\u30fc\u30bf\u306e\u53d6\u5f97\u306b\u5931\u6557\u3057\u307e\u3057\u305f: '+e.message,'error');
+      return;
+    }
+    if(btn)btn.textContent='\ud83d\udd0b \u4f4e\u5727\u84c4\u96fb\u6c60\u5019\u88dc\uff08\u8abf\u6574\u533a\u57df\u9664\u304f\uff09';
+  }
+  filters.teiatsu=true;
+  if(btn)btn.classList.add('active');
+  renderTable();
+  showToast('\u4f4e\u5727\u84c4\u96fb\u6c60\u5019\u88dc\uff1a\u5e02\u8857\u5316\u8abf\u6574\u533a\u57df\u3092\u9664\u5916\u3057\u307e\u3057\u305f','success');
 }
 
 // ======== 案件マスターへ昇格 ========
