@@ -9,6 +9,8 @@
 <!-- v20260521d: 衛星分析ポップアップに現地確認リンク(Google地図/ストリートビュー)と手動除外ボタン(farmland_ng_list登録)を追加 -->
 <!-- v20260526a: 範囲NGの対象に衛星分析でピックアップした筆(_satData)を追加（レイヤーON+ズーム15以上時）。NG実行後は衛星分析レイヤーも即時再描画 -->
 <!-- v20260526b: 診断ビルド。範囲NGで対象0件のときトーストに内部状態(衛星ON/OFF・_satData件数・枠内件数・ズーム)を表示 -->
+<!-- v20260528a: 範囲NGモード中、PMTiles地番境界canvas/衛星分析SVGの pointer-events を一時的に none に倒し、mousedown/mousemove/mouseup をLeafletマップに到達させる修正。__BUILD__埋込で旧版張り付き診断容易化 -->
+<script>window.__BUILD__='v20260528a';</script>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -2793,6 +2795,8 @@ initDraggablePanels('farmlandTracker', [
   var savedDragEnabled=null;
   var savedDoubleClickZoom=null;
   var savedBoxZoom=null;
+  // v20260528a: 範囲NGモード中に一時的に pointer-events を切るDOM要素の退避配列
+  var _peSaved=[];
 
   function getMap(){return (typeof map!=='undefined'&&map)?map:null;}
 
@@ -2825,6 +2829,31 @@ initDraggablePanels('farmlandTracker', [
     m.on('mousedown',onMouseDown);
     m.on('mousemove',onMouseMove);
     m.on('mouseup',onMouseUp);
+    // v20260528a: PMTiles地番境界canvas/衛星分析SVGがmouseイベントを横取りする問題への対処。
+    //   PMTilesのfudeLayerはズーム14+で pointer-events:'auto' になっており、
+    //   衛星分析L.geoJSONポリゴンもデフォルトinteractive。
+    //   これらが原因で mouseup がLeafletマップに届かず、範囲NGの収集処理が走らなかった。
+    //   範囲NGモード中だけ pointer-events を 'none' に倒し、退避値をexit時に復元する。
+    _peSaved=[];
+    try{
+      // PMTiles fudeLayer のcanvas (overlay-pane/tile-pane どちらに入るかは実装依存のため両方走査)
+      document.querySelectorAll('#map canvas').forEach(function(c){
+        _peSaved.push({el:c,prev:c.style.pointerEvents});
+        c.style.pointerEvents='none';
+      });
+      // 衛星分析 L.featureGroup の各レイヤー（L.geoJSON / L.circleMarker のSVG要素）
+      if(typeof satAnalysisLayer!=='undefined'&&satAnalysisLayer){
+        satAnalysisLayer.eachLayer(function(g){
+          var paths=[];
+          if(g._path)paths.push(g._path);
+          if(g.eachLayer){g.eachLayer(function(sub){if(sub._path)paths.push(sub._path);});}
+          paths.forEach(function(el){
+            _peSaved.push({el:el,prev:el.style.pointerEvents});
+            el.style.pointerEvents='none';
+          });
+        });
+      }
+    }catch(_){}
     // ESCキーでキャンセル
     document.addEventListener('keydown',onKeyDown);
   }
@@ -2846,6 +2875,13 @@ initDraggablePanels('farmlandTracker', [
       // 残ったrect削除
       if(rectLayer){try{m.removeLayer(rectLayer);}catch(_){};rectLayer=null;}
     }
+    // v20260528a: 退避していた pointer-events を復元
+    try{
+      _peSaved.forEach(function(rec){
+        try{rec.el.style.pointerEvents=rec.prev||'';}catch(_){}
+      });
+    }catch(_){}
+    _peSaved=[];
     document.removeEventListener('keydown',onKeyDown);
     hideBanner();
     rectStartLatLng=null;
