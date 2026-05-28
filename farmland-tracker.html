@@ -13,7 +13,8 @@
 <!-- v20260528b: A09都市計画区域オーバーレイの全区分fillOpacityを薄く(緑0.35→0.18/黄0.60→0.25/橙0.60→0.28)。下の衛星写真・他レイヤーが透けて見えるように。輪郭線は維持。凡例の色見本も連動調整 -->
 <!-- v20260528c: A09配色を「調整区域だけ目立たせる」方式に変更。市街化調整区域=赤#E53935(fillOpacity0.38、避ける警告色)、非線引き=薄緑#66BB6A(0.12、本命)、市街化=薄グレー#9E9E9E(0.12)。調整区域以外を探す業務目的に最適化。凡例に⛔避ける表記追加 -->
 <!-- v20260528d: 調整区域の赤を薄く(fillOpacity 0.38→0.25)。下の衛星写真の農地が透けて候補地を見やすく。輪郭線は維持 -->
-<script>window.__BUILD__='v20260528d';</script>
+<!-- v20260529a: 農振農用地の表示しきい値 NOSHIN_MIN_ZOOM を 15→12 に変更（俯瞰確認用の試行）。z12は画面が県全域まで広がらないため描画負荷を抑制。農地フラグ/筆ポリゴン/衛星分析(DB系)は15維持。他2マップの農振は愛知限定・ゲートなしのため対象外 -->
+<script>window.__BUILD__='v20260529a';</script>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -792,8 +793,8 @@ function _doRenderDosya(){if(!dosyaEnabled)return;if(map.getZoom()<12){if(dosyaL
 async function _fetchAndRenderDosya(){try{var b=map.getBounds().pad(0.05);var res=await db.rpc('get_dosya_in_bbox',{lat_min:b.getSouth(),lat_max:b.getNorth(),lng_min:b.getWest(),lng_max:b.getEast(),row_limit:300});if(res.error||!res.data||!res.data.length)return;if(dosyaLayer){map.removeLayer(dosyaLayer);dosyaLayer=null;}var features=res.data.map(function(row){return{type:'Feature',geometry:row.geojson,properties:{area_name:row.area_name,phenomenon:row.phenomenon,area_type:row.area_type,city_name:row.city_name,area_code:row.area_code}};});dosyaLayer=L.geoJSON({type:'FeatureCollection',features:features},{style:function(f){return getDosyaStyle(f.properties.phenomenon,f.properties.area_type);},onEachFeature:function(feature,layer){var p=feature.properties;var typeColor=p.area_type==='\u7279\u5225\u8b66\u6212\u533a\u57df'?'#dc2626':'#f59e0b';layer.on('click',function(e){L.popup({maxWidth:280,minWidth:220}).setLatLng(e.latlng).setContent('<div style="padding:12px;font-size:12px;"><div style="color:'+typeColor+';font-weight:700;margin-bottom:8px;">\u26a0\ufe0f \u571f\u7802\u707d\u5bb3'+p.area_type+'</div><div>\u73fe\u8c61\uff1a'+(p.phenomenon||'\u2014')+'</div><div>\u533a\u57df\u540d\uff1a'+(p.area_name||'\u2014')+'</div><div>\u5e02\u533a\u753a\u6751\uff1a'+(p.city_name||'\u2014')+'</div></div>').openOn(map);});layer.on('mouseover',function(){layer.setStyle({fillOpacity:0.55,weight:3});});layer.on('mouseout',function(){if(dosyaLayer)dosyaLayer.resetStyle(layer);});}}).addTo(map);dosyaLayer.bringToFront();if(markersLayer)markersLayer.bringToFront();}catch(e){showToast('\u571f\u7802\u8b66\u6212\u30dd\u30ea\u30b4\u30f3\u53d6\u5f97\u30a8\u30e9\u30fc','error');}}
 function loadDosya(){map.on('moveend',renderDosyaInView);map.on('zoomend',renderDosyaInView);renderDosyaInView();}
 // 農振農用地（10県対応：愛知=Cloudflare R2 / その他9県=GitHub Pages内 data/noshin/）
-// パフォーマンス対策：ズーム15以上で表示 + viewport-based filtering（画面内のフィーチャだけ描画）
-var NOSHIN_MIN_ZOOM=15;
+// パフォーマンス対策：ズーム12以上で表示 + viewport-based filtering（画面内のフィーチャだけ描画）
+var NOSHIN_MIN_ZOOM=12;
 var noshinEnabled=false; // ボタンの状態（表示意図）
 var noshinLayer=null;    // 実際の地図レイヤー
 var noshinLoading=false;
@@ -1026,7 +1027,7 @@ function renderNoshinLayer(geojson,prefName,prefKey){
     showToast(prefName+' '+fc+'件 表示（境界計算エラー: '+e.message+'）','success');
   }
 }
-// ズーム変更時のハンドラ：15未満なら描画削除、15以上なら描画
+// ズーム変更時のハンドラ：12未満なら描画削除、12以上なら描画
 function onZoomChangeForNoshin(){
   if(!noshinEnabled)return;
   var z=map.getZoom();
