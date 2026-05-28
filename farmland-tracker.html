@@ -11,7 +11,8 @@
 <!-- v20260526b: 診断ビルド。範囲NGで対象0件のときトーストに内部状態(衛星ON/OFF・_satData件数・枠内件数・ズーム)を表示 -->
 <!-- v20260528a: 範囲NGモード中、PMTiles地番境界canvas/衛星分析SVGの pointer-events を一時的に none に倒し、mousedown/mousemove/mouseup をLeafletマップに到達させる修正。__BUILD__埋込で旧版張り付き診断容易化 -->
 <!-- v20260528b: A09都市計画区域オーバーレイの全区分fillOpacityを薄く(緑0.35→0.18/黄0.60→0.25/橙0.60→0.28)。下の衛星写真・他レイヤーが透けて見えるように。輪郭線は維持。凡例の色見本も連動調整 -->
-<script>window.__BUILD__='v20260528b';</script>
+<!-- v20260528c: A09配色を「調整区域だけ目立たせる」方式に変更。市街化調整区域=赤#E53935(fillOpacity0.38、避ける警告色)、非線引き=薄緑#66BB6A(0.12、本命)、市街化=薄グレー#9E9E9E(0.12)。調整区域以外を探す業務目的に最適化。凡例に⛔避ける表記追加 -->
+<script>window.__BUILD__='v20260528c';</script>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -542,10 +543,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <div id="cityPlanLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);">
       <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">区域区分（A09）</div>
       <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#43A047;opacity:0.4;border:1px solid #2E7D32;flex-shrink:0"></div><b>非線引き都市計画区域</b>&nbsp;★本命</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#66BB6A;opacity:0.5;border:1px solid #43A047;flex-shrink:0"></div><b>非線引き都市計画区域</b>&nbsp;★本命</div>
         <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:transparent;border:1px dashed #999;flex-shrink:0"></div><b>都市計画区域外</b>&nbsp;★本命</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FDD835;opacity:0.5;border:1px solid #F9A825;flex-shrink:0"></div>市街化区域</div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FB8C00;opacity:0.5;border:1px solid #E65100;flex-shrink:0"></div>市街化調整区域</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#9E9E9E;opacity:0.5;border:1px solid #757575;flex-shrink:0"></div>市街化区域</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#E53935;opacity:0.7;border:1px solid #B71C1C;flex-shrink:0"></div><b style="color:#ef5350">市街化調整区域</b>&nbsp;⛔避ける</div>
       </div>
       <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.4;">緑のまま＝<b>非線引き</b>（調整区域の概念なし）<br>無色＝<b>都市計画区域外</b>（規制最少）<br>※国土数値情報A09／中部3県（愛知・岐阜・静岡）</div>
     </div>
@@ -2276,11 +2277,11 @@ async function _fetchAndRenderUrban() {
 var CITYPLAN_R2_BASE = 'https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/cityplanning/';
 var CITYPLAN_LAYERS = [
   { key:'cityplan', file:'a09_cityplan.geojson', label:'\u90fd\u5e02\u8a08\u753b\u533a\u57df',
-    style:{ fillColor:'#43A047', fillOpacity:0.18, color:'#2E7D32', weight:1.2, opacity:0.85 } },
+    style:{ fillColor:'#66BB6A', fillOpacity:0.12, color:'#43A047', weight:1.0, opacity:0.7 } },
   { key:'urban',    file:'a09_urban.geojson',    label:'\u5e02\u8857\u5316\u533a\u57df',
-    style:{ fillColor:'#FDD835', fillOpacity:0.25, color:'#F9A825', weight:0.6, opacity:0.8 } },
+    style:{ fillColor:'#9E9E9E', fillOpacity:0.12, color:'#757575', weight:0.6, opacity:0.7 } },
   { key:'control',  file:'a09_control.geojson',  label:'\u5e02\u8857\u5316\u8abf\u6574\u533a\u57df',
-    style:{ fillColor:'#FB8C00', fillOpacity:0.28, color:'#E65100', weight:0.6, opacity:0.8 } }
+    style:{ fillColor:'#E53935', fillOpacity:0.38, color:'#B71C1C', weight:1.2, opacity:0.9 } }
 ];
 var cityPlanGroup = null;        // 3レイヤーを束ねる L.layerGroup
 var cityPlanChildLayers = [];    // 個々の L.geoJSON（重ね順制御用）
