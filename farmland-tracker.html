@@ -17,7 +17,8 @@
 <!-- v20260529b: 「🎯 開拓候補」トグル追加。farmland-candidates と同一母集団(最新snapshot ∪ pubH_/emaffN_ − NG − 昇格済 − pub_)を読み取り専用でマーカー表示。ハザード/農振/都市計画区域と重ねて規制エリア該当を目視照合する用途。Canvasレンダラ＋専用pane(zIndex640)で軽量・最前面。ズーム非依存・全件表示。自動昇格のDB書込は含めない(読取専用) -->
 <!-- v20260529c: 🎯開拓候補レジェンドの長文説明を削除し1行化＋幅制限（横長帯の解消）。候補ポップアップに「⛔候補から除外(NG登録)」ボタン追加→farmland_ng_list(ng_reason=manual_from_tracker)へupsert後その場でマーカー除去。読取専用だった候補レイヤーから手動NG除外を可能に -->
 <!-- v20260529d: NG除外を「座標(地点)」で永続化＝再表示防止。farmland_ng_listにlat/lng追加(要SQL先行)。全NG書込み(候補ポップアップ除外/範囲NG/マーカー詳細NG/ハザード自動NG/case_ng/衛星手動除外)に座標保存。候補ロード時にNG地点の15m近傍をfeature_id不問で除外(_isNearNg/グリッド+正確距離)。範囲NGの開拓候補対応も確定(個別マーカー削除方式)。読取はselect(*)でSQL未適用でも非クラッシュ -->
-<script>window.__BUILD__='v20260529d';</script>
+<!-- v20260529e: 農振農用地を複数県同時表示に改修。従来は地図中心の1県のみロードだったが、表示中の地図範囲に交差する全対応県(10県)をまとめて読み込みviewport描画(detectNoshinPrefsInView/_ensureNoshinPrefs)。データは10県分既存のため浜松/東近江/三島/鈴鹿/米原/中野等の候補地でも農振が表示される。旧単一県ロジック(_prefetch/_loadAndShow/renderNoshinLayer/fitBounds自動移動)は廃止 -->
+<script>window.__BUILD__='v20260529e';</script>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -851,213 +852,95 @@ function detectNoshinPref(){
 function toggleNoshin(){
   var btn=document.getElementById('hzNoshin');
   if(noshinEnabled){
-    // OFFにする
     noshinEnabled=false;
     if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}
-    noshinCurrentPref=null;
-    noshinAllData=null;
-    // moveendハンドラを解除
-    if(_noshinMoveHandler){
-      map.off('moveend',_noshinMoveHandler);
-      _noshinMoveHandler=null;
-    }
+    if(_noshinMoveHandler){map.off('moveend',_noshinMoveHandler);_noshinMoveHandler=null;}
     btn.classList.remove('active');
-    showToast('農振農用地を非表示にしました','success');
-    return;
-  }
-  // ONにしようとしている
-  if(noshinLoading)return;
-  var prefKey=detectNoshinPref();
-  if(!prefKey){
-    showToast('対象エリア外です。地図を対応県（愛知/栃木/群馬/埼玉/千葉/長野/岐阜/静岡/三重/滋賀）に移動してから再度押してください','error');
+    showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3057\u305f','success');
     return;
   }
   noshinEnabled=true;
   btn.classList.add('active');
-  // ズームレベルチェック
+  if(!_noshinMoveHandler){_noshinMoveHandler=function(){_renderNoshinInView();};map.on('moveend',_noshinMoveHandler);}
   if(map.getZoom()<NOSHIN_MIN_ZOOM){
-    showToast('農振農用地はズーム'+NOSHIN_MIN_ZOOM+'以上で表示されます。地図を拡大してください（現在: '+map.getZoom()+'）','success');
-    // データを先読みしておく（ズームインしたとき即時表示するため）
-    _prefetchNoshinData(prefKey);
+    showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u306f\u30ba\u30fc\u30e0'+NOSHIN_MIN_ZOOM+'\u4ee5\u4e0a\u3067\u8868\u793a\u3055\u308c\u307e\u3059\uff08\u73fe\u5728: '+map.getZoom()+'\uff09\u3002\u62e1\u5927\u3059\u308b\u3068\u8868\u793a\u4e2d\u30a8\u30ea\u30a2\u306e\u5168\u5bfe\u5fdc\u770c\u3092\u8868\u793a\u3057\u307e\u3059','success');
+    _ensureNoshinPrefs(detectNoshinPrefsInView());
     return;
   }
-  // ズーム十分なら即座に表示
-  _loadAndShowNoshin(prefKey);
+  var prefs=detectNoshinPrefsInView();
+  if(prefs.length===0){showToast('\u8868\u793a\u4e2d\u30a8\u30ea\u30a2\u306b\u5bfe\u5fdc\u770c\u304c\u3042\u308a\u307e\u305b\u3093\uff08\u5bfe\u5fdc\uff1a\u611b\u77e5/\u6803\u6728/\u7fa4\u99ac/\u57fc\u7389/\u5343\u8449/\u9577\u91ce/\u5c90\u961c/\u9759\u5ca1/\u4e09\u91cd/\u6ecb\u8cc0\uff09','error');}
+  _renderNoshinInView();
 }
-function _prefetchNoshinData(prefKey){
-  if(noshinCache[prefKey])return;
-  if(noshinLoading)return;
-  var pref=NOSHIN_PREF_BOUNDS[prefKey];
-  noshinLoading=true;
-  fetch(pref.file).then(function(r){
-    return r.ok?r.json():Promise.reject('取得失敗');
-  }).then(function(geojson){
-    noshinCache[prefKey]=geojson;
-    noshinLoading=false;
-    // 取得完了時にズーム十分なら描画
-    if(noshinEnabled&&!noshinLayer&&map.getZoom()>=NOSHIN_MIN_ZOOM){
-      var curPref=detectNoshinPref();
-      if(curPref===prefKey)renderNoshinLayer(geojson,pref.name,prefKey);
-    }
-  }).catch(function(e){
-    noshinLoading=false;
-    // エラー時もボタンは active のまま（次のズームでリトライ可）
-  });
-}
-function _loadAndShowNoshin(prefKey){
-  if(noshinLayer)return; // 既に表示中
-  if(!noshinEnabled)return; // OFF
-  var pref=NOSHIN_PREF_BOUNDS[prefKey];
-  // キャッシュ確認
-  if(noshinCache[prefKey]){
-    renderNoshinLayer(noshinCache[prefKey],pref.name,prefKey);
-    return;
+// \u8868\u793a\u4e2d\u306e\u5730\u56f3\u7bc4\u56f2\u306b\u4ea4\u5dee\u3059\u308b\u5168\u5bfe\u5fdc\u770c\u3092\u8fd4\u3059\uff08\u4e2d\u5fc31\u770c\u3067\u306f\u306a\u304f\u8907\u6570\u770c\u3092\u540c\u6642\u8868\u793a\uff09
+function detectNoshinPrefsInView(){
+  var mb=map.getBounds();
+  var w=mb.getWest(),e=mb.getEast(),so=mb.getSouth(),no=mb.getNorth();
+  var keys=[];
+  for(var key in NOSHIN_PREF_BOUNDS){
+    var b=NOSHIN_PREF_BOUNDS[key];
+    if(b.lngMax<w||b.lngMin>e||b.latMax<so||b.latMin>no)continue;
+    keys.push(key);
   }
-  noshinLoading=true;
-  showToast(pref.name+'の農振農用地データを読み込み中...','success');
-  fetch(pref.file).then(function(r){
-    return r.ok?r.json():Promise.reject('取得失敗 ('+r.status+')');
-  }).then(function(geojson){
-    noshinCache[prefKey]=geojson;
-    noshinLoading=false;
-    if(noshinEnabled&&map.getZoom()>=NOSHIN_MIN_ZOOM){
-      renderNoshinLayer(geojson,pref.name,prefKey);
-    }
-  }).catch(function(e){
-    noshinLoading=false;
-    noshinEnabled=false;
-    document.getElementById('hzNoshin').classList.remove('active');
-    showToast(pref.name+'の農振農用地読込失敗: '+e,'error');
+  return keys;
+}
+// \u672a\u30ad\u30e3\u30c3\u30b7\u30e5\u306e\u5bfe\u5fdc\u770c\u3092fetch\uff08\u5b8c\u4e86\u3054\u3068\u306b\u518d\u63cf\u753b\u3002\u8907\u6570\u770c\u540c\u6642\u53ef\uff09
+var noshinFetching={};
+function _ensureNoshinPrefs(prefs){
+  (prefs||[]).forEach(function(key){
+    if(noshinCache[key]||noshinFetching[key])return;
+    noshinFetching[key]=true;
+    var pref=NOSHIN_PREF_BOUNDS[key];
+    fetch(pref.file).then(function(r){return r.ok?r.json():Promise.reject('HTTP '+r.status);})
+      .then(function(gj){noshinCache[key]=gj;noshinFetching[key]=false;if(noshinEnabled)_renderNoshinInView();})
+      .catch(function(err){noshinFetching[key]=false;console.warn('noshin load failed',key,err);});
   });
 }
-// フィーチャのbboxを計算（一度だけ計算してキャッシュ）
+// \u30d5\u30a3\u30fc\u30c1\u30e3\u306ebbox\u3092\u8a08\u7b97\uff08\u4e00\u5ea6\u3060\u3051\u8a08\u7b97\u3057\u3066\u30ad\u30e3\u30c3\u30b7\u30e5\uff09
 function _calcNoshinFeatureBbox(geom){
   var coords=geom.coordinates;
   var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-  function processRing(ring){
-    for(var i=0;i<ring.length;i++){
-      var x=ring[i][0],y=ring[i][1];
-      if(x<minX)minX=x;if(x>maxX)maxX=x;
-      if(y<minY)minY=y;if(y>maxY)maxY=y;
-    }
-  }
-  if(geom.type==='Polygon'&&coords[0]){
-    processRing(coords[0]);
-  }else if(geom.type==='MultiPolygon'){
-    for(var i=0;i<coords.length;i++){
-      if(coords[i]&&coords[i][0])processRing(coords[i][0]);
-    }
-  }
+  function processRing(ring){for(var i=0;i<ring.length;i++){var x=ring[i][0],y=ring[i][1];if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;}}
+  if(geom.type==='Polygon'&&coords[0]){processRing(coords[0]);}
+  else if(geom.type==='MultiPolygon'){for(var i=0;i<coords.length;i++){if(coords[i]&&coords[i][0])processRing(coords[i][0]);}}
   return [minX,minY,maxX,maxY];
 }
-// 画面表示エリア内のフィーチャだけ描画（viewport-based filtering）
+// \u753b\u9762\u8868\u793a\u30a8\u30ea\u30a2\u5185\u306e\u30d5\u30a3\u30fc\u30c1\u30e3\u3060\u3051\u63cf\u753b\uff08\u8907\u6570\u770c\u30de\u30fc\u30b8\u30fbviewport filtering\uff09
 function _renderNoshinInView(){
-  if(!noshinAllData||!noshinCurrentPref)return;
   if(!noshinEnabled)return;
-  if(map.getZoom()<NOSHIN_MIN_ZOOM)return;
-  // 既存レイヤー削除
-  if(noshinLayer){
-    map.removeLayer(noshinLayer);
-    noshinLayer=null;
-  }
-  var mapBounds=map.getBounds();
-  var west=mapBounds.getWest(),east=mapBounds.getEast();
-  var south=mapBounds.getSouth(),north=mapBounds.getNorth();
-  // 画面内のフィーチャだけ抽出
+  if(map.getZoom()<NOSHIN_MIN_ZOOM){if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}return;}
+  var prefs=detectNoshinPrefsInView();
+  _ensureNoshinPrefs(prefs);
+  var mb=map.getBounds();
+  var west=mb.getWest(),east=mb.getEast(),south=mb.getSouth(),north=mb.getNorth();
   var visibleFeatures=[];
-  for(var i=0;i<noshinAllData.features.length;i++){
-    var ft=noshinAllData.features[i];
-    if(!ft._bbox){
-      try{ft._bbox=_calcNoshinFeatureBbox(ft.geometry);}
-      catch(e){continue;}
+  for(var pi=0;pi<prefs.length;pi++){
+    var gj=noshinCache[prefs[pi]];
+    if(!gj||!gj.features)continue;
+    for(var i=0;i<gj.features.length;i++){
+      var ft=gj.features[i];
+      if(!ft._bbox){try{ft._bbox=_calcNoshinFeatureBbox(ft.geometry);}catch(e){continue;}}
+      var b=ft._bbox;
+      if(b[2]<west||b[0]>east||b[3]<south||b[1]>north)continue;
+      visibleFeatures.push(ft);
     }
-    var b=ft._bbox;
-    // bbox交差チェック
-    if(b[2]<west||b[0]>east||b[3]<south||b[1]>north)continue;
-    visibleFeatures.push(ft);
   }
+  if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}
   if(visibleFeatures.length===0)return;
-  var pref=NOSHIN_PREF_BOUNDS[noshinCurrentPref];
   noshinLayer=L.geoJSON({type:'FeatureCollection',features:visibleFeatures},{
     style:{color:'#eab308',weight:2,fillColor:'#fef08a',fillOpacity:0.35,dashArray:'6,4'},
     onEachFeature:function(feature,layer){
       var c=feature.properties&&feature.properties.city;
-      var label=c?'農振農用地：'+c:'農振農用地：'+(pref?pref.name:'');
-      layer.bindTooltip(label,{className:'farmland-tooltip',sticky:false});
+      layer.bindTooltip(c?'\u8fb2\u632f\u8fb2\u7528\u5730\uff1a'+c:'\u8fb2\u632f\u8fb2\u7528\u5730',{className:'farmland-tooltip',sticky:false});
     }
   });
   noshinLayer.addTo(map);
   noshinLayer.bringToFront();
   if(markersLayer)markersLayer.bringToFront();
 }
-function renderNoshinLayer(geojson,prefName,prefKey){
-  var fc=(geojson&&geojson.features)?geojson.features.length:0;
-  if(fc===0){
-    showToast(prefName+'：データがありません（features:0）','error');
-    document.getElementById('hzNoshin').classList.remove('active');
-    noshinEnabled=false;
-    return;
-  }
-  // データを保持（viewport filtering用）
-  noshinAllData=geojson;
-  noshinCurrentPref=prefKey;
-  // 移動時に画面内のフィーチャだけ再描画するハンドラを登録（重複登録を防ぐ）
-  if(!_noshinMoveHandler){
-    _noshinMoveHandler=function(){_renderNoshinInView();};
-    map.on('moveend',_noshinMoveHandler);
-  }
-  // 初回描画
-  _renderNoshinInView();
-  // データの境界と現在の地図エリアを比較
-  try{
-    // 全データの境界を計算
-    var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-    for(var i=0;i<geojson.features.length;i++){
-      var ft=geojson.features[i];
-      if(!ft._bbox)ft._bbox=_calcNoshinFeatureBbox(ft.geometry);
-      var b=ft._bbox;
-      if(b[0]<minX)minX=b[0];if(b[2]>maxX)maxX=b[2];
-      if(b[1]<minY)minY=b[1];if(b[3]>maxY)maxY=b[3];
-    }
-    if(minX===Infinity){
-      showToast(prefName+'：ジオメトリ無効（'+fc+'件）','error');
-      return;
-    }
-    var dataBounds=L.latLngBounds([[minY,minX],[maxY,maxX]]);
-    var mapBounds=map.getBounds();
-    if(!mapBounds.intersects(dataBounds)){
-      showToast(prefName+'の農振農用地 '+fc+'件（現在の地図エリア外。データのある場所へ自動移動します）','success');
-      map.fitBounds(dataBounds);
-      // fitBounds後にmoveendが発火して_renderNoshinInViewが呼ばれる
-    }else{
-      var visibleCount=noshinLayer?noshinLayer.getLayers().length:0;
-      showToast(prefName+'の農振農用地 '+fc+'件 を表示中（黄の破線縁・薄黄塗り | 画面内: '+visibleCount+'件）','success');
-    }
-  }catch(e){
-    showToast(prefName+' '+fc+'件 表示（境界計算エラー: '+e.message+'）','success');
-  }
-}
-// ズーム変更時のハンドラ：12未満なら描画削除、12以上なら描画
+// \u30ba\u30fc\u30e0\u5909\u66f4\u6642\uff1a\u95be\u5024\u30fb\u770c\u5224\u5b9a\u30fb\u63cf\u753b\u306f _renderNoshinInView \u304c\u4e00\u62ec\u51e6\u7406
 function onZoomChangeForNoshin(){
   if(!noshinEnabled)return;
-  var z=map.getZoom();
-  if(z>=NOSHIN_MIN_ZOOM){
-    // 表示すべき
-    if(noshinAllData){
-      // すでにデータがあるなら viewport で再描画
-      _renderNoshinInView();
-    }else if(!noshinLayer){
-      // まだデータが無いなら新規取得
-      var prefKey=detectNoshinPref();
-      if(prefKey)_loadAndShowNoshin(prefKey);
-    }
-  }else{
-    // 非表示にすべき（ボタンは active のまま）
-    if(noshinLayer){
-      map.removeLayer(noshinLayer);
-      noshinLayer=null;
-    }
-  }
+  _renderNoshinInView();
 }
 
 /* ============================================================
