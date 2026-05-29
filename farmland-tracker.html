@@ -22,7 +22,8 @@
 <!-- v20260529g: 都市計画区域A09に三重(A09-18_24)・長野(A09-18_20)を追加。files配列へa09_*_mie/_naganoを追記しマージ表示。三重=市街化68/調整43/非線引き133、長野=市街化35/調整12/非線引き148。3m簡略化+6桁丸め。これで候補県(静岡・滋賀・三重・長野・愛知)の都市計画区域を全被覆 -->
 <!-- v20260529h: 都市計画区域A09に兵庫(A09-18_28)を追加。files配列へa09_*_hyogoを追記。兵庫=市街化148/調整230/非線引き32。高圧蓄電池の系統空き容量がある兵庫を即対応するため区域区分を被覆 -->
 <!-- v20260529i: 農振農用地(noshin)に兵庫を追加。A12-15_28(農業地域)のLAYER_NO=6=農用地区域2891件をnoshin_hyogo.geojson化(properties{city,area}・既存同形式)。NOSHIN_PREF_BOUNDSへhyogo追加。GitHub data/noshin/に配置。これで兵庫の都市計画区域(A09)＋農振農用地(A12)が両方被覆 -->
-<script>window.__BUILD__='v20260529j';</script>
+<!-- v20260529k: 高圧蓄電池Phase1。変電所レイヤー追加(OSM power=substation 41都府県5429件、北海道/四国/沖縄は都道府県境界で除外)。⚡変電所トグル+電圧帯色分け凡例。R2配信(WORKER_BASE+/r2/substations.geojson)。subPane(zIndex635)+canvas。出典©OSM -->
+<script>window.__BUILD__='v20260529k';</script>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -566,6 +567,17 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     </button>
     <div id="candLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
       <div style="display:flex;align-items:center;gap:6px;font-size:10px;white-space:nowrap;"><span style="width:11px;height:11px;border-radius:50%;background:#fff;border:3px solid #0891b2;flex-shrink:0;display:inline-block"></span>開拓候補（NG/昇格済 除外）</div>
+    </div>
+    <!-- 変電所（OSM power=substation, R2配信） Phase1 v20260529k -->
+    <button class="hazard-btn" id="hzSubstation" onclick="toggleSubstations()">&#9889; 変電所</button>
+    <div id="subLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
+      <div style="font-size:10px;line-height:1.7;">
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#e53935;border:1px solid #333;margin-right:5px"></span>500kV級（基幹）</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#fb8c00;border:1px solid #333;margin-right:5px"></span>154–275kV</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#1e88e5;border:1px solid #333;margin-right:5px"></span>66–110kV（高圧/特高連系の主対象）</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#9e9e9e;border:1px solid #333;margin-right:5px"></span>電圧不明・その他</div>
+        <div style="margin-top:3px;color:var(--text-dim);font-size:9px;">© OpenStreetMap contributors</div>
+      </div>
     </div>
     <div class="hazard-divider"></div>
     <button class="hazard-btn active" id="hzFude" onclick="toggleFudePolygon()">&#128208; 地番境界</button>
@@ -2286,6 +2298,7 @@ function _renderCityPlan() {
 //         pub_(低精度)除外 → farmland_ng_list 除外 → farmland_promoted(昇格済)除外。
 // ※候補ページが行う「アプローチ済の自動昇格(DB書込)」は副作用のため本トグルでは実施しない（読取専用）。
 var candEnabled=false, candLoading=false, candLayer=null, candCache=null, candRenderer=null;
+var subEnabled=false, subLoading=false, subLayer=null, subCache=null, subRenderer=null;
 // ===== NG地点（座標）近傍判定：過去にNG除外した地点の半径15m以内は feature_id が違っても除外（再表示防止） =====
 var NG_NEAR_M=15, NG_CELL=0.0003; var _ngGrid=null;
 function _ngHaversineM(la1,lo1,la2,lo2){var R=6371000,T=Math.PI/180;var dLa=(la2-la1)*T,dLo=(lo2-lo1)*T;var a=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.cos(la1*T)*Math.cos(la2*T)*Math.sin(dLo/2)*Math.sin(dLo/2);return 2*R*Math.asin(Math.sqrt(a));}
@@ -2381,6 +2394,54 @@ async function excludeCandidate(fid){
   }catch(e){
     showToast('除外に失敗: '+(e&&e.message?e.message:e),'error');
   }
+}
+
+// ======== 変電所レイヤー（Phase1：OSM power=substation, R2配信, トグル表示） ========
+function _subColor(kv){ if(kv==null)return '#9e9e9e'; if(kv>=500)return '#e53935'; if(kv>=154)return '#fb8c00'; if(kv>=60)return '#1e88e5'; return '#66bb6a'; }
+function toggleSubstations(){
+  var btn=document.getElementById('hzSubstation'); var lg=document.getElementById('subLegend');
+  subEnabled=!subEnabled;
+  if(!subEnabled){ if(subLayer){map.removeLayer(subLayer);subLayer=null;} if(btn)btn.classList.remove('active'); if(lg)lg.style.display='none'; showToast('変電所を非表示にしました','success'); return; }
+  if(btn)btn.classList.add('active'); if(lg)lg.style.display='block';
+  if(subCache){_renderSubstations();return;}
+  _loadSubstations();
+}
+async function _loadSubstations(){
+  if(subLoading)return; subLoading=true;
+  showToast('変電所を読み込み中...','success');
+  try{
+    var res=await fetch(WORKER_BASE+'/r2/substations.geojson');
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    var gj=await res.json();
+    subCache=(gj&&gj.features)?gj.features:[];
+    subLoading=false;
+    if(subEnabled)_renderSubstations();
+  }catch(e){
+    subLoading=false; subEnabled=false;
+    var btn=document.getElementById('hzSubstation'); if(btn)btn.classList.remove('active');
+    var lg=document.getElementById('subLegend'); if(lg)lg.style.display='none';
+    showToast('変電所の読み込みに失敗: '+e.message,'error');
+  }
+}
+function _renderSubstations(){
+  if(!subEnabled||!subCache)return;
+  if(subLayer){map.removeLayer(subLayer);subLayer=null;}
+  if(!map.getPane('subPane')){var pp=map.createPane('subPane');pp.style.zIndex=635;}
+  if(!subRenderer)subRenderer=L.canvas({pane:'subPane',padding:0.5});
+  subLayer=L.layerGroup([],{pane:'subPane'});
+  var n=0;
+  subCache.forEach(function(f){
+    var g=f.geometry; if(!g||g.type!=='Point')return;
+    var lng=Number(g.coordinates[0]),lat=Number(g.coordinates[1]);
+    if(isNaN(lat)||isNaN(lng))return;
+    var pr=f.properties||{}; var col=_subColor(pr.voltage_kv);
+    var m=L.circleMarker([lat,lng],{renderer:subRenderer,pane:'subPane',radius:5,color:'#222',weight:1,fillColor:col,fillOpacity:0.95,opacity:1});
+    var volt=(pr.voltage_kv!=null)?(pr.voltage_kv+'kV'):(pr.voltage||'—');
+    m.bindPopup('<div class="popup-body"><div class="popup-case-no" style="color:#fb8c00;font-size:13px;margin-bottom:10px">⚡ 変電所</div><div class="popup-info"><div class="popup-row"><span class="popup-label">名称</span><span class="popup-value">'+_esc(pr.name||'（名称なし）')+'</span></div><div class="popup-row"><span class="popup-label">電圧</span><span class="popup-value">'+_esc(volt)+'</span></div><div class="popup-row"><span class="popup-label">事業者</span><span class="popup-value">'+_esc(pr.operator||'—')+'</span></div><div class="popup-row"><span class="popup-label">所在</span><span class="popup-value">'+_esc(pr.pref||'—')+'</span></div></div></div>',{maxWidth:280,minWidth:200});
+    subLayer.addLayer(m); n++;
+  });
+  subLayer.addTo(map);
+  showToast(n+'件の変電所を表示（© OpenStreetMap contributors）','success');
 }
 
 // 地番・住所検索
