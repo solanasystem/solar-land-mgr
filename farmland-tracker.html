@@ -18,7 +18,8 @@
 <!-- v20260529c: 🎯開拓候補レジェンドの長文説明を削除し1行化＋幅制限（横長帯の解消）。候補ポップアップに「⛔候補から除外(NG登録)」ボタン追加→farmland_ng_list(ng_reason=manual_from_tracker)へupsert後その場でマーカー除去。読取専用だった候補レイヤーから手動NG除外を可能に -->
 <!-- v20260529d: NG除外を「座標(地点)」で永続化＝再表示防止。farmland_ng_listにlat/lng追加(要SQL先行)。全NG書込み(候補ポップアップ除外/範囲NG/マーカー詳細NG/ハザード自動NG/case_ng/衛星手動除外)に座標保存。候補ロード時にNG地点の15m近傍をfeature_id不問で除外(_isNearNg/グリッド+正確距離)。範囲NGの開拓候補対応も確定(個別マーカー削除方式)。読取はselect(*)でSQL未適用でも非クラッシュ -->
 <!-- v20260529e: 農振農用地を複数県同時表示に改修。従来は地図中心の1県のみロードだったが、表示中の地図範囲に交差する全対応県(10県)をまとめて読み込みviewport描画(detectNoshinPrefsInView/_ensureNoshinPrefs)。データは10県分既存のため浜松/東近江/三島/鈴鹿/米原/中野等の候補地でも農振が表示される。旧単一県ロジック(_prefetch/_loadAndShow/renderNoshinLayer/fitBounds自動移動)は廃止 -->
-<script>window.__BUILD__='v20260529e';</script>
+<!-- v20260529f: 都市計画区域A09を県別ファイル方式に改修。files配列化し中部3県統合＋滋賀(a09_*_shiga)を1レイヤーにマージ。各fetch失敗は空FCで無害化(アップ順序不問)。滋賀=A09-18(2018,CC-BY4.0)をlayer_no分類:市街化94/調整33/非線引き18、3m簡略化+6桁丸めで計約1.2MB -->
+<script>window.__BUILD__='v20260529f';</script>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -2163,7 +2164,7 @@ async function _fetchAndRenderUrban() {
 }
 
 // ======== 都市計画区域／区域区分 (国土数値情報 A09 / R2) ========
-// 中部3県(愛知2011・岐阜2018・静岡2018)のA09都市地域データをR2から静的取得し、
+// 中部3県(愛知2011・岐阜2018・静岡・滋賀2018)のA09都市地域データをR2から静的取得し、
 // 3レイヤーを z順 緑(都市計画区域)→黄(市街化区域)→橙(市街化調整区域) で重ねる。
 // 幾何差分の計算なしで4区分を表現する：
 //   緑が残って見える = 非線引き都市計画区域 (★本命)
@@ -2172,11 +2173,11 @@ async function _fetchAndRenderUrban() {
 //   橙               = 市街化調整区域
 var CITYPLAN_R2_BASE = 'https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/cityplanning/';
 var CITYPLAN_LAYERS = [
-  { key:'cityplan', file:'a09_cityplan.geojson', label:'\u90fd\u5e02\u8a08\u753b\u533a\u57df',
+  { key:'cityplan', files:['a09_cityplan.geojson','a09_cityplan_shiga.geojson'], label:'\u90fd\u5e02\u8a08\u753b\u533a\u57df',
     style:{ fillColor:'#66BB6A', fillOpacity:0.12, color:'#43A047', weight:1.0, opacity:0.7 } },
-  { key:'urban',    file:'a09_urban.geojson',    label:'\u5e02\u8857\u5316\u533a\u57df',
+  { key:'urban',    files:['a09_urban.geojson','a09_urban_shiga.geojson'],    label:'\u5e02\u8857\u5316\u533a\u57df',
     style:{ fillColor:'#9E9E9E', fillOpacity:0.12, color:'#757575', weight:0.6, opacity:0.7 } },
-  { key:'control',  file:'a09_control.geojson',  label:'\u5e02\u8857\u5316\u8abf\u6574\u533a\u57df',
+  { key:'control',  files:['a09_control.geojson','a09_control_shiga.geojson'],  label:'\u5e02\u8857\u5316\u8abf\u6574\u533a\u57df',
     style:{ fillColor:'#E53935', fillOpacity:0.25, color:'#B71C1C', weight:1.2, opacity:0.9 } }
 ];
 var cityPlanGroup = null;        // 3レイヤーを束ねる L.layerGroup
@@ -2213,9 +2214,14 @@ function _loadCityPlan() {
   if (cityPlanLoading) return;
   cityPlanLoading = true;
   Promise.all(CITYPLAN_LAYERS.map(function(def) {
-    return fetch(CITYPLAN_R2_BASE + def.file).then(function(res) {
-      if (!res.ok) throw new Error(def.file + ' HTTP ' + res.status);
-      return res.json();
+    return Promise.all((def.files||[def.file]).map(function(fn){
+      return fetch(CITYPLAN_R2_BASE + fn).then(function(res){
+        if(!res.ok){ console.warn('cityplan '+fn+' HTTP '+res.status); return {type:'FeatureCollection',features:[]}; }
+        return res.json();
+      }).catch(function(e){ console.warn('cityplan '+fn+' fetch fail',e); return {type:'FeatureCollection',features:[]}; });
+    })).then(function(parts){
+      var feats=[]; parts.forEach(function(gj){ if(gj&&gj.features) feats=feats.concat(gj.features); });
+      return {type:'FeatureCollection',features:feats};
     });
   })).then(function(results) {
     cityPlanCache = {};
