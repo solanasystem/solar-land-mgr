@@ -15,7 +15,8 @@
 <!-- v20260528d: 調整区域の赤を薄く(fillOpacity 0.38→0.25)。下の衛星写真の農地が透けて候補地を見やすく。輪郭線は維持 -->
 <!-- v20260529a: 農振農用地の表示しきい値 NOSHIN_MIN_ZOOM を 15→12 に変更（俯瞰確認用の試行）。z12は画面が県全域まで広がらないため描画負荷を抑制。農地フラグ/筆ポリゴン/衛星分析(DB系)は15維持。他2マップの農振は愛知限定・ゲートなしのため対象外 -->
 <!-- v20260529b: 「🎯 開拓候補」トグル追加。farmland-candidates と同一母集団(最新snapshot ∪ pubH_/emaffN_ − NG − 昇格済 − pub_)を読み取り専用でマーカー表示。ハザード/農振/都市計画区域と重ねて規制エリア該当を目視照合する用途。Canvasレンダラ＋専用pane(zIndex640)で軽量・最前面。ズーム非依存・全件表示。自動昇格のDB書込は含めない(読取専用) -->
-<script>window.__BUILD__='v20260529b';</script>
+<!-- v20260529c: 🎯開拓候補レジェンドの長文説明を削除し1行化＋幅制限（横長帯の解消）。候補ポップアップに「⛔候補から除外(NG登録)」ボタン追加→farmland_ng_list(ng_reason=manual_from_tracker)へupsert後その場でマーカー除去。読取専用だった候補レイヤーから手動NG除外を可能に -->
+<script>window.__BUILD__='v20260529c';</script>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -557,9 +558,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <button class="hazard-toggle-btn" id="hzCandidates" onclick="toggleCandidates()">
       <span class="hazard-toggle-dot"></span>🎯 開拓候補
     </button>
-    <div id="candLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);">
-      <div style="display:flex;align-items:center;gap:6px;font-size:10px;"><span style="width:12px;height:12px;border-radius:50%;background:#fff;border:3px solid #0891b2;flex-shrink:0;display:inline-block"></span>開拓候補（NG・昇格済を除外）</div>
-      <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.4;">ハザード／農振農用地／都市計画区域を同時にONにし、候補マーカーが規制エリアに掛かっていないか目視照合できます。<br>※ farmland-candidates と同じ母集団（読み取り専用）</div>
+    <div id="candLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;white-space:nowrap;"><span style="width:11px;height:11px;border-radius:50%;background:#fff;border:3px solid #0891b2;flex-shrink:0;display:inline-block"></span>開拓候補（NG/昇格済 除外）</div>
     </div>
     <div class="hazard-divider"></div>
     <button class="hazard-btn active" id="hzFude" onclick="toggleFudePolygon()">&#128208; 地番境界</button>
@@ -2455,13 +2455,30 @@ function _renderCandidates(){
     var lat=Number(c.lat),lng=Number(c.lng);
     if(isNaN(lat)||isNaN(lng))return;
     var m=L.circleMarker([lat,lng],{renderer:candRenderer,pane:'candPane',radius:7,color:'#0891b2',weight:3,fillColor:'#ffffff',fillOpacity:1,opacity:1});
+    m._fid=c.feature_id;
     var area=(c.area_sqm!=null&&c.area_sqm!=='')?(Math.round(Number(c.area_sqm))+'㎡'):'—';
     var st=c.status?('<div class="popup-row"><span class="popup-label">ステータス</span><span class="popup-value">'+_esc(c.status)+'</span></div>'):'';
-    m.bindPopup('<div class="popup-body"><div class="popup-case-no" style="color:#0891b2;font-size:13px;margin-bottom:10px">🎯 開拓候補</div><div class="popup-info"><div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">'+_esc(c.city||'—')+'</span></div><div class="popup-row"><span class="popup-label">所在</span><span class="popup-value">'+_esc(c.address||'—')+'</span></div><div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">'+area+'</span></div><div class="popup-row"><span class="popup-label">意向</span><span class="popup-value">'+_esc(c.intent||'—')+'</span></div>'+st+'</div></div>',{maxWidth:280,minWidth:220});
+    var exBtn='<button onclick="excludeCandidate(&quot;'+_esc(c.feature_id)+'&quot;)" style="margin-top:10px;width:100%;padding:6px 8px;border:1px solid #B71C1C;background:#3a1414;color:#ff8a80;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">⛔ 候補から除外（NG登録）</button>';
+    m.bindPopup('<div class="popup-body"><div class="popup-case-no" style="color:#0891b2;font-size:13px;margin-bottom:10px">🎯 開拓候補</div><div class="popup-info"><div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">'+_esc(c.city||'—')+'</span></div><div class="popup-row"><span class="popup-label">所在</span><span class="popup-value">'+_esc(c.address||'—')+'</span></div><div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">'+area+'</span></div><div class="popup-row"><span class="popup-label">意向</span><span class="popup-value">'+_esc(c.intent||'—')+'</span></div>'+st+'</div>'+exBtn+'</div>',{maxWidth:280,minWidth:220});
     candLayer.addLayer(m); n++;
   });
   candLayer.addTo(map);
   showToast(n+'件の開拓候補を表示（NG・昇格済 除外後）','success');
+}
+// 候補ポップアップから手動NG除外：farmland_ng_list に登録 → その場でマーカー除去（候補一覧からも消える）
+async function excludeCandidate(fid){
+  if(!fid)return;
+  if(!window.confirm('この候補をNG除外します。よろしいですか？\n'+fid))return;
+  try{
+    var res=await db.from('farmland_ng_list').upsert({feature_id:fid,ng_reason:'manual_from_tracker',updated_at:new Date().toISOString()},{onConflict:'feature_id'});
+    if(res.error)throw res.error;
+    if(candCache)candCache=candCache.filter(function(c){return c.feature_id!==fid;});
+    if(candLayer){candLayer.eachLayer(function(l){if(l._fid===fid)candLayer.removeLayer(l);});}
+    map.closePopup();
+    showToast('候補をNG除外しました（farmland_ng_list登録）','success');
+  }catch(e){
+    showToast('除外に失敗: '+(e&&e.message?e.message:e),'error');
+  }
 }
 
 // 地番・住所検索
