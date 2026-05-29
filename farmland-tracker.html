@@ -14,7 +14,8 @@
 <!-- v20260528c: A09配色を「調整区域だけ目立たせる」方式に変更。市街化調整区域=赤#E53935(fillOpacity0.38、避ける警告色)、非線引き=薄緑#66BB6A(0.12、本命)、市街化=薄グレー#9E9E9E(0.12)。調整区域以外を探す業務目的に最適化。凡例に⛔避ける表記追加 -->
 <!-- v20260528d: 調整区域の赤を薄く(fillOpacity 0.38→0.25)。下の衛星写真の農地が透けて候補地を見やすく。輪郭線は維持 -->
 <!-- v20260529a: 農振農用地の表示しきい値 NOSHIN_MIN_ZOOM を 15→12 に変更（俯瞰確認用の試行）。z12は画面が県全域まで広がらないため描画負荷を抑制。農地フラグ/筆ポリゴン/衛星分析(DB系)は15維持。他2マップの農振は愛知限定・ゲートなしのため対象外 -->
-<script>window.__BUILD__='v20260529a';</script>
+<!-- v20260529b: 「🎯 開拓候補」トグル追加。farmland-candidates と同一母集団(最新snapshot ∪ pubH_/emaffN_ − NG − 昇格済 − pub_)を読み取り専用でマーカー表示。ハザード/農振/都市計画区域と重ねて規制エリア該当を目視照合する用途。Canvasレンダラ＋専用pane(zIndex640)で軽量・最前面。ズーム非依存・全件表示。自動昇格のDB書込は含めない(読取専用) -->
+<script>window.__BUILD__='v20260529b';</script>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -551,6 +552,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
         <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#E53935;opacity:0.7;border:1px solid #B71C1C;flex-shrink:0"></div><b style="color:#ef5350">市街化調整区域</b>&nbsp;⛔避ける</div>
       </div>
       <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.4;">緑のまま＝<b>非線引き</b>（調整区域の概念なし）<br>無色＝<b>都市計画区域外</b>（規制最少）<br>※国土数値情報A09／中部3県（愛知・岐阜・静岡）</div>
+    </div>
+    <!-- 開拓候補（farmland-candidates と同一母集団を読み取り専用表示） v20260529b -->
+    <button class="hazard-toggle-btn" id="hzCandidates" onclick="toggleCandidates()">
+      <span class="hazard-toggle-dot"></span>🎯 開拓候補
+    </button>
+    <div id="candLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;"><span style="width:12px;height:12px;border-radius:50%;background:#fff;border:3px solid #0891b2;flex-shrink:0;display:inline-block"></span>開拓候補（NG・昇格済を除外）</div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.4;">ハザード／農振農用地／都市計画区域を同時にONにし、候補マーカーが規制エリアに掛かっていないか目視照合できます。<br>※ farmland-candidates と同じ母集団（読み取り専用）</div>
     </div>
     <div class="hazard-divider"></div>
     <button class="hazard-btn active" id="hzFude" onclick="toggleFudePolygon()">&#128208; 地番境界</button>
@@ -2374,6 +2383,85 @@ function _renderCityPlan() {
   }
   // 筆ポリゴン・マーカーは前面維持
   if (typeof markersLayer !== 'undefined' && markersLayer && markersLayer.bringToFront) markersLayer.bringToFront();
+}
+
+// ======== 開拓候補オーバーレイ（farmland-candidates と同一母集団 / 読み取り専用） ========
+// 目的：候補がハザード/農振農用地/都市計画(調整区域)等の規制に掛かっていないかを目視照合する。
+// 母集団：farmland_snapshots(最新日, 全件) ∪ pubH_/emaffN_(全日付) を feature_id で最新優先マージ →
+//         pub_(低精度)除外 → farmland_ng_list 除外 → farmland_promoted(昇格済)除外。
+// ※候補ページが行う「アプローチ済の自動昇格(DB書込)」は副作用のため本トグルでは実施しない（読取専用）。
+var candEnabled=false, candLoading=false, candLayer=null, candCache=null, candRenderer=null;
+function toggleCandidates(){
+  var btn=document.getElementById('hzCandidates');
+  var lg=document.getElementById('candLegend');
+  candEnabled=!candEnabled;
+  if(!candEnabled){
+    if(candLayer){map.removeLayer(candLayer);candLayer=null;}
+    if(btn)btn.classList.remove('active');
+    if(lg)lg.style.display='none';
+    showToast('開拓候補を非表示にしました','success');
+    return;
+  }
+  if(btn)btn.classList.add('active');
+  if(lg)lg.style.display='block';
+  if(candCache){_renderCandidates();return;}
+  _loadCandidates();
+}
+async function _loadCandidates(){
+  if(candLoading)return;
+  candLoading=true;
+  showToast('開拓候補を読み込み中...','success');
+  try{
+    var dRes=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1);
+    var latestDate=(dRes.data&&dRes.data[0])?dRes.data[0].snapshot_date:null;
+    var COLS='feature_id,city,address,lat,lng,area_sqm,intent,price,snapshot_date';
+    var results=await Promise.all([
+      // PBF系含む最新日の全件（pubH_/emaffN_が最新日にあっても下のマージで重複解消）
+      _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS).eq('snapshot_date',latestDate);}),
+      // 永続系（pubH_ / emaffN_）は日付問わず全件
+      _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS).or('feature_id.ilike.pubH%,feature_id.ilike.emaffN%');}),
+      _fetchAllPaged(function(){return db.from('farmland_ng_list').select('feature_id');}),
+      _fetchAllPaged(function(){return db.from('farmland_promoted').select('feature_id');}),
+      _fetchAllPaged(function(){return db.from('farmland_status').select('feature_id,status');})
+    ]);
+    var combined=(results[0].data||[]).concat(results[1].data||[]);
+    var byFid={};
+    combined.forEach(function(s){var fid=s.feature_id;if(!fid)return;var ex=byFid[fid];if(!ex||(s.snapshot_date||'')>(ex.snapshot_date||''))byFid[fid]=s;});
+    // pub_（低精度・pubH_以外）を除外
+    var snaps=Object.keys(byFid).map(function(k){return byFid[k];}).filter(function(s){var fid=s.feature_id||'';return !(fid.indexOf('pub_')===0&&fid.indexOf('pubH_')!==0);});
+    var ngSet={}; (results[2].data||[]).forEach(function(d){ngSet[d.feature_id]=true;});
+    var prSet={}; (results[3].data||[]).forEach(function(d){prSet[d.feature_id]=true;});
+    var stMap={}; (results[4].data||[]).forEach(function(d){stMap[d.feature_id]=d.status;});
+    candCache=snaps.filter(function(s){return !ngSet[s.feature_id]&&!prSet[s.feature_id]&&s.lat!=null&&s.lng!=null;})
+                   .map(function(s){return Object.assign({},s,{status:stMap[s.feature_id]||null});});
+    candLoading=false;
+    if(candEnabled)_renderCandidates();
+  }catch(e){
+    candLoading=false; candEnabled=false;
+    var btn=document.getElementById('hzCandidates'); if(btn)btn.classList.remove('active');
+    var lg=document.getElementById('candLegend'); if(lg)lg.style.display='none';
+    showToast('開拓候補の読み込みに失敗: '+e.message,'error');
+  }
+}
+function _esc(v){return String(v==null?'':v).replace(/[&<>]/g,function(c){return c==='&'?'&amp;':c==='<'?'&lt;':'&gt;';});}
+function _renderCandidates(){
+  if(!candEnabled||!candCache)return;
+  if(candLayer){map.removeLayer(candLayer);candLayer=null;}
+  if(!map.getPane('candPane')){var p=map.createPane('candPane');p.style.zIndex=640;}
+  if(!candRenderer)candRenderer=L.canvas({pane:'candPane',padding:0.5});
+  candLayer=L.layerGroup([],{pane:'candPane'});
+  var n=0;
+  candCache.forEach(function(c){
+    var lat=Number(c.lat),lng=Number(c.lng);
+    if(isNaN(lat)||isNaN(lng))return;
+    var m=L.circleMarker([lat,lng],{renderer:candRenderer,pane:'candPane',radius:7,color:'#0891b2',weight:3,fillColor:'#ffffff',fillOpacity:1,opacity:1});
+    var area=(c.area_sqm!=null&&c.area_sqm!=='')?(Math.round(Number(c.area_sqm))+'㎡'):'—';
+    var st=c.status?('<div class="popup-row"><span class="popup-label">ステータス</span><span class="popup-value">'+_esc(c.status)+'</span></div>'):'';
+    m.bindPopup('<div class="popup-body"><div class="popup-case-no" style="color:#0891b2;font-size:13px;margin-bottom:10px">🎯 開拓候補</div><div class="popup-info"><div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">'+_esc(c.city||'—')+'</span></div><div class="popup-row"><span class="popup-label">所在</span><span class="popup-value">'+_esc(c.address||'—')+'</span></div><div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">'+area+'</span></div><div class="popup-row"><span class="popup-label">意向</span><span class="popup-value">'+_esc(c.intent||'—')+'</span></div>'+st+'</div></div>',{maxWidth:280,minWidth:220});
+    candLayer.addLayer(m); n++;
+  });
+  candLayer.addTo(map);
+  showToast(n+'件の開拓候補を表示（NG・昇格済 除外後）','success');
 }
 
 // 地番・住所検索
