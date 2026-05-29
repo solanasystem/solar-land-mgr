@@ -3,6 +3,8 @@
 <!-- v20260528a: 「低圧蓄電池候補」トグル追加。A09市街化調整区域GeoJSON(R2)と各候補座標を点-多角形判定し、調整区域内の筆を除外表示。既存の開拓候補リスト(全件)は温存、トグルOFFで従来通り。クライアント側突合・外部ライブラリ不要 -->
 <!-- v20260528b: 地図列にGoogleマップを開くボタン(🌐)を追加。既存のシステム地図ボタン(🗺=変化トラッカーへジャンプ+ホバープレビュー)は残し、横にGoogleマップ(新タブ)ボタンを並置 -->
 <!-- v20260529a: NG除外の座標永続化に対応。farmland_ng_listのlat/lngを参照し、過去NG地点の15m近傍候補をfeature_id不問で一覧から除外。setNg時に座標も保存。tracker側と母集団を統一。読取はselect(*)で後方互換 -->
+<!-- v20260529b: 低圧蓄電池候補フィルタ(調整区域除外)を複数controlファイル対応に改修。従来はa09_control.geojson(中部3県)のみ読込→滋賀等の市街化調整区域を判定できず除外漏れ。CITYPLAN_CONTROL_FILES配列で中部3県統合＋a09_control_shiga(滋賀)をマージ判定。県追加は配列に足すだけ。1ファイル失敗は無視 -->
+<!-- v20260529c: 低圧蓄電池トグルに診断トーストを追加（読込ポリゴン数／全候補中の調整区域内件数／座標なし件数を表示）。除外漏れの切り分け用。判定ロジック自体はローカル実証で正常確認済 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -725,7 +727,8 @@ function haversineMeters(lat1,lng1,lat2,lng2){
 // ======== 低圧蓄電池候補：市街化調整区域(A09 control)判定 ========
 // farmland-tracker.html と同じ R2 の a09_control.geojson を読み込み、
 // 各候補の座標が調整区域ポリゴン内かを点-多角形判定する（外部ライブラリ不要）。
-var CITYPLAN_CONTROL_URL='https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/cityplanning/a09_control.geojson';
+var CITYPLAN_CONTROL_BASE='https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/cityplanning/';
+var CITYPLAN_CONTROL_FILES=['a09_control.geojson','a09_control_shiga.geojson']; // 中部3県統合＋県別。三重/長野追加時はここに足す
 var _controlPolys=null;     // [[ [lng,lat],... ], ...] 形式の環配列（バウンディングボックス付き）
 var _controlLoading=false;
 
@@ -795,10 +798,16 @@ async function toggleTeiatsu(){
     _controlLoading=true;
     if(btn)btn.textContent='\u23f3 \u8abf\u6574\u533a\u57df\u30c7\u30fc\u30bf\u53d6\u5f97\u4e2d...';
     try{
-      var res=await fetch(CITYPLAN_CONTROL_URL);
-      if(!res.ok)throw new Error('HTTP '+res.status);
-      var gj=await res.json();
-      _controlPolys=_flattenControlGeoJSON(gj);
+      var all=[];
+      for(var ci=0;ci<CITYPLAN_CONTROL_FILES.length;ci++){
+        try{
+          var res=await fetch(CITYPLAN_CONTROL_BASE+CITYPLAN_CONTROL_FILES[ci]);
+          if(!res.ok){ console.warn('control '+CITYPLAN_CONTROL_FILES[ci]+' HTTP '+res.status); continue; }
+          var gj=await res.json();
+          all=all.concat(_flattenControlGeoJSON(gj));
+        }catch(fe){ console.warn('control fetch fail',CITYPLAN_CONTROL_FILES[ci],fe); }
+      }
+      _controlPolys=all;
       _controlLoading=false;
     }catch(e){
       _controlLoading=false;
@@ -811,7 +820,12 @@ async function toggleTeiatsu(){
   filters.teiatsu=true;
   if(btn)btn.classList.add('active');
   renderTable();
-  showToast('\u4f4e\u5727\u84c4\u96fb\u6c60\u5019\u88dc\uff1a\u5e02\u8857\u5316\u8abf\u6574\u533a\u57df\u3092\u9664\u5916\u3057\u307e\u3057\u305f','success');
+  // 診断：読み込んだ調整区域ポリゴン数と、全候補中いくつが調整区域内かを可視化
+  var _pN=_controlPolys?_controlPolys.length:0,_exc=0,_noCoord=0;
+  for(var _i=0;_i<farmlands.length;_i++){var _ff=farmlands[_i];var _la=Number(_ff.lat),_ln=Number(_ff.lng);
+    if(_ff.lat==null||_ff.lng==null||isNaN(_la)||isNaN(_ln)){_noCoord++;continue;}
+    if(isInControlZone(_la,_ln))_exc++;}
+  showToast('低圧蓄電池ON｜調整区域ポリゴン '+_pN+'個読込／全候補 '+farmlands.length+'件中 調整区域内 '+_exc+'件を除外（座標なし '+_noCoord+'件）','success');
 }
 
 // ======== 案件マスターへ昇格 ========
