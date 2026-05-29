@@ -20,7 +20,8 @@
 <!-- v20260529e: 農振農用地を複数県同時表示に改修。従来は地図中心の1県のみロードだったが、表示中の地図範囲に交差する全対応県(10県)をまとめて読み込みviewport描画(detectNoshinPrefsInView/_ensureNoshinPrefs)。データは10県分既存のため浜松/東近江/三島/鈴鹿/米原/中野等の候補地でも農振が表示される。旧単一県ロジック(_prefetch/_loadAndShow/renderNoshinLayer/fitBounds自動移動)は廃止 -->
 <!-- v20260529f: 都市計画区域A09を県別ファイル方式に改修。files配列化し中部3県統合＋滋賀(a09_*_shiga)を1レイヤーにマージ。各fetch失敗は空FCで無害化(アップ順序不問)。滋賀=A09-18(2018,CC-BY4.0)をlayer_no分類:市街化94/調整33/非線引き18、3m簡略化+6桁丸めで計約1.2MB -->
 <!-- v20260529g: 都市計画区域A09に三重(A09-18_24)・長野(A09-18_20)を追加。files配列へa09_*_mie/_naganoを追記しマージ表示。三重=市街化68/調整43/非線引き133、長野=市街化35/調整12/非線引き148。3m簡略化+6桁丸め。これで候補県(静岡・滋賀・三重・長野・愛知)の都市計画区域を全被覆 -->
-<script>window.__BUILD__='v20260529g';</script>
+<!-- v20260529h: 都市計画区域A09に兵庫(A09-18_28)を追加。files配列へa09_*_hyogoを追記。兵庫=市街化148/調整230/非線引き32。高圧蓄電池の系統空き容量がある兵庫を即対応するため区域区分を被覆 -->
+<script>window.__BUILD__='v20260529h';</script>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -2165,7 +2166,7 @@ async function _fetchAndRenderUrban() {
 }
 
 // ======== 都市計画区域／区域区分 (国土数値情報 A09 / R2) ========
-// 中部3県(愛知2011・岐阜2018・静岡・滋賀・三重・長野2018)のA09都市地域データをR2から静的取得し、
+// 中部3県(愛知2011・岐阜2018・静岡・滋賀・三重・長野・兵庫2018)のA09都市地域データをR2から静的取得し、
 // 3レイヤーを z順 緑(都市計画区域)→黄(市街化区域)→橙(市街化調整区域) で重ねる。
 // 幾何差分の計算なしで4区分を表現する：
 //   緑が残って見える = 非線引き都市計画区域 (★本命)
@@ -2174,11 +2175,11 @@ async function _fetchAndRenderUrban() {
 //   橙               = 市街化調整区域
 var CITYPLAN_R2_BASE = 'https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/cityplanning/';
 var CITYPLAN_LAYERS = [
-  { key:'cityplan', files:['a09_cityplan.geojson','a09_cityplan_shiga.geojson','a09_cityplan_mie.geojson','a09_cityplan_nagano.geojson'], label:'\u90fd\u5e02\u8a08\u753b\u533a\u57df',
+  { key:'cityplan', files:['a09_cityplan.geojson','a09_cityplan_shiga.geojson','a09_cityplan_mie.geojson','a09_cityplan_nagano.geojson','a09_cityplan_hyogo.geojson'], label:'\u90fd\u5e02\u8a08\u753b\u533a\u57df',
     style:{ fillColor:'#66BB6A', fillOpacity:0.12, color:'#43A047', weight:1.0, opacity:0.7 } },
-  { key:'urban',    files:['a09_urban.geojson','a09_urban_shiga.geojson','a09_urban_mie.geojson','a09_urban_nagano.geojson'],    label:'\u5e02\u8857\u5316\u533a\u57df',
+  { key:'urban',    files:['a09_urban.geojson','a09_urban_shiga.geojson','a09_urban_mie.geojson','a09_urban_nagano.geojson','a09_urban_hyogo.geojson'],    label:'\u5e02\u8857\u5316\u533a\u57df',
     style:{ fillColor:'#9E9E9E', fillOpacity:0.12, color:'#757575', weight:0.6, opacity:0.7 } },
-  { key:'control',  files:['a09_control.geojson','a09_control_shiga.geojson','a09_control_mie.geojson','a09_control_nagano.geojson'],  label:'\u5e02\u8857\u5316\u8abf\u6574\u533a\u57df',
+  { key:'control',  files:['a09_control.geojson','a09_control_shiga.geojson','a09_control_mie.geojson','a09_control_nagano.geojson','a09_control_hyogo.geojson'],  label:'\u5e02\u8857\u5316\u8abf\u6574\u533a\u57df',
     style:{ fillColor:'#E53935', fillOpacity:0.25, color:'#B71C1C', weight:1.2, opacity:0.9 } }
 ];
 var cityPlanGroup = null;        // 3レイヤーを束ねる L.layerGroup
