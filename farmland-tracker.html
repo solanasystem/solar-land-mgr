@@ -16,7 +16,8 @@
 <!-- v20260529a: 農振農用地の表示しきい値 NOSHIN_MIN_ZOOM を 15→12 に変更（俯瞰確認用の試行）。z12は画面が県全域まで広がらないため描画負荷を抑制。農地フラグ/筆ポリゴン/衛星分析(DB系)は15維持。他2マップの農振は愛知限定・ゲートなしのため対象外 -->
 <!-- v20260529b: 「🎯 開拓候補」トグル追加。farmland-candidates と同一母集団(最新snapshot ∪ pubH_/emaffN_ − NG − 昇格済 − pub_)を読み取り専用でマーカー表示。ハザード/農振/都市計画区域と重ねて規制エリア該当を目視照合する用途。Canvasレンダラ＋専用pane(zIndex640)で軽量・最前面。ズーム非依存・全件表示。自動昇格のDB書込は含めない(読取専用) -->
 <!-- v20260529c: 🎯開拓候補レジェンドの長文説明を削除し1行化＋幅制限（横長帯の解消）。候補ポップアップに「⛔候補から除外(NG登録)」ボタン追加→farmland_ng_list(ng_reason=manual_from_tracker)へupsert後その場でマーカー除去。読取専用だった候補レイヤーから手動NG除外を可能に -->
-<script>window.__BUILD__='v20260529c';</script>
+<!-- v20260529d: NG除外を「座標(地点)」で永続化＝再表示防止。farmland_ng_listにlat/lng追加(要SQL先行)。全NG書込み(候補ポップアップ除外/範囲NG/マーカー詳細NG/ハザード自動NG/case_ng/衛星手動除外)に座標保存。候補ロード時にNG地点の15m近傍をfeature_id不問で除外(_isNearNg/グリッド+正確距離)。範囲NGの開拓候補対応も確定(個別マーカー削除方式)。読取はselect(*)でSQL未適用でも非クラッシュ -->
+<script>window.__BUILD__='v20260529d';</script>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -1518,7 +1519,8 @@ async function toggleNg(featureId){
     showToast('NG\u3092\u89e3\u9664\u3057\u307e\u3057\u305f','success');
   }else{
     // NG\u5224\u5b9a
-    var res=await db.from('farmland_ng_list').upsert({feature_id:featureId,updated_at:new Date().toISOString()},{onConflict:'feature_id'});
+    var _ci=(currentDetailItem&&currentDetailItem.feature_id===featureId)?currentDetailItem:null;
+    var res=await db.from('farmland_ng_list').upsert({feature_id:featureId,lat:_ci?_ci.lat:null,lng:_ci?_ci.lng:null,updated_at:new Date().toISOString()},{onConflict:'feature_id'});
     if(res.error){showToast('NG\u5224\u5b9a\u30a8\u30e9\u30fc: '+res.error.message,'error');return;}
     ngFeatureIds[featureId]=true;
     // \u30d5\u30a3\u30eb\u30bf\u30fcON\u6642\u306e\u307f\u30de\u30fc\u30ab\u30fc\u3092\u524a\u9664
@@ -1699,7 +1701,7 @@ async function runAutoNgJudgment(){
     }
     if(candidates.length>0){
       document.getElementById('loadingText').textContent='DB\u306b\u767b\u9332\u4e2d...';
-      var records=candidates.map(function(c){return{feature_id:c.feature_id,ng_reason:c.ng_reason,updated_at:new Date().toISOString()};});
+      var records=candidates.map(function(c){return{feature_id:c.feature_id,ng_reason:c.ng_reason,lat:(c.lat!=null?c.lat:null),lng:(c.lng!=null?c.lng:null),updated_at:new Date().toISOString()};});
       for(var j=0;j<records.length;j+=100){
         var batch=records.slice(j,j+100);
         var insRes=await db.from('farmland_ng_list').upsert(batch,{onConflict:'feature_id'});
@@ -1750,7 +1752,7 @@ async function _judgeOneFarmland(farmland,noshinGeo,candidates,stats){
     }
   }
   if(ngReason){
-    candidates.push({feature_id:farmland.feature_id,ng_reason:ngReason});
+    candidates.push({feature_id:farmland.feature_id,ng_reason:ngReason,lat:farmland.lat,lng:farmland.lng});
   }
 }
 function _isInsideWithBuffer(point,featureCollection,bufferMeters){
@@ -1835,7 +1837,7 @@ async function runCaseMasterSync(){
           var dist=turf.distance(casePoint,fPoint,{units:'meters'});
           if(dist<=CASE_SYNC_DISTANCE_METERS){
             matched=true;
-            if(CASE_NG_STATUSES.indexOf(c.status)>=0)ngCandidates[f.feature_id]=true;
+            if(CASE_NG_STATUSES.indexOf(c.status)>=0)ngCandidates[f.feature_id]={lat:f.lat,lng:f.lng};
             else approachCandidates[f.feature_id]=true;
           }
         }
@@ -1860,7 +1862,7 @@ async function runCaseMasterSync(){
       if(r.error)console.warn('\u30a2\u30d7\u30ed\u30fc\u30c1\u767b\u9332\u30a8\u30e9\u30fc:',r.error);
     }
     diagnosis.approachSynced=approachRecords.length;
-    var ngRecords=Object.keys(ngCandidates).map(function(fid){return{feature_id:fid,ng_reason:'case_ng',updated_at:new Date().toISOString()};});
+    var ngRecords=Object.keys(ngCandidates).map(function(fid){var g=ngCandidates[fid]||{};return{feature_id:fid,ng_reason:'case_ng',lat:(g.lat!=null?g.lat:null),lng:(g.lng!=null?g.lng:null),updated_at:new Date().toISOString()};});
     for(var n=0;n<ngRecords.length;n+=100){
       var batch=ngRecords.slice(n,n+100);
       var r=await db.from('farmland_ng_list').upsert(batch,{onConflict:'feature_id'});
@@ -2391,6 +2393,11 @@ function _renderCityPlan() {
 //         pub_(低精度)除外 → farmland_ng_list 除外 → farmland_promoted(昇格済)除外。
 // ※候補ページが行う「アプローチ済の自動昇格(DB書込)」は副作用のため本トグルでは実施しない（読取専用）。
 var candEnabled=false, candLoading=false, candLayer=null, candCache=null, candRenderer=null;
+// ===== NG地点（座標）近傍判定：過去にNG除外した地点の半径15m以内は feature_id が違っても除外（再表示防止） =====
+var NG_NEAR_M=15, NG_CELL=0.0003; var _ngGrid=null;
+function _ngHaversineM(la1,lo1,la2,lo2){var R=6371000,T=Math.PI/180;var dLa=(la2-la1)*T,dLo=(lo2-lo1)*T;var a=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.cos(la1*T)*Math.cos(la2*T)*Math.sin(dLo/2)*Math.sin(dLo/2);return 2*R*Math.asin(Math.sqrt(a));}
+function _buildNgGrid(ngRows){_ngGrid={};(ngRows||[]).forEach(function(d){if(d==null||d.lat==null||d.lng==null)return;var la=Number(d.lat),lo=Number(d.lng);if(isNaN(la)||isNaN(lo))return;var k=Math.floor(la/NG_CELL)+'_'+Math.floor(lo/NG_CELL);(_ngGrid[k]=_ngGrid[k]||[]).push([la,lo]);});}
+function _isNearNg(lat,lng){if(!_ngGrid)return false;var la=Number(lat),lo=Number(lng);if(isNaN(la)||isNaN(lo))return false;var ci=Math.floor(la/NG_CELL),cj=Math.floor(lo/NG_CELL);for(var di=-1;di<=1;di++)for(var dj=-1;dj<=1;dj++){var arr=_ngGrid[(ci+di)+'_'+(cj+dj)];if(!arr)continue;for(var i=0;i<arr.length;i++){if(_ngHaversineM(la,lo,arr[i][0],arr[i][1])<=NG_NEAR_M)return true;}}return false;}
 function toggleCandidates(){
   var btn=document.getElementById('hzCandidates');
   var lg=document.getElementById('candLegend');
@@ -2420,7 +2427,7 @@ async function _loadCandidates(){
       _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS).eq('snapshot_date',latestDate);}),
       // 永続系（pubH_ / emaffN_）は日付問わず全件
       _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS).or('feature_id.ilike.pubH%,feature_id.ilike.emaffN%');}),
-      _fetchAllPaged(function(){return db.from('farmland_ng_list').select('feature_id');}),
+      _fetchAllPaged(function(){return db.from('farmland_ng_list').select('*');}),
       _fetchAllPaged(function(){return db.from('farmland_promoted').select('feature_id');}),
       _fetchAllPaged(function(){return db.from('farmland_status').select('feature_id,status');})
     ]);
@@ -2430,9 +2437,10 @@ async function _loadCandidates(){
     // pub_（低精度・pubH_以外）を除外
     var snaps=Object.keys(byFid).map(function(k){return byFid[k];}).filter(function(s){var fid=s.feature_id||'';return !(fid.indexOf('pub_')===0&&fid.indexOf('pubH_')!==0);});
     var ngSet={}; (results[2].data||[]).forEach(function(d){ngSet[d.feature_id]=true;});
+    _buildNgGrid(results[2].data||[]); // NG地点の座標グリッド（15m近傍除外用）
     var prSet={}; (results[3].data||[]).forEach(function(d){prSet[d.feature_id]=true;});
     var stMap={}; (results[4].data||[]).forEach(function(d){stMap[d.feature_id]=d.status;});
-    candCache=snaps.filter(function(s){return !ngSet[s.feature_id]&&!prSet[s.feature_id]&&s.lat!=null&&s.lng!=null;})
+    candCache=snaps.filter(function(s){return !ngSet[s.feature_id]&&!prSet[s.feature_id]&&s.lat!=null&&s.lng!=null&&!_isNearNg(s.lat,s.lng);})
                    .map(function(s){return Object.assign({},s,{status:stMap[s.feature_id]||null});});
     candLoading=false;
     if(candEnabled)_renderCandidates();
@@ -2470,7 +2478,8 @@ async function excludeCandidate(fid){
   if(!fid)return;
   if(!window.confirm('この候補をNG除外します。よろしいですか？\n'+fid))return;
   try{
-    var res=await db.from('farmland_ng_list').upsert({feature_id:fid,ng_reason:'manual_from_tracker',updated_at:new Date().toISOString()},{onConflict:'feature_id'});
+    var _c=(candCache||[]).filter(function(x){return x.feature_id===fid;})[0]||null;
+    var res=await db.from('farmland_ng_list').upsert({feature_id:fid,ng_reason:'manual_from_tracker',lat:_c?_c.lat:null,lng:_c?_c.lng:null,updated_at:new Date().toISOString()},{onConflict:'feature_id'});
     if(res.error)throw res.error;
     if(candCache)candCache=candCache.filter(function(c){return c.feature_id!==fid;});
     if(candLayer){candLayer.eachLayer(function(l){if(l._fid===fid)candLayer.removeLayer(l);});}
@@ -3078,14 +3087,18 @@ initDraggablePanels('farmlandTracker', [
       if(typeof showToast==='function')showToast('範囲内のマーカーは全てNG済みでした','warning');
       return;
     }
-    // 内訳カウント（変更トラッカー / 衛星分析）
-    var nTracker=0,nSat=0;
-    targets.forEach(function(t){if(t._ngSource==='sat')nSat++;else nTracker++;});
+    // 内訳カウント（変更トラッカー / 衛星分析 / 開拓候補）
+    var nTracker=0,nSat=0,nCand=0;
+    targets.forEach(function(t){if(t._ngSource==='sat')nSat++;else if(t._ngSource==='cand')nCand++;else nTracker++;});
     // 確認ダイアログ
     var msg=targets.length+'件をNG判定します。';
-    if(nSat>0)msg+='（変更トラッカー '+nTracker+'件 / 衛星分析 '+nSat+'件）';
+    var _bd=[];
+    if(nTracker>0)_bd.push('変更トラッカー '+nTracker+'件');
+    if(nSat>0)_bd.push('衛星分析 '+nSat+'件');
+    if(nCand>0)_bd.push('開拓候補 '+nCand+'件');
+    if(_bd.length>1)msg+='（'+_bd.join(' / ')+'）';
     msg+='\n\n';
-    var sample=targets.slice(0,5).map(function(t){return '・'+(t._ngSource==='sat'?'[衛星] ':'')+(t.city||'')+' '+(t.address||'').substring(0,30);}).join('\n');
+    var sample=targets.slice(0,5).map(function(t){return '・'+(t._ngSource==='sat'?'[衛星] ':t._ngSource==='cand'?'[候補] ':'')+(t.city||'')+' '+(t.address||'').substring(0,30);}).join('\n');
     msg+=sample;
     if(targets.length>5)msg+='\n…他 '+(targets.length-5)+'件';
     msg+='\n\n実行しますか？（NG解除は個別マーカー詳細から可能）';
@@ -3094,7 +3107,7 @@ initDraggablePanels('farmlandTracker', [
     if(typeof showLoading==='function')showLoading('NG登録中... (0/'+targets.length+')');
     var saved=0,failed=0;
     var BATCH=100;
-    var records=targets.map(function(t){return{feature_id:t.feature_id,ng_reason:'manual_rect',updated_at:new Date().toISOString()};});
+    var records=targets.map(function(t){return{feature_id:t.feature_id,ng_reason:'manual_rect',lat:(t.lat!=null?t.lat:null),lng:(t.lng!=null?t.lng:null),updated_at:new Date().toISOString()};});
     for(var i=0;i<records.length;i+=BATCH){
       var batch=records.slice(i,i+BATCH);
       try{
@@ -3128,6 +3141,11 @@ initDraggablePanels('farmlandTracker', [
       if(typeof _updateSatCounters==='function')_updateSatCounters();
       if(typeof _renderSatInView==='function')_renderSatInView();
     }
+    // 開拓候補レイヤーからもNG分を即時除去（既存レイヤーから該当マーカーのみ削除＝canvas作り直しを避け連続NGでも安定）
+    if(nCand>0&&typeof candEnabled!=='undefined'&&candEnabled&&typeof candCache!=='undefined'&&candCache){
+      candCache=candCache.filter(function(c){return !(typeof ngFeatureIds!=='undefined'&&ngFeatureIds[c.feature_id]);});
+      if(candLayer)candLayer.eachLayer(function(l){if(typeof ngFeatureIds!=='undefined'&&ngFeatureIds[l._fid])candLayer.removeLayer(l);});
+    }
     // モード継続（連続して範囲NG可能）。ESC または ボタン再押下で終了。
   }
 
@@ -3160,6 +3178,18 @@ initDraggablePanels('farmlandTracker', [
         if(seen[r.feature_id])return;
         seen[r.feature_id]=true;
         result.push({feature_id:r.feature_id,lat:r.lat,lng:r.lng,address:r.address||'',city:'',_ngSource:'sat'});
+      });
+    }
+    // (3) 開拓候補レイヤー（candCache）。レイヤーON時のみ対象。ズーム非依存（全件保持のため）。
+    if(typeof candEnabled!=='undefined'&&candEnabled&&typeof candCache!=='undefined'&&candCache){
+      candCache.forEach(function(c){
+        if(!c||!c.feature_id||c.lat==null||c.lng==null)return;
+        var clat=Number(c.lat),clng=Number(c.lng);
+        if(isNaN(clat)||isNaN(clng))return;
+        if(!bounds.contains([clat,clng]))return;
+        if(seen[c.feature_id])return;
+        seen[c.feature_id]=true;
+        result.push({feature_id:c.feature_id,lat:clat,lng:clng,address:c.address||'',city:c.city||'',_ngSource:'cand'});
       });
     }
     return result;
@@ -3515,8 +3545,9 @@ function _updateSatCounters(){
 window.deleteSatFeature=function(featureId){
   if(!featureId)return;
   if(!confirm('この筆を発掘候補から除外しますか？\n（farmland_ng_list に手動除外として登録され、地図から消えます）'))return;
+  var _sd=(typeof _satData!=='undefined'&&_satData)?_satData.filter(function(r){return r.feature_id===featureId;})[0]:null;
   db.from('farmland_ng_list').upsert(
-    {feature_id:featureId,ng_reason:'manual',updated_at:new Date().toISOString()},
+    {feature_id:featureId,ng_reason:'manual',lat:_sd?_sd.lat:null,lng:_sd?_sd.lng:null,updated_at:new Date().toISOString()},
     {onConflict:'feature_id'}
   ).then(function(res){
     if(res.error){showToast('除外に失敗しました: '+res.error.message,'error');return;}

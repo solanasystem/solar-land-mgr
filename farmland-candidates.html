@@ -2,6 +2,7 @@
 <!-- BUILD: farmland-candidates v20260515h / MODE SELECT ボタンにクローバを統合（mode-back.js v20260515h） -->
 <!-- v20260528a: 「低圧蓄電池候補」トグル追加。A09市街化調整区域GeoJSON(R2)と各候補座標を点-多角形判定し、調整区域内の筆を除外表示。既存の開拓候補リスト(全件)は温存、トグルOFFで従来通り。クライアント側突合・外部ライブラリ不要 -->
 <!-- v20260528b: 地図列にGoogleマップを開くボタン(🌐)を追加。既存のシステム地図ボタン(🗺=変化トラッカーへジャンプ+ホバープレビュー)は残し、横にGoogleマップ(新タブ)ボタンを並置 -->
+<!-- v20260529a: NG除外の座標永続化に対応。farmland_ng_listのlat/lngを参照し、過去NG地点の15m近傍候補をfeature_id不問で一覧から除外。setNg時に座標も保存。tracker側と母集団を統一。読取はselect(*)で後方互換 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -295,7 +296,7 @@ async function loadData(){
       _fetchAllPaged(function(){return db.from('farmland_snapshots').select('*').eq('snapshot_date',latestDate).not('feature_id','ilike','pubH\\_%').not('feature_id','ilike','emaffN\\_%');}),
       // v20260515d: 永続系（pubH_ / emaffN_）は日付問わず全件取得（取込日が異なっても拾える）
       _fetchAllPaged(function(){return db.from('farmland_snapshots').select('*').or('feature_id.ilike.pubH\\_%,feature_id.ilike.emaffN\\_%');}),
-      _fetchAllPaged(function(){return db.from('farmland_ng_list').select('feature_id');}),
+      _fetchAllPaged(function(){return db.from('farmland_ng_list').select('*');}),
       db.from('farmland_status').select('feature_id,status').limit(10000),
       db.from('farmland_comments').select('feature_id,comment').limit(10000),
       db.from('farmland_promoted').select('feature_id').limit(10000),
@@ -319,6 +320,7 @@ async function loadData(){
     var landList=results[7].data||[];
     var ngSet={};
     ngList.forEach(function(d){ngSet[d.feature_id]=true;});
+    _buildNgGrid(ngList); // NG地点の座標グリッド（15m近傍除外用）
     var promotedSet={};
     promotedList.forEach(function(d){promotedSet[d.feature_id]=true;});
     var statusMap={};
@@ -359,7 +361,7 @@ async function loadData(){
         await db.from('farmland_promoted').upsert(autoPromoteRecords,{onConflict:'feature_id',ignoreDuplicates:true});
       }catch(e){console.warn('\u81ea\u52d5\u540c\u671f\u8a18\u9332\u8b66\u544a:',e);}
     }
-    farmlands=snapshots.filter(function(f){return !ngSet[f.feature_id]&&!promotedSet[f.feature_id];}).map(function(f){
+    farmlands=snapshots.filter(function(f){return !ngSet[f.feature_id]&&!promotedSet[f.feature_id]&&!_isNearNg(f.lat,f.lng);}).map(function(f){
       return Object.assign({},f,{
         status:statusMap[f.feature_id]||null,
         comment:commentMap[f.feature_id]||''
@@ -592,7 +594,8 @@ async function setStatus(featureId,status){
 async function setNg(featureId){
   if(!confirm('\u3053\u306e\u8fb2\u5730\u3092NG\u5224\u5b9a\u3057\u307e\u3059\u304b\uff1f\uff08\u4e00\u89a7\u304b\u3089\u975e\u8868\u793a\u306b\u306a\u308a\u307e\u3059\uff09'))return;
   try{
-    var res=await db.from('farmland_ng_list').upsert({feature_id:featureId,ng_reason:'manual_from_list',updated_at:new Date().toISOString()},{onConflict:'feature_id'});
+    var _f=(farmlands||[]).filter(function(x){return x.feature_id===featureId;})[0]||null;
+    var res=await db.from('farmland_ng_list').upsert({feature_id:featureId,ng_reason:'manual_from_list',lat:_f?_f.lat:null,lng:_f?_f.lng:null,updated_at:new Date().toISOString()},{onConflict:'feature_id'});
     if(res.error)throw new Error(res.error.message);
     farmlands=farmlands.filter(function(x){return x.feature_id!==featureId;});
     renderTable();
@@ -706,6 +709,10 @@ async function bulkExclude(){
 }
 
 // ======== 2点間距離（メートル、ハーバサイン公式） ========
+// ===== NG地点（座標）近傍判定：過去にNG除外した地点の半径15m以内は feature_id が違っても除外（再表示防止） =====
+var NG_NEAR_M=15, NG_CELL=0.0003; var _ngGrid=null;
+function _buildNgGrid(ngRows){_ngGrid={};(ngRows||[]).forEach(function(d){if(d==null||d.lat==null||d.lng==null)return;var la=Number(d.lat),lo=Number(d.lng);if(isNaN(la)||isNaN(lo))return;var k=Math.floor(la/NG_CELL)+'_'+Math.floor(lo/NG_CELL);(_ngGrid[k]=_ngGrid[k]||[]).push([la,lo]);});}
+function _isNearNg(lat,lng){if(!_ngGrid)return false;var la=Number(lat),lo=Number(lng);if(isNaN(la)||isNaN(lo))return false;var ci=Math.floor(la/NG_CELL),cj=Math.floor(lo/NG_CELL);for(var di=-1;di<=1;di++)for(var dj=-1;dj<=1;dj++){var arr=_ngGrid[(ci+di)+'_'+(cj+dj)];if(!arr)continue;for(var i=0;i<arr.length;i++){if(haversineMeters(la,lo,arr[i][0],arr[i][1])<=NG_NEAR_M)return true;}}return false;}
 function haversineMeters(lat1,lng1,lat2,lng2){
   var R=6371000;
   var toRad=function(d){return d*Math.PI/180;};
