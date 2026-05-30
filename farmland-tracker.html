@@ -23,6 +23,7 @@
 <!-- v20260529h: 都市計画区域A09に兵庫(A09-18_28)を追加。files配列へa09_*_hyogoを追記。兵庫=市街化148/調整230/非線引き32。高圧蓄電池の系統空き容量がある兵庫を即対応するため区域区分を被覆 -->
 <!-- v20260529i: 農振農用地(noshin)に兵庫を追加。A12-15_28(農業地域)のLAYER_NO=6=農用地区域2891件をnoshin_hyogo.geojson化(properties{city,area}・既存同形式)。NOSHIN_PREF_BOUNDSへhyogo追加。GitHub data/noshin/に配置。これで兵庫の都市計画区域(A09)＋農振農用地(A12)が両方被覆 -->
 <!-- v20260529k: 高圧蓄電池Phase1。変電所レイヤー追加(OSM power=substation 41都府県5429件、北海道/四国/沖縄は都道府県境界で除外)。⚡変電所トグル+電圧帯色分け凡例。R2配信(WORKER_BASE+/r2/substations.geojson)。subPane(zIndex635)+canvas。出典©OSM -->
+<!-- v20260530a: 高圧蓄電池Phase2。配電用変電所(空容量)レイヤー追加(中部電力PG 三河127件、公表日2026-05-27)。⚡空容量トグル+信頼度(輪郭)×空容量(塗り)2軸表示+点滅。R2配信(WORKER_BASE+/r2/substation_capacity_mikawa.geojson)。subPane再利用。 -->
 <!-- v20260529l: UI改善。hazard-toggle-btn(用途地域/都市計画区域/開拓候補)が透明背景+薄灰文字で明るい衛星画像上で視認困難だったため、濃色背景(var(--surface))+明色文字(#c9d1d9)+枠線に変更。他のボタンと統一 -->
 <!-- v20260529m: Phase2。クリック地点→最寄り66–110kV変電所の直線距離(haversine)計測。📏ボタンで計測モードON/OFF(専用,他クリック動作と非干渉)。黄破線+変電所マーカー+ポップアップ(距離/名称/電圧/事業者)。measurePane(zIndex645)。電圧不明は対象外 -->
 <script>window.__BUILD__='v20260529m';</script>
@@ -433,6 +434,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   .popup-divider { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
   .popup-btn { flex: 1; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border); background: none; color: var(--text); font-family: var(--font-main); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; text-align: center; min-width: 80px; }
   .popup-btn:hover { background: var(--surface2); }
+  /* v20260530a: 配電用変電所(空容量)レイヤーの点滅 */
+  @keyframes capPulse { 0%,100% { opacity:1 } 50% { opacity:.35 } }
+  .pulse-cap { animation: capPulse 1.6s ease-in-out infinite; }
 </style>
 </head>
 <body>
@@ -572,6 +576,22 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     </div>
     <!-- 変電所（OSM power=substation, R2配信） Phase1 v20260529k -->
     <button class="hazard-btn" id="hzSubstation" onclick="toggleSubstations()">&#9889; 変電所</button>
+    <button class="hazard-btn" id="hzCapacity" onclick="toggleCapacitySubstations()">&#9889; 空容量</button>
+    <div id="capLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
+      <div style="font-size:10px;line-height:1.7;">
+        <div style="font-weight:600;margin-bottom:2px">塗り＝空容量(MW)</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#36d399;border:1px solid #333;margin-right:5px"></span>30以上</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#facc15;border:1px solid #333;margin-right:5px"></span>10〜30</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#fb7185;border:1px solid #333;margin-right:5px"></span>0超〜10</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#5b6b7e;border:1px solid #333;margin-right:5px"></span>0（空きなし）</div>
+        <div style="font-weight:600;margin-top:4px;margin-bottom:2px">輪郭＝座標信頼度</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #36d399;margin-right:5px"></span>OSM一致(≤100m)</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #facc15;margin-right:5px"></span>OSM近接(100-500m)</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #fb923c;margin-right:5px"></span>要確認(500m-3km)</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #fb7185;margin-right:5px"></span>OSM対応なし</div>
+        <div style="margin-top:3px;color:var(--text-dim);font-size:9px;">中部電力PG 154kV以下系統 公表2026-05-27</div>
+      </div>
+    </div>
     <button class="hazard-btn" id="hzMeasure" onclick="toggleMeasure()">&#128207; 最寄り変電所(66–110kV)</button>
     <div id="subLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
       <div style="font-size:10px;line-height:1.7;">
@@ -2446,6 +2466,98 @@ function _renderSubstations(){
   });
   subLayer.addTo(map);
   showToast(n+'件の変電所を表示（© OpenStreetMap contributors）','success');
+}
+
+// ======== v20260530a: 配電用変電所(空容量)レイヤー ========
+var capEnabled=false, capLoading=false, capLayer=null, capCache=null;
+function _capColor(c){
+  if(c==null||c<=0) return '#5b6b7e';
+  if(c>=30) return '#36d399';
+  if(c>=10) return '#facc15';
+  return '#fb7185';
+}
+function _capTierColor(t){
+  return ({high:'#36d399',med:'#facc15',review:'#fb923c',google:'#fb7185'})[t]||'#888';
+}
+function _capRadius(c){
+  if(c==null||c<=0) return 3;
+  return 3 + Math.min(7, Math.sqrt(c)*0.85);
+}
+function toggleCapacitySubstations(){
+  var btn=document.getElementById('hzCapacity'); var lg=document.getElementById('capLegend');
+  capEnabled=!capEnabled;
+  if(!capEnabled){
+    if(capLayer){map.removeLayer(capLayer);capLayer=null;}
+    if(btn)btn.classList.remove('active');
+    if(lg)lg.style.display='none';
+    showToast('配電用変電所(空容量)を非表示にしました','success'); return;
+  }
+  if(btn)btn.classList.add('active');
+  if(lg)lg.style.display='block';
+  if(capCache){_renderCapacitySubstations();return;}
+  _loadCapacitySubstations();
+}
+async function _loadCapacitySubstations(){
+  if(capLoading)return; capLoading=true;
+  try{
+    var res=await fetch(WORKER_BASE+'/r2/substation_capacity_mikawa.geojson');
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    var gj=await res.json();
+    capCache=(gj&&gj.features)?gj.features:[];
+    capLoading=false;
+    if(capEnabled)_renderCapacitySubstations();
+  }catch(e){
+    capLoading=false; capEnabled=false;
+    showToast('空容量データ取得失敗: '+e.message,'error');
+    var btn=document.getElementById('hzCapacity'); if(btn)btn.classList.remove('active');
+    var lg=document.getElementById('capLegend'); if(lg)lg.style.display='none';
+  }
+}
+function _renderCapacitySubstations(){
+  if(!capCache)return;
+  if(capLayer){map.removeLayer(capLayer);capLayer=null;}
+  if(!map.getPane('subPane')){var pp=map.createPane('subPane');pp.style.zIndex=635;}
+  capLayer=L.layerGroup([],{pane:'subPane'});
+  var n=0, capSum=0;
+  capCache.forEach(function(f){
+    if(!f.geometry||f.geometry.type!=='Point')return;
+    var lng=f.geometry.coordinates[0], lat=f.geometry.coordinates[1];
+    if(isNaN(lat)||isNaN(lng))return;
+    var p=f.properties||{};
+    var has=p.cap!=null && p.cap>0;
+    if(has)capSum+=p.cap;
+    var m=L.circleMarker([lat,lng],{
+      pane:'subPane', radius:_capRadius(p.cap),
+      color:_capTierColor(p.tier), weight:2.2,
+      fillColor:_capColor(p.cap), fillOpacity:0.92, opacity:1,
+      className:(has?'pulse-cap':'')
+    });
+    var gm='https://www.google.com/maps/search/?api=1&query='+lat+','+lng;
+    var sv='https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+lat+','+lng;
+    var capTxt=(p.cap==null)?'—':(p.cap+' MW');
+    var tierLabel=({high:'OSM一致',med:'OSM近接',review:'要確認',google:'OSM対応なし'})[p.tier]||'';
+    var osmRow=p.osm_name?('<div class="popup-row"><span class="popup-label">OSM対応</span><span class="popup-value">'+_esc(p.osm_name)+' ('+p.dist_to_osm_m+'m)</span></div>'):'';
+    m.bindPopup(
+      '<div class="popup-body">'+
+      '<div class="popup-case-no" style="color:#fb8c00;font-size:13px;margin-bottom:10px">⚡ 配電用変電所(空容量) — '+tierLabel+'</div>'+
+      '<div class="popup-info">'+
+      '<div class="popup-row"><span class="popup-label">名称</span><span class="popup-value">'+_esc(p.name||'')+'</span></div>'+
+      '<div class="popup-row"><span class="popup-label">空容量</span><span class="popup-value" style="color:'+_capColor(p.cap)+';font-weight:700">'+_esc(capTxt)+'</span></div>'+
+      '<div class="popup-row"><span class="popup-label">電圧</span><span class="popup-value">'+_esc(p.kv1||'')+' / '+_esc(p.kv2||'')+' kV</span></div>'+
+      '<div class="popup-row"><span class="popup-label">設備No</span><span class="popup-value">'+_esc(p.no||'')+'</span></div>'+
+      '<div class="popup-row"><span class="popup-label">上位系</span><span class="popup-value">'+_esc(p.kami||'—')+'</span></div>'+
+      osmRow+
+      '</div>'+
+      '<div style="margin-top:8px;font-size:11px">'+
+      '<a href="'+gm+'" target="_blank" style="color:#4aa3ff;text-decoration:none">📍 地図</a>&nbsp;&nbsp;'+
+      '<a href="'+sv+'" target="_blank" style="color:#4aa3ff;text-decoration:none">🚶 ストリートビュー</a>'+
+      '</div>'+
+      '</div>',
+      {maxWidth:320,minWidth:240});
+    capLayer.addLayer(m); n++;
+  });
+  capLayer.addTo(map);
+  showToast(n+'件の配電用変電所を表示 / 空容量合計 '+capSum.toFixed(0)+'MW','success');
 }
 
 // ======== Phase2：クリック地点→最寄り66–110kV変電所の直線距離 ========
