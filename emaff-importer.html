@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- BUILD: emaff-importer v20260520a / モードD（青地除去・広域取込）新規追加：emaffD_ プレフィックス・source_type=emaff_d で投入。モードA/B/Cは無改変 -->
+<!-- v20260530a: モードBに方式トグル追加（📄単発ドロップ / 🗺️市町村網羅）。市町村網羅は実証済みモードCエンジンを再利用（複製せず selectMode'C' で起動）。モードA/C/D無改変 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -921,6 +922,23 @@ body{
       </p>
     </div>
 
+    <!-- v20260530a: 取込方式トグル -->
+    <div class="step-card" style="border-color:#0ea5e9;">
+      <div class="step-title" style="margin-bottom:10px;">取込方式を選択</div>
+      <div class="step-body">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button id="modeBMethodSingle" class="button button-primary" style="flex:1;min-width:200px;" onclick="modeBSetMethod('single')">📄 単発ドロップ取込<br><span style="font-size:11px;opacity:.85;">eMAFFでDLした1ファイルを投入</span></button>
+          <button id="modeBMethodGrid" class="button" style="flex:1;min-width:200px;background:#a855f7;color:#fff;border-color:#a855f7;" onclick="modeBSetMethod('grid')">🗺️ 市町村網羅取込<br><span style="font-size:11px;opacity:.9;">市町村全域をタイル分割し漏れなく取込</span></button>
+        </div>
+        <div class="tip" style="margin-top:10px;">
+          💡 <strong>市町村網羅取込</strong>は、市町村全域をズーム14のタイルグリッドに分割し、各セルを順番にDL・投入する方式です（進捗はlocalStorageに自動保存され途中再開可能）。投入先・絞込条件は単発ドロップと同じ（<code style="background:var(--bg);padding:1px 5px;border-radius:3px;">emaffN_</code>・「売りたい」自動絞込）です。
+        </div>
+      </div>
+    </div>
+
+    <!-- 単発ドロップ方式（既存フロー） -->
+    <div id="modeBSingleFlow">
+
     <!-- Step B-1 -->
     <div class="step-card">
       <div class="step-number">B-1</div>
@@ -1008,6 +1026,8 @@ body{
         <div id="saveResultB" class="muted" style="margin-top:12px;"></div>
       </div>
     </div>
+
+    </div><!-- /#modeBSingleFlow -->
 
   </div><!-- /#modeBContent -->
 
@@ -1292,6 +1312,21 @@ function backToSelector(){
   document.getElementById('modeCContent').style.display='none';
   document.getElementById('modeDContent').style.display='none';
   window.scrollTo({top:0,behavior:'smooth'});
+}
+
+// v20260530a: モードB 取込方式トグル（単発ドロップ / 市町村網羅）
+function modeBSetMethod(method){
+  var bS=document.getElementById('modeBMethodSingle');
+  var bG=document.getElementById('modeBMethodGrid');
+  if(method==='grid'){
+    // 市町村網羅は実証済みモードCエンジンを再利用（複製せず起動）
+    selectMode('C');
+    return;
+  }
+  // 単発ドロップ：既存フローを表示（デフォルト）
+  document.getElementById('modeBSingleFlow').style.display='block';
+  if(bS){bS.classList.add('button-primary');}
+  if(bG){bG.classList.remove('button-primary');}
 }
 
 // ============================================================
