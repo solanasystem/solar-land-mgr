@@ -2415,7 +2415,22 @@ function filterLandMaster(){
   if(q){
     filtered=filtered.slice().sort((a,b)=>searchScore(b,q,['cases.case_no','cases.display_case_no','location','chiban','horeijo_seigen','biko','hazard','landowner_name'])-searchScore(a,q,['cases.case_no','cases.display_case_no','location','chiban','horeijo_seigen','biko','hazard','landowner_name']));
   }
-  renderLands(filtered);
+  renderLands(collapseLandsByCase(filtered));
+}
+/* v20260619b: 土地情報マスターは1案件1行に集約（複数筆は合計面積＋筆数で表示） */
+function _fudeAreaNum(l){
+  const lv=l.location?String(l.location).replace(/^\{|\}$/g,'').trim():'';
+  const isNum=lv&&!isNaN(parseFloat(lv))&&parseFloat(lv)>0&&lv.length<12;
+  return isNum?parseFloat(lv):(parseFloat(l.area_sqm)||0);
+}
+function collapseLandsByCase(lands){
+  const map=new Map();
+  (lands||[]).forEach(l=>{
+    const k=l.case_id||('_'+l.id);
+    if(!map.has(k)){map.set(k,{...l,_fudeCount:1,_sumAreaNum:_fudeAreaNum(l)});}
+    else{const r=map.get(k);r._fudeCount++;r._sumAreaNum+=_fudeAreaNum(l);}
+  });
+  return Array.from(map.values());
 }
 function renderLands(lands){
   const el=document.getElementById('landList');
@@ -2425,7 +2440,8 @@ function renderLands(lands){
     const locVal=land.location?String(land.location).replace(/^\{|\}$/g,'').trim():'';
     const locIsNum=locVal&&!isNaN(parseFloat(locVal))&&parseFloat(locVal)>0&&locVal.length<12;
     const soZai=locIsNum?(land.chiban||'—'):(locVal||land.chiban||'—');
-    const menseki=locIsNum?formatArea(locVal):formatArea(land.area_sqm);
+    const menseki=(land._sumAreaNum!=null)?formatArea(land._sumAreaNum):(locIsNum?formatArea(locVal):formatArea(land.area_sqm));
+    const fudeBadge=(land._fudeCount>1)?` <span style="color:var(--text-muted);font-size:10px">（${land._fudeCount}筆）</span>`:'';
     const yoto=land.horeijo_seigen||'—';
     const hazRaw=land.hazard||land.biko||'';
     const hazText=hazRaw.includes('http')?hazRaw.split(/https?:\/\//)[0].replace(/\/\s*$/,'').trim():hazRaw;
@@ -2439,7 +2455,7 @@ function renderLands(lands){
       <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${land.landowner_name?highlightText(land.landowner_name,q):'—'}</div>
       <div style="font-size:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${soZai==='—'?'—':highlightText(soZai,q)}</div>
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--text);text-align:right">${land.cases?.price?Number(land.cases.price).toLocaleString()+' 円':'—'}</div>
-      <div style="font-size:12px;color:var(--text-muted);white-space:nowrap;text-align:right">${menseki}</div>
+      <div style="font-size:12px;color:var(--text-muted);white-space:nowrap;text-align:right">${menseki}${fudeBadge}</div>
       <div style="font-size:12px;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-align:center">${yoto==='—'?'—':highlightText(yoto,q)}</div>
       <div style="font-size:12px;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-align:center">${hazText?highlightText(hazText,q):'—'}</div>
       <div style="font-size:12px;text-align:center">${mapUrl?`<a href="${mapUrl}" target="_blank" style="color:var(--blue)">🔍</a>`:'—'}</div>
