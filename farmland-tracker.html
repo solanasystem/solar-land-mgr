@@ -27,7 +27,7 @@
 <!-- v20260530b: 配電用変電所(空容量)レイヤー強化。色閾値見直し(50/20/0)で主力5件が際立つ表示に変更。ポップアップに運用容量・予想潮流・N-1電制(可否/可能量)・平常時出力制御の可能性・運用容量制約要因を追加。 -->
 <!-- v20260529l: UI改善。hazard-toggle-btn(用途地域/都市計画区域/開拓候補)が透明背景+薄灰文字で明るい衛星画像上で視認困難だったため、濃色背景(var(--surface))+明色文字(#c9d1d9)+枠線に変更。他のボタンと統一 -->
 <!-- v20260529m: Phase2。クリック地点→最寄り66–110kV変電所の直線距離(haversine)計測。📏ボタンで計測モードON/OFF(専用,他クリック動作と非干渉)。黄破線+変電所マーカー+ポップアップ(距離/名称/電圧/事業者)。measurePane(zIndex645)。電圧不明は対象外 -->
-<script>window.__BUILD__='v20260621e';</script>
+<script>window.__BUILD__='v20260621f';</script>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -75,6 +75,7 @@
 <!-- v20260621c: Track B残地レイヤ追加(discovery_candidates/get_trackb_in_bbox)。🏗トグル・クリア緑/要確認浸水黄・筆ポリゴン描画・既存AgriFude作法複製・読取専用。(1)地図表示。 -->
 <!-- v20260621d: Track Bポップアップに📍Googleマップ(航空写真・真上ズーム20)ボタン追加=現況確認用。openGoogleAerial新設。Track Bポップアップのボタン行のみ改修・他スコープ無改変。 -->
 <!-- v20260621e: 都市計画区域レイヤをA09(国土数値情報R2・静的GeoJSON)からXKT001(不動産情報ライブラリ・タイル方式・令和6年度)へ全面差し替え。field-survey/landowner-visitと同一実装に統一(3マップ整合)。旧A09は静岡で市街化調整区域を取りこぼす欠陥があり②最終断定をXKT001に一本化。A09関連の変数/関数/凡例/CITYPLAN_R2を全削除。A09は表示専用で判定ロジック未参照を監査確認済のため判定残骸なし。 -->
+<!-- v20260621f: Track Bポップアップに【✅案件候補へ】【🗑除外】追加＋上部ツールバーに【🗑Track B範囲除外】(案S・既存範囲NG無改変・専用UX複製)。✅案件候補へ=押下時XKT001点照合(α)→市街化調整区域はexclude_trackbで地図から消す/区域外は警告継続/OK継続→地番任意入力(農地ナビ/登記情報で人が確認)→DEFINER RPC promote_trackb_to_case でcases+land_info登録(採番サーバ側{市町村}-連番)→現地調査マップにフラグ。adopted筆は青で別色表示。除外/範囲除外/採用は全てDEFINER RPC経由でRLS回避。要DB: promote_trackb_to_case RPC。 -->
 <!-- 注: 真因はget_trackb_in_bboxがSECURITY INVOKERでRLSに漉されブラウザanon=0件だった件→SECURITY DEFINER+search_path=public化(サーバ側)で開通済(prosecdef=true永続)。HTMLは無関係。 -->
 <link rel="stylesheet" href="mobile-responsive.css?v=20260522a">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -484,6 +485,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <button class="btn btn-ghost active" id="btnNgFilter" onclick="toggleNgFilter()" style="font-size:12px;padding:5px 12px;">&#128683; NG非表示</button>
   <button class="btn btn-ghost" id="btnAutoJudge" onclick="runAutoNgJudgment()" style="font-size:12px;padding:5px 12px;">&#129302; AI自動判定</button>
   <button class="btn btn-ghost" id="btnRectNg" onclick="toggleRectNgMode()" style="font-size:12px;padding:5px 12px;">&#128306; 範囲NG</button>
+  <button class="btn btn-ghost" id="btnTrackbRect" onclick="toggleTrackbRectExclude()" style="font-size:12px;padding:5px 12px;">&#128465; Track B範囲除外</button>
   <button class="btn btn-ghost" id="btnOwnerColor" onclick="toggleOwnerColorMode()" style="font-size:12px;padding:5px 12px;">&#127912; 耕作者色分け</button>
   <button class="btn btn-ghost" id="btnDiagnose" onclick="diagnosePBFKeys()" style="font-size:12px;padding:5px 12px;">&#128269; PBF診断</button>
   <div class="stats-bar">
@@ -1357,13 +1359,18 @@ async function _fetchAndRenderTrackb() {
     properties: {
       id: row.id, parcel_ref: row.parcel_ref, area_m2: row.area_m2,
       area_band: row.area_band, a55_zone_pre: row.a55_zone_pre,
-      ng_reason: row.ng_reason, hz_class: row.hz_class
+      ng_reason: row.ng_reason, hz_class: row.hz_class,
+      adopted: row.adopted === true
     }
   }; }).filter(function(f){ return f.geometry != null; });
   if (typeof showToast === 'function') showToast('Track B残地 ' + features.length + '件', 'success');
   trackbLayer = L.geoJSON({ type: 'FeatureCollection', features }, {
     style: function(feature) {
-      var clear = (feature.properties.hz_class === 'クリア');
+      var p = feature.properties;
+      if (p.adopted) {
+        return { fillColor: '#2563eb', fillOpacity: 0.5, color: '#1e3a8a', weight: 2.5 };
+      }
+      var clear = (p.hz_class === 'クリア');
       return {
         fillColor: clear ? '#22c55e' : '#eab308',
         fillOpacity: 0.35,
@@ -1388,9 +1395,15 @@ async function _fetchAndRenderTrackb() {
               '<div class="popup-row"><span class="popup-label">ハザード</span><span class="popup-value">' + hz + '</span></div>' +
             '</div>' +
             '<hr class="popup-divider">' +
-            '<div style="display:flex;gap:6px">' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
               '<button class="popup-btn" style="border-color:var(--green);color:var(--green)" onclick="openNouchiNavi(' + e.latlng.lat + ',' + e.latlng.lng + ')">🌾 農地ナビ</button>' +
               '<button class="popup-btn" style="border-color:#4285F4;color:#4285F4" onclick="openGoogleAerial(' + e.latlng.lat + ',' + e.latlng.lng + ')">📍 Googleマップ</button>' +
+            '</div>' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' +
+              (p.adopted
+                ? '<span style="color:#2563eb;font-weight:700;font-size:12px;padding:4px 0;">✅ 案件登録済</span>'
+                : '<button class="popup-btn" style="border-color:#2563eb;color:#2563eb" onclick="promoteTrackbCase(' + p.id + ',' + e.latlng.lat + ',' + e.latlng.lng + ',' + (p.area_m2 != null ? p.area_m2 : 'null') + ')">✅ 案件候補へ</button>') +
+              '<button class="popup-btn" style="border-color:#ef4444;color:#ef4444" onclick="excludeTrackbOne(' + p.id + ')">🗑 除外</button>' +
             '</div>' +
           '</div>',
           { maxWidth: 300, minWidth: 240 }
@@ -1399,6 +1412,189 @@ async function _fetchAndRenderTrackb() {
     }
   }).addTo(map);
 }
+/* ===== Track B 採用(昇格)・除外・XKT001点照合・範囲除外 v20260621f ===== */
+
+/* XKT001の点照合：タイル取得→点内包判定で区域区分とcity_nameを返す */
+function _lonlat2tile(lat, lng, z) {
+  var n = Math.pow(2, z);
+  var x = Math.floor((lng + 180) / 360 * n);
+  var latRad = lat * Math.PI / 180;
+  var y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+  return { x: x, y: y, z: z };
+}
+function _trackbPip(lng, lat, geom) {
+  if (!geom) return false;
+  function inRing(ring) {
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      var hit = ((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+      if (hit) inside = !inside;
+    }
+    return inside;
+  }
+  if (geom.type === 'Polygon') return inRing(geom.coordinates[0]);
+  if (geom.type === 'MultiPolygon') {
+    for (var k = 0; k < geom.coordinates.length; k++) { if (inRing(geom.coordinates[k][0])) return true; }
+    return false;
+  }
+  return false;
+}
+async function _xkt001ClassifyAt(lat, lng) {
+  var t = _lonlat2tile(lat, lng, 14);
+  try {
+    var res = await fetch(URBAN_API_BASE + '/XKT001?response_format=geojson&z=' + t.z + '&x=' + t.x + '&y=' + t.y);
+    if (!res.ok) return null;
+    var data = await res.json();
+    if (!data.features) return null;
+    for (var i = 0; i < data.features.length; i++) {
+      var f = data.features[i];
+      if (_trackbPip(lng, lat, f.geometry)) {
+        var pr = f.properties || {};
+        return { cls: pr.area_classification_ja || '', city: pr.city_name || '', pref: pr.prefecture || '' };
+      }
+    }
+    return null; // 区域外（XKT001該当ポリゴンなし）
+  } catch (e) { return null; }
+}
+
+/* 🗑 1筆除外（論理削除・復元可） */
+async function excludeTrackbOne(id) {
+  if (!confirm('この筆をTrack B候補から除外しますか？\n（論理削除・復元可。地図から消えます）')) return;
+  try {
+    var res = await db.rpc('exclude_trackb', { p_id: id, p_reason: 'manual' });
+    if (res.error) { showToast('除外エラー: ' + res.error.message, 'error'); return; }
+    showToast('除外しました（' + (res.data != null ? res.data : 1) + '件）', 'success');
+    if (map) map.closePopup();
+    renderTrackbInView();
+  } catch (e) { showToast('除外例外: ' + e.message, 'error'); }
+}
+
+/* ✅ 案件候補へ昇格（α：XKT001照合→地番任意→cases+land_info登録） */
+async function promoteTrackbCase(id, lat, lng, areaM2) {
+  showToast('XKT001で区域区分を判定中…', 'success');
+  var z = await _xkt001ClassifyAt(lat, lng);
+  // ① 市街化調整区域 → 除外して地図から消す
+  if (z && z.cls && z.cls.indexOf('市街化調整') >= 0) {
+    try { await db.rpc('exclude_trackb', { p_id: id, p_reason: 'XKT001_市街化調整' }); } catch (e) {}
+    showToast('⛔ 市街化調整区域のため除外しました（XKT001確定）', 'error');
+    if (map) map.closePopup();
+    renderTrackbInView();
+    return;
+  }
+  // ② 区域外（XKT001該当なし）→ 警告しつつ続行
+  if (!z) showToast('⚠️ XKT001区域外（要目視）。続行します', 'success');
+  var city = z ? z.city : '';
+  if (!city) {
+    city = (prompt('市町村名を入力してください（案件番号の採番に使用）\n例：蒲郡市', '') || '').trim();
+    if (!city) { showToast('市町村未入力のため中止しました', 'error'); return; }
+  }
+  // 地番は任意（農地→農地ナビ／非農地→登記情報・ブルーマップ等で人が確認。空欄可）
+  var chiban = (prompt('地番が分かれば入力（空欄可）\n農地由来→農地ナビ／非農地→登記情報サービスのブルーマップ等で確認', '') || '').trim();
+  var cpz = (z && z.cls) ? z.cls : '';
+  if (!confirm('案件登録します。よろしいですか？\n\n市町村：' + city + '\n区域区分：' + (cpz || '区域外') + '\n地番：' + (chiban || '（未取得）') + '\n面積：' + (areaM2 != null ? Math.round(areaM2) + '㎡' : '—') + '\n\n→ 案件マスター登録＝現地調査マップにフラグが立ちます')) return;
+  // クリックした筆のポリゴンを取得（cadastral_polygon用）
+  var geomJson = null;
+  if (trackbLayer) {
+    trackbLayer.eachLayer(function (l) {
+      if (l.feature && l.feature.properties && l.feature.properties.id === id && l.feature.geometry) geomJson = l.feature.geometry;
+    });
+  }
+  try {
+    var res = await db.rpc('promote_trackb_to_case', {
+      p_id: id,
+      p_city: city,
+      p_chiban: chiban,
+      p_cpz: cpz,
+      p_area_sqm: (areaM2 != null && !isNaN(areaM2)) ? areaM2 : null,
+      p_geom: geomJson
+    });
+    if (res.error) { showToast('案件登録エラー: ' + res.error.message, 'error'); return; }
+    showToast('✅ 案件登録: ' + (res.data || '完了') + '（現地調査マップに反映）', 'success');
+    if (map) map.closePopup();
+    renderTrackbInView();
+  } catch (e) { showToast('案件登録例外: ' + e.message, 'error'); }
+}
+
+/* ===== Track B 範囲除外モード（案S：既存「範囲NG」のUXを複製・専用） ===== */
+var tbRectMode = false, tbRectStart = null, tbRectLayer = null, tbRectBanner = null;
+var tbSavedDrag = null, tbSavedDbl = null, tbSavedBox = null, tbPeSaved = [];
+function toggleTrackbRectExclude() {
+  if (tbRectMode) { _tbExitRect(); } else { _tbEnterRect(); }
+}
+function _tbEnterRect() {
+  if (!map) { showToast('地図が初期化されていません', 'error'); return; }
+  if (!trackbEnabled) { showToast('先に🏗Track B残地レイヤをONにしてください', 'error'); return; }
+  tbRectMode = true;
+  document.body.classList.add('rect-ng-active');
+  var btn = document.getElementById('btnTrackbRect'); if (btn) btn.classList.add('active');
+  tbSavedDrag = map.dragging.enabled(); tbSavedDbl = map.doubleClickZoom.enabled(); tbSavedBox = map.boxZoom.enabled();
+  map.dragging.disable(); map.doubleClickZoom.disable(); map.boxZoom.disable();
+  if (!tbRectBanner) {
+    tbRectBanner = document.createElement('div');
+    tbRectBanner.className = 'rect-ng-banner';
+    tbRectBanner.style.background = 'rgba(239,68,68,.92)';
+    tbRectBanner.innerHTML = '🗑 Track B範囲除外｜地図上をドラッグで矩形を描いてください <button class="rect-ng-cancel" id="tbRectCancel">キャンセル (ESC)</button>';
+    (document.getElementById('map') || document.body).appendChild(tbRectBanner);
+    document.getElementById('tbRectCancel').addEventListener('click', _tbExitRect);
+  }
+  map.on('mousedown', _tbDown); map.on('mousemove', _tbMove); map.on('mouseup', _tbUp);
+  tbPeSaved = [];
+  try {
+    document.querySelectorAll('#map canvas').forEach(function (c) { tbPeSaved.push({ el: c, prev: c.style.pointerEvents }); c.style.pointerEvents = 'none'; });
+  } catch (_) {}
+  document.addEventListener('keydown', _tbKey);
+}
+function _tbExitRect() {
+  tbRectMode = false;
+  document.body.classList.remove('rect-ng-active');
+  var btn = document.getElementById('btnTrackbRect'); if (btn) btn.classList.remove('active');
+  if (map) {
+    map.off('mousedown', _tbDown); map.off('mousemove', _tbMove); map.off('mouseup', _tbUp);
+    if (tbSavedDrag !== false) map.dragging.enable();
+    if (tbSavedDbl !== false) map.doubleClickZoom.enable();
+    if (tbSavedBox !== false) map.boxZoom.enable();
+    if (tbRectLayer) { try { map.removeLayer(tbRectLayer); } catch (_) {} tbRectLayer = null; }
+  }
+  try { tbPeSaved.forEach(function (r) { try { r.el.style.pointerEvents = r.prev || ''; } catch (_) {} }); } catch (_) {}
+  tbPeSaved = [];
+  document.removeEventListener('keydown', _tbKey);
+  if (tbRectBanner && tbRectBanner.parentNode) tbRectBanner.parentNode.removeChild(tbRectBanner);
+  tbRectBanner = null; tbRectStart = null;
+}
+function _tbKey(ev) { if (ev.key === 'Escape' || ev.keyCode === 27) _tbExitRect(); }
+function _tbDown(ev) {
+  if (!tbRectMode) return;
+  tbRectStart = ev.latlng;
+  if (tbRectLayer) { try { map.removeLayer(tbRectLayer); } catch (_) {} }
+  tbRectLayer = L.rectangle([ev.latlng, ev.latlng], { className: 'rect-ng-rectangle', interactive: false }).addTo(map);
+}
+function _tbMove(ev) { if (tbRectMode && tbRectStart && tbRectLayer) tbRectLayer.setBounds([tbRectStart, ev.latlng]); }
+async function _tbUp(ev) {
+  if (!tbRectMode || !tbRectStart) return;
+  var end = ev.latlng;
+  var startPt = map.latLngToContainerPoint(tbRectStart), endPt = map.latLngToContainerPoint(end);
+  if (Math.abs(startPt.x - endPt.x) + Math.abs(startPt.y - endPt.y) < 6) {
+    if (tbRectLayer) { try { map.removeLayer(tbRectLayer); } catch (_) {} tbRectLayer = null; }
+    tbRectStart = null; return;
+  }
+  var b = L.latLngBounds(tbRectStart, end);
+  if (tbRectLayer) { try { map.removeLayer(tbRectLayer); } catch (_) {} tbRectLayer = null; }
+  tbRectStart = null;
+  if (!confirm('この矩形内のTrack B残地を一括除外します。よろしいですか？\n（論理削除・復元可）')) return;
+  try {
+    var res = await db.rpc('exclude_trackb_in_rect', {
+      lat_min: b.getSouth(), lat_max: b.getNorth(),
+      lng_min: b.getWest(), lng_max: b.getEast(),
+      p_reason: 'manual_rect'
+    });
+    if (res.error) { showToast('範囲除外エラー: ' + res.error.message, 'error'); return; }
+    showToast('範囲除外：' + (res.data != null ? res.data : 0) + '件を除外しました', 'success');
+    renderTrackbInView();
+  } catch (e) { showToast('範囲除外例外: ' + e.message, 'error'); }
+  // モード継続（連続除外可。ESC/ボタンで終了）
+}
+
 function _enableTrackbHandlers(){
   map.on('moveend', renderTrackbInView);
   map.on('zoomend', renderTrackbInView);
