@@ -72,7 +72,7 @@
 <title>農地変更トラッカー | GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <!-- v20260621a: 都市計画道路(A55 douro)レイヤを7県(岐阜/静岡/愛知/三重/滋賀/兵庫/和歌山)追加。data/douro/douro_{県}.geojson をviewport描画(農振と同方式)。トグル=🛣都市計画道路。整備状況/新設判別はA55属性に無く全線赤表示。第1段(新設道路マーキング)実装。 -->
-<!-- v20260621b: Track B残地レイヤ追加(discovery_candidates/get_trackb_in_bbox)。🏗トグル・クリア緑/要確認浸水黄・筆ポリゴン描画・既存AgriFude作法複製・読取専用。(1)地図表示。 -->
+<!-- v20260621c: Track B残地レイヤ追加(discovery_candidates/get_trackb_in_bbox)。🏗トグル・クリア緑/要確認浸水黄・筆ポリゴン描画・既存AgriFude作法複製・読取専用。(1)地図表示。 -->
 <link rel="stylesheet" href="mobile-responsive.css?v=20260522a">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1345,15 +1345,19 @@ async function _fetchAndRenderTrackb() {
   });
   if (res.error || !res.data) return;
   if (trackbLayer) { map.removeLayer(trackbLayer); trackbLayer = null; }
-  var features = res.data.map(function(row){ return {
+  var features = res.data.map(function(row){
+    var geom = row.geometry;
+    if (typeof geom === 'string') { try { geom = JSON.parse(geom); } catch(e){ geom = null; } }
+    return {
     type: 'Feature',
-    geometry: row.geometry,
+    geometry: geom,
     properties: {
       id: row.id, parcel_ref: row.parcel_ref, area_m2: row.area_m2,
       area_band: row.area_band, a55_zone_pre: row.a55_zone_pre,
       ng_reason: row.ng_reason, hz_class: row.hz_class
     }
-  }; });
+  }; }).filter(function(f){ return f.geometry != null; });
+  if (typeof showToast === 'function') showToast('Track B残地 ' + features.length + '件', 'success');
   trackbLayer = L.geoJSON({ type: 'FeatureCollection', features }, {
     style: function(feature) {
       var clear = (feature.properties.hz_class === 'クリア');
