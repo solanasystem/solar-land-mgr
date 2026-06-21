@@ -71,6 +71,7 @@
 </script>
 <title>農地変更トラッカー | GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<!-- v20260621a: 都市計画道路(A55 douro)レイヤを7県(岐阜/静岡/愛知/三重/滋賀/兵庫/和歌山)追加。data/douro/douro_{県}.geojson をviewport描画(農振と同方式)。トグル=🛣都市計画道路。整備状況/新設判別はA55属性に無く全線赤表示。第1段(新設道路マーキング)実装。 -->
 <link rel="stylesheet" href="mobile-responsive.css?v=20260522a">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -502,6 +503,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <div class="legend-item"><div class="legend-marker" style="background:#0ea5e9;"></div>eMAFF売却希望</div>
     <div class="legend-item"><div class="legend-marker" style="background:#a855f7;border-color:#3b82f6;border-width:3px;"></div>💬 コメント有り</div>
     <div class="legend-item"><div class="legend-marker" style="background:#fef08a;border-color:#eab308;border-style:dashed;border-width:2px;border-radius:2px;"></div>農振農用地（黄破線）</div>
+    <div class="legend-item"><div class="legend-marker" style="background:#dc2626;border-color:#dc2626;width:14px;height:3px;border-radius:0;"></div>都市計画道路（赤線）</div>
     </div>
   </div>
   <div class="zoom-controls">
@@ -606,6 +608,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <div class="hazard-divider"></div>
     <button class="hazard-btn active" id="hzFude" onclick="toggleFudePolygon()">&#128208; 地番境界</button>
     <button class="hazard-btn" id="hzNoshin" onclick="toggleNoshin()">&#127806; 農振農用地</button>
+    <button class="hazard-btn" id="hzDouro" onclick="toggleDouro()">&#128739; 都市計画道路</button>
     <button class="hazard-btn" id="hzForest5jou" onclick="toggleForest5jou()">&#127795; 5条森林</button>
     <div id="forestLegend" class="forest-legend">
       <div style="font-weight:700;color:var(--text);margin-bottom:4px;font-size:10px;">🌳 森林計画対象森林（林野庁2024年度版）</div>
@@ -983,6 +986,110 @@ function onZoomChangeForNoshin(){
   if(!noshinEnabled)return;
   _renderNoshinInView();
 }
+// 都市計画道路（A55 douro・7県：岐阜/静岡/愛知/三重/滋賀/兵庫/和歌山）GitHub Pages data/douro/
+// ※都市計画決定された道路の中心線。整備状況(整備済/未整備)・新設判別の属性はA55に無いため全線を赤線表示。
+var DOURO_MIN_ZOOM=12;
+var douroEnabled=false;
+var douroLayer=null;
+var douroCache={};
+var douroFetching={};
+var _douroMoveHandler=null;
+var DOURO_PREF_BOUNDS={
+  gifu:     {latMin:35.257, latMax:36.201, lngMin:136.448, lngMax:137.531, file:'data/douro/douro_gifu.geojson',     name:'岐阜県'},
+  shizuoka: {latMin:34.648, latMax:35.344, lngMin:137.482, lngMax:139.073, file:'data/douro/douro_shizuoka.geojson', name:'静岡県'},
+  aichi:    {latMin:34.63,  latMax:35.392, lngMin:136.691, lngMax:137.537, file:'data/douro/douro_aichi.geojson',    name:'愛知県'},
+  mie:      {latMin:33.958, latMax:35.219, lngMin:136.106, lngMax:136.854, file:'data/douro/douro_mie.geojson',      name:'三重県'},
+  shiga:    {latMin:34.901, latMax:35.471, lngMin:135.847, lngMax:136.332, file:'data/douro/douro_shiga.geojson',    name:'滋賀県'},
+  hyogo:    {latMin:34.323, latMax:35.667, lngMin:134.35,  lngMax:135.46,  file:'data/douro/douro_hyogo.geojson',    name:'兵庫県'},
+  wakayama: {latMin:34.078, latMax:34.369, lngMin:135.088, lngMax:135.66,  file:'data/douro/douro_wakayama.geojson', name:'和歌山県'}
+};
+function toggleDouro(){
+  var btn=document.getElementById('hzDouro');
+  if(douroEnabled){
+    douroEnabled=false;
+    if(douroLayer){map.removeLayer(douroLayer);douroLayer=null;}
+    if(_douroMoveHandler){map.off('moveend',_douroMoveHandler);_douroMoveHandler=null;}
+    if(btn)btn.classList.remove('active');
+    showToast('\u90fd\u5e02\u8a08\u753b\u9053\u8def\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3057\u305f','success');
+    return;
+  }
+  douroEnabled=true;
+  if(btn)btn.classList.add('active');
+  if(!_douroMoveHandler){_douroMoveHandler=function(){_renderDouroInView();};map.on('moveend',_douroMoveHandler);}
+  if(map.getZoom()<DOURO_MIN_ZOOM){
+    showToast('\u90fd\u5e02\u8a08\u753b\u9053\u8def\u306f\u30ba\u30fc\u30e0'+DOURO_MIN_ZOOM+'\u4ee5\u4e0a\u3067\u8868\u793a\u3055\u308c\u307e\u3059\uff08\u73fe\u5728: '+map.getZoom()+'\uff09','success');
+    _ensureDouroPrefs(detectDouroPrefsInView());
+    return;
+  }
+  if(detectDouroPrefsInView().length===0){showToast('\u8868\u793a\u4e2d\u30a8\u30ea\u30a2\u306b\u5bfe\u5fdc\u770c\u304c\u3042\u308a\u307e\u305b\u3093\uff08\u5bfe\u5fdc\uff1a\u5c90\u961c/\u9759\u5ca1/\u611b\u77e5/\u4e09\u91cd/\u6ecb\u8cc0/\u5175\u5eab/\u548c\u6b4c\u5c71\uff09','error');}
+  _renderDouroInView();
+}
+function detectDouroPrefsInView(){
+  var mb=map.getBounds();
+  var w=mb.getWest(),e=mb.getEast(),so=mb.getSouth(),no=mb.getNorth();
+  var keys=[];
+  for(var key in DOURO_PREF_BOUNDS){
+    var b=DOURO_PREF_BOUNDS[key];
+    if(b.lngMax<w||b.lngMin>e||b.latMax<so||b.latMin>no)continue;
+    keys.push(key);
+  }
+  return keys;
+}
+function _ensureDouroPrefs(prefs){
+  (prefs||[]).forEach(function(key){
+    if(douroCache[key]||douroFetching[key])return;
+    douroFetching[key]=true;
+    var pref=DOURO_PREF_BOUNDS[key];
+    fetch(pref.file).then(function(r){return r.ok?r.json():Promise.reject('HTTP '+r.status);})
+      .then(function(gj){douroCache[key]=gj;douroFetching[key]=false;if(douroEnabled)_renderDouroInView();})
+      .catch(function(err){douroFetching[key]=false;console.warn('douro load failed',key,err);});
+  });
+}
+function _calcDouroFeatureBbox(geom){
+  var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  function pts(arr){for(var i=0;i<arr.length;i++){var x=arr[i][0],y=arr[i][1];if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;}}
+  if(geom.type==='LineString'){pts(geom.coordinates);}
+  else if(geom.type==='MultiLineString'){for(var i=0;i<geom.coordinates.length;i++)pts(geom.coordinates[i]);}
+  return [minX,minY,maxX,maxY];
+}
+function _renderDouroInView(){
+  if(!douroEnabled)return;
+  if(map.getZoom()<DOURO_MIN_ZOOM){if(douroLayer){map.removeLayer(douroLayer);douroLayer=null;}return;}
+  var prefs=detectDouroPrefsInView();
+  _ensureDouroPrefs(prefs);
+  var mb=map.getBounds();
+  var west=mb.getWest(),east=mb.getEast(),south=mb.getSouth(),north=mb.getNorth();
+  var vis=[];
+  for(var pi=0;pi<prefs.length;pi++){
+    var gj=douroCache[prefs[pi]];
+    if(!gj||!gj.features)continue;
+    for(var i=0;i<gj.features.length;i++){
+      var ft=gj.features[i];
+      if(!ft._bbox){try{ft._bbox=_calcDouroFeatureBbox(ft.geometry);}catch(e){continue;}}
+      var b=ft._bbox;
+      if(b[2]<west||b[0]>east||b[3]<south||b[1]>north)continue;
+      vis.push(ft);
+    }
+  }
+  if(douroLayer){map.removeLayer(douroLayer);douroLayer=null;}
+  if(vis.length===0)return;
+  douroLayer=L.geoJSON({type:'FeatureCollection',features:vis},{
+    style:function(f){var plaza=f.properties&&f.properties.dtype==='\u5e83\u5834';return{color:plaza?'#9333ea':'#dc2626',weight:plaza?3:2,opacity:0.85};},
+    onEachFeature:function(feature,layer){
+      var p=feature.properties||{};
+      var c=p.city||'';var fn=p.fn?(' \u6700\u7d42\u544a\u793a:'+p.fn):'';
+      layer.bindTooltip('\u90fd\u5e02\u8a08\u753b\u9053\u8def'+(p.dtype==='\u5e83\u5834'?'(\u5e83\u5834)':'')+(c?'\uff1a'+c:'')+fn,{className:'farmland-tooltip',sticky:true});
+    }
+  });
+  douroLayer.addTo(map);
+  douroLayer.bringToFront();
+  if(noshinLayer)noshinLayer.bringToFront();
+  if(markersLayer)markersLayer.bringToFront();
+}
+function onZoomChangeForDouro(){
+  if(!douroEnabled)return;
+  _renderDouroInView();
+}
 
 /* ============================================================
    農地フラグ・筆ポリゴン（field-survey 互換 v20260512j 追加）
@@ -1224,7 +1331,7 @@ function readVTFeature(tag,f,pbf){if(tag===1)f.id=pbf.readVarint();else if(tag==
 function readVTValue(tag,v,pbf){if(tag===1)v.v=pbf.readString();else if(tag===2)v.v=pbf.readFloat();else if(tag===3)v.v=pbf.readDouble();else if(tag===4)v.v=pbf.readVarint(true);else if(tag===5)v.v=pbf.readVarint();else if(tag===6)v.v=pbf.readSVarint();else if(tag===7)v.v=pbf.readBoolean();}
 function getVTProperties(feature,layer){var props={};for(var i=0;i+1<feature.tags.length;i+=2){var ki=feature.tags[i],vi=feature.tags[i+1];if(ki<layer.keys.length&&vi<layer.values.length)props[layer.keys[ki]]=layer.values[vi].v;}return props;}
 function getPolygonCentroid(geometry,tileX,tileY,tileZ,extent){var x=0,y=0,sumX=0,sumY=0,count=0,i=0;while(i<geometry.length){var cmdInt=geometry[i++],cmd=cmdInt&7,len=cmdInt>>3;if(cmd===1||cmd===2){for(var j=0;j<len;j++){x+=(geometry[i]>>1)^-(geometry[i]&1);i++;y+=(geometry[i]>>1)^-(geometry[i]&1);i++;sumX+=x;sumY+=y;count++;}}else if(cmd===7){break;}else{i++;}}if(!count)return null;var tx=sumX/count,ty=sumY/count;var z2=Math.pow(2,tileZ);var lng=((tileX+tx/extent)/z2)*360-180;var n=Math.PI*(1-2*(tileY+ty/extent)/z2);var lat=180/Math.PI*Math.atan(Math.sinh(n));if(lat<30||lat>38||lng<130||lng>142)return null;return{lat:lat,lng:lng};}
-function initMap(){map=L.map('map',{zoomControl:false,maxZoom:18}).setView([36.5,138],5);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();});}
+function initMap(){map=L.map('map',{zoomControl:false,maxZoom:18}).setView([36.5,138],5);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();onZoomChangeForDouro();});}
 // === NG\u4e00\u89a7\u3092\u8d77\u52d5\u6642\u306b\u53d6\u5f97 ===
 async function loadNgList(){
   try{
