@@ -8,6 +8,7 @@
 <!-- v20260529d: 低圧蓄電池フィルタの調整区域判定に三重(a09_control_mie)・長野(a09_control_nagano)を追加。CITYPLAN_CONTROL_FILESへ追記。これで静岡・滋賀・三重・長野・愛知の市街化調整区域を全判定 -->
 <!-- v20260529e: 低圧蓄電池フィルタの調整区域判定に兵庫(a09_control_hyogo)を追加 -->
 <!-- v20260622a: 低圧蓄電池候補(調整区域除く)の判定をA09 control GeoJSON(R2・県別寄せ集め)からXKT001(不動産情報ライブラリ・令和6年度・全国)タイル点照合へ全面差し替え。A09は静岡/滋賀等で市街化調整区域を取りこぼす欠陥(市街化区域がDB上1件のみ等)があり、farmland-tracker同様②最終断定をXKT001に一本化。isInControlZone/CITYPLAN_CONTROL_FILES/_controlPolys/_flattenControlGeoJSONを全廃。トグルON時に表示候補をタイル単位でXKT001照会(同一タイル1回)し、市街化調整区域の筆のみ除外。DBのcity_planning_zone(A09英語値)は未使用。 -->
+<!-- v20260622b: XKT001判定不能(タイル空 or どのポリゴンにも入らない区域外)を安全側で除外側に倒すフォールバック追加。素通しで調整区域を見逃す穴(蒲郡-018のような事例:XKT001が空タイルを返すケース)を塞ぐ。_xkt001UnknownSet新設・フィルタは「調整区域＋判定不能」を両方除外。「🔍 XKT001診断」ボタンを追加し、母集団の区域区分内訳(市街化区域/非線引き/調整区域/判定不能/座標なし)と判定不能筆の一覧(最大200件・Googleマップリンク付)をモーダル表示。栗本氏のConsoleコピペが拒否される問題を回避し、ボタン1回で全件診断を完結。 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -21,7 +22,7 @@
 <link rel="stylesheet" href="viewer-mode.css?v=20260516u">
 <script src="viewer-mode.js?v=20260516u"></script>
 
-<title>開拓案件候補 | GRID LAND MGR v4.0 (v20260622a)</title>
+<title>開拓案件候補 | GRID LAND MGR v4.0 (v20260622b)</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -199,6 +200,7 @@ th.col-action,td.col-action{width:240px;}
   </select>
   <button class="btn btn-ghost" onclick="resetFilters()" style="font-size:11px;margin-left:auto;">&#8635; リセット</button>
   <button class="btn btn-ghost" id="btnTeiatsu" onclick="toggleTeiatsu()" style="font-size:11px;">&#128267; 低圧蓄電池候補（調整区域除く）</button>
+  <button class="btn btn-ghost" id="btnXkt001Diag" onclick="runXkt001Diagnostic()" style="font-size:11px;">&#128269; XKT001診断</button>
   <button class="btn btn-ghost" onclick="loadData()" style="font-size:11px;">&#8635; 再読込</button>
 </div>
 
@@ -404,10 +406,10 @@ function getFilteredSorted(){
   }
   if(filters.status==='none')list=list.filter(function(f){return !f.status;});
   else if(filters.status==='approached')list=list.filter(function(f){return f.status==='approached';});
-  // v20260622a: 低圧蓄電池候補 = 市街化調整区域を除外。XKT001(正本)で事前判定した _xkt001ChouseiSet を使用。
+  // v20260622b: 低圧蓄電池候補 = 市街化調整区域 + XKT001判定不能(タイル空/区域外)を除外（安全側）。
   if(filters.teiatsu){
     list=list.filter(function(f){
-      return !_xkt001ChouseiSet[f.feature_id]; // XKT001で市街化調整区域と判定された筆を除外
+      return !_xkt001ChouseiSet[f.feature_id] && !_xkt001UnknownSet[f.feature_id];
     });
   }
   list.sort(function(a,b){
@@ -773,6 +775,10 @@ async function _fetchXkt001Tile(z,x,y){
 }
 // 表示候補のうち市街化調整区域に入るものをXKT001で判定し _xkt001ChouseiSet を構築。
 // 同一タイルは1回だけfetch（API負荷最小化）。
+// v20260622b: XKT001が取れない筆(=タイル空 or どのポリゴンにも入らない)は「判定不能」として
+//             安全側で除外側に倒す。素通しで市街化調整区域を見逃す穴(蒲郡-018のような事例)を塞ぐ。
+//             代わりに「判定不能」を別セットで保持し、診断/可視化できるようにする。
+var _xkt001UnknownSet={}; // feature_id -> true（XKT001判定不能：タイル空 or 区域外）
 async function _buildChouseiSet(list){
   var Z=14;
   var byTile={};
@@ -782,7 +788,7 @@ async function _buildChouseiSet(list){
     var t=_tileFor(la,ln,Z); var key=t.z+'/'+t.x+'/'+t.y;
     (byTile[key]=byTile[key]||[]).push({f:f,la:la,ln:ln,t:t});
   }
-  var set={},chosei=0,checked=0,noCoord=0;
+  var set={}, unknown={}, chosei=0, shigai=0, other=0, unk=0, noCoord=0, checked=0;
   for(var ii=0;ii<list.length;ii++){var _g=list[ii];if(_g.lat==null||_g.lng==null||isNaN(Number(_g.lat))||isNaN(Number(_g.lng)))noCoord++;}
   var keys=Object.keys(byTile);
   for(var ki=0;ki<keys.length;ki++){
@@ -790,17 +796,20 @@ async function _buildChouseiSet(list){
     var feats=await _fetchXkt001Tile(t0.z,t0.x,t0.y);
     for(var gi=0;gi<grp.length;gi++){
       var c=grp[gi]; checked++;
+      var cls=null;
       for(var fi=0;fi<feats.length;fi++){
         var pr=feats[fi].properties||{};
-        var cls=pr.area_classification_ja||'';
-        if(cls.indexOf('市街化調整')>=0 && _geomContains(c.ln,c.la,feats[fi].geometry)){
-          set[c.f.feature_id]=true; chosei++; break;
-        }
+        if(_geomContains(c.ln,c.la,feats[fi].geometry)){ cls=pr.area_classification_ja||'区分名なし'; break; }
       }
+      if(cls===null){ unknown[c.f.feature_id]=true; unk++; }
+      else if(cls.indexOf('市街化調整')>=0){ set[c.f.feature_id]=true; chosei++; }
+      else if(cls.indexOf('市街化区域')>=0){ shigai++; }
+      else { other++; }
     }
   }
   _xkt001ChouseiSet=set;
-  return {checked:checked,chosei:chosei,tiles:keys.length,noCoord:noCoord};
+  _xkt001UnknownSet=unknown;
+  return {checked:checked, chosei:chosei, shigai:shigai, other:other, unknown:unk, tiles:keys.length, noCoord:noCoord};
 }
 
 async function toggleTeiatsu(){
@@ -825,7 +834,57 @@ async function toggleTeiatsu(){
   filters.teiatsu=true;
   if(btn)btn.classList.add('active');
   renderTable();
-  showToast('低圧蓄電池ON（XKT001正本）｜'+stat.tiles+'タイル照会／'+stat.checked+'件中 市街化調整区域 '+stat.chosei+'件を除外（座標なし '+stat.noCoord+'件は残置）','success');
+  showToast('低圧蓄電池ON（XKT001正本）｜照会'+stat.tiles+'タイル／'+stat.checked+'件中：市街化区域 '+stat.shigai+'件・非線引き等 '+stat.other+'件・市街化調整 '+stat.chosei+'件(除外)・判定不能 '+stat.unknown+'件(安全側で除外)・座標なし '+stat.noCoord+'件(残置)','success');
+}
+
+// ======== XKT001診断（全候補の区域区分内訳と判定不能リスト） v20260622b ========
+async function runXkt001Diagnostic(){
+  var btn=document.getElementById('btnXkt001Diag');
+  if(btn)btn.textContent='⏳ 診断中…';
+  var stat;
+  try{ stat=await _buildChouseiSet(farmlands); }
+  catch(e){ if(btn)btn.textContent='🔍 XKT001診断'; showToast('診断失敗: '+e.message,'error'); return; }
+  if(btn)btn.textContent='🔍 XKT001診断';
+  // 判定不能の筆一覧（最大50件）を作る
+  var unknowns=[];
+  for(var i=0;i<farmlands.length;i++){
+    var f=farmlands[i];
+    if(_xkt001UnknownSet[f.feature_id]){ unknowns.push(f); if(unknowns.length>=200) break; }
+  }
+  // モーダル組み立て
+  var modal=document.getElementById('xkt001DiagModal');
+  if(!modal){
+    modal=document.createElement('div');
+    modal.id='xkt001DiagModal';
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    document.body.appendChild(modal);
+  }
+  var pct=function(n){ return stat.checked>0 ? (Math.round(n/stat.checked*1000)/10)+'%' : '-'; };
+  var rows=unknowns.map(function(f){
+    var la=Number(f.lat),ln=Number(f.lng);
+    var gmap=(!isNaN(la)&&!isNaN(ln))?('<a href="https://www.google.com/maps/@'+la+','+ln+',19z" target="_blank" rel="noopener" style="color:#60a5fa">地図</a>'):'';
+    return '<tr><td style="padding:4px 8px;border-bottom:1px solid #333">'+_esc(f.feature_id||'')+'</td>'+
+           '<td style="padding:4px 8px;border-bottom:1px solid #333">'+_esc(f.address||'—')+'</td>'+
+           '<td style="padding:4px 8px;border-bottom:1px solid #333;text-align:right">'+(f.lat||'')+', '+(f.lng||'')+'</td>'+
+           '<td style="padding:4px 8px;border-bottom:1px solid #333;text-align:center">'+gmap+'</td></tr>';
+  }).join('');
+  modal.innerHTML='<div style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:12px;max-width:960px;width:92%;max-height:84vh;overflow:auto;padding:18px 22px;font-size:13px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+      +'<div style="font-weight:700;font-size:15px;color:#60a5fa">🔍 XKT001診断結果</div>'
+      +'<button onclick="document.getElementById(\'xkt001DiagModal\').style.display=\'none\'" style="background:#374151;color:#fff;border:none;border-radius:6px;padding:4px 12px;cursor:pointer">閉じる</button>'
+    +'</div>'
+    +'<div style="margin-bottom:14px;line-height:1.7">'
+      +'<div>母集団：<b>'+farmlands.length+'</b>件　／　判定対象：<b>'+stat.checked+'</b>件　／　照会タイル：'+stat.tiles+'枚　／　座標なし(残置)：'+stat.noCoord+'件</div>'
+      +'<div style="margin-top:8px"><b style="color:#f97316">市街化区域</b>：'+stat.shigai+' 件 ('+pct(stat.shigai)+')</div>'
+      +'<div><b style="color:#22c55e">非線引き/その他</b>：'+stat.other+' 件 ('+pct(stat.other)+')　★本命</div>'
+      +'<div><b style="color:#ef4444">市街化調整区域</b>：'+stat.chosei+' 件 ('+pct(stat.chosei)+')　⛔フィルタON時 除外</div>'
+      +'<div><b style="color:#eab308">判定不能(XKT001空/区域外)</b>：'+stat.unknown+' 件 ('+pct(stat.unknown)+')　⚠️フィルタON時 安全側で除外（人間目視推奨）</div>'
+    +'</div>'
+    +'<div style="font-weight:700;color:#eab308;margin:14px 0 6px">⚠️ 判定不能の筆（最大200件表示）— XKT001ポリゴンが当たらなかった土地。手動でXKT001レイヤ(都市計画区域)を当てて確認推奨。</div>'
+    +(unknowns.length===0?'<div style="color:#22c55e">判定不能はゼロ。全候補がXKT001でクリーンに分類できています。</div>':
+      ('<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#1f2937;color:#9ca3af"><th style="padding:6px 8px;text-align:left">feature_id</th><th style="padding:6px 8px;text-align:left">所在</th><th style="padding:6px 8px;text-align:right">lat,lng</th><th style="padding:6px 8px;text-align:center">確認</th></tr></thead><tbody>'+rows+'</tbody></table>'))
+    +'</div>';
+  modal.style.display='flex';
 }
 
 // ======== 案件マスターへ昇格 ========
