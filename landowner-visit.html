@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- BUILD: landowner-visit v20260509i / 業務番号(display_case_no) 対応 -->
+<!-- v20260622c: 手紙ワークフロー実装。地権者ポップアップに【📮手紙発信→LETTER】【📦印刷完了→LTR済】2段ボタン追加(郵便番号空欄時は発信ボタン無効化＋警告)。ツールバーに【📮一括手紙発信(表示中・郵便番号必須)】【📋宛名ラベルCSV出力(BOM付UTF-8・Excel互換)】追加。RPC mark_letter_sent/mark_letter_printed/mark_letters_sent_bulk(全DEFINER)経由でcases.status・last_letter_sent_at更新。ポップアップに〒+最新発信日も表示。 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -442,6 +443,8 @@
       <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>訪問予定を選択してください</div>
       <button class="btn btn-primary" onclick="handleDashStartClick()" id="startBtn" disabled>🚗 訪問開始</button>
       <button class="btn btn-ghost" style="font-size:11px" onclick="togglePlanList()">📋 予定リスト（右）</button>
+      <button class="btn btn-ghost" style="font-size:11px;border-color:#a78bfa;color:#a78bfa" onclick="bulkSendLetters()">📮 一括手紙発信</button>
+      <button class="btn btn-ghost" style="font-size:11px" onclick="exportLabelCSV()">📋 宛名ラベルCSV</button>
       </div>
     </div>
     <!-- 訪問実行モードはヘッダーの訪問開始ボタンに統合（実行中の再押下で計画リセット） -->
@@ -1134,7 +1137,7 @@ function toggleLayer(type, enabled) {
   else if (type === 'parcel') { enabled ? parcelLayer.addTo(map) : map.removeLayer(parcelLayer); }
 }
 async function loadData() {
-  const { data: los } = await db.from('landowner_info').select('*, cases(id, case_no, display_case_no, status, area_name)');
+  const { data: los } = await db.from('landowner_info').select('*, cases(id, case_no, display_case_no, status, area_name, last_letter_sent_at)');
   const { data: visits } = await db.from('visit_status').select('*');
   if (!los) return;
   allLandowners = los.map(lo => {
@@ -1313,6 +1316,10 @@ function makeIconHtml(color) {
 function buildPopup(lo, caseId, isVisited, isPlanned) {
   const d = markers[caseId];
   const visitedAt = d?.visit?.visited_at ? new Date(d.visit.visited_at).toLocaleDateString('ja-JP') : null;
+  const cs = lo.cases || {};
+  const st = cs.status || '';
+  const lsa = cs.last_letter_sent_at ? new Date(cs.last_letter_sent_at).toLocaleDateString('ja-JP') : null;
+  const pc = lo.postal_code || '';
   let actionHtml = '';
   if (isVisited) {
     actionHtml = `<button class="popup-btn completed-btn" style="flex:1">\u2713 \u8a2a\u554f\u6e08\u307f\uff08${visitedAt || ''}\uff09</button><button class="popup-btn undo-btn" style="flex:0 0 auto;min-width:60px" onclick="unVisit('${caseId}')">\ud83d\udd04 \u89e3\u9664</button>`;
@@ -1325,8 +1332,122 @@ function buildPopup(lo, caseId, isVisited, isPlanned) {
       actionHtml = `<button class="popup-btn select-btn" onclick="addPlan('${caseId}')">\uff0b \u8a2a\u554f\u4e88\u5b9a\u306b\u8ffd\u52a0</button>`;
     }
   }
-  return `<div class="popup-body"><div class="popup-name"><span>${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}</span><span class="popup-case-no">${caseDisplayNo(lo.cases) || ''}</span></div><div class="popup-info"><div class="popup-row"><span class="popup-label">\u4f4f\u6240</span><span class="popup-value">${lo.address || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u96fb\u8a71</span><span class="popup-value">${lo.tel || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u4fa1\u683c</span><span class="popup-value">${lo.price ? Number(lo.price).toLocaleString() + ' \u4e07\u5186' : '\u2014'}</span></div></div><hr class="popup-divider"><div class="popup-actions">${actionHtml}</div></div>`;
+  // 手紙ワークフロー：未発信→📮発信、LETTER→📦印刷完了、LTR済→発信日表示
+  let letterHtml = '';
+  if (st === 'LTR済') {
+    letterHtml = `<div style="margin-top:6px;font-size:11px;color:#a78bfa">\ud83d\udce6 \u624b\u7d19\u9001\u4ed8\u6e08\u307f${lsa ? '\uff08\u767a\u4fe1: ' + lsa + '\uff09' : ''}</div>`;
+  } else if (st === 'LETTER') {
+    letterHtml = `<div style="display:flex;gap:6px;margin-top:6px"><button class="popup-btn" style="flex:1;border-color:#5b21b6;color:#a78bfa" onclick="markLetterPrinted('${caseId}')">\ud83d\udce6 \u5370\u5237\u5b8c\u4e86\u2192LTR\u6e08</button></div>${lsa ? `<div style="font-size:10px;color:#94a3b8;margin-top:4px">\u767a\u4fe1: ${lsa}</div>` : ''}`;
+  } else {
+    const disabled = pc ? '' : 'disabled title="\u90f5\u4fbf\u756a\u53f7\u672a\u767b\u9332\u306e\u305f\u3081\u767a\u4fe1\u3067\u304d\u307e\u305b\u3093"';
+    letterHtml = `<div style="display:flex;gap:6px;margin-top:6px"><button class="popup-btn" style="flex:1;border-color:#a78bfa;color:#a78bfa" onclick="markLetterSent('${caseId}')" ${disabled}>\ud83d\udcee \u624b\u7d19\u767a\u4fe1\u2192LETTER</button></div>${pc ? '' : '<div style="font-size:10px;color:#ef4444;margin-top:4px">\u26a0\ufe0f \u90f5\u4fbf\u756a\u53f7\u672a\u767b\u9332</div>'}`;
+  }
+  const postalLine = pc ? `<div class="popup-row"><span class="popup-label">\u3012</span><span class="popup-value">${pc}</span></div>` : '';
+  return `<div class="popup-body"><div class="popup-name"><span>${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}</span><span class="popup-case-no">${caseDisplayNo(lo.cases) || ''}</span></div><div class="popup-info">${postalLine}<div class="popup-row"><span class="popup-label">\u4f4f\u6240</span><span class="popup-value">${lo.address || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u96fb\u8a71</span><span class="popup-value">${lo.tel || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u4fa1\u683c</span><span class="popup-value">${lo.price ? Number(lo.price).toLocaleString() + ' \u4e07\u5186' : '\u2014'}</span></div></div><hr class="popup-divider"><div class="popup-actions">${actionHtml}</div>${letterHtml}</div>`;
 }
+/* ===== 手紙ワークフロー（発信→印刷完了→LTR済）v20260622c ===== */
+async function markLetterSent(caseId) {
+  const d = markers[caseId]; if (!d) return;
+  if (!d.lo.postal_code) { showToast('\u90f5\u4fbf\u756a\u53f7\u672a\u767b\u9332\u306e\u305f\u3081\u767a\u4fe1\u3067\u304d\u307e\u305b\u3093', 'error'); return; }
+  if (!confirm(`${d.lo.name || ''} \u3078\u624b\u7d19\u3092\u767a\u4fe1\u8a18\u9332\u3057\u307e\u3059\u3002\u30b9\u30c6\u30fc\u30bf\u30b9\u306f LETTER \u306b\u306a\u308a\u307e\u3059\u3002`)) return;
+  const { data, error } = await db.rpc('mark_letter_sent', { p_case_id: caseId });
+  if (error) { showToast('\u767a\u4fe1\u30a8\u30e9\u30fc: ' + error.message, 'error'); return; }
+  if (d.lo.cases) { d.lo.cases.status = 'LETTER'; d.lo.cases.last_letter_sent_at = new Date().toISOString(); }
+  d.status = 'LETTER';
+  refreshMarkerIcon(caseId);
+  d.marker.setPopupContent(buildPopup(d.lo, caseId, d.isVisited, planSet.has(caseId)));
+  recalcVisitStats();
+  showToast('\ud83d\udcee \u624b\u7d19\u767a\u4fe1\u8a18\u9332\uff08LETTER\uff09', 'success');
+}
+async function markLetterPrinted(caseId) {
+  const d = markers[caseId]; if (!d) return;
+  if (!confirm(`${d.lo.name || ''} \u306e\u5370\u5237\u3092\u5b8c\u4e86\u3068\u3057\u3066 LTR\u6e08 \u306b\u30b9\u30c6\u30fc\u30bf\u30b9\u3092\u9032\u3081\u307e\u3059\u3002`)) return;
+  const { error } = await db.rpc('mark_letter_printed', { p_case_id: caseId });
+  if (error) { showToast('\u5370\u5237\u5b8c\u4e86\u30a8\u30e9\u30fc: ' + error.message, 'error'); return; }
+  if (d.lo.cases) d.lo.cases.status = 'LTR\u6e08';
+  d.status = 'LTR\u6e08';
+  refreshMarkerIcon(caseId);
+  d.marker.setPopupContent(buildPopup(d.lo, caseId, d.isVisited, planSet.has(caseId)));
+  recalcVisitStats();
+  showToast('\ud83d\udce6 \u5370\u5237\u5b8c\u4e86\uff08LTR\u6e08\uff09', 'success');
+}
+
+/* 表示中の地権者を集める（markersに在るもの＝現在マップ上の対象） */
+function _collectVisibleLandowners() {
+  return Object.keys(markers).map(id => ({ caseId: id, ...markers[id] }));
+}
+
+/* 一括発信：表示中のうち status が LETTER/LTR済 でない＋郵便番号あり を対象に */
+async function bulkSendLetters() {
+  const all = _collectVisibleLandowners();
+  const eligible = all.filter(x => {
+    const st = (x.lo.cases && x.lo.cases.status) || x.status || '';
+    return st !== 'LETTER' && st !== 'LTR\u6e08' && !!x.lo.postal_code;
+  });
+  const skippedStatus = all.filter(x => {
+    const st = (x.lo.cases && x.lo.cases.status) || x.status || '';
+    return st === 'LETTER' || st === 'LTR\u6e08';
+  }).length;
+  const missingPostal = all.filter(x => !x.lo.postal_code && (((x.lo.cases && x.lo.cases.status) || x.status || '') !== 'LETTER') && (((x.lo.cases && x.lo.cases.status) || x.status || '') !== 'LTR\u6e08'));
+  if (missingPostal.length > 0) {
+    const list = missingPostal.slice(0, 20).map(x => '\u30fb' + (x.lo.name || '\u540d\u524d\u672a\u767b\u9332') + ' (' + (caseDisplayNo(x.lo.cases) || '') + ')').join('\n');
+    const more = missingPostal.length > 20 ? `\n\u4ed6 ${missingPostal.length - 20} \u4ef6` : '';
+    if (!confirm(`\u26a0\ufe0f \u90f5\u4fbf\u756a\u53f7\u672a\u767b\u9332\u306e\u5730\u6a29\u8005\u304c ${missingPostal.length} \u4ef6\u3042\u308a\u307e\u3059\uff08\u4e00\u62ec\u767a\u4fe1\u304b\u3089\u9664\u5916\uff09\uff1a\n\n${list}${more}\n\n\u9664\u5916\u3057\u3066\u7d9a\u884c\u3057\u307e\u3059\u304b\uff1f`)) return;
+  }
+  if (eligible.length === 0) { showToast('\u4e00\u62ec\u767a\u4fe1\u5bfe\u8c61\u304c0\u4ef6\u3067\u3059', 'error'); return; }
+  if (!confirm(`\u8868\u793a\u4e2d\u306e ${eligible.length} \u4ef6\u306b\u4e00\u62ec\u3067\u624b\u7d19\u767a\u4fe1\u8a18\u9332\u3057\u307e\u3059\u3002\n\u3059\u3079\u3066\u306e\u30b9\u30c6\u30fc\u30bf\u30b9\u304c LETTER \u306b\u306a\u308a\u307e\u3059\u3002\uff08\u9664\u5916: \u767a\u4fe1\u6e08\u307f ${skippedStatus} \u4ef6\u3001\u90f5\u4fbf\u756a\u53f7\u672a\u767b\u9332 ${missingPostal.length} \u4ef6\uff09`)) return;
+  const caseIds = eligible.map(x => x.caseId);
+  const { data, error } = await db.rpc('mark_letters_sent_bulk', { p_case_ids: caseIds });
+  if (error) { showToast('\u4e00\u62ec\u767a\u4fe1\u30a8\u30e9\u30fc: ' + error.message, 'error'); return; }
+  const now = new Date().toISOString();
+  eligible.forEach(x => {
+    if (x.lo.cases) { x.lo.cases.status = 'LETTER'; x.lo.cases.last_letter_sent_at = now; }
+    x.status = 'LETTER';
+    refreshMarkerIcon(x.caseId);
+    x.marker.setPopupContent(buildPopup(x.lo, x.caseId, x.isVisited, planSet.has(x.caseId)));
+  });
+  recalcVisitStats();
+  showToast(`\ud83d\udcee \u4e00\u62ec\u767a\u4fe1\u8a18\u9332\uff1a${data || eligible.length} \u4ef6\u3092 LETTER \u306b`, 'success');
+}
+
+/* 宛名ラベルCSV出力：郵便番号必須。空欄ありなら警告で止める */
+function _csvEscape(v) { v = (v == null) ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function exportLabelCSV() {
+  const all = _collectVisibleLandowners();
+  if (all.length === 0) { showToast('\u51fa\u529b\u5bfe\u8c61\u304c\u3042\u308a\u307e\u305b\u3093', 'error'); return; }
+  const missing = all.filter(x => !x.lo.postal_code);
+  if (missing.length > 0) {
+    const list = missing.slice(0, 30).map(x => '\u30fb' + (x.lo.name || '\u540d\u524d\u672a\u767b\u9332') + ' (' + (caseDisplayNo(x.lo.cases) || '') + ') ' + (x.lo.address || '')).join('\n');
+    const more = missing.length > 30 ? `\n\u4ed6 ${missing.length - 30} \u4ef6` : '';
+    if (!confirm(`\u26a0\ufe0f \u90f5\u4fbf\u756a\u53f7\u672a\u767b\u9332\u306e\u5730\u6a29\u8005\u304c ${missing.length} \u4ef6\u3042\u308a\u307e\u3059\u3002\nCSV\u304b\u3089\u9664\u5916\u3057\u3066\u7d9a\u884c\u3057\u307e\u3059\u304b\uff1f\n\n${list}${more}`)) return;
+  }
+  const targets = all.filter(x => !!x.lo.postal_code);
+  if (targets.length === 0) { showToast('\u90f5\u4fbf\u756a\u53f7\u3042\u308a\u306e\u5730\u6a29\u8005\u304c0\u4ef6\u3067\u3059', 'error'); return; }
+  const header = ['\u90f5\u4fbf\u756a\u53f7', '\u4f4f\u6240', '\u6c0f\u540d', '\u6848\u4ef6\u756a\u53f7', '\u30b9\u30c6\u30fc\u30bf\u30b9', '\u6700\u7d42\u767a\u4fe1\u65e5'];
+  const lines = [header.map(_csvEscape).join(',')];
+  targets.forEach(x => {
+    const cs = x.lo.cases || {};
+    const lsa = cs.last_letter_sent_at ? new Date(cs.last_letter_sent_at).toLocaleDateString('ja-JP') : '';
+    lines.push([
+      x.lo.postal_code || '',
+      x.lo.address || '',
+      x.lo.name || '',
+      caseDisplayNo(cs) || cs.case_no || '',
+      cs.status || '',
+      lsa
+    ].map(_csvEscape).join(','));
+  });
+  const csv = '\ufeff' + lines.join('\r\n'); // BOM付き UTF-8（Excel互換）
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const ts = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  a.href = url; a.download = `landowner_labels_${ts}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast(`\ud83d\udccb \u30e9\u30d9\u30ebCSV\u51fa\u529b\uff1a${targets.length} \u4ef6\uff08\u90f5\u4fbf\u756a\u53f7\u3042\u308a\u306e\u307f\uff09`, 'success');
+}
+
 async function unVisit(caseId) {
   if (!confirm('\u8a2a\u554f\u6e08\u307f\u3092\u89e3\u9664\u3057\u307e\u3059\u304b\uff1f')) return;
   const { error } = await db.from('visit_status').update({ visited: false, visited_at: null, flag_color: 'blue' }).eq('case_id', caseId);
