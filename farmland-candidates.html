@@ -7,6 +7,7 @@
 <!-- v20260529c: 低圧蓄電池トグルに診断トーストを追加（読込ポリゴン数／全候補中の調整区域内件数／座標なし件数を表示）。除外漏れの切り分け用。判定ロジック自体はローカル実証で正常確認済 -->
 <!-- v20260529d: 低圧蓄電池フィルタの調整区域判定に三重(a09_control_mie)・長野(a09_control_nagano)を追加。CITYPLAN_CONTROL_FILESへ追記。これで静岡・滋賀・三重・長野・愛知の市街化調整区域を全判定 -->
 <!-- v20260529e: 低圧蓄電池フィルタの調整区域判定に兵庫(a09_control_hyogo)を追加 -->
+<!-- v20260622a: 低圧蓄電池候補(調整区域除く)の判定をA09 control GeoJSON(R2・県別寄せ集め)からXKT001(不動産情報ライブラリ・令和6年度・全国)タイル点照合へ全面差し替え。A09は静岡/滋賀等で市街化調整区域を取りこぼす欠陥(市街化区域がDB上1件のみ等)があり、farmland-tracker同様②最終断定をXKT001に一本化。isInControlZone/CITYPLAN_CONTROL_FILES/_controlPolys/_flattenControlGeoJSONを全廃。トグルON時に表示候補をタイル単位でXKT001照会(同一タイル1回)し、市街化調整区域の筆のみ除外。DBのcity_planning_zone(A09英語値)は未使用。 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -20,7 +21,7 @@
 <link rel="stylesheet" href="viewer-mode.css?v=20260516u">
 <script src="viewer-mode.js?v=20260516u"></script>
 
-<title>開拓案件候補 | GRID LAND MGR v4.0</title>
+<title>開拓案件候補 | GRID LAND MGR v4.0 (v20260622a)</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -403,12 +404,10 @@ function getFilteredSorted(){
   }
   if(filters.status==='none')list=list.filter(function(f){return !f.status;});
   else if(filters.status==='approached')list=list.filter(function(f){return f.status==='approached';});
-  // v20260528a: 低圧蓄電池候補 = 市街化調整区域を除外。A09 control ポリゴン内の筆を落とす。
+  // v20260622a: 低圧蓄電池候補 = 市街化調整区域を除外。XKT001(正本)で事前判定した _xkt001ChouseiSet を使用。
   if(filters.teiatsu){
     list=list.filter(function(f){
-      var la=Number(f.lat),ln=Number(f.lng);
-      if(f.lat==null||f.lng==null||isNaN(la)||isNaN(ln))return true; // 座標なしは判定不能→残す（除外しすぎ防止）
-      return !isInControlZone(la,ln); // 調整区域内なら除外
+      return !_xkt001ChouseiSet[f.feature_id]; // XKT001で市街化調整区域と判定された筆を除外
     });
   }
   list.sort(function(a,b){
@@ -726,41 +725,13 @@ function haversineMeters(lat1,lng1,lat2,lng2){
   return 2*R*Math.asin(Math.sqrt(a));
 }
 
-// ======== 低圧蓄電池候補：市街化調整区域(A09 control)判定 ========
-// farmland-tracker.html と同じ R2 の a09_control.geojson を読み込み、
-// 各候補の座標が調整区域ポリゴン内かを点-多角形判定する（外部ライブラリ不要）。
-var CITYPLAN_CONTROL_BASE='https://pub-f1d3bf52e0814555ac4acb1d8662bc01.r2.dev/cityplanning/';
-var CITYPLAN_CONTROL_FILES=['a09_control.geojson','a09_control_shiga.geojson','a09_control_mie.geojson','a09_control_nagano.geojson','a09_control_hyogo.geojson']; // 中部3県統合＋県別。三重/長野追加時はここに足す
-var _controlPolys=null;     // [[ [lng,lat],... ], ...] 形式の環配列（バウンディングボックス付き）
-var _controlLoading=false;
-
-// GeoJSON を扱いやすいポリゴン配列へ平坦化（Polygon / MultiPolygon 対応）。各環にbbox付与で高速化。
-function _flattenControlGeoJSON(gj){
-  var polys=[];
-  function addRing(ring){
-    if(!ring||ring.length<3)return;
-    var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-    for(var i=0;i<ring.length;i++){
-      var x=ring[i][0],y=ring[i][1];
-      if(x<minX)minX=x; if(x>maxX)maxX=x;
-      if(y<minY)minY=y; if(y>maxY)maxY=y;
-    }
-    polys.push({ring:ring,minX:minX,minY:minY,maxX:maxX,maxY:maxY});
-  }
-  var feats=(gj&&gj.features)?gj.features:[];
-  for(var f=0;f<feats.length;f++){
-    var g=feats[f].geometry; if(!g)continue;
-    if(g.type==='Polygon'){
-      // 外環のみ使用（穴は調整区域の判定では実用上無視）
-      if(g.coordinates&&g.coordinates[0])addRing(g.coordinates[0]);
-    }else if(g.type==='MultiPolygon'){
-      for(var p=0;p<g.coordinates.length;p++){
-        if(g.coordinates[p]&&g.coordinates[p][0])addRing(g.coordinates[p][0]);
-      }
-    }
-  }
-  return polys;
-}
+// ======== 低圧蓄電池候補：市街化調整区域(XKT001)判定 ========
+// v20260622a: A09 control GeoJSON(R2・県別寄せ集め・取りこぼし欠陥)を廃止し、
+// XKT001(不動産情報ライブラリ・令和6年度・全国)タイル点照合へ統一。
+// farmland-tracker / field-survey / landowner-visit と同一正本（②最終断定はXKT001に一本化）。
+var XKT001_API='https://reinfolib-proxy.takumi-29b.workers.dev/api';
+var _xkt001ChouseiSet={}; // feature_id -> true（市街化調整区域）
+var _xkt001TileCache={};  // 'z/x/y' -> features[]
 
 // 点-多角形判定（レイキャスティング）。lng=x, lat=y。
 function _pointInRing(x,y,ring){
@@ -772,62 +743,89 @@ function _pointInRing(x,y,ring){
   }
   return inside;
 }
-
-// 座標が市街化調整区域内か（bboxで一次足切り→レイキャスティング）
-function isInControlZone(lat,lng){
-  if(!_controlPolys)return false; // 未ロード時は除外しない（安全側）
-  for(var i=0;i<_controlPolys.length;i++){
-    var poly=_controlPolys[i];
-    if(lng<poly.minX||lng>poly.maxX||lat<poly.minY||lat>poly.maxY)continue;
-    if(_pointInRing(lng,lat,poly.ring))return true;
+function _geomContains(lng,lat,geom){
+  if(!geom)return false;
+  if(geom.type==='Polygon')return _pointInRing(lng,lat,geom.coordinates[0]);
+  if(geom.type==='MultiPolygon'){
+    for(var k=0;k<geom.coordinates.length;k++){ if(_pointInRing(lng,lat,geom.coordinates[k][0]))return true; }
+    return false;
   }
   return false;
+}
+function _tileFor(lat,lng,z){
+  var n=Math.pow(2,z);
+  var x=Math.floor((lng+180)/360*n);
+  var r=lat*Math.PI/180;
+  var y=Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n);
+  return {x:x,y:y,z:z};
+}
+async function _fetchXkt001Tile(z,x,y){
+  var key=z+'/'+x+'/'+y;
+  if(_xkt001TileCache[key])return _xkt001TileCache[key];
+  try{
+    var res=await fetch(XKT001_API+'/XKT001?response_format=geojson&z='+z+'&x='+x+'&y='+y);
+    if(!res.ok){ _xkt001TileCache[key]=[]; return []; }
+    var data=await res.json();
+    var feats=(data&&data.features)?data.features:[];
+    _xkt001TileCache[key]=feats;
+    return feats;
+  }catch(e){ _xkt001TileCache[key]=[]; return []; }
+}
+// 表示候補のうち市街化調整区域に入るものをXKT001で判定し _xkt001ChouseiSet を構築。
+// 同一タイルは1回だけfetch（API負荷最小化）。
+async function _buildChouseiSet(list){
+  var Z=14;
+  var byTile={};
+  for(var i=0;i<list.length;i++){
+    var f=list[i]; var la=Number(f.lat),ln=Number(f.lng);
+    if(f.lat==null||f.lng==null||isNaN(la)||isNaN(ln))continue;
+    var t=_tileFor(la,ln,Z); var key=t.z+'/'+t.x+'/'+t.y;
+    (byTile[key]=byTile[key]||[]).push({f:f,la:la,ln:ln,t:t});
+  }
+  var set={},chosei=0,checked=0,noCoord=0;
+  for(var ii=0;ii<list.length;ii++){var _g=list[ii];if(_g.lat==null||_g.lng==null||isNaN(Number(_g.lat))||isNaN(Number(_g.lng)))noCoord++;}
+  var keys=Object.keys(byTile);
+  for(var ki=0;ki<keys.length;ki++){
+    var grp=byTile[keys[ki]]; var t0=grp[0].t;
+    var feats=await _fetchXkt001Tile(t0.z,t0.x,t0.y);
+    for(var gi=0;gi<grp.length;gi++){
+      var c=grp[gi]; checked++;
+      for(var fi=0;fi<feats.length;fi++){
+        var pr=feats[fi].properties||{};
+        var cls=pr.area_classification_ja||'';
+        if(cls.indexOf('市街化調整')>=0 && _geomContains(c.ln,c.la,feats[fi].geometry)){
+          set[c.f.feature_id]=true; chosei++; break;
+        }
+      }
+    }
+  }
+  _xkt001ChouseiSet=set;
+  return {checked:checked,chosei:chosei,tiles:keys.length,noCoord:noCoord};
 }
 
 async function toggleTeiatsu(){
   var btn=document.getElementById('btnTeiatsu');
-  // すでにONなら→OFFに戻す
   if(filters.teiatsu){
     filters.teiatsu=false;
     if(btn)btn.classList.remove('active');
     renderTable();
-    showToast('\u5168\u4ef6\u8868\u793a\u306b\u623b\u3057\u307e\u3057\u305f','success');
+    showToast('全件表示に戻しました','success');
     return;
   }
-  // OFF→ONにする。GeoJSON未ロードなら取得。
-  if(!_controlPolys){
-    if(_controlLoading)return;
-    _controlLoading=true;
-    if(btn)btn.textContent='\u23f3 \u8abf\u6574\u533a\u57df\u30c7\u30fc\u30bf\u53d6\u5f97\u4e2d...';
-    try{
-      var all=[];
-      for(var ci=0;ci<CITYPLAN_CONTROL_FILES.length;ci++){
-        try{
-          var res=await fetch(CITYPLAN_CONTROL_BASE+CITYPLAN_CONTROL_FILES[ci]);
-          if(!res.ok){ console.warn('control '+CITYPLAN_CONTROL_FILES[ci]+' HTTP '+res.status); continue; }
-          var gj=await res.json();
-          all=all.concat(_flattenControlGeoJSON(gj));
-        }catch(fe){ console.warn('control fetch fail',CITYPLAN_CONTROL_FILES[ci],fe); }
-      }
-      _controlPolys=all;
-      _controlLoading=false;
-    }catch(e){
-      _controlLoading=false;
-      if(btn)btn.textContent='\ud83d\udd0b \u4f4e\u5727\u84c4\u96fb\u6c60\u5019\u88dc\uff08\u8abf\u6574\u533a\u57df\u9664\u304f\uff09';
-      showToast('\u8abf\u6574\u533a\u57df\u30c7\u30fc\u30bf\u306e\u53d6\u5f97\u306b\u5931\u6557\u3057\u307e\u3057\u305f: '+e.message,'error');
-      return;
-    }
-    if(btn)btn.textContent='\ud83d\udd0b \u4f4e\u5727\u84c4\u96fb\u6c60\u5019\u88dc\uff08\u8abf\u6574\u533a\u57df\u9664\u304f\uff09';
+  if(btn)btn.textContent='⏳ XKT001で調整区域を判定中...';
+  var stat;
+  try{
+    stat=await _buildChouseiSet(farmlands);
+  }catch(e){
+    if(btn)btn.textContent='🔋 低圧蓄電池候補（調整区域除く）';
+    showToast('XKT001判定に失敗: '+e.message,'error');
+    return;
   }
+  if(btn)btn.textContent='🔋 低圧蓄電池候補（調整区域除く）';
   filters.teiatsu=true;
   if(btn)btn.classList.add('active');
   renderTable();
-  // 診断：読み込んだ調整区域ポリゴン数と、全候補中いくつが調整区域内かを可視化
-  var _pN=_controlPolys?_controlPolys.length:0,_exc=0,_noCoord=0;
-  for(var _i=0;_i<farmlands.length;_i++){var _ff=farmlands[_i];var _la=Number(_ff.lat),_ln=Number(_ff.lng);
-    if(_ff.lat==null||_ff.lng==null||isNaN(_la)||isNaN(_ln)){_noCoord++;continue;}
-    if(isInControlZone(_la,_ln))_exc++;}
-  showToast('低圧蓄電池ON｜調整区域ポリゴン '+_pN+'個読込／全候補 '+farmlands.length+'件中 調整区域内 '+_exc+'件を除外（座標なし '+_noCoord+'件）','success');
+  showToast('低圧蓄電池ON（XKT001正本）｜'+stat.tiles+'タイル照会／'+stat.checked+'件中 市街化調整区域 '+stat.chosei+'件を除外（座標なし '+stat.noCoord+'件は残置）','success');
 }
 
 // ======== 案件マスターへ昇格 ========
