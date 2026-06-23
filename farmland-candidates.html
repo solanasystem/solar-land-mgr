@@ -22,8 +22,9 @@
 <link rel="stylesheet" href="viewer-mode.css?v=20260516u">
 <script src="viewer-mode.js?v=20260516u"></script>
 
-<!-- v20260623c: XKT001区域区分の点照合バグ修正。点を含む全ポリゴンを走査し最具体区分(市街化調整>市街化区域>都市計画区域=非線引き親)を採用。従来は最初に当たった親(都市計画区域の外枠)で確定し市街化調整区域を見逃していた(例:田原市越戸町狐沢874-1)。塗りと判定を一致させ、ポップアップもクリック点の最具体区分を表示。tracker/field-survey/landowner-visit＋candidates＋Track B昇格を同時適用。 -->
-<title>開拓案件候補 | GRID LAND MGR v4.0 (v20260623c)</title>
+<!-- v20260623c: XKT001点照合バグ修正(全ポリゴン走査→最具体区分採用)。 -->
+<!-- v20260623d: 永続プレフィックスに trackB_ 追加。Track Bからの「✅案件候補へ」登録分が日付に依らず候補一覧に出現。 -->
+<title>開拓案件候補 | GRID LAND MGR v4.0 (v20260623d)</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -303,7 +304,7 @@ async function loadData(){
       // v20260515d: PBF系（プレフィックスなし）は最新 snapshot_date のみ取得
       _fetchAllPaged(function(){return db.from('farmland_snapshots').select('*').eq('snapshot_date',latestDate).not('feature_id','ilike','pubH\\_%').not('feature_id','ilike','emaffN\\_%');}),
       // v20260515d: 永続系（pubH_ / emaffN_）は日付問わず全件取得（取込日が異なっても拾える）
-      _fetchAllPaged(function(){return db.from('farmland_snapshots').select('*').or('feature_id.ilike.pubH\\_%,feature_id.ilike.emaffN\\_%');}),
+      _fetchAllPaged(function(){return db.from('farmland_snapshots').select('*').or('feature_id.ilike.pubH\\_%,feature_id.ilike.emaffN\\_%,feature_id.ilike.trackB\\_%');}),
       _fetchAllPaged(function(){return db.from('farmland_ng_list').select('*');}),
       db.from('farmland_status').select('feature_id,status').limit(10000),
       db.from('farmland_comments').select('feature_id,comment').limit(10000),
@@ -797,7 +798,7 @@ async function _buildChouseiSet(list){
     var feats=await _fetchXkt001Tile(t0.z,t0.x,t0.y);
     for(var gi=0;gi<grp.length;gi++){
       var c=grp[gi]; checked++;
-      // v20260623c: 点を含む全ポリゴンを走査し最具体区分を採用（親=都市計画区域外枠が子=市街化調整を隠す穴を塞ぐ）。優先 市街化調整>市街化区域>都市計画区域(非線引き親)。
+      // v20260623c: 点を含む全ポリゴンを走査し最具体区分を採用（親=都市計画区域外枠が子=市街化調整を隠す穴を塞ぐ）。
       var cls=null, _br=-1;
       for(var fi=0;fi<feats.length;fi++){
         if(!_geomContains(c.ln,c.la,feats[fi].geometry))continue;

@@ -69,7 +69,7 @@
   } catch(e) {}
 })();
 </script>
-<!-- v20260623c: XKT001区域区分の点照合バグ修正。点を含む全ポリゴンを走査し最具体区分(市街化調整>市街化区域>都市計画区域=非線引き親)を採用。従来は最初に当たった親(都市計画区域の外枠)で確定し市街化調整区域を見逃していた(例:田原市越戸町狐沢874-1)。塗りと判定を一致させ、ポップアップもクリック点の最具体区分を表示。tracker/field-survey/landowner-visit＋candidates＋Track B昇格を同時適用。 -->
+<!-- v20260623d: Track B「✅案件候補へ」をA化＝farmland_snapshots に trackB_<id> 行INSERT(cases未使用→cases_city_planning_zone_check制約エラーを構造回避)。XKT001日本語値をcasesに渡して失敗していた既存バグを解消。地番はAMX筆PMTilesからクリック点で自動取得（prompt廃止）。昇格後はtrackbLayerから該当idを即時除去＋以降の再描画でadopted行を描画スキップ→Track B残地から消える。 -->
 <title>農地変更トラッカー | GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <!-- v20260621a: 都市計画道路(A55 douro)レイヤを7県(岐阜/静岡/愛知/三重/滋賀/兵庫/和歌山)追加。data/douro/douro_{県}.geojson をviewport描画(農振と同方式)。トグル=🛣都市計画道路。整備状況/新設判別はA55属性に無く全線赤表示。第1段(新設道路マーキング)実装。 -->
@@ -1376,7 +1376,7 @@ async function _fetchAndRenderTrackb() {
       ng_reason: row.ng_reason, hz_class: row.hz_class,
       adopted: row.adopted === true
     }
-  }; }).filter(function(f){ return f.geometry != null; });
+  }; }).filter(function(f){ return f.geometry != null && f.properties.adopted !== true; });
   if (typeof showToast === 'function') showToast('Track B残地 ' + features.length + '件', 'success');
   trackbLayer = L.geoJSON({ type: 'FeatureCollection', features }, {
     style: function(feature) {
@@ -1461,7 +1461,7 @@ async function _xkt001ClassifyAt(lat, lng) {
     if (!res.ok) return null;
     var data = await res.json();
     if (!data.features) return null;
-    // v20260623c: 点を含む全ポリゴンから最具体区分を採用（親=都市計画区域外枠が子=市街化調整を隠す穴を塞ぐ）。優先 市街化調整>市街化区域>都市計画区域(非線引き親)。
+    // v20260623c: 全ポリゴン走査→最具体区分採用。
     var _best = null, _br = -1;
     for (var i = 0; i < data.features.length; i++) {
       var f = data.features[i];
@@ -1471,7 +1471,7 @@ async function _xkt001ClassifyAt(lat, lng) {
       var rk = nm.indexOf('市街化調整') >= 0 ? 3 : (nm.indexOf('市街化区域') >= 0 ? 2 : (nm.indexOf('都市計画区域') >= 0 ? 1 : 0));
       if (rk > _br) { _br = rk; _best = { cls: nm, city: pr.city_name || '', pref: pr.prefecture || '' }; }
     }
-    return _best; // 当たらなければ null（区域外）
+    return _best;
   } catch (e) { return null; }
 }
 
@@ -1487,11 +1487,51 @@ async function excludeTrackbOne(id) {
   } catch (e) { showToast('除外例外: ' + e.message, 'error'); }
 }
 
-/* ✅ 案件候補へ昇格（α：XKT001照合→地番任意→cases+land_info登録） */
+/* ✅ 案件候補へ昇格 v20260623d：
+   - XKT001で市街化調整は除外、それ以外は farmland_snapshots に trackB_<id> 行を INSERT（案件候補画面に出現）
+   - 地番はAMX筆PMTilesからクリック点で自動取得（promptを廃止）
+   - 成功後 trackbLayer から該当 id を即時除去（再描画もadopted行をスキップ） */
+async function _amxChibanAt(lat, lng) {
+  if (!window.__PMT || !window.__VT || !window.__Pbf) return null;
+  try {
+    var z = Math.min(Math.max(Math.floor(map.getZoom()), 14), 16);
+    var n = Math.pow(2, z);
+    var latR = lat * Math.PI / 180;
+    var tx = Math.floor((lng + 180) / 360 * n);
+    var ty = Math.floor((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n);
+    var resp = await window.__PMT.getZxy(z, tx, ty);
+    if (!resp) return null;
+    var tile = new window.__VT(new window.__Pbf(resp.data));
+    var names = Object.keys(tile.layers);
+    if (!names.length) return null;
+    var layer = tile.layers[names[0]];
+    var extent = layer.extent;
+    var px = ((lng + 180) / 360 * n * extent) - tx * extent;
+    var py = ((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n * extent) - ty * extent;
+    for (var i = 0; i < layer.length; i++) {
+      var feat = layer.feature(i);
+      if (feat.type !== 3) continue;
+      var geom = feat.loadGeometry();
+      if (pointInPolygon(px, py, geom)) {
+        var pr = feat.properties || {};
+        var rawArea = pr['\u5730\u756a\u533a\u57df'] || ''; // 地番区域
+        var parts = rawArea.split('_');
+        return {
+          city:  (parts[0] || '').trim(),
+          oaza:  (parts[1] || '').trim(),
+          koaza: (parts[2] || '').trim(),
+          chome: (parts[3] || '').trim(),
+          chiban: String(pr['\u5730\u756a'] || '').trim() // 地番
+        };
+      }
+    }
+  } catch (e) { /* silent */ }
+  return null;
+}
+
 async function promoteTrackbCase(id, lat, lng, areaM2) {
   showToast('XKT001で区域区分を判定中…', 'success');
   var z = await _xkt001ClassifyAt(lat, lng);
-  // ① 市街化調整区域 → 除外して地図から消す
   if (z && z.cls && z.cls.indexOf('市街化調整') >= 0) {
     try { await db.rpc('exclude_trackb', { p_id: id, p_reason: 'XKT001_市街化調整' }); } catch (e) {}
     showToast('⛔ 市街化調整区域のため除外しました（XKT001確定）', 'error');
@@ -1499,38 +1539,45 @@ async function promoteTrackbCase(id, lat, lng, areaM2) {
     renderTrackbInView();
     return;
   }
-  // ② 区域外（XKT001該当なし）→ 警告しつつ続行
-  if (!z) showToast('⚠️ XKT001区域外（要目視）。続行します', 'success');
-  var city = z ? z.city : '';
-  if (!city) {
-    city = (prompt('市町村名を入力してください（案件番号の採番に使用）\n例：蒲郡市', '') || '').trim();
-    if (!city) { showToast('市町村未入力のため中止しました', 'error'); return; }
-  }
-  // 地番は任意（農地→農地ナビ／非農地→登記情報・ブルーマップ等で人が確認。空欄可）
-  var chiban = (prompt('地番が分かれば入力（空欄可）\n農地由来→農地ナビ／非農地→登記情報サービスのブルーマップ等で確認', '') || '').trim();
+  // 地番をAMX筆から自動取得
+  showToast('地番境界(AMX)から地番を自動取得中…', 'success');
+  var chk = await _amxChibanAt(lat, lng);
+  var city = (z && z.city) ? z.city : (chk ? chk.city : '');
+  var oaza = chk ? chk.oaza : '';
+  var koaza = chk ? chk.koaza : '';
+  var chome = chk ? chk.chome : '';
+  var chiban = chk ? chk.chiban : '';
+  var address = [oaza, koaza, chome].filter(Boolean).join('') + (chiban ? (' ' + chiban) : '');
   var cpz = (z && z.cls) ? z.cls : '';
-  if (!confirm('案件登録します。よろしいですか？\n\n市町村：' + city + '\n区域区分：' + (cpz || '区域外') + '\n地番：' + (chiban || '（未取得）') + '\n面積：' + (areaM2 != null ? Math.round(areaM2) + '㎡' : '—') + '\n\n→ 案件マスター登録＝現地調査マップにフラグが立ちます')) return;
-  // クリックした筆のポリゴンを取得（cadastral_polygon用）
-  var geomJson = null;
-  if (trackbLayer) {
-    trackbLayer.eachLayer(function (l) {
-      if (l.feature && l.feature.properties && l.feature.properties.id === id && l.feature.geometry) geomJson = l.feature.geometry;
-    });
-  }
+  if (!confirm('案件候補に登録します。よろしいですか？\n\n市町村：' + (city || '（未取得）') +
+               '\n所在：' + (address || '（未取得）') +
+               '\n区域区分：' + (cpz || '区域外') +
+               '\n面積：' + (areaM2 != null ? Math.round(areaM2) + '㎡' : '—') +
+               '\n\n→ farmland-candidates（案件候補一覧）に出現します')) return;
   try {
-    var res = await db.rpc('promote_trackb_to_case', {
+    var res = await db.rpc('promote_trackb_to_candidate', {
       p_id: id,
-      p_city: city,
-      p_chiban: chiban,
-      p_cpz: cpz,
+      p_city: city || null,
+      p_address: address || null,
+      p_chiban: chiban || null,
+      p_cpz: cpz || null,
       p_area_sqm: (areaM2 != null && !isNaN(areaM2)) ? areaM2 : null,
-      p_geom: geomJson
+      p_lat: lat,
+      p_lng: lng
     });
-    if (res.error) { showToast('案件登録エラー: ' + res.error.message, 'error'); return; }
-    showToast('✅ 案件登録: ' + (res.data || '完了') + '（現地調査マップに反映）', 'success');
+    if (res.error) { showToast('案件候補登録エラー: ' + res.error.message, 'error'); return; }
+    showToast('✅ 案件候補に登録しました: ' + (res.data || ('trackB_' + id)), 'success');
     if (map) map.closePopup();
+    // 即時除去：trackbLayer から該当 id を地図から消す（再描画もadopted行をスキップ）
+    if (trackbLayer) {
+      trackbLayer.eachLayer(function (l) {
+        if (l.feature && l.feature.properties && l.feature.properties.id === id) {
+          try { trackbLayer.removeLayer(l); } catch (e) {}
+        }
+      });
+    }
     renderTrackbInView();
-  } catch (e) { showToast('案件登録例外: ' + e.message, 'error'); }
+  } catch (e) { showToast('案件候補登録例外: ' + e.message, 'error'); }
 }
 
 /* ===== Track B 範囲除外モード（案S：既存「範囲NG」のUXを複製・専用） ===== */
@@ -2874,7 +2921,7 @@ function _classifyCityPlan(name) {
   return 'other';
 }
 
-/* v20260623c: XKT001区域区分の点照合を塗りと一致させる正本ロジック。点を含む全ポリゴンから最具体区分を返す（親=都市計画区域外枠が子=市街化調整を隠す穴を塞ぐ）。 */
+/* v20260623c: XKT001区域区分の点照合を塗りと一致させる正本ロジック。点を含む全ポリゴンから最具体区分を返す。 */
 var _cityPlanFeats=[];
 function _cpPipRing(lng,lat,ring){var inside=false;for(var i=0,j=ring.length-1;i<ring.length;j=i++){var xi=ring[i][0],yi=ring[i][1],xj=ring[j][0],yj=ring[j][1];var hit=((yi>lat)!==(yj>lat))&&(lng<(xj-xi)*(lat-yi)/(yj-yi)+xi);if(hit)inside=!inside;}return inside;}
 function _cpContains(lng,lat,geom){if(!geom)return false;if(geom.type==='Polygon')return _cpPipRing(lng,lat,geom.coordinates[0]);if(geom.type==='MultiPolygon'){for(var k=0;k<geom.coordinates.length;k++){if(_cpPipRing(lng,lat,geom.coordinates[k][0]))return true;}}return false;}
