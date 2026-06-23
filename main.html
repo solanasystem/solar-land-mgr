@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: main v20260622f / ステータスバッジ(LETTER/LTR済)に最終発信日(M/D)を埋め込み表示。案件マスター行・地権者マスター行・案件詳細モーダルに反映。栗本氏の「済の右横に〇/〇」案を実装。 -->
+<!-- BUILD: main v20260622g / ステータスバッジ(LETTER/LTR済)の最終発信日表示を改善：紫の補色=黄緑(#bef264)で太字大きめ・position:absoluteでバッジ右端内側に重ねるためバッジ幅は不変(min-width:92px維持)。 -->
 <!-- BUILD: main v20260622d / 郵便番号の遡及自動補完(地権者マスター画面オープン時に空欄を全自動でバックグラウンド埋め)＋bulkFetchPostalCodes を DEFINER RPC (update_landowner_postal) 経由に統一。「新システム追加時は既存データに遡及適用」原則の実装。 -->
 <!-- BUILD: main v20260622a / toki-ai.js,css の?v=打替（AI転記後の即時反映＝キャッシュバスター更新） -->
 <!-- v20260528a: ステータスバッジ(.status-badge)の帯を統一。min-width:92px + justify-content:center で全ステータス(NOT VISITED/LTR済/OK等)の帯長を揃える。文字数依存の不揃いを解消。全マスター(案件/地権者/土地情報/不動産会社)共通で適用 -->
@@ -1710,15 +1710,16 @@ function statusClass(s){return({'NOT VISITED':'not-visited','THINKING↑':'think
 function statusBadgeInline(id,cur,lsa){
   const cls=cur?statusClass(cur):'mitoiroku';
   const opts=STATUS_LIST.map(s=>`<option value="${s}"${s===cur?' selected':''}>${s}</option>`).join('');
-  // v20260622f: LETTER/LTR済 のときだけ日付サフィックスを並べて表示（select の右に M/D）
+  // v20260622g: 紫地(LETTER/LTR済)の補色=黄緑(#bef264)で日付を表示。
+  // 幅を変えないため position:absolute でバッジ右端内側に重ねる（min-width:92px は維持）。
   let suffix='';
   if(cur&&(cur==='LETTER'||cur==='LTR\u6e08')&&lsa){
     const d=new Date(lsa);
     if(!isNaN(d.getTime())){
-      suffix=`<span style="margin-left:6px;font-size:10px;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap" title="\u6700\u7d42\u767a\u4fe1\u65e5">${d.getMonth()+1}/${d.getDate()}</span>`;
+      suffix=`<span style="position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:12px;font-weight:700;color:#bef264;font-family:var(--font-mono);white-space:nowrap;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.4)" title="\u6700\u7d42\u767a\u4fe1\u65e5">${d.getMonth()+1}/${d.getDate()}</span>`;
     }
   }
-  return `<span class="status-badge status-select-wrap status-${cls}"><span class="status-dot"></span><select class="inline-select" onchange="quickUpdateStatus('${id}',this.value,this)"><option value=""${!cur?' selected':''}>\u2014</option>${opts}</select>${suffix}</span>`;
+  return `<span class="status-badge status-select-wrap status-${cls}" style="position:relative"><span class="status-dot"></span><select class="inline-select" onchange="quickUpdateStatus('${id}',this.value,this)"><option value=""${!cur?' selected':''}>\u2014</option>${opts}</select>${suffix}</span>`;
 }
 async function quickUpdateKubun(id,val,el){
   const{error}=await db.from('cases').update({kubun:val}).eq('id',id);
@@ -1736,16 +1737,15 @@ async function quickUpdateStatus(id,val,el){
 }
 function kubunBadge(k){if(!k)return '<span style="color:var(--text-muted);font-size:12px">—</span>';return `<span class="badge badge-${kubunClass(k)}">${k}</span>`;}
 function statusBadge(s,lsa){
-  // v20260622f: LETTER/LTR済 のステータスバッジに最終発信日(M/D)を埋め込む。
-  // 例: 「LTR済 6/22」「LETTER 6/22」。発信日が無い場合は日付を出さない。
-  let label=s||'\u2014';
+  // v20260622g: 紫地(LETTER/LTR済)の補色=黄緑(#bef264)で日付を重ねる。バッジ幅は不変。
+  let suffix='';
   if(s&&(s==='LETTER'||s==='LTR\u6e08')&&lsa){
     const d=new Date(lsa);
     if(!isNaN(d.getTime())){
-      label=`${s} ${d.getMonth()+1}/${d.getDate()}`;
+      suffix=`<span style="position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:12px;font-weight:700;color:#bef264;font-family:var(--font-mono);white-space:nowrap;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.4)" title="\u6700\u7d42\u767a\u4fe1\u65e5">${d.getMonth()+1}/${d.getDate()}</span>`;
     }
   }
-  return `<span class="status-badge status-${s?statusClass(s):'unknown'}"><span class="status-dot"></span>${label}</span>`;
+  return `<span class="status-badge status-${s?statusClass(s):'unknown'}" style="position:relative"><span class="status-dot"></span>${s||'\u2014'}${suffix}</span>`;
 }
 function formatDate(d){if(!d)return'—';return new Date(d).toLocaleDateString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit'});}
 function formatArea(v){if(v===null||v===undefined||v==='')return '—';const n=parseFloat(v);return isNaN(n)?'—':n.toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2})+' ㎡';}
