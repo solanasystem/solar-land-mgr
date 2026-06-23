@@ -1,7 +1,13 @@
 // ============================================================
-// mode-back.js v20260515j
-// 各ページに「モード選択へ戻る」フローティングボタンを自動注入
+// mode-back.js v20260623a
+// 各ページに「モード選択へ戻る」+「⇐ 戻る (1つ前へ)」 フローティングボタンを自動注入
 // ------------------------------------------------------------
+// v20260623a (2026-06-23):
+//   - MODE SELECT の右隣に「⇐ 戻る」ボタンを追加（青系・1つ前の画面へ）
+//   - history.length>1 なら history.back()、無ければ mode-select.html へフォールバック
+//   - 全画面共通(mode-back.js 1ファイル改修で全画面に反映)
+//   - ヘッダー左padding 120px → 200px (2ボタン分の幅)
+//
 // v20260515j (2026-05-15):
 //   - MODE と SELECT を縦2段表示に変更
 //   - ボタン全体をコンパクト化（高さ 36px → 28px / 幅 ~155 → ~95px）
@@ -45,7 +51,7 @@
 
   // ====== スタイル注入 ======
   var css = ''
-    + '.header, .topbar{padding-left:120px !important;}'
+    + '.header, .topbar{padding-left:200px !important;}'
     + '.logo > .logo-icon{display:none !important;}'
     + '.logo .logo-icon:has(svg){display:none !important;}'
     + '#ms-back-btn{'
@@ -74,13 +80,20 @@
     + '#ms-back-btn .stack{display:inline-flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px;line-height:1;margin-left:1px;}'
     + '#ms-back-btn .lbl{color:#ffffff;font-weight:700;font-size:9.5px;letter-spacing:0.05em;line-height:1;}'
     + '#ms-back-btn .sub{color:#86efac;font-size:7px;font-weight:700;letter-spacing:0.18em;opacity:0.92;line-height:1;}'
+    + '#ms-prev-btn{position:fixed;z-index:9999;top:10px;left:115px;display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;background:linear-gradient(135deg,#1e3a8a,#0c1d52);border:1px solid rgba(96,165,250,0.55);border-radius:6px;color:#fff;cursor:pointer;font-family:inherit;line-height:1;white-space:nowrap;box-shadow:inset 0 1px 2px rgba(255,255,255,0.18),0 2px 5px rgba(0,0,0,0.35);transition:transform 0.15s ease,box-shadow 0.15s ease,border-color 0.15s ease;}'
+    + '#ms-prev-btn:hover{transform:translateX(-2px);border-color:rgba(147,197,253,0.85);box-shadow:inset 0 1px 2px rgba(255,255,255,0.22),0 4px 10px rgba(0,0,0,0.45);}'
+    + '#ms-prev-btn .arr{color:#93c5fd;font-size:12px;line-height:1;transition:transform 0.15s;display:inline-block;}'
+    + '#ms-prev-btn:hover .arr{transform:translateX(-2px);}'
+    + '#ms-prev-btn .lbl{color:#fff;font-weight:700;font-size:11px;letter-spacing:0.06em;line-height:1;}'
     + '@media (max-width:640px){'
     + '#ms-back-btn{left:7px;height:26px;padding:0 7px 0 5px;gap:4px;}'
     + '#ms-back-btn .ms-clover{width:16px;height:16px;}'
     + '#ms-back-btn .arr{font-size:10px;}'
     + '#ms-back-btn .lbl{font-size:9px;}'
     + '#ms-back-btn .sub{font-size:6.5px;}'
-    + '.header, .topbar{padding-left:100px !important;}'
+    + '#ms-prev-btn{left:100px;height:26px;padding:0 8px;}'
+    + '#ms-prev-btn .lbl{font-size:10px;}'
+    + '.header, .topbar{padding-left:170px !important;}'
     + '}'
     + '@media print{#ms-back-btn{display:none !important;}}';
 
@@ -107,6 +120,24 @@
       '</span>';
     document.body.appendChild(btn);
 
+    // v20260623a: 「⇐ 戻る」ボタンを MODE SELECT の右隣に追加。1つ前の画面へ戻る用。
+    var prev = document.createElement('button');
+    prev.id = 'ms-prev-btn';
+    prev.type = 'button';
+    prev.title = '1つ前の画面に戻る';
+    prev.setAttribute('aria-label', '1つ前の画面に戻る');
+    prev.innerHTML = '<span class="arr">⇐</span><span class="lbl">戻る</span>';
+    prev.addEventListener('click', function(e){
+      e.preventDefault();
+      // 履歴があれば1つ前へ、無ければ MODE SELECT へフォールバック
+      if (window.history && window.history.length > 1 && document.referrer) {
+        window.history.back();
+      } else {
+        window.location.href = 'mode-select.html';
+      }
+    });
+    document.body.appendChild(prev);
+
     alignVerticalCenter(btn);
     var rafId = null;
     window.addEventListener('resize', function() {
@@ -123,6 +154,14 @@
     var topPx = headerRect.top + (headerRect.height - btnHeight) / 2;
     if (topPx < 0) topPx = 3;
     btn.style.top = topPx + 'px';
+    // v20260623a: prev ボタンも同じ縦位置に揃える
+    var prev = document.getElementById('ms-prev-btn');
+    if (prev) {
+      var prevHeight = prev.offsetHeight || 28;
+      var prevTop = headerRect.top + (headerRect.height - prevHeight) / 2;
+      if (prevTop < 0) prevTop = 3;
+      prev.style.top = prevTop + 'px';
+    }
   }
 
   if (document.readyState === 'loading') {
