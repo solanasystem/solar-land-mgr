@@ -76,10 +76,14 @@
 <!-- v20260621d: Track Bポップアップに📍Googleマップ(航空写真・真上ズーム20)ボタン追加=現況確認用。openGoogleAerial新設。Track Bポップアップのボタン行のみ改修・他スコープ無改変。 -->
 <!-- v20260621e: 都市計画区域レイヤをA09(国土数値情報R2・静的GeoJSON)からXKT001(不動産情報ライブラリ・タイル方式・令和6年度)へ全面差し替え。field-survey/landowner-visitと同一実装に統一(3マップ整合)。旧A09は静岡で市街化調整区域を取りこぼす欠陥があり②最終断定をXKT001に一本化。A09関連の変数/関数/凡例/CITYPLAN_R2を全削除。A09は表示専用で判定ロジック未参照を監査確認済のため判定残骸なし。 -->
 <!-- v20260621f: Track Bポップアップに【✅案件候補へ】【🗑除外】追加＋上部ツールバーに【🗑Track B範囲除外】(案S・既存範囲NG無改変・専用UX複製)。✅案件候補へ=押下時XKT001点照合(α)→市街化調整区域はexclude_trackbで地図から消す/区域外は警告継続/OK継続→地番任意入力(農地ナビ/登記情報で人が確認)→DEFINER RPC promote_trackb_to_case でcases+land_info登録(採番サーバ側{市町村}-連番)→現地調査マップにフラグ。adopted筆は青で別色表示。除外/範囲除外/採用は全てDEFINER RPC経由でRLS回避。要DB: promote_trackb_to_case RPC。 -->
+<!-- v20260622h: Track B 全国俯瞰ミニマップ追加。Track BモードON時のみ右下に320x240pxで表示・全候補(aichi3_X+shizuoka_X 合計約3,461件)を markerclusterで散布・ズームインで自動分解(点在分布が見える)・クリックで本マップ z11 へflyTo・本マップbboxを黄色矩形でミニマップに連動表示。RPC get_trackb_overview(DEFINER)で軽量lat/lng/source/adopted/excluded取得。栗本氏「地図全体のz14に達しないと表示されない問題＋他にも候補がたくさんあるが探し難い問題」を解決。 -->
 <!-- 注: 真因はget_trackb_in_bboxがSECURITY INVOKERでRLSに漉されブラウザanon=0件だった件→SECURITY DEFINER+search_path=public化(サーバ側)で開通済(prosecdef=true永続)。HTMLは無関係。 -->
 <link rel="stylesheet" href="mobile-responsive.css?v=20260522a">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <!-- ベクトルタイル＋面積計算 用ライブラリ -->
 <script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
@@ -495,6 +499,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 </div>
 <div class="map-wrapper">
   <div id="map"></div>
+  <!-- v20260622h: Track B 全国俯瞰ミニマップ。Track BモードON時のみ表示。 -->
+  <div id="trackbOverview" style="display:none;position:absolute;right:14px;bottom:14px;width:320px;height:240px;background:#0b1220;border:2px solid #a78bfa;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.5);z-index:600;overflow:hidden">
+    <div style="position:absolute;top:0;left:0;right:0;padding:5px 10px;background:rgba(91,33,182,.92);color:#fff;font-size:11px;font-weight:700;display:flex;justify-content:space-between;align-items:center;z-index:5">
+      <span>🏗 Track B 分布 <span id="trackbOverviewCount" style="font-weight:400;font-size:10px;color:#ddd;margin-left:6px"></span></span>
+      <span style="font-size:9px;color:#ddd;font-weight:400">クリックで本マップへ移動</span>
+    </div>
+    <div id="trackbOverviewMap" style="position:absolute;inset:26px 0 0 0"></div>
+  </div>
   <div class="loading-overlay" id="loadingOverlay" style="display:none;"><div class="spinner"></div><div class="loading-text" id="loadingText">データを読み込み中...</div></div>
   <div class="empty-state" id="emptyState"><div class="empty-icon">&#127807;</div><div class="empty-text">上の「&#128229; 今日のデータ取得」ボタンを押してデータを収集してください<br>2日分のデータが溜まると変更が表示されます</div></div>
   <div class="map-legend mc-collapsible" id="mapLegend">
@@ -1603,6 +1615,111 @@ function _disableTrackbHandlers(){
   map.off('moveend', renderTrackbInView);
   map.off('zoomend', renderTrackbInView);
 }
+/* ===== Track B 全国俯瞰ミニマップ v20260622h =====
+   栗本氏要件:
+   ① Track Bモード(ONのとき)だけ表示
+   ② クリックで z11〜12 にフライ(市町村俯瞰のまま遷移、詳細は手動ズーム)
+   ③ ズームインで集約マーカーが分解して点在分布が見える(markerclusterで自動)
+   ④ 本マップの現在bboxを黄色矩形で重ねて、自分の位置を可視化(連動)
+*/
+var _tbOvMap=null, _tbOvCluster=null, _tbOvBBox=null, _tbOvPoints=null;
+var _tbOvBBoxHandler=null;
+
+async function _tbOvOpen(){
+  var box=document.getElementById('trackbOverview');
+  if(!box) return;
+  box.style.display='block';
+  // 既存があれば再利用、無ければ生成
+  if(!_tbOvMap){
+    _tbOvMap=L.map('trackbOverviewMap',{
+      zoomControl:true, attributionControl:false,
+      minZoom:6, maxZoom:13
+    }).setView([35.0,138.0],8);
+    L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png',{
+      maxZoom:13, attribution:'地理院'
+    }).addTo(_tbOvMap);
+  }
+  // 点データ取得（初回のみ）
+  if(!_tbOvPoints){
+    try{
+      var res=await db.rpc('get_trackb_overview');
+      if(res.error){ throw res.error; }
+      _tbOvPoints=res.data||[];
+    }catch(e){
+      if(typeof showToast==='function') showToast('俯瞰データ取得失敗: '+(e.message||e),'error');
+      return;
+    }
+  }
+  // クラスタ生成（初回のみ）
+  if(!_tbOvCluster){
+    _tbOvCluster=L.markerClusterGroup({
+      maxClusterRadius:40,
+      spiderfyOnMaxZoom:false,
+      showCoverageOnHover:false,
+      disableClusteringAtZoom:12,
+      iconCreateFunction:function(cluster){
+        var n=cluster.getChildCount();
+        var size= n>500?54 : n>200?46 : n>80?40 : 34;
+        var bg= n>500?'#ef4444' : n>200?'#f97316' : n>80?'#eab308' : '#84cc16';
+        return L.divIcon({
+          html:'<div style="background:'+bg+';color:#fff;border:2px solid #fff;border-radius:50%;width:'+size+'px;height:'+size+'px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.4)">'+n+'</div>',
+          className:'',
+          iconSize:[size,size]
+        });
+      }
+    });
+    var visible=0, adopted=0;
+    _tbOvPoints.forEach(function(p){
+      if(p.excluded) return; // 除外筆はスキップ
+      visible++;
+      if(p.adopted) adopted++;
+      var color=p.adopted?'#3b82f6':'#22c55e';
+      var m=L.circleMarker([p.lat,p.lng],{
+        radius:3, color:color, weight:1, fillColor:color, fillOpacity:0.85
+      });
+      m.on('click',function(){
+        // 本マップへフライ(z11)
+        if(typeof map!=='undefined' && map){
+          map.flyTo([p.lat,p.lng], 11, {duration:0.8});
+        }
+      });
+      _tbOvCluster.addLayer(m);
+    });
+    _tbOvMap.addLayer(_tbOvCluster);
+    // 件数表示
+    var cnt=document.getElementById('trackbOverviewCount');
+    if(cnt) cnt.textContent='('+visible+'件'+(adopted>0?' / 採用'+adopted:'')+')';
+    // 全体が見える範囲にfit
+    try{
+      var bounds=_tbOvCluster.getBounds();
+      if(bounds.isValid()) _tbOvMap.fitBounds(bounds,{padding:[20,20]});
+    }catch(e){}
+  }
+  // 本マップのbboxを黄色矩形で連動表示
+  _tbOvBBoxHandler=function(){
+    if(typeof map==='undefined'||!map) return;
+    var b=map.getBounds();
+    var coords=[[b.getSouth(),b.getWest()],[b.getSouth(),b.getEast()],[b.getNorth(),b.getEast()],[b.getNorth(),b.getWest()],[b.getSouth(),b.getWest()]];
+    if(_tbOvBBox){ _tbOvBBox.setLatLngs(coords); }
+    else { _tbOvBBox=L.polyline(coords,{color:'#fbbf24',weight:2,opacity:0.95,fill:false}).addTo(_tbOvMap); }
+  };
+  _tbOvBBoxHandler();
+  if(typeof map!=='undefined' && map){
+    map.on('moveend zoomend', _tbOvBBoxHandler);
+  }
+  // ミニマップサイズ確定
+  setTimeout(function(){ if(_tbOvMap) _tbOvMap.invalidateSize(); }, 100);
+}
+
+function _tbOvClose(){
+  var box=document.getElementById('trackbOverview');
+  if(box) box.style.display='none';
+  if(typeof map!=='undefined' && map && _tbOvBBoxHandler){
+    map.off('moveend zoomend', _tbOvBBoxHandler);
+  }
+  // ミニマップ自体は残す(再表示時の初期化コスト回避)
+}
+
 function toggleTrackb(){
   var btn = document.getElementById('hzTrackb');
   var legend = document.getElementById('trackbLegend');
@@ -1612,6 +1729,7 @@ function toggleTrackb(){
     if (trackbLayer) { map.removeLayer(trackbLayer); trackbLayer = null; }
     _disableTrackbHandlers();
     if (legend) legend.style.display = 'none';
+    _tbOvClose(); // v20260622h: 俯瞰モーダル閉じる
     showToast('Track B残地を非表示にしました','success');
     return;
   }
@@ -1619,8 +1737,9 @@ function toggleTrackb(){
   if (btn) btn.classList.add('active');
   if (legend) legend.style.display = 'block';
   _enableTrackbHandlers();
-  if (map.getZoom() < 14) showToast('Track B残地はズーム14以上で表示されます（現在: ' + map.getZoom() + '）','success');
+  if (map.getZoom() < 14) showToast('Track B残地はズーム14以上で表示されます（現在: ' + map.getZoom() + '）。右下の俯瞰マップでクリックして移動できます','success');
   renderTrackbInView();
+  _tbOvOpen(); // v20260622h: 俯瞰モーダル開く
 }
 
 /* 農地ナビ起動（field-survey 互換）*/
