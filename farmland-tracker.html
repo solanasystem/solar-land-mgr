@@ -77,6 +77,7 @@
 <!-- v20260621e: 都市計画区域レイヤをA09(国土数値情報R2・静的GeoJSON)からXKT001(不動産情報ライブラリ・タイル方式・令和6年度)へ全面差し替え。field-survey/landowner-visitと同一実装に統一(3マップ整合)。旧A09は静岡で市街化調整区域を取りこぼす欠陥があり②最終断定をXKT001に一本化。A09関連の変数/関数/凡例/CITYPLAN_R2を全削除。A09は表示専用で判定ロジック未参照を監査確認済のため判定残骸なし。 -->
 <!-- v20260621f: Track Bポップアップに【✅案件候補へ】【🗑除外】追加＋上部ツールバーに【🗑Track B範囲除外】(案S・既存範囲NG無改変・専用UX複製)。✅案件候補へ=押下時XKT001点照合(α)→市街化調整区域はexclude_trackbで地図から消す/区域外は警告継続/OK継続→地番任意入力(農地ナビ/登記情報で人が確認)→DEFINER RPC promote_trackb_to_case でcases+land_info登録(採番サーバ側{市町村}-連番)→現地調査マップにフラグ。adopted筆は青で別色表示。除外/範囲除外/採用は全てDEFINER RPC経由でRLS回避。要DB: promote_trackb_to_case RPC。 -->
 <!-- v20260622h: Track B 全国俯瞰ミニマップ追加。Track BモードON時のみ右下に320x240pxで表示・全候補(aichi3_X+shizuoka_X 合計約3,461件)を markerclusterで散布・ズームインで自動分解(点在分布が見える)・クリックで本マップ z11 へflyTo・本マップbboxを黄色矩形でミニマップに連動表示。RPC get_trackb_overview(DEFINER)で軽量lat/lng/source/adopted/excluded取得。栗本氏「地図全体のz14に達しないと表示されない問題＋他にも候補がたくさんあるが探し難い問題」を解決。 -->
+<!-- v20260622i: 凡例パネル(mapLegend)をドラッグ可能化。ヘッダ"⠿ 🎯 凡例 (変更状況)"をつかんで自由に移動可・位置はlocalStorageに保存して次回再現。▼開閉ボタンはstopPropagationでクリック動作維持。栗本氏「凡例モーダルが画面内で動かせず邪魔」を解消。 -->
 <!-- 注: 真因はget_trackb_in_bboxがSECURITY INVOKERでRLSに漉されブラウザanon=0件だった件→SECURITY DEFINER+search_path=public化(サーバ側)で開通済(prosecdef=true永続)。HTMLは無関係。 -->
 <link rel="stylesheet" href="mobile-responsive.css?v=20260522a">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -510,9 +511,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="loading-overlay" id="loadingOverlay" style="display:none;"><div class="spinner"></div><div class="loading-text" id="loadingText">データを読み込み中...</div></div>
   <div class="empty-state" id="emptyState"><div class="empty-icon">&#127807;</div><div class="empty-text">上の「&#128229; 今日のデータ取得」ボタンを押してデータを収集してください<br>2日分のデータが溜まると変更が表示されます</div></div>
   <div class="map-legend mc-collapsible" id="mapLegend">
-    <div class="mc-panel-header" onclick="toggleMapLegend()">
-      <span class="mc-panel-title">🎯 凡例 (変更状況)</span>
-      <button class="mc-panel-toggle" type="button" aria-label="開閉">▼</button>
+    <div class="mc-panel-header" id="mapLegendHeader" style="cursor:grab;user-select:none">
+      <span class="mc-panel-title" style="pointer-events:none">⠿ 🎯 凡例 (変更状況)</span>
+      <button class="mc-panel-toggle" type="button" aria-label="開閉" onclick="event.stopPropagation();toggleMapLegend()" style="cursor:pointer">▼</button>
     </div>
     <div class="mc-panel-body">
     <div class="legend-title">変更状況</div>
@@ -1719,6 +1720,104 @@ function _tbOvClose(){
   }
   // ミニマップ自体は残す(再表示時の初期化コスト回避)
 }
+
+/* ===== 凡例パネル ドラッグ可能化 v20260622i =====
+   ヘッダ(mapLegendHeader)をつかんでドラッグ。位置はlocalStorageに保存して次回再現。
+   ▼開閉ボタン(.mc-panel-toggle)はクリック処理を維持(stopPropagation)。 */
+(function(){
+  function init(){
+    var panel=document.getElementById('mapLegend');
+    var header=document.getElementById('mapLegendHeader');
+    if(!panel||!header) return;
+    // 保存された位置を復元
+    try{
+      var saved=localStorage.getItem('mapLegendPos');
+      if(saved){
+        var p=JSON.parse(saved);
+        if(p&&typeof p.left==='number'&&typeof p.top==='number'){
+          panel.style.left=p.left+'px';
+          panel.style.top=p.top+'px';
+          panel.style.bottom='auto';
+          panel.style.right='auto';
+        }
+      }
+    }catch(e){}
+    var dragging=false, sx=0, sy=0, ox=0, oy=0;
+    header.addEventListener('mousedown',function(e){
+      // ▼ボタンはドラッグ対象外
+      if(e.target.closest('.mc-panel-toggle')) return;
+      dragging=true;
+      header.style.cursor='grabbing';
+      var rect=panel.getBoundingClientRect();
+      sx=e.clientX; sy=e.clientY;
+      ox=rect.left; oy=rect.top;
+      // 位置基準を一旦left/topに統一
+      panel.style.left=rect.left+'px';
+      panel.style.top=rect.top+'px';
+      panel.style.bottom='auto';
+      panel.style.right='auto';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove',function(e){
+      if(!dragging) return;
+      var nx=ox+(e.clientX-sx);
+      var ny=oy+(e.clientY-sy);
+      // 画面外に出ない簡易クランプ
+      var maxX=window.innerWidth-panel.offsetWidth;
+      var maxY=window.innerHeight-panel.offsetHeight;
+      nx=Math.max(0,Math.min(maxX,nx));
+      ny=Math.max(0,Math.min(maxY,ny));
+      panel.style.left=nx+'px';
+      panel.style.top=ny+'px';
+    });
+    document.addEventListener('mouseup',function(){
+      if(!dragging) return;
+      dragging=false;
+      header.style.cursor='grab';
+      try{
+        localStorage.setItem('mapLegendPos',JSON.stringify({
+          left:parseInt(panel.style.left,10)||0,
+          top:parseInt(panel.style.top,10)||0
+        }));
+      }catch(e){}
+    });
+    // タッチ対応
+    header.addEventListener('touchstart',function(e){
+      if(e.target.closest('.mc-panel-toggle')) return;
+      dragging=true;
+      var t=e.touches[0], rect=panel.getBoundingClientRect();
+      sx=t.clientX; sy=t.clientY; ox=rect.left; oy=rect.top;
+      panel.style.left=rect.left+'px';
+      panel.style.top=rect.top+'px';
+      panel.style.bottom='auto';
+      panel.style.right='auto';
+    },{passive:true});
+    document.addEventListener('touchmove',function(e){
+      if(!dragging) return;
+      var t=e.touches[0];
+      var nx=ox+(t.clientX-sx);
+      var ny=oy+(t.clientY-sy);
+      var maxX=window.innerWidth-panel.offsetWidth;
+      var maxY=window.innerHeight-panel.offsetHeight;
+      nx=Math.max(0,Math.min(maxX,nx));
+      ny=Math.max(0,Math.min(maxY,ny));
+      panel.style.left=nx+'px';
+      panel.style.top=ny+'px';
+    },{passive:true});
+    document.addEventListener('touchend',function(){
+      if(!dragging) return;
+      dragging=false;
+      try{
+        localStorage.setItem('mapLegendPos',JSON.stringify({
+          left:parseInt(panel.style.left,10)||0,
+          top:parseInt(panel.style.top,10)||0
+        }));
+      }catch(e){}
+    });
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init);
+  else init();
+})();
 
 function toggleTrackb(){
   var btn = document.getElementById('hzTrackb');
