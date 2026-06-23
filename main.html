@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: main v20260622f / ステータスバッジ(LETTER/LTR済)に最終発信日(M/D)を埋め込み表示。案件マスター行・地権者マスター行・案件詳細モーダルに反映。栗本氏の「済の右横に〇/〇」案を実装。 -->
 <!-- BUILD: main v20260622d / 郵便番号の遡及自動補完(地権者マスター画面オープン時に空欄を全自動でバックグラウンド埋め)＋bulkFetchPostalCodes を DEFINER RPC (update_landowner_postal) 経由に統一。「新システム追加時は既存データに遡及適用」原則の実装。 -->
 <!-- BUILD: main v20260622a / toki-ai.js,css の?v=打替（AI転記後の即時反映＝キャッシュバスター更新） -->
 <!-- v20260528a: ステータスバッジ(.status-badge)の帯を統一。min-width:92px + justify-content:center で全ステータス(NOT VISITED/LTR済/OK等)の帯長を揃える。文字数依存の不揃いを解消。全マスター(案件/地権者/土地情報/不動産会社)共通で適用 -->
@@ -1552,7 +1553,7 @@ function setCaseNoDisplayMode(mode){
         const useBusiness=(caseNoDisplayMode==='business_no' && c.display_case_no);
         const baseText=useBusiness?c.display_case_no:(c.parent_case_no||c.case_no||'—');
         const branchTag=c.parent_case_no?`<span style="color:var(--accent);font-size:12px;margin-left:6px;font-weight:700">(枝${_escHtml(c.branch_no||'')})</span>`:'';
-        det.innerHTML=`<span class="detail-case-no">${_escHtml(baseText)}${branchTag}</span>${kubunBadge(c.kubun)}${statusBadge(c.status)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
+        det.innerHTML=`<span class="detail-case-no">${_escHtml(baseText)}${branchTag}</span>${kubunBadge(c.kubun)}${statusBadge(c.status, c.last_letter_sent_at)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
       }
     }
   }
@@ -1667,7 +1668,7 @@ function renderCases(cases){
       <div class="case-no"${isChild?' style="padding-left:8px"':''}>${caseNoHtml}</div>
       <div style="text-align:center">${branchHtml}</div>
       <div style="text-align:center">${kubunBadgeInline(c.id,c.kubun)}</div>
-      <div style="text-align:center">${statusBadgeInline(c.id,c.status)}</div>
+      <div style="text-align:center">${statusBadgeInline(c.id,c.status,c.last_letter_sent_at)}</div>
       <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.landowner_name?highlightText(c.landowner_name,q):'—'}</div>
       <div class="price-cell">${c.price?Number(c.price).toLocaleString()+' 円':'—'}</div>
       <div style="font-size:13px;color:var(--text-muted);text-align:center">${c.area_name?highlightText(c.area_name,q):'—'}</div>
@@ -1706,10 +1707,18 @@ function kubunBadgeInline(id,cur){
 }
 const STATUS_LIST=['NOT VISITED','THINKING↑','THINKING→','THINKING↓','OK','SUCCESS','NON MEET','NG','UNKNOWN','LETTER','LTR済'];
 function statusClass(s){return({'NOT VISITED':'not-visited','THINKING↑':'thinking-up','THINKING→':'thinking-mid','THINKING↓':'thinking-down','OK':'ok','SUCCESS':'success','NON MEET':'non-meet','NG':'ng','UNKNOWN':'unknown','LETTER':'letter','LTR済':'ltr-zumi','検討中⇑':'thinking-up','検討中⇒':'thinking-mid','検討中⇓':'thinking-down','（仮）済':'ok','済':'success','ー未登録ー':'unknown'})[s]||'unknown';}
-function statusBadgeInline(id,cur){
+function statusBadgeInline(id,cur,lsa){
   const cls=cur?statusClass(cur):'mitoiroku';
   const opts=STATUS_LIST.map(s=>`<option value="${s}"${s===cur?' selected':''}>${s}</option>`).join('');
-  return `<span class="status-badge status-select-wrap status-${cls}"><span class="status-dot"></span><select class="inline-select" onchange="quickUpdateStatus('${id}',this.value,this)"><option value=""${!cur?' selected':''}>—</option>${opts}</select></span>`;
+  // v20260622f: LETTER/LTR済 のときだけ日付サフィックスを並べて表示（select の右に M/D）
+  let suffix='';
+  if(cur&&(cur==='LETTER'||cur==='LTR\u6e08')&&lsa){
+    const d=new Date(lsa);
+    if(!isNaN(d.getTime())){
+      suffix=`<span style="margin-left:6px;font-size:10px;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap" title="\u6700\u7d42\u767a\u4fe1\u65e5">${d.getMonth()+1}/${d.getDate()}</span>`;
+    }
+  }
+  return `<span class="status-badge status-select-wrap status-${cls}"><span class="status-dot"></span><select class="inline-select" onchange="quickUpdateStatus('${id}',this.value,this)"><option value=""${!cur?' selected':''}>\u2014</option>${opts}</select>${suffix}</span>`;
 }
 async function quickUpdateKubun(id,val,el){
   const{error}=await db.from('cases').update({kubun:val}).eq('id',id);
@@ -1726,7 +1735,18 @@ async function quickUpdateStatus(id,val,el){
   await refreshAll();
 }
 function kubunBadge(k){if(!k)return '<span style="color:var(--text-muted);font-size:12px">—</span>';return `<span class="badge badge-${kubunClass(k)}">${k}</span>`;}
-function statusBadge(s){return `<span class="status-badge status-${s?statusClass(s):'unknown'}"><span class="status-dot"></span>${s||'—'}</span>`;}
+function statusBadge(s,lsa){
+  // v20260622f: LETTER/LTR済 のステータスバッジに最終発信日(M/D)を埋め込む。
+  // 例: 「LTR済 6/22」「LETTER 6/22」。発信日が無い場合は日付を出さない。
+  let label=s||'\u2014';
+  if(s&&(s==='LETTER'||s==='LTR\u6e08')&&lsa){
+    const d=new Date(lsa);
+    if(!isNaN(d.getTime())){
+      label=`${s} ${d.getMonth()+1}/${d.getDate()}`;
+    }
+  }
+  return `<span class="status-badge status-${s?statusClass(s):'unknown'}"><span class="status-dot"></span>${label}</span>`;
+}
 function formatDate(d){if(!d)return'—';return new Date(d).toLocaleDateString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit'});}
 function formatArea(v){if(v===null||v===undefined||v==='')return '—';const n=parseFloat(v);return isNaN(n)?'—':n.toLocaleString('ja-JP',{minimumFractionDigits:2,maximumFractionDigits:2})+' ㎡';}
 
@@ -2039,7 +2059,7 @@ async function openDetail(caseId,mode){
   const _useB=(caseNoDisplayMode==='business_no' && c.display_case_no);
   const _baseTxt=_useB?c.display_case_no:(c.parent_case_no||c.case_no||'—');
   const displayNo=_escHtml(_baseTxt)+(c.parent_case_no?`<span style="color:var(--accent);font-size:12px;margin-left:6px;font-weight:700">(枝${_escHtml(c.branch_no||'')})</span>`:'');
-  document.getElementById('detailCaseInfo').innerHTML=`<span class="detail-case-no">${displayNo}</span>${kubunBadge(c.kubun)}${statusBadge(c.status)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
+  document.getElementById('detailCaseInfo').innerHTML=`<span class="detail-case-no">${displayNo}</span>${kubunBadge(c.kubun)}${statusBadge(c.status, c.last_letter_sent_at)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
   // 📄 概要書生成ボタン（中部電力管内・非NGなら通常表示、それ以外は警告色）
   const slot=document.getElementById('detailSummaryBtnSlot');
   if(slot){
@@ -2289,7 +2309,7 @@ function switchNav(btn,section){
 
 let allLandowners=[];
 async function loadLandownersMaster(){
-  const{data}=await db.from('landowner_info').select('*,cases(id,case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no)').order('case_id');
+  const{data}=await db.from('landowner_info').select('*,cases(id,case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no,last_letter_sent_at)').order('case_id');
   allLandowners=(data||[]).sort((a,b)=>{
     const pa=a.cases?.parent_case_no||a.cases?.case_no||'';
     const pb=b.cases?.parent_case_no||b.cases?.case_no||'';
@@ -2395,7 +2415,7 @@ function renderLandowners(los){
     <div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${postalHtml}${lo.address?highlightText(lo.address,q):'—'}</div>
     <div style="font-family:var(--font-mono);font-size:12px;color:var(--text);text-align:right">${lo.price?Number(lo.price).toLocaleString()+' 円':'—'}</div>
     <div style="font-size:13px;white-space:nowrap;text-align:center">${lo.tel?highlightText(lo.tel,q):'—'}</div>
-    <div style="text-align:center">${statusBadgeInline(lo.case_id,lo.cases?.status)}</div>
+    <div style="text-align:center">${statusBadgeInline(lo.case_id,lo.cases?.status,lo.cases?.last_letter_sent_at)}</div>
     <div class="actions-cell"><button class="action-toggle" data-case-id="${lo.case_id}" onclick="toggleLandownerActionMenu(event)">操作 ▼</button></div>
   </div>`;
   }).join('');
@@ -2466,7 +2486,7 @@ function renderLands(lands){
     return `<div class="case-row" style="grid-template-columns:50px 120px 110px 140px 1fr 120px 100px 150px 150px 60px 80px;animation-delay:${i*.03}s">
       <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">${i+1}</div>
       <div class="case-no" style="cursor:pointer;text-decoration:underline;text-decoration-color:rgba(163,113,247,.4);" onclick="openDetail('${land.case_id}','land')">${caseNoHl}</div>
-      <div style="text-align:center">${statusBadge(land.cases?.status)}</div>
+      <div style="text-align:center">${statusBadge(land.cases?.status, land.cases?.last_letter_sent_at)}</div>
       <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${land.landowner_name?highlightText(land.landowner_name,q):'—'}</div>
       <div style="font-size:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${soZai==='—'?'—':highlightText(soZai,q)}</div>
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--text);text-align:right">${land.cases?.price?Number(land.cases.price).toLocaleString()+' 円':'—'}</div>
@@ -3783,7 +3803,7 @@ function openCaseEditModal(caseId){
 }
 async function refreshAll(){
   const{data}=await db.from('cases').select('*').order('created_at',{ascending:false});
-  const{data:loData}=await db.from('landowner_info').select('*,cases(id,case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no)').order('case_id');
+  const{data:loData}=await db.from('landowner_info').select('*,cases(id,case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no,last_letter_sent_at)').order('case_id');
   const{data:ldData}=await db.from('land_info').select('*,cases(id,case_no,display_case_no,status,area_name,price,parent_case_no,branch_no)');
   const{data:reData}=await db.from('realestate_info').select('*,cases(id,case_no,display_case_no,area_name,parent_case_no,branch_no)');
   const loMap={};
@@ -3824,7 +3844,7 @@ async function refreshAll(){
       const _useB=(caseNoDisplayMode==='business_no' && c.display_case_no);
   const _baseTxt=_useB?c.display_case_no:(c.parent_case_no||c.case_no||'—');
   const displayNo=_escHtml(_baseTxt)+(c.parent_case_no?`<span style="color:var(--accent);font-size:12px;margin-left:6px;font-weight:700">(枝${_escHtml(c.branch_no||'')})</span>`:'');
-      document.getElementById('detailCaseInfo').innerHTML=`<span class="detail-case-no">${displayNo}</span>${kubunBadge(c.kubun)}${statusBadge(c.status)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
+      document.getElementById('detailCaseInfo').innerHTML=`<span class="detail-case-no">${displayNo}</span>${kubunBadge(c.kubun)}${statusBadge(c.status, c.last_letter_sent_at)}<span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted)">${c.price?Number(c.price).toLocaleString()+' 円':''}</span>`;
     }
   }
 }
