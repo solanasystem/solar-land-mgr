@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: main v20260622d / 郵便番号の遡及自動補完(地権者マスター画面オープン時に空欄を全自動でバックグラウンド埋め)＋bulkFetchPostalCodes を DEFINER RPC (update_landowner_postal) 経由に統一。「新システム追加時は既存データに遡及適用」原則の実装。 -->
 <!-- BUILD: main v20260622a / toki-ai.js,css の?v=打替（AI転記後の即時反映＝キャッシュバスター更新） -->
 <!-- v20260528a: ステータスバッジ(.status-badge)の帯を統一。min-width:92px + justify-content:center で全ステータス(NOT VISITED/LTR済/OK等)の帯長を揃える。文字数依存の不揃いを解消。全マスター(案件/地権者/土地情報/不動産会社)共通で適用 -->
 <html lang="ja">
@@ -2298,6 +2299,9 @@ async function loadLandownersMaster(){
   });
   renderLandowners(allLandowners);
   filterLandowners();
+  // v20260622d: 既存データへの遡及自動補完 — 郵便番号空欄を発見したらバックグラウンド補完。
+  // 1セッション1回・ボタン押下不要。新システム追加時の遡及適用ルールに準拠。
+  _autoBackfillPostalCodesOnce();
 }
 /* ===== 地権者マスター ステータス別ダッシュボード ===== */
 const LO_STATUS_COLORS={
@@ -4120,25 +4124,56 @@ async function lookupPostalFromAddress(){
 }
 
 async function bulkFetchPostalCodes(){
+  await _runPostalBackfill({silent:false});
+}
+
+// v20260622d: 1セッション1回・サイレント自動補完。地権者マスター画面を開いた瞬間に既存データの空欄を埋める。
+let _postalAutoRan=false;
+async function _autoBackfillPostalCodesOnce(){
+  if(_postalAutoRan)return;
+  _postalAutoRan=true;
+  const targets=(allLandowners||[]).filter(lo=>!lo.postal_code&&lo.address);
+  if(targets.length===0)return;
+  // 一度に大量実行を避けるため上限を設けない（DEFINER RPC・lookupは外部API）
+  // ユーザー操作のないバックグラウンド処理なので静かに走らせ、完了時のみ簡素なトースト
+  await _runPostalBackfill({silent:true});
+}
+
+// 共通本体：UI/silent両モード共有。書き込みは update_landowner_postal RPC (DEFINER) 経由。
+async function _runPostalBackfill({silent}){
   const btn=document.getElementById('bulkPostalBtn');
   const targets=(allLandowners||[]).filter(lo=>!lo.postal_code&&lo.address);
-  if(!targets.length){showToast('未取得の対象がありません','info');return;}
-  if(!confirm(`${targets.length}件の地権者について、住所から郵便番号を一括取得します。よろしいですか？`))return;
-  btn.disabled=true;const orig=btn.textContent;
-  let success=0,fail=0;
+  if(!targets.length){if(!silent)showToast('未取得の対象がありません','info');return;}
+  if(!silent){
+    if(!confirm(`${targets.length}件の地権者について、住所から郵便番号を一括取得します。よろしいですか？\n（書き込みはDEFINER RPC経由・RLS安全）`))return;
+    if(btn){btn.disabled=true;}
+  }
+  const orig=btn?btn.textContent:'';
+  let success=0,fail=0,rpcFail=0;
   for(let i=0;i<targets.length;i++){
     const lo=targets[i];
-    btn.textContent=`処理中 ${i+1}/${targets.length}`;
+    if(!silent&&btn)btn.textContent=`処理中 ${i+1}/${targets.length}`;
     const r=await lookupPostalCode(lo.address);
     if(r.ok){
-      const{error}=await db.from('landowner_info').update({postal_code:r.result.postal_code}).eq('id',lo.id);
-      if(error){fail++;}else{success++;lo.postal_code=r.result.postal_code;}
+      try{
+        const {data,error}=await db.rpc('update_landowner_postal',{p_landowner_id:lo.id,p_postal:r.result.postal_code});
+        if(error){rpcFail++;fail++;}
+        else{success++;lo.postal_code=r.result.postal_code;}
+      }catch(e){rpcFail++;fail++;}
     }else{fail++;}
+    // 外部API節度（10件ごとに小休止）
     if(i%10===9)await new Promise(r=>setTimeout(r,100));
   }
-  btn.disabled=false;btn.textContent=orig;
-  showToast(`取得完了: 成功 ${success}件 / 失敗 ${fail}件`,success>0?'success':'error');
-  await loadLandownersMaster();
+  if(btn){btn.disabled=false;btn.textContent=orig||'\ud83d\udcee \u90f5\u4fbf\u756a\u53f7\u4e00\u62ec\u53d6\u5f97';}
+  if(silent){
+    if(success>0){showToast(`\u90f5\u4fbf\u756a\u53f7\u3092\u81ea\u52d5\u88dc\u5b8c\uff1a\u6210\u529f ${success} \u4ef6\u30fb\u5931\u6557 ${fail} \u4ef6\uff08\u672a\u767b\u9332\u3092\u5168\u4ef6\u8a66\u884c\uff09`,'success');}
+  }else{
+    showToast(`\u53d6\u5f97\u5b8c\u4e86: \u6210\u529f ${success}\u4ef6 / \u5931\u6557 ${fail}\u4ef6${rpcFail?`\uff08\u3046\u3061RPC\u30a8\u30e9\u30fc ${rpcFail}\u4ef6\uff09`:''}`,success>0?'success':'error');
+  }
+  if(success>0){
+    // 表示の即時反映：再ロード（_postalAutoRanはtrueのままなので無限ループしない）
+    await loadLandownersMaster();
+  }
 }
 
 // v20260516z7: 複数筆対応のための土地行管理
