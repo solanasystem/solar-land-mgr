@@ -22,7 +22,8 @@
 <link rel="stylesheet" href="viewer-mode.css?v=20260516u">
 <script src="viewer-mode.js?v=20260516u"></script>
 
-<title>開拓案件候補 | GRID LAND MGR v4.0 (v20260622b)</title>
+<!-- v20260623c: XKT001区域区分の点照合バグ修正。点を含む全ポリゴンを走査し最具体区分(市街化調整>市街化区域>都市計画区域=非線引き親)を採用。従来は最初に当たった親(都市計画区域の外枠)で確定し市街化調整区域を見逃していた(例:田原市越戸町狐沢874-1)。塗りと判定を一致させ、ポップアップもクリック点の最具体区分を表示。tracker/field-survey/landowner-visit＋candidates＋Track B昇格を同時適用。 -->
+<title>開拓案件候補 | GRID LAND MGR v4.0 (v20260623c)</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -796,10 +797,13 @@ async function _buildChouseiSet(list){
     var feats=await _fetchXkt001Tile(t0.z,t0.x,t0.y);
     for(var gi=0;gi<grp.length;gi++){
       var c=grp[gi]; checked++;
-      var cls=null;
+      // v20260623c: 点を含む全ポリゴンを走査し最具体区分を採用（親=都市計画区域外枠が子=市街化調整を隠す穴を塞ぐ）。優先 市街化調整>市街化区域>都市計画区域(非線引き親)。
+      var cls=null, _br=-1;
       for(var fi=0;fi<feats.length;fi++){
-        var pr=feats[fi].properties||{};
-        if(_geomContains(c.ln,c.la,feats[fi].geometry)){ cls=pr.area_classification_ja||'区分名なし'; break; }
+        if(!_geomContains(c.ln,c.la,feats[fi].geometry))continue;
+        var nm=String((feats[fi].properties||{}).area_classification_ja||'');
+        var rk=nm.indexOf('市街化調整')>=0?3:(nm.indexOf('市街化区域')>=0?2:(nm.indexOf('都市計画区域')>=0?1:0));
+        if(rk>_br){ _br=rk; cls=nm||'区分名なし'; }
       }
       if(cls===null){ unknown[c.f.feature_id]=true; unk++; }
       else if(cls.indexOf('市街化調整')>=0){ set[c.f.feature_id]=true; chosei++; }
