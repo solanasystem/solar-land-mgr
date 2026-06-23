@@ -1416,7 +1416,7 @@ async function _fetchAndRenderTrackb() {
             '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' +
               (p.adopted
                 ? '<span style="color:#2563eb;font-weight:700;font-size:12px;padding:4px 0;">✅ 案件登録済</span>'
-                : '<button class="popup-btn" style="border-color:#2563eb;color:#2563eb" onclick="promoteTrackbCase(' + p.id + ',' + e.latlng.lat + ',' + e.latlng.lng + ',' + (p.area_m2 != null ? p.area_m2 : 'null') + ')">✅ 案件候補へ</button>') +
+                : '<button class="popup-btn" style="border-color:#2563eb;color:#2563eb" onclick="promoteTrackbCase(' + p.id + ',' + e.latlng.lat + ',' + e.latlng.lng + ',' + (p.area_m2 != null ? p.area_m2 : 'null') + ',&quot;' + _esc(p.parcel_ref||'').replace(/"/g,'&quot;') + '&quot;)">✅ 案件候補へ</button>') +
               '<button class="popup-btn" style="border-color:#ef4444;color:#ef4444" onclick="excludeTrackbOne(' + p.id + ')">🗑 除外</button>' +
             '</div>' +
           '</div>',
@@ -1529,7 +1529,7 @@ async function _amxChibanAt(lat, lng) {
   return null;
 }
 
-async function promoteTrackbCase(id, lat, lng, areaM2) {
+async function promoteTrackbCase(id, lat, lng, areaM2, parcelRef) {
   showToast('XKT001で区域区分を判定中…', 'success');
   var z = await _xkt001ClassifyAt(lat, lng);
   if (z && z.cls && z.cls.indexOf('市街化調整') >= 0) {
@@ -1543,11 +1543,14 @@ async function promoteTrackbCase(id, lat, lng, areaM2) {
   showToast('地番境界(AMX)から地番を自動取得中…', 'success');
   var chk = await _amxChibanAt(lat, lng);
   var city = (z && z.city) ? z.city : (chk ? chk.city : '');
+  if (!city && parcelRef) { var mm = String(parcelRef).match(/^([^\s]+?[市町村区])/); if (mm) city = mm[1]; }
   var oaza = chk ? chk.oaza : '';
   var koaza = chk ? chk.koaza : '';
   var chome = chk ? chk.chome : '';
   var chiban = chk ? chk.chiban : '';
   var address = [oaza, koaza, chome].filter(Boolean).join('') + (chiban ? (' ' + chiban) : '');
+  // v20260623d-fix2: AMX筆から組み立てた住所が空なら、Track Bポップアップで表示中の parcel_ref を使う
+  if (!address && parcelRef) address = String(parcelRef);
   var cpz = (z && z.cls) ? z.cls : '';
   if (!confirm('案件候補に登録します。よろしいですか？\n\n市町村：' + (city || '（未取得）') +
                '\n所在：' + (address || '（未取得）') +
