@@ -69,6 +69,7 @@
   } catch(e) {}
 })();
 </script>
+<!-- v20260624b: 分布ミニマップをヘッダドラッグで移動可能化（ズームコントロール干渉解消）。 -->
 <!-- v20260624a: Track B residual_filter_result 色分け3色化（OK=緑黄/NG_building=赤/未判定=グレー）＋OKのみトグル＋ポップアップ残地判定行追加。get_trackb_in_bbox RPC にresidual_filter_result カラム追加済。 -->
 <!-- v20260623d: Track B「✅案件候補へ」をA化＝farmland_snapshots に trackB_<id> 行INSERT(cases未使用→cases_city_planning_zone_check制約エラーを構造回避)。XKT001日本語値をcasesに渡して失敗していた既存バグを解消。地番はAMX筆PMTilesからクリック点で自動取得（prompt廃止）。昇格後はtrackbLayerから該当idを即時除去＋以降の再描画でadopted行を描画スキップ→Track B残地から消える。 -->
 <title>農地変更トラッカー | GRID LAND MGR v3.0</title>
@@ -504,9 +505,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div id="map"></div>
   <!-- v20260622h: Track B 全国俯瞰ミニマップ。Track BモードON時のみ表示。 -->
   <div id="trackbOverview" style="display:none;position:absolute;right:14px;bottom:14px;width:320px;height:240px;background:#0b1220;border:2px solid #a78bfa;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.5);z-index:600;overflow:hidden">
-    <div style="position:absolute;top:0;left:0;right:0;padding:5px 10px;background:rgba(91,33,182,.92);color:#fff;font-size:11px;font-weight:700;display:flex;justify-content:space-between;align-items:center;z-index:5">
+    <div id="trackbOverviewHeader" style="position:absolute;top:0;left:0;right:0;padding:5px 10px;background:rgba(91,33,182,.92);color:#fff;font-size:11px;font-weight:700;display:flex;justify-content:space-between;align-items:center;z-index:5;cursor:move;user-select:none">
       <span>🏗 Track B 分布 <span id="trackbOverviewCount" style="font-weight:400;font-size:10px;color:#ddd;margin-left:6px"></span></span>
-      <span style="font-size:9px;color:#ddd;font-weight:400">クリックで本マップへ移動</span>
+      <span style="font-size:9px;color:#ddd;font-weight:400">⠿ ドラッグ移動 / クリックで移動</span>
     </div>
     <div id="trackbOverviewMap" style="position:absolute;inset:26px 0 0 0"></div>
   </div>
@@ -1719,10 +1720,46 @@ function _disableTrackbHandlers(){
 var _tbOvMap=null, _tbOvCluster=null, _tbOvBBox=null, _tbOvPoints=null;
 var _tbOvBBoxHandler=null;
 
+var _tbOvDragInit=false;
+function _initTrackbOverviewDrag(){
+  if(_tbOvDragInit) return;
+  var box=document.getElementById('trackbOverview');
+  var hdr=document.getElementById('trackbOverviewHeader');
+  if(!box||!hdr) return;
+  _tbOvDragInit=true;
+  var dragging=false, moved=false, sx=0, sy=0, startLeft=0, startTop=0;
+  hdr.addEventListener('mousedown', function(e){
+    dragging=true; moved=false;
+    var r=box.getBoundingClientRect();
+    var pr=box.parentElement.getBoundingClientRect();
+    // right/bottom基準をleft/top基準に変換して固定
+    startLeft = r.left - pr.left;
+    startTop  = r.top - pr.top;
+    box.style.left = startLeft + 'px';
+    box.style.top  = startTop + 'px';
+    box.style.right = 'auto';
+    box.style.bottom = 'auto';
+    sx=e.clientX; sy=e.clientY;
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', function(e){
+    if(!dragging) return;
+    var dx=e.clientX-sx, dy=e.clientY-sy;
+    if(Math.abs(dx)>3||Math.abs(dy)>3) moved=true;
+    box.style.left = (startLeft+dx) + 'px';
+    box.style.top  = (startTop+dy) + 'px';
+  });
+  document.addEventListener('mouseup', function(){
+    if(dragging && _tbOvMap) { try{ _tbOvMap.invalidateSize(); }catch(e){} }
+    dragging=false;
+  });
+}
+
 async function _tbOvOpen(){
   var box=document.getElementById('trackbOverview');
   if(!box) return;
   box.style.display='block';
+  _initTrackbOverviewDrag();
   // 既存があれば再利用、無ければ生成
   if(!_tbOvMap){
     _tbOvMap=L.map('trackbOverviewMap',{
