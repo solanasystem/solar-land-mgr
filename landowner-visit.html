@@ -789,21 +789,78 @@ async function _fetchAndRenderDosya(){
   } catch(e){ showToast('\u571f\u7802\u8b66\u6212\u30dd\u30ea\u30b4\u30f3\u53d6\u5f97\u30a8\u30e9\u30fc','error'); }
 }
 function loadDosya(){ map.on('moveend',renderDosyaInView); map.on('zoomend',renderDosyaInView); renderDosyaInView(); }
-/* ==== \u8fb2\u632f\u8fb2\u7528\u5730 ==== */
-let noshinLayer=null, noshinLoading=false;
-function toggleNoshin(){
-  var btn=document.getElementById('hzNoshin');
-  if(noshinLayer){ map.removeLayer(noshinLayer); noshinLayer=null; btn.classList.remove('active'); showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3057\u305f','success'); return; }
-  if(noshinLoading)return;
-  noshinLoading=true; btn.classList.add('active');
-  showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u30c7\u30fc\u30bf\u3092\u8aad\u307f\u8fbc\u307f\u4e2d...','success');
-  fetch(WORKER_BASE+'/r2/noshin_aichi.geojson').then(function(r){return r.ok?r.json():Promise.reject('\u53d6\u5f97\u5931\u6557');}).then(function(geojson){
-    noshinLayer=L.geoJSON(geojson,{
-      style:{color:'#c8a000',weight:0.8,fillColor:'#ffe066',fillOpacity:0.45},
-      onEachFeature:function(feature,layer){ if(feature.properties&&feature.properties.city){ layer.bindTooltip('\u8fb2\u632f\u8fb2\u7528\u5730\uff1a'+feature.properties.city,{className:'farmland-tooltip',sticky:true}); } }
+// ======== 農振農用地（11県対応） ========
+let noshinEnabled=false,noshinLayer=null,noshinCache={},_noshinMoveHandler=null,noshinFetching={};
+const NOSHIN_MIN_ZOOM=12;
+const NOSHIN_PREF_BOUNDS={
+  tochigi:{latMin:36.2,latMax:37.2,lngMin:139.3,lngMax:140.3,file:'data/noshin/noshin_tochigi.geojson'},
+  gunma:{latMin:36.0,latMax:37.1,lngMin:138.4,lngMax:139.7,file:'data/noshin/noshin_gunma.geojson'},
+  saitama:{latMin:35.75,latMax:36.3,lngMin:138.7,lngMax:140.0,file:'data/noshin/noshin_saitama.geojson'},
+  chiba:{latMin:34.9,latMax:36.1,lngMin:139.7,lngMax:140.9,file:'data/noshin/noshin_chiba.geojson'},
+  nagano:{latMin:35.2,latMax:37.0,lngMin:137.45,lngMax:138.7,file:'data/noshin/noshin_nagano.geojson'},
+  gifu:{latMin:35.1,latMax:36.5,lngMin:136.3,lngMax:137.45,file:'data/noshin/noshin_gifu.geojson'},
+  shizuoka:{latMin:34.55,latMax:35.4,lngMin:137.5,lngMax:139.2,file:'data/noshin/noshin_shizuoka.geojson'},
+  aichi:{latMin:34.5,latMax:35.4,lngMin:136.5,lngMax:137.5,file:WORKER_BASE+'/r2/noshin_aichi.geojson'},
+  mie:{latMin:33.7,latMax:35.1,lngMin:135.9,lngMax:136.9,file:'data/noshin/noshin_mie.geojson'},
+  shiga:{latMin:34.8,latMax:35.7,lngMin:135.8,lngMax:136.5,file:'data/noshin/noshin_shiga.geojson'},
+  hyogo:{latMin:34.1,latMax:35.7,lngMin:134.2,lngMax:135.5,file:WORKER_BASE+'/r2/noshin_hyogo.geojson'}
+};
+function detectNoshinPrefsInView(){
+  const mb=map.getBounds(),w=mb.getWest(),e=mb.getEast(),s=mb.getSouth(),n=mb.getNorth();
+  return Object.keys(NOSHIN_PREF_BOUNDS).filter(k=>{const b=NOSHIN_PREF_BOUNDS[k];return!(b.lngMax<w||b.lngMin>e||b.latMax<s||b.latMin>n);});
+}
+function _ensureNoshinPrefs(prefs){
+  (prefs||[]).forEach(key=>{
+    if(noshinCache[key]||noshinFetching[key])return;
+    noshinFetching[key]=true;
+    fetch(NOSHIN_PREF_BOUNDS[key].file).then(r=>r.ok?r.json():Promise.reject(r.status))
+      .then(gj=>{noshinCache[key]=gj;noshinFetching[key]=false;if(noshinEnabled)_renderNoshinInView();})
+      .catch(err=>{noshinFetching[key]=false;console.warn('noshin load failed',key,err);});
+  });
+}
+function _calcNoshinFeatureBbox(geom){
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  const pr=ring=>{for(const[x,y]of ring){if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;}};
+  if(geom.type==='Polygon'&&geom.coordinates[0])pr(geom.coordinates[0]);
+  else if(geom.type==='MultiPolygon')geom.coordinates.forEach(p=>p[0]&&pr(p[0]));
+  return[minX,minY,maxX,maxY];
+}
+function _renderNoshinInView(){
+  if(!noshinEnabled)return;
+  if(map.getZoom()<NOSHIN_MIN_ZOOM){if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}return;}
+  const prefs=detectNoshinPrefsInView();_ensureNoshinPrefs(prefs);
+  const mb=map.getBounds(),w=mb.getWest(),e=mb.getEast(),s=mb.getSouth(),n=mb.getNorth();
+  const visible=[];
+  prefs.forEach(k=>{
+    const gj=noshinCache[k];if(!gj||!gj.features)return;
+    gj.features.forEach(ft=>{
+      if(!ft._bbox){try{ft._bbox=_calcNoshinFeatureBbox(ft.geometry);}catch(ex){return;}}
+      const b=ft._bbox;if(b[2]<w||b[0]>e||b[3]<s||b[1]>n)return;
+      visible.push(ft);
     });
-    noshinLayer.addTo(map); noshinLoading=false; showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u3092\u8868\u793a\u4e2d','success');
-  }).catch(function(e){ noshinLoading=false; btn.classList.remove('active'); showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u306e\u8aad\u307f\u8fbc\u307f\u306b\u5931\u6557\u3057\u307e\u3057\u305f','error'); });
+  });
+  if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}
+  if(!visible.length)return;
+  noshinLayer=L.geoJSON({type:'FeatureCollection',features:visible},{
+    style:{color:'#eab308',weight:2,fillColor:'#fef08a',fillOpacity:0.35,dashArray:'6,4'},
+    onEachFeature:(f,l)=>{const c=f.properties&&f.properties.city;l.bindTooltip(c?'農振農用地：'+c:'農振農用地',{className:'farmland-tooltip',sticky:false});}
+  });
+  noshinLayer.addTo(map);noshinLayer.bringToFront();
+}
+function toggleNoshin(){
+  const btn=document.getElementById('hzNoshin');
+  if(noshinEnabled){
+    noshinEnabled=false;
+    if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}
+    if(_noshinMoveHandler){map.off('moveend',_noshinMoveHandler);_noshinMoveHandler=null;}
+    btn.classList.remove('active');showToast('農振農用地を非表示にしました','success');return;
+  }
+  noshinEnabled=true;btn.classList.add('active');
+  if(!_noshinMoveHandler){_noshinMoveHandler=()=>_renderNoshinInView();map.on('moveend',_noshinMoveHandler);}
+  const prefs=detectNoshinPrefsInView();
+  if(!prefs.length){showToast('表示中エリアに対応県がありません','error');return;}
+  if(map.getZoom()<NOSHIN_MIN_ZOOM)showToast('農振農用地はズーム'+NOSHIN_MIN_ZOOM+'以上で表示されます','success');
+  _renderNoshinInView();_ensureNoshinPrefs(prefs);
 }
 /* ==== \u7528\u9014\u5730\u57df (XKT002) ==== */
 const URBAN_API_BASE = WORKER_BASE + '/api';
