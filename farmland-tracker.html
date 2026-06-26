@@ -29,6 +29,7 @@
 <!-- v20260626b: 配電用変電所(空容量)マーカーサイズを約半分に縮小。_capRadius(): 最小3→1.5、最大10→5。マーカー過密による視認性低下の解消。色・点滅・popupは変更なし。 -->
 <!-- v20260626c: popup「上位系」表示を意味判定型に変更。kami="ー"or空→「系統問題なし」(緑)、kami="対象"→「対象（上位系で制御発生見込み）」(橙)、具体記載→そのまま表示(橙)。誤解を招く"—"表示を解消。PDF留意事項(9)の定義に準拠。 -->
 <!-- v20260626d: popup全面再設計。実務判断のため🟢連系可能/🟡条件付き連系可(出力抑制リスク)/🔴連系不可の3段階バッジを上部に大きく表示。詳細データ(運用容量・予想潮流・制約要因・N-1電制・平常時出力制御・上位系設備・OSM対応)は<details>タグで折りたたみ(デフォルト閉)。バッジ判定: 空容量=0→🔴、空容量>0かつ(heijo_kanou=有 or kami=対象)→🟡、それ以外→🟢。 -->
+<!-- v20260626e: バッジ判定ロジック厳格化。N-1電制「不可」（容量拡張不能=実質連系困難）も🟡条件付き判定に追加。これにより🟢比率が12.3%→6.7%に低下し、現実の系統制約状況により近い表示に。🟡内に複数リスク要因を併記(例: ⚠ 出力抑制リスク / N-1電制不可)。詳細セクションのN-1電制も色分け表示(可=緑、不可=橙)。 -->
 <!-- v20260529l: UI改善。hazard-toggle-btn(用途地域/都市計画区域/開拓候補)が透明背景+薄灰文字で明るい衛星画像上で視認困難だったため、濃色背景(var(--surface))+明色文字(#c9d1d9)+枠線に変更。他のボタンと統一 -->
 <!-- v20260529m: Phase2。クリック地点→最寄り66–110kV変電所の直線距離(haversine)計測。📏ボタンで計測モードON/OFF(専用,他クリック動作と非干渉)。黄破線+変電所マーカー+ポップアップ(距離/名称/電圧/事業者)。measurePane(zIndex645)。電圧不明は対象外 -->
 <script>window.__BUILD__='v20260621f';</script>
@@ -3474,19 +3475,28 @@ function _renderCapacitySubstations(){
     m.bindPopup(
       (function(){
         var hasCap = (p.cap != null) && (p.cap > 0);
-        var heijoRisk = (p.heijo_kanou && (p.heijo_kanou==='有り'||p.heijo_kanou==='有'))
-                     || (p.kami==='対象');
+        var heijoRisk = (p.heijo_kanou && (p.heijo_kanou==='有り'||p.heijo_kanou==='有'));
+        var kamiRisk = (p.kami==='対象');
+        var n1Risk = (p.n1_kahi && String(p.n1_kahi).indexOf('不可')>=0);
+        var anyRisk = heijoRisk || kamiRisk || n1Risk;
         var badge;
         if(!hasCap){
           badge = {icon:'🔴', label:'連系不可', bg:'rgba(220,38,38,0.18)', border:'#dc2626', textColor:'#fca5a5', risk:'空容量なし'};
-        }else if(heijoRisk){
-          badge = {icon:'🟡', label:'条件付き連系可', bg:'rgba(251,146,60,0.18)', border:'#fb923c', textColor:'#fdba74', risk:'⚠ 出力抑制リスクあり（平常時出力制御）'};
+        }else if(anyRisk){
+          var risks = [];
+          if(heijoRisk) risks.push('出力抑制リスク（平常時出力制御）');
+          if(kamiRisk) risks.push('上位系で制御発生見込み');
+          if(n1Risk) risks.push('N-1電制不可（容量拡張不能）');
+          badge = {icon:'🟡', label:'条件付き連系可', bg:'rgba(251,146,60,0.18)', border:'#fb923c', textColor:'#fdba74', risk:'⚠ '+risks.join(' / ')};
         }else{
-          badge = {icon:'🟢', label:'連系可能', bg:'rgba(34,197,94,0.18)', border:'#22c55e', textColor:'#86efac', risk:'上位系制約なし'};
+          badge = {icon:'🟢', label:'連系可能', bg:'rgba(34,197,94,0.18)', border:'#22c55e', textColor:'#86efac', risk:'上位系・容量拡張ともに余裕あり'};
         }
-        var heijoTxt = (p.heijo_kanou && (p.heijo_kanou==='有り'||p.heijo_kanou==='有'))
+        var heijoTxt = heijoRisk
                      ? '<span style="color:#fb923c">有り（出力抑制リスク）</span>'
                      : '<span style="color:#22c55e">なし</span>';
+        var n1Txt = n1Risk
+                   ? '<span style="color:#fb923c">'+_esc(p.n1_kahi||'')+'</span>'+(p.n1_kanou_mw!=null?(' / 適用時 '+p.n1_kanou_mw+'MW'):'')
+                   : '<span style="color:#22c55e">'+_esc(p.n1_kahi||'—')+'</span>'+(p.n1_kanou_mw!=null?(' / 適用時 '+p.n1_kanou_mw+'MW'):'');
         var kamiTxt = (function(k){
           var kv=(k==null||k===''||k==='ー'||k==='-')?null:String(k);
           if(kv===null) return '<span style="color:#9ca3af">—</span>';
@@ -3513,7 +3523,7 @@ function _renderCapacitySubstations(){
               '<div class="popup-row"><span class="popup-label">運用容量</span><span class="popup-value">'+(p.unyo_mw!=null?(p.unyo_mw+' MW'):'—')+'</span></div>'+
               '<div class="popup-row"><span class="popup-label">予想潮流</span><span class="popup-value">'+(p.choryu_mw!=null?(p.choryu_mw+' MW'):'—')+'</span></div>'+
               '<div class="popup-row"><span class="popup-label">制約要因</span><span class="popup-value">'+_esc(p.unyo_seiyaku||'—')+'</span></div>'+
-              '<div class="popup-row"><span class="popup-label">N-1電制</span><span class="popup-value">'+_esc(p.n1_kahi||'—')+(p.n1_kanou_mw!=null?(' / 適用時 '+p.n1_kanou_mw+'MW'):'')+'</span></div>'+
+              '<div class="popup-row"><span class="popup-label">N-1電制</span><span class="popup-value">'+n1Txt+'</span></div>'+
               '<div class="popup-row"><span class="popup-label">平常時出力制御</span><span class="popup-value">'+heijoTxt+'</span></div>'+
               '<div class="popup-row"><span class="popup-label">上位系設備</span><span class="popup-value">'+kamiTxt+'</span></div>'+
               osmRow+
