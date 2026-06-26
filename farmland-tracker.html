@@ -34,6 +34,8 @@
 <!-- v20260626g: 関西電力配電系統データ追加(154kV未満1573件うち576件OSM確定+座標確定計1002件)+v1汚染144件再ジオコ復旧。substation_capacity_v3.geojson→v4.geojson切替(全2110件)。基幹系(kv2≥77kV)を非表示フィルタ追加(蓄電池/太陽光の直接連系対象外のため雑音除去)。残り997件は次回セッションで継続ジオコ予定。 -->
 <!-- v20260626h: マーカー視認性改善。_capRadius(): 最小1.5→1、最大5→3に再縮小。fillOpacity 0.92→0.6, opacity 1→0.8, weight 2.2→1.2 で重なり時の透過視認性確保。データ点数増加(537→約1000)に対する密集対策。色・点滅・popup・判定ロジックは変更なし。 -->
 <!-- v20260626i: マーカー半径を更に半減。_capRadius(): 最小1→0.5、最大3→1.5。係数も0.25→0.125。密集エリアで地図背景を読み取れるよう極小化。色・透明度・点滅・判定ロジックは変更なし。 -->
+<!-- v20260626j: マーカー輪郭線を細く。weight 1.2→0.6。半径縮小に対して輪郭が相対的に太く見える問題の解消。tier別輪郭色（OSM一致/近接/要確認/対応なし）は維持。半径・色・透明度・点滅・判定ロジックは変更なし。 -->
+<!-- v20260626k: マーカー寸法・スタイルを「最寄り変電所(66-110kV)」レイヤーと完全統一。_capRadius()=5固定、weight:1, fillOpacity:0.95, opacity:1。半透明・サイズ可変は廃止。凡例から「サイズ=空容量の大きさ」削除。色（連系可能性）と点滅は維持。 -->
 <!-- v20260529l: UI改善。hazard-toggle-btn(用途地域/都市計画区域/開拓候補)が透明背景+薄灰文字で明るい衛星画像上で視認困難だったため、濃色背景(var(--surface))+明色文字(#c9d1d9)+枠線に変更。他のボタンと統一 -->
 <!-- v20260529m: Phase2。クリック地点→最寄り66–110kV変電所の直線距離(haversine)計測。📏ボタンで計測モードON/OFF(専用,他クリック動作と非干渉)。黄破線+変電所マーカー+ポップアップ(距離/名称/電圧/事業者)。measurePane(zIndex645)。電圧不明は対象外 -->
 <script>window.__BUILD__='v20260621f';</script>
@@ -619,7 +621,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;border:1px solid #333;margin-right:5px"></span>🟢 連系可能（容量・制約ともOK）</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#fb923c;border:1px solid #333;margin-right:5px"></span>🟡 条件付き（出力抑制/N-1不可等）</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#dc2626;border:1px solid #333;margin-right:5px"></span>🔴 連系不可（空容量=0）</div>
-        <div style="margin-top:3px;color:var(--text-dim);font-size:9px;">サイズ＝空容量の大きさ</div>
         <div style="font-weight:600;margin-top:4px;margin-bottom:2px">輪郭＝座標信頼度</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #36d399;margin-right:5px"></span>OSM一致(≤100m)</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #facc15;margin-right:5px"></span>OSM近接(100-500m)</div>
@@ -3429,8 +3430,7 @@ function _capTierColor(t){
   return ({high:'#36d399',med:'#facc15',review:'#fb923c',google:'#fb7185'})[t]||'#888';
 }
 function _capRadius(c){
-  if(c==null||c<=0) return 0.5;
-  return 0.5 + Math.min(1, Math.sqrt(c)*0.125);
+  return 5;  // v20260626k: 最寄り変電所レイヤーとサイズ統一（固定値5）
 }
 function toggleCapacitySubstations(){
   var btn=document.getElementById('hzCapacity'); var lg=document.getElementById('capLegend');
@@ -3480,8 +3480,8 @@ function _renderCapacitySubstations(){
     if(has)capSum+=p.cap;
     var m=L.circleMarker([lat,lng],{
       pane:'subPane', radius:_capRadius(p.cap),
-      color:_capTierColor(p.tier), weight:1.2,
-      fillColor:_capStatusColor(p), fillOpacity:0.6, opacity:0.8,
+      color:_capTierColor(p.tier), weight:1,
+      fillColor:_capStatusColor(p), fillOpacity:0.95, opacity:1,
       className:(has?'pulse-cap':'')
     });
     var gm='https://www.google.com/maps/search/?api=1&query='+lat+','+lng;
