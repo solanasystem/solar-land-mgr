@@ -44,6 +44,7 @@
 <!-- v20260626q: ズーム連動を元のスタイルで再実装（カビ模様回避）。_zoomRadius()でズーム9以下:2px〜ズーム18:10pxの範囲で動的変化。両レイヤー(⚡変電所/配電用変電所空容量)共通。weight:2.2(capLayer)/1(subLayer)、fillOpacity:0.92(cap)/0.95(sub)の元のスタイルは維持してレンダリング異常を防止。map.on('zoomend')で一括更新。 -->
 <!-- v20260626r: ズーム連動の方向を反転（実装の根本ミス修正）。広域(ズーム小)=大きく(直径30px〜)、拡大(ズーム大)=小さく(直径4px=地物のポイント)。これまで栗本氏が要求していた挙動と私の実装が完全に逆だった。ズーム5以下:radius=15(直径30px)、ズーム10:10、ズーム14:6、ズーム18以上:2(直径4px)。両レイヤー共通。 -->
 <!-- v20260626s: ズーム連動を完全撤去（setRadius()動的更新が「カビ模様」「海上点ズレ」などのレンダリング異常を起こすため）。両レイヤー radius=4 固定。⚡変電所レイヤーと配電用変電所(空容量)レイヤー共通。weight/fillOpacity等の元のスタイルは維持。シンプルな実装でレンダリング異常を完全排除。 -->
+<!-- v20260626t: null座標エラー修正。エラー「Cannot read properties of null (reading 'lat')」の原因はv4.geojsonに含まれる未ジオコ997件のnull座標。capCache.forEach内でlat==null/lng==null/properties.lat==null/properties.lng==nullをすべて弾く二重チェック追加。v20260626sの固定radius=4設定は維持。 -->
 <!-- v20260529l: UI改善。hazard-toggle-btn(用途地域/都市計画区域/開拓候補)が透明背景+薄灰文字で明るい衛星画像上で視認困難だったため、濃色背景(var(--surface))+明色文字(#c9d1d9)+枠線に変更。他のボタンと統一 -->
 <!-- v20260529m: Phase2。クリック地点→最寄り66–110kV変電所の直線距離(haversine)計測。📏ボタンで計測モードON/OFF(専用,他クリック動作と非干渉)。黄破線+変電所マーカー+ポップアップ(距離/名称/電圧/事業者)。measurePane(zIndex645)。電圧不明は対象外 -->
 <script>window.__BUILD__='v20260621f';</script>
@@ -3479,8 +3480,11 @@ function _renderCapacitySubstations(){
   capCache.forEach(function(f){
     if(!f.geometry||f.geometry.type!=='Point')return;
     var lng=f.geometry.coordinates[0], lat=f.geometry.coordinates[1];
-    if(isNaN(lat)||isNaN(lng))return;
+    // v20260626t: null/undefined座標を弾く（未ジオコ997件対策）
+    if(lat==null||lng==null||isNaN(lat)||isNaN(lng))return;
     var p=f.properties||{};
+    // 二重チェック: properties側の lat/lng も null なら除外
+    if(p.lat==null||p.lng==null)return;
     // v20260626g: 基幹系（kv2≥77kV）は蓄電池/太陽光の直接連系対象外のため非表示
     var kv2num = parseFloat(p.kv2);
     if(!isNaN(kv2num) && kv2num >= 77) return;
