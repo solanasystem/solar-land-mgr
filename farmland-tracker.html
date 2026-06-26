@@ -42,6 +42,7 @@
 <!-- v20260626o: ズーム連動を完全撤去し、両レイヤー完全同一の固定スタイルに統一。⚡変電所レイヤーと配電用変電所(空容量)レイヤーともにradius:3, weight:0.5, fillOpacity:0.85, opacity:1。シンプルさを優先し、両レイヤーが必ず同じ大きさになる確実な実装。 -->
 <!-- v20260626p: マーカーサイズ・スタイルを完全に元の状態(v20260626a/b相当)に復元。weight:0.5/fillOpacity:0.85の細線・半透明設定が原因の「カビ模様」レンダリング異常を解消。_capRadius=cap値連動1.5〜5px、weight:2.2、fillOpacity:0.92、opacity:1。⚡変電所レイヤーもradius:5, weight:1, fillOpacity:0.95に復元。データ(v4.geojson)・連系可能性色判定・基幹系非表示フィルタは維持。 -->
 <!-- v20260626q: ズーム連動を元のスタイルで再実装（カビ模様回避）。_zoomRadius()でズーム9以下:2px〜ズーム18:10pxの範囲で動的変化。両レイヤー(⚡変電所/配電用変電所空容量)共通。weight:2.2(capLayer)/1(subLayer)、fillOpacity:0.92(cap)/0.95(sub)の元のスタイルは維持してレンダリング異常を防止。map.on('zoomend')で一括更新。 -->
+<!-- v20260626r: ズーム連動の方向を反転（実装の根本ミス修正）。広域(ズーム小)=大きく(直径30px〜)、拡大(ズーム大)=小さく(直径4px=地物のポイント)。これまで栗本氏が要求していた挙動と私の実装が完全に逆だった。ズーム5以下:radius=15(直径30px)、ズーム10:10、ズーム14:6、ズーム18以上:2(直径4px)。両レイヤー共通。 -->
 <!-- v20260529l: UI改善。hazard-toggle-btn(用途地域/都市計画区域/開拓候補)が透明背景+薄灰文字で明るい衛星画像上で視認困難だったため、濃色背景(var(--surface))+明色文字(#c9d1d9)+枠線に変更。他のボタンと統一 -->
 <!-- v20260529m: Phase2。クリック地点→最寄り66–110kV変電所の直線距離(haversine)計測。📏ボタンで計測モードON/OFF(専用,他クリック動作と非干渉)。黄破線+変電所マーカー+ポップアップ(距離/名称/電圧/事業者)。measurePane(zIndex645)。電圧不明は対象外 -->
 <script>window.__BUILD__='v20260621f';</script>
@@ -3445,13 +3446,13 @@ function _capStatusColor(p){
 function _capTierColor(t){
   return ({high:'#36d399',med:'#facc15',review:'#fb923c',google:'#fb7185'})[t]||'#888';
 }
-// v20260626q: ズーム連動半径を再実装。元のスタイル(weight 2.2/fillOpacity 0.92)は維持してカビ模様回避
+// v20260626r: 正しいズーム連動。広域で大きい(位置を示す)、拡大で小さい(地物のポイント)
 function _zoomRadius(){
-  if(typeof map === 'undefined' || !map) return 4;
+  if(typeof map === 'undefined' || !map) return 8;
   var z = map.getZoom();
-  if(z <= 9) return 2;
-  if(z >= 18) return 10;
-  return 2 + (z - 9);  // z10:3, z12:5, z14:7, z16:9, z18:10
+  if(z <= 5) return 15;   // 全国広域: 直径30px (はっきり見える)
+  if(z >= 18) return 2;   // 最大拡大: 直径4px (地物のポイント)
+  return Math.max(2, 15 - (z - 5));  // z6:14, z10:10, z14:6, z17:3
 }
 function _capRadius(c){
   return _zoomRadius();
