@@ -3364,13 +3364,33 @@ function _renderVilla(){
       '<div class="popup-row"><span class="popup-label">県</span><span class="popup-value">'+_esc(row.pref_name||'—')+'</span></div>'+
       '<div class="popup-row"><span class="popup-label">パターン</span><span class="popup-value">'+_esc(row.pattern_match||'—')+'</span></div>'+
       '<div class="popup-row"><span class="popup-label">リゾート法</span><span class="popup-value">'+resortLine+'</span></div>'+
-      '</div></div>',
+      '</div>'+
+      '<button onclick="villaDeleteNG('+row.id+')" style="margin-top:10px;width:100%;padding:8px;background:#dc2626;color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:700">⛔ NG削除（この1件を物理削除）</button>'+
+      '</div>',
       {maxWidth:300,minWidth:220}
     );
-    villaLayer.addLayer(m); n++;
+    villaLayer.addLayer(m);
   });
   villaLayer.addTo(map);
-  showToast(n+'件の別荘地候補を表示','success');
+  showToast(villaCache.length+'件の別荘地候補を表示','success');
+}
+
+// v20260626b: 別荘地候補のNG削除（1件ずつ）
+async function villaDeleteNG(id){
+  var row=(villaCache||[]).find(function(r){return r.id===id;});
+  if(!row){showToast('対象レコードが見つかりません','error');return;}
+  if(!confirm('「'+row.name+'」('+row.pref_name+') を NG として物理削除します。\nこの操作は取り消せません。実行しますか？'))return;
+  try{
+    var res=await db.rpc('delete_villa_by_id',{p_id:id});
+    if(res.error)throw new Error(res.error.message);
+    if(!res.data||!res.data.success)throw new Error((res.data&&res.data.error)||'unknown');
+    villaCache=villaCache.filter(function(r){return r.id!==id;});
+    map.closePopup();
+    _renderVilla();
+    showToast('「'+row.name+'」を削除しました（残り'+villaCache.length+'件）','success');
+  }catch(e){
+    showToast('削除失敗: '+e.message,'error');
+  }
 }
 
 // ======== v20260530a: 配電用変電所(空容量)レイヤー ========
