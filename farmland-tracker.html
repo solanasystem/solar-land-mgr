@@ -31,6 +31,7 @@
 <!-- v20260626d: popup全面再設計。実務判断のため🟢連系可能/🟡条件付き連系可(出力抑制リスク)/🔴連系不可の3段階バッジを上部に大きく表示。詳細データ(運用容量・予想潮流・制約要因・N-1電制・平常時出力制御・上位系設備・OSM対応)は<details>タグで折りたたみ(デフォルト閉)。バッジ判定: 空容量=0→🔴、空容量>0かつ(heijo_kanou=有 or kami=対象)→🟡、それ以外→🟢。 -->
 <!-- v20260626e: バッジ判定ロジック厳格化。N-1電制「不可」（容量拡張不能=実質連系困難）も🟡条件付き判定に追加。これにより🟢比率が12.3%→6.7%に低下し、現実の系統制約状況により近い表示に。🟡内に複数リスク要因を併記(例: ⚠ 出力抑制リスク / N-1電制不可)。詳細セクションのN-1電制も色分け表示(可=緑、不可=橙)。 -->
 <!-- v20260626f: マーカー塗り色を実務判定(🟢🟡🔴)と連動。_capStatusColor()新設: 連系可能=#22c55e/条件付き=#fb923c/連系不可=#dc2626。地図俯瞰で即座に連系候補エリアが視認可能に。凡例も連系可能性ベースに更新(サイズ=空容量の大きさを併記)。データ範囲を中部電力PG+関西電力送配電に拡張表示。 -->
+<!-- v20260626g: 関西電力配電系統データ追加(154kV未満1573件うち576件OSM確定+座標確定計1002件)+v1汚染144件再ジオコ復旧。substation_capacity_v3.geojson→v4.geojson切替(全2110件)。基幹系(kv2≥77kV)を非表示フィルタ追加(蓄電池/太陽光の直接連系対象外のため雑音除去)。残り997件は次回セッションで継続ジオコ予定。 -->
 <!-- v20260529l: UI改善。hazard-toggle-btn(用途地域/都市計画区域/開拓候補)が透明背景+薄灰文字で明るい衛星画像上で視認困難だったため、濃色背景(var(--surface))+明色文字(#c9d1d9)+枠線に変更。他のボタンと統一 -->
 <!-- v20260529m: Phase2。クリック地点→最寄り66–110kV変電所の直線距離(haversine)計測。📏ボタンで計測モードON/OFF(専用,他クリック動作と非干渉)。黄破線+変電所マーカー+ポップアップ(距離/名称/電圧/事業者)。measurePane(zIndex645)。電圧不明は対象外 -->
 <script>window.__BUILD__='v20260621f';</script>
@@ -3446,7 +3447,7 @@ function toggleCapacitySubstations(){
 async function _loadCapacitySubstations(){
   if(capLoading)return; capLoading=true;
   try{
-    var res=await fetch(WORKER_BASE+'/r2/substation_capacity_v3.geojson');
+    var res=await fetch(WORKER_BASE+'/r2/substation_capacity_v4.geojson');
     if(!res.ok)throw new Error('HTTP '+res.status);
     var gj=await res.json();
     capCache=(gj&&gj.features)?gj.features:[];
@@ -3470,6 +3471,9 @@ function _renderCapacitySubstations(){
     var lng=f.geometry.coordinates[0], lat=f.geometry.coordinates[1];
     if(isNaN(lat)||isNaN(lng))return;
     var p=f.properties||{};
+    // v20260626g: 基幹系（kv2≥77kV）は蓄電池/太陽光の直接連系対象外のため非表示
+    var kv2num = parseFloat(p.kv2);
+    if(!isNaN(kv2num) && kv2num >= 77) return;
     var has=p.cap!=null && p.cap>0;
     if(has)capSum+=p.cap;
     var m=L.circleMarker([lat,lng],{
