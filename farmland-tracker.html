@@ -30,6 +30,7 @@
 <!-- v20260626c: popup「上位系」表示を意味判定型に変更。kami="ー"or空→「系統問題なし」(緑)、kami="対象"→「対象（上位系で制御発生見込み）」(橙)、具体記載→そのまま表示(橙)。誤解を招く"—"表示を解消。PDF留意事項(9)の定義に準拠。 -->
 <!-- v20260626d: popup全面再設計。実務判断のため🟢連系可能/🟡条件付き連系可(出力抑制リスク)/🔴連系不可の3段階バッジを上部に大きく表示。詳細データ(運用容量・予想潮流・制約要因・N-1電制・平常時出力制御・上位系設備・OSM対応)は<details>タグで折りたたみ(デフォルト閉)。バッジ判定: 空容量=0→🔴、空容量>0かつ(heijo_kanou=有 or kami=対象)→🟡、それ以外→🟢。 -->
 <!-- v20260626e: バッジ判定ロジック厳格化。N-1電制「不可」（容量拡張不能=実質連系困難）も🟡条件付き判定に追加。これにより🟢比率が12.3%→6.7%に低下し、現実の系統制約状況により近い表示に。🟡内に複数リスク要因を併記(例: ⚠ 出力抑制リスク / N-1電制不可)。詳細セクションのN-1電制も色分け表示(可=緑、不可=橙)。 -->
+<!-- v20260626f: マーカー塗り色を実務判定(🟢🟡🔴)と連動。_capStatusColor()新設: 連系可能=#22c55e/条件付き=#fb923c/連系不可=#dc2626。地図俯瞰で即座に連系候補エリアが視認可能に。凡例も連系可能性ベースに更新(サイズ=空容量の大きさを併記)。データ範囲を中部電力PG+関西電力送配電に拡張表示。 -->
 <!-- v20260529l: UI改善。hazard-toggle-btn(用途地域/都市計画区域/開拓候補)が透明背景+薄灰文字で明るい衛星画像上で視認困難だったため、濃色背景(var(--surface))+明色文字(#c9d1d9)+枠線に変更。他のボタンと統一 -->
 <!-- v20260529m: Phase2。クリック地点→最寄り66–110kV変電所の直線距離(haversine)計測。📏ボタンで計測モードON/OFF(専用,他クリック動作と非干渉)。黄破線+変電所マーカー+ポップアップ(距離/名称/電圧/事業者)。measurePane(zIndex645)。電圧不明は対象外 -->
 <script>window.__BUILD__='v20260621f';</script>
@@ -611,17 +612,17 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <button class="hazard-btn" id="hzCapacity" onclick="toggleCapacitySubstations()">&#9889; 空容量</button>
     <div id="capLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
       <div style="font-size:10px;line-height:1.7;">
-        <div style="font-weight:600;margin-bottom:2px">塗り＝空容量(MW)</div>
-        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#36d399;border:1px solid #333;margin-right:5px"></span>50以上（主力）</div>
-        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#facc15;border:1px solid #333;margin-right:5px"></span>20〜50</div>
-        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#fb7185;border:1px solid #333;margin-right:5px"></span>0超〜20</div>
-        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#5b6b7e;border:1px solid #333;margin-right:5px"></span>0（空きなし）</div>
+        <div style="font-weight:600;margin-bottom:2px">塗り＝連系可能性</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;border:1px solid #333;margin-right:5px"></span>🟢 連系可能（容量・制約ともOK）</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#fb923c;border:1px solid #333;margin-right:5px"></span>🟡 条件付き（出力抑制/N-1不可等）</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#dc2626;border:1px solid #333;margin-right:5px"></span>🔴 連系不可（空容量=0）</div>
+        <div style="margin-top:3px;color:var(--text-dim);font-size:9px;">サイズ＝空容量の大きさ</div>
         <div style="font-weight:600;margin-top:4px;margin-bottom:2px">輪郭＝座標信頼度</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #36d399;margin-right:5px"></span>OSM一致(≤100m)</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #facc15;margin-right:5px"></span>OSM近接(100-500m)</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #fb923c;margin-right:5px"></span>要確認(500m-3km)</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #fb7185;margin-right:5px"></span>OSM対応なし</div>
-        <div style="margin-top:3px;color:var(--text-dim);font-size:9px;">中部電力PG 154kV以下系統 公表2026-05-27</div>
+        <div style="margin-top:3px;color:var(--text-dim);font-size:9px;">中部電力PG+関西電力送配電 公表2026-06-24</div>
       </div>
     </div>
     <button class="hazard-btn" id="hzMeasure" onclick="toggleMeasure()">&#128207; 最寄り変電所(66–110kV)</button>
@@ -3411,6 +3412,16 @@ function _capColor(c){
   if(c>=20) return '#facc15';  // 中規模(20-50MW)
   return '#fb7185';            // 小規模(0超-20MW)
 }
+// v20260626f: マーカー塗り色を実務判定（🟢🟡🔴）と連動。空容量数値の色は_capColor()のまま。
+function _capStatusColor(p){
+  var cap = p.cap;
+  if(cap==null||cap<=0) return '#dc2626';  // 🔴 連系不可
+  var heijoRisk = (p.heijo_kanou && (p.heijo_kanou==='有り'||p.heijo_kanou==='有'));
+  var kamiRisk = (p.kami==='対象');
+  var n1Risk = (p.n1_kahi && String(p.n1_kahi).indexOf('不可')>=0);
+  if(heijoRisk||kamiRisk||n1Risk) return '#fb923c';  // 🟡 条件付き
+  return '#22c55e';  // 🟢 連系可能
+}
 function _capTierColor(t){
   return ({high:'#36d399',med:'#facc15',review:'#fb923c',google:'#fb7185'})[t]||'#888';
 }
@@ -3464,7 +3475,7 @@ function _renderCapacitySubstations(){
     var m=L.circleMarker([lat,lng],{
       pane:'subPane', radius:_capRadius(p.cap),
       color:_capTierColor(p.tier), weight:2.2,
-      fillColor:_capColor(p.cap), fillOpacity:0.92, opacity:1,
+      fillColor:_capStatusColor(p), fillOpacity:0.92, opacity:1,
       className:(has?'pulse-cap':'')
     });
     var gm='https://www.google.com/maps/search/?api=1&query='+lat+','+lng;
