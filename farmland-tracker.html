@@ -40,6 +40,8 @@
 <!-- v20260626m: マーカーをズーム連動化。L.circleMarker(ピクセル固定)→L.circle(メートル単位)に変更。両レイヤーともradius=150m（地理的半径）。ズームインで大きく、ズームアウトで小さく表示され、密集にじみが解消。広域ビューでは小さな点、近接ビューでは正確な位置が把握可能。 -->
 <!-- v20260626n: L.circle方式の失敗修正。L.circleMarker(ピクセル単位)に戻し、ズームイベントで動的にradiusを更新する方式に変更。ズーム10以下:1px、ズーム11:1.6px、ズーム14:3.5px、ズーム16:4.75px、ズーム18:6px。両レイヤー共通の_zoomRadius()関数で算出。setRadius()でズームイベント時に一括更新。 -->
 <!-- v20260626o: ズーム連動を完全撤去し、両レイヤー完全同一の固定スタイルに統一。⚡変電所レイヤーと配電用変電所(空容量)レイヤーともにradius:3, weight:0.5, fillOpacity:0.85, opacity:1。シンプルさを優先し、両レイヤーが必ず同じ大きさになる確実な実装。 -->
+<!-- v20260626p: マーカーサイズ・スタイルを完全に元の状態(v20260626a/b相当)に復元。weight:0.5/fillOpacity:0.85の細線・半透明設定が原因の「カビ模様」レンダリング異常を解消。_capRadius=cap値連動1.5〜5px、weight:2.2、fillOpacity:0.92、opacity:1。⚡変電所レイヤーもradius:5, weight:1, fillOpacity:0.95に復元。データ(v4.geojson)・連系可能性色判定・基幹系非表示フィルタは維持。 -->
+<!-- v20260626q: ズーム連動を元のスタイルで再実装（カビ模様回避）。_zoomRadius()でズーム9以下:2px〜ズーム18:10pxの範囲で動的変化。両レイヤー(⚡変電所/配電用変電所空容量)共通。weight:2.2(capLayer)/1(subLayer)、fillOpacity:0.92(cap)/0.95(sub)の元のスタイルは維持してレンダリング異常を防止。map.on('zoomend')で一括更新。 -->
 <!-- v20260529l: UI改善。hazard-toggle-btn(用途地域/都市計画区域/開拓候補)が透明背景+薄灰文字で明るい衛星画像上で視認困難だったため、濃色背景(var(--surface))+明色文字(#c9d1d9)+枠線に変更。他のボタンと統一 -->
 <!-- v20260529m: Phase2。クリック地点→最寄り66–110kV変電所の直線距離(haversine)計測。📏ボタンで計測モードON/OFF(専用,他クリック動作と非干渉)。黄破線+変電所マーカー+ポップアップ(距離/名称/電圧/事業者)。measurePane(zIndex645)。電圧不明は対象外 -->
 <script>window.__BUILD__='v20260621f';</script>
@@ -2043,7 +2045,17 @@ function readVTFeature(tag,f,pbf){if(tag===1)f.id=pbf.readVarint();else if(tag==
 function readVTValue(tag,v,pbf){if(tag===1)v.v=pbf.readString();else if(tag===2)v.v=pbf.readFloat();else if(tag===3)v.v=pbf.readDouble();else if(tag===4)v.v=pbf.readVarint(true);else if(tag===5)v.v=pbf.readVarint();else if(tag===6)v.v=pbf.readSVarint();else if(tag===7)v.v=pbf.readBoolean();}
 function getVTProperties(feature,layer){var props={};for(var i=0;i+1<feature.tags.length;i+=2){var ki=feature.tags[i],vi=feature.tags[i+1];if(ki<layer.keys.length&&vi<layer.values.length)props[layer.keys[ki]]=layer.values[vi].v;}return props;}
 function getPolygonCentroid(geometry,tileX,tileY,tileZ,extent){var x=0,y=0,sumX=0,sumY=0,count=0,i=0;while(i<geometry.length){var cmdInt=geometry[i++],cmd=cmdInt&7,len=cmdInt>>3;if(cmd===1||cmd===2){for(var j=0;j<len;j++){x+=(geometry[i]>>1)^-(geometry[i]&1);i++;y+=(geometry[i]>>1)^-(geometry[i]&1);i++;sumX+=x;sumY+=y;count++;}}else if(cmd===7){break;}else{i++;}}if(!count)return null;var tx=sumX/count,ty=sumY/count;var z2=Math.pow(2,tileZ);var lng=((tileX+tx/extent)/z2)*360-180;var n=Math.PI*(1-2*(tileY+ty/extent)/z2);var lat=180/Math.PI*Math.atan(Math.sinh(n));if(lat<30||lat>38||lng<130||lng>142)return null;return{lat:lat,lng:lng};}
-function initMap(){map=L.map('map',{zoomControl:false,maxZoom:18}).setView([36.5,138],5);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();onZoomChangeForDouro();});}
+function initMap(){map=L.map('map',{zoomControl:false,maxZoom:18}).setView([36.5,138],5);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();onZoomChangeForDouro();_updateMarkerRadiusOnZoom();});}
+// v20260626q: ズーム変更時に変電所マーカーの半径を一括更新
+function _updateMarkerRadiusOnZoom(){
+  var r = _zoomRadius();
+  if(typeof capLayer !== 'undefined' && capLayer){
+    capLayer.eachLayer(function(m){ if(m.setRadius) m.setRadius(r); });
+  }
+  if(typeof subLayer !== 'undefined' && subLayer){
+    subLayer.eachLayer(function(m){ if(m.setRadius) m.setRadius(r); });
+  }
+}
 // === NG\u4e00\u89a7\u3092\u8d77\u52d5\u6642\u306b\u53d6\u5f97 ===
 async function loadNgList(){
   try{
@@ -3306,7 +3318,7 @@ function _renderSubstations(){
     var lng=Number(g.coordinates[0]),lat=Number(g.coordinates[1]);
     if(isNaN(lat)||isNaN(lng))return;
     var pr=f.properties||{}; var col=_subColor(pr.voltage_kv);
-    var m=L.circleMarker([lat,lng],{renderer:subRenderer,pane:'subPane',radius:3,color:'#222',weight:0.5,fillColor:col,fillOpacity:0.85,opacity:1});
+    var m=L.circleMarker([lat,lng],{renderer:subRenderer,pane:'subPane',radius:_zoomRadius(),color:'#222',weight:1,fillColor:col,fillOpacity:0.95,opacity:1});
     var volt=(pr.voltage_kv!=null)?(pr.voltage_kv+'kV'):(pr.voltage||'—');
     m.bindPopup('<div class="popup-body"><div class="popup-case-no" style="color:#fb8c00;font-size:13px;margin-bottom:10px">⚡ 変電所</div><div class="popup-info"><div class="popup-row"><span class="popup-label">名称</span><span class="popup-value">'+_esc(pr.name||'（名称なし）')+'</span></div><div class="popup-row"><span class="popup-label">電圧</span><span class="popup-value">'+_esc(volt)+'</span></div><div class="popup-row"><span class="popup-label">事業者</span><span class="popup-value">'+_esc(pr.operator||'—')+'</span></div><div class="popup-row"><span class="popup-label">所在</span><span class="popup-value">'+_esc(pr.pref||'—')+'</span></div></div></div>',{maxWidth:280,minWidth:200});
     subLayer.addLayer(m); n++;
@@ -3433,9 +3445,16 @@ function _capStatusColor(p){
 function _capTierColor(t){
   return ({high:'#36d399',med:'#facc15',review:'#fb923c',google:'#fb7185'})[t]||'#888';
 }
-// v20260626o: 両レイヤーを完全同一スタイルに固定。radius:3, weight:0.5, fillOpacity:0.85, opacity:1
+// v20260626q: ズーム連動半径を再実装。元のスタイル(weight 2.2/fillOpacity 0.92)は維持してカビ模様回避
+function _zoomRadius(){
+  if(typeof map === 'undefined' || !map) return 4;
+  var z = map.getZoom();
+  if(z <= 9) return 2;
+  if(z >= 18) return 10;
+  return 2 + (z - 9);  // z10:3, z12:5, z14:7, z16:9, z18:10
+}
 function _capRadius(c){
-  return 3;
+  return _zoomRadius();
 }
 function toggleCapacitySubstations(){
   var btn=document.getElementById('hzCapacity'); var lg=document.getElementById('capLegend');
@@ -3485,8 +3504,8 @@ function _renderCapacitySubstations(){
     if(has)capSum+=p.cap;
     var m=L.circleMarker([lat,lng],{
       pane:'subPane', radius:_capRadius(p.cap),
-      color:_capTierColor(p.tier), weight:0.5,
-      fillColor:_capStatusColor(p), fillOpacity:0.85, opacity:1,
+      color:_capTierColor(p.tier), weight:2.2,
+      fillColor:_capStatusColor(p), fillOpacity:0.92, opacity:1,
       className:(has?'pulse-cap':'')
     });
     var gm='https://www.google.com/maps/search/?api=1&query='+lat+','+lng;
