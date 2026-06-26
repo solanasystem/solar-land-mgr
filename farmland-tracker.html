@@ -70,6 +70,7 @@
 })();
 </script>
 <!-- v20260624b: 分布ミニマップをヘッダドラッグで移動可能化（ズームコントロール干渉解消）。 -->
+<!-- v20260626a: 別荘地候補レイヤー追加（villa_place_names 16件・v_villa_places_map ビュー経由）。🏘️別荘地候補トグル+パターン別色分け凡例（別荘地#7c3aed/ハイランド・リゾート#c026d3/高原#a855f7）。villaPane(zIndex640)+canvas。クリックで名称・県・パターン・リゾート法構想・中京圏フラグ表示。中京圏11県OSM地名検出パイプライン Step 3 -->
 <!-- v20260624a: Track B residual_filter_result 色分け3色化（OK=緑黄/NG_building=赤/未判定=グレー）＋OKのみトグル＋ポップアップ残地判定行追加。get_trackb_in_bbox RPC にresidual_filter_result カラム追加済。 -->
 <!-- v20260623d: Track B「✅案件候補へ」をA化＝farmland_snapshots に trackB_<id> 行INSERT(cases未使用→cases_city_planning_zone_check制約エラーを構造回避)。XKT001日本語値をcasesに渡して失敗していた既存バグを解消。地番はAMX筆PMTilesからクリック点で自動取得（prompt廃止）。昇格後はtrackbLayerから該当idを即時除去＋以降の再描画でadopted行を描画スキップ→Track B残地から消える。 -->
 <title>農地変更トラッカー | GRID LAND MGR v3.0</title>
@@ -625,6 +626,17 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#1e88e5;border:1px solid #333;margin-right:5px"></span>66–110kV（高圧/特高連系の主対象）</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#9e9e9e;border:1px solid #333;margin-right:5px"></span>電圧不明・その他</div>
         <div style="margin-top:3px;color:var(--text-dim);font-size:9px;">© OpenStreetMap contributors</div>
+      </div>
+    </div>
+    <!-- 別荘地候補（villa_place_names・紫点表示） v20260626a -->
+    <button class="hazard-btn" id="hzVilla" onclick="toggleVilla()">&#127960; 別荘地候補</button>
+    <div id="villaLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
+      <div style="font-size:10px;line-height:1.7;">
+        <div style="font-weight:600;margin-bottom:2px">🏘️ 別荘地候補（OSM地名検出）</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#7c3aed;border:1px solid #4c1d95;margin-right:5px"></span>別荘・別荘地（本命）</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#c026d3;border:1px solid #4c1d95;margin-right:5px"></span>ハイランド・リゾート</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#a855f7;border:1px solid #4c1d95;margin-right:5px"></span>高原（地形名）</div>
+        <div style="margin-top:3px;color:var(--text-dim);font-size:9px;">中京圏11県・リゾート法構想と紐付け済</div>
       </div>
     </div>
     <div class="hazard-divider"></div>
@@ -3140,6 +3152,8 @@ async function _fetchAndRenderCityPlan() {
 // ※候補ページが行う「アプローチ済の自動昇格(DB書込)」は副作用のため本トグルでは実施しない（読取専用）。
 var candEnabled=false, candLoading=false, candLayer=null, candCache=null, candRenderer=null;
 var subEnabled=false, subLoading=false, subLayer=null, subCache=null, subRenderer=null;
+// v20260626a: 別荘地候補レイヤー（villa_place_names・紫点表示）
+var villaEnabled=false, villaLoading=false, villaLayer=null, villaCache=null, villaRenderer=null;
 var measureMode=false, measureLayer=null, measureClickHandler=null;
 // ===== NG地点（座標）近傍判定：過去にNG除外した地点の半径15m以内は feature_id が違っても除外（再表示防止） =====
 var NG_NEAR_M=15, NG_CELL=0.0003; var _ngGrid=null;
@@ -3284,6 +3298,79 @@ function _renderSubstations(){
   });
   subLayer.addTo(map);
   showToast(n+'件の変電所を表示（© OpenStreetMap contributors）','success');
+}
+
+// ======== v20260626a: 別荘地候補レイヤー（villa_place_names・紫点表示） ========
+// パターン別色分け: 別荘地系=濃紫, 高原=薄紫, リゾート/ハイランド=ピンク紫
+function _villaColor(pattern){
+  if(pattern==='別荘'||pattern==='別荘地') return '#7c3aed';   // 濃紫（本命）
+  if(pattern==='ハイランド'||pattern==='リゾート') return '#c026d3'; // ピンク紫
+  return '#a855f7';  // 標準紫（高原等）
+}
+function toggleVilla(){
+  var btn=document.getElementById('hzVilla'); var lg=document.getElementById('villaLegend');
+  villaEnabled=!villaEnabled;
+  if(!villaEnabled){
+    if(villaLayer){map.removeLayer(villaLayer);villaLayer=null;}
+    if(btn)btn.classList.remove('active');
+    if(lg)lg.style.display='none';
+    showToast('別荘地候補を非表示にしました','success');
+    return;
+  }
+  if(btn)btn.classList.add('active');
+  if(lg)lg.style.display='block';
+  if(villaCache){_renderVilla();return;}
+  _loadVilla();
+}
+async function _loadVilla(){
+  if(villaLoading)return; villaLoading=true;
+  showToast('別荘地候補を読み込み中...','success');
+  try{
+    var res=await db.from('v_villa_places_map').select('*').order('pref_name');
+    if(res.error)throw new Error(res.error.message||'fetch error');
+    villaCache=res.data||[];
+    villaLoading=false;
+    if(villaEnabled)_renderVilla();
+  }catch(e){
+    villaLoading=false; villaEnabled=false;
+    var btn=document.getElementById('hzVilla'); if(btn)btn.classList.remove('active');
+    var lg=document.getElementById('villaLegend'); if(lg)lg.style.display='none';
+    showToast('別荘地候補の読み込みに失敗: '+e.message,'error');
+  }
+}
+function _renderVilla(){
+  if(!villaEnabled||!villaCache)return;
+  if(villaLayer){map.removeLayer(villaLayer);villaLayer=null;}
+  if(!map.getPane('villaPane')){var pp=map.createPane('villaPane');pp.style.zIndex=640;}
+  if(!villaRenderer)villaRenderer=L.canvas({pane:'villaPane',padding:0.5});
+  villaLayer=L.layerGroup([],{pane:'villaPane'});
+  var n=0;
+  villaCache.forEach(function(row){
+    var lat=Number(row.lat), lng=Number(row.lng);
+    if(isNaN(lat)||isNaN(lng))return;
+    var col=_villaColor(row.pattern_match);
+    var m=L.circleMarker([lat,lng],{
+      renderer:villaRenderer,pane:'villaPane',
+      radius:7,color:'#4c1d95',weight:1.5,fillColor:col,fillOpacity:0.85,opacity:1
+    });
+    var resortLine = row.resort_construct 
+      ? _esc(row.resort_construct) + (row.chukyo_accessible ? ' <span style="color:#7c3aed;font-weight:700">★中京圏</span>' : '')
+      : '<span style="color:#9ca3af">該当なし</span>';
+    m.bindPopup(
+      '<div class="popup-body">'+
+      '<div class="popup-case-no" style="color:#7c3aed;font-size:13px;margin-bottom:10px">🏘️ 別荘地候補</div>'+
+      '<div class="popup-info">'+
+      '<div class="popup-row"><span class="popup-label">名称</span><span class="popup-value" style="font-weight:700">'+_esc(row.name||'—')+'</span></div>'+
+      '<div class="popup-row"><span class="popup-label">県</span><span class="popup-value">'+_esc(row.pref_name||'—')+'</span></div>'+
+      '<div class="popup-row"><span class="popup-label">パターン</span><span class="popup-value">'+_esc(row.pattern_match||'—')+'</span></div>'+
+      '<div class="popup-row"><span class="popup-label">リゾート法</span><span class="popup-value">'+resortLine+'</span></div>'+
+      '</div></div>',
+      {maxWidth:300,minWidth:220}
+    );
+    villaLayer.addLayer(m); n++;
+  });
+  villaLayer.addTo(map);
+  showToast(n+'件の別荘地候補を表示','success');
 }
 
 // ======== v20260530a: 配電用変電所(空容量)レイヤー ========
