@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260630e / 別荘地番図PNG透過化(黄色線画)に対応、blend modeデフォルトOFF -->
+<!-- BUILD: farmland-tracker v20260630f / 別荘地番図 NW/SEハンドルを画像内側15%にオフセット（ズーム時の画面外問題対策） -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -657,7 +657,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
             <span style="font-weight:600">🔧 位置調整モード</span>
           </label>
           <div style="color:var(--text-dim);font-size:9px;line-height:1.4;margin-left:14px;">
-            回転は常時調整可能。位置はONで青い丸をドラッグ。確定後「位置を保存」で確定。
+            回転は常時調整可能。位置はONで青い丸(↖↘)をドラッグ。ハンドルは画像内側に配置されています。
           </div>
         </div>
       </div>
@@ -3430,20 +3430,31 @@ function _getBounds(row){
 }
 
 // 編集ハンドル（NW/SE）追加
+// ハンドルは画像内側 HANDLE_INSET_RATIO 分オフセットされた位置に配置（画面外に出にくくするため）
+var HANDLE_INSET_RATIO = 0.15; // 画像幅・高さの15%内側
 function _addHandles(id){
   var ent=villaOverlayLayers[id];
   if(!ent||!ent.overlay)return;
   var b=ent.overlay.getBounds();
-  var nw=L.latLng(b.getNorth(),b.getWest());
-  var se=L.latLng(b.getSouth(),b.getEast());
-  var icon=L.divIcon({
+  var N=b.getNorth(), S=b.getSouth(), W=b.getWest(), E=b.getEast();
+  var dlat=(N-S), dlng=(E-W);
+  // 内側オフセット位置
+  var nw=L.latLng(N - dlat*HANDLE_INSET_RATIO, W + dlng*HANDLE_INSET_RATIO);
+  var se=L.latLng(S + dlat*HANDLE_INSET_RATIO, E - dlng*HANDLE_INSET_RATIO);
+  var nwIcon=L.divIcon({
     className:'villa-handle',
-    html:'<div style="width:18px;height:18px;background:#2563eb;border:3px solid white;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,0.6);cursor:move;"></div>',
-    iconSize:[18,18],
-    iconAnchor:[9,9]
+    html:'<div style="width:20px;height:20px;background:#2563eb;border:3px solid white;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,0.7);cursor:move;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:bold;">↖</div>',
+    iconSize:[20,20],
+    iconAnchor:[10,10]
   });
-  var nwM=L.marker(nw,{draggable:true,icon:icon,pane:'villaOverlayHandlePane',title:'北西角'}).addTo(map);
-  var seM=L.marker(se,{draggable:true,icon:icon,pane:'villaOverlayHandlePane',title:'南東角'}).addTo(map);
+  var seIcon=L.divIcon({
+    className:'villa-handle',
+    html:'<div style="width:20px;height:20px;background:#2563eb;border:3px solid white;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,0.7);cursor:move;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:bold;">↘</div>',
+    iconSize:[20,20],
+    iconAnchor:[10,10]
+  });
+  var nwM=L.marker(nw,{draggable:true,icon:nwIcon,pane:'villaOverlayHandlePane',title:'北西方向（画像内側）'}).addTo(map);
+  var seM=L.marker(se,{draggable:true,icon:seIcon,pane:'villaOverlayHandlePane',title:'南東方向（画像内側）'}).addTo(map);
   nwM.on('drag',function(){_updateBoundsFromHandles(id);});
   seM.on('drag',function(){_updateBoundsFromHandles(id);});
   ent.nwMarker=nwM;
@@ -3458,13 +3469,22 @@ function _removeHandles(id){
 }
 
 // ハンドルから bounds 再計算 + 画像更新
+// ハンドルは画像内側 HANDLE_INSET_RATIO 分オフセットされているので、その分を戻して元の bounds を計算する
 function _updateBoundsFromHandles(id){
   var ent=villaOverlayLayers[id];
   if(!ent||!ent.overlay||!ent.nwMarker||!ent.seMarker)return;
   var nw=ent.nwMarker.getLatLng();
   var se=ent.seMarker.getLatLng();
-  var sLat=Math.min(nw.lat,se.lat), nLat=Math.max(nw.lat,se.lat);
-  var wLng=Math.min(nw.lng,se.lng), eLng=Math.max(nw.lng,se.lng);
+  // ハンドル間の距離は元の画像サイズの (1 - 2*offset) 倍
+  var k = 1 - 2*HANDLE_INSET_RATIO; // 0.7
+  var midLat = (nw.lat + se.lat) / 2;
+  var midLng = (nw.lng + se.lng) / 2;
+  var halfDlat = Math.abs(nw.lat - se.lat) / 2 / k;
+  var halfDlng = Math.abs(se.lng - nw.lng) / 2 / k;
+  var sLat = midLat - halfDlat;
+  var nLat = midLat + halfDlat;
+  var wLng = midLng - halfDlng;
+  var eLng = midLng + halfDlng;
   var newBounds=[[sLat,wLng],[nLat,eLng]];
   ent.overlay.setBounds(newBounds);
   ent.bounds=newBounds;
