@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260630k / 回転中心バグ修正(画像中心で回転、translate(W/2,H/2)挟み込み) -->
+<!-- BUILD: farmland-tracker v20260630m / 別荘地番図ズレ修正(_getBounds:4点bbox統一、_applyTransform:naturalWidthフォールバック削除、map.onバインドを遅延化してundefinedエラー解消) -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -3355,6 +3355,8 @@ function _clearAllOverlays(){
 async function _loadVillaOverlays(){
   if(villaOverlayLoading)return;
   villaOverlayLoading=true;
+  // v20260630m: map 確定後に zoomend/moveend バインド（スクリプトパース時バインドの failure 対策）
+  _bindVillaMapEvents();
   showToast('別荘地番図を読み込み中...','success');
   console.log('[VILLA-OVERLAY] _loadVillaOverlays 開始');
   try{
@@ -3431,7 +3433,16 @@ function _renderVillaOverlays(){
 
 // bounds を決定 (DB登録済みなら4隅から、なければVILLA_DEFAULT_BOXから)
 function _getBounds(row){
-  // 4隅すべてが登録済みなら、tl(北西), br(南東) から bounds 作成（北を上の前提）
+  // v20260630l: 4隅すべてが登録済みなら、4点全体の bbox から bounds 作成
+  // （保存時 _updateCornersFromHandles の setBounds と完全に同じ計算 → 復元時 W/H が変わらない → matrix3d ズレ防止）
+  if(row.tl_lat!=null&&row.tl_lng!=null&&row.tr_lat!=null&&row.tr_lng!=null
+     &&row.bl_lat!=null&&row.bl_lng!=null&&row.br_lat!=null&&row.br_lng!=null){
+    var lats=[row.tl_lat,row.tr_lat,row.bl_lat,row.br_lat];
+    var lngs=[row.tl_lng,row.tr_lng,row.bl_lng,row.br_lng];
+    return [[Math.min.apply(null,lats),Math.min.apply(null,lngs)],
+            [Math.max.apply(null,lats),Math.max.apply(null,lngs)]];
+  }
+  // 後方互換: TL/BR だけある場合のフォールバック（旧データ用）
   if(row.tl_lat!=null&&row.tl_lng!=null&&row.br_lat!=null&&row.br_lng!=null){
     var sLat=Math.min(row.tl_lat,row.br_lat);
     var nLat=Math.max(row.tl_lat,row.br_lat);
@@ -3609,8 +3620,10 @@ function _applyTransform(id){
   }
   
   // 画像の表示サイズ（Leaflet が bounds から計算した実サイズ）
-  var W=img.offsetWidth || img.naturalWidth;
-  var H=img.offsetHeight || img.naturalHeight;
+  // v20260630l: naturalWidth フォールバック削除 - offsetWidth が0(=Leaflet未確定)なら早期return
+  // → 後続の setTimeout(300ms) や MutationObserver で正しいサイズが入ってから再適用される
+  var W=img.offsetWidth;
+  var H=img.offsetHeight;
   if(!W||!H)return;
   
   // 各 corner の画面ピクセル座標
@@ -3761,8 +3774,9 @@ function _applyRotation(id){
   var img=ent.overlay.getElement();
   if(!img)return;
   var deg=parseFloat(ent.rotation_deg)||0;
-  var W=img.offsetWidth || img.naturalWidth;
-  var H=img.offsetHeight || img.naturalHeight;
+  // v20260630l: naturalWidth フォールバック削除（offsetWidth=0時は処理スキップ → 後続で再呼び出し）
+  var W=img.offsetWidth;
+  var H=img.offsetHeight;
   img.style.transformOrigin='0 0'; // matrix3d/translate3d 起点を0,0に統一
   var cur=img.style.transform||'';
   // 既存 rotate と前後 translate を一旦除去
@@ -3823,10 +3837,16 @@ function _reapplyAllRotations(){
     }
   });
 }
-// イベント登録は1度だけ
-if(typeof window.__VILLA_ROT_EVT_BOUND__ === 'undefined'){
+// v20260630m: スクリプトパース時は map がまだ未定義のため即時バインドは失敗する
+// （旧コード try/catch で握りつぶされ、永久にバインドされずズーム/パンで matrix3d が再適用されない）
+// → 関数化して、map 確定後（_loadVillaOverlays 内）で呼ぶ
+function _bindVillaMapEvents(){
+  if(window.__VILLA_ROT_EVT_BOUND__)return; // 二重バインド防止
+  if(typeof map==='undefined'||!map||typeof map.on!=='function'){
+    console.warn('[VILLA-OVERLAY] _bindVillaMapEvents: map がまだ未定義');
+    return;
+  }
   window.__VILLA_ROT_EVT_BOUND__ = true;
-  // map 変数が定義済の前提
   try{
     map.on('zoomend moveend viewreset zoomanim', function(){
       // ズームアニメ中は連続発火するため requestAnimationFrame でまとめる
@@ -3836,6 +3856,7 @@ if(typeof window.__VILLA_ROT_EVT_BOUND__ === 'undefined'){
         _reapplyAllRotations();
       });
     });
+    console.log('[VILLA-OVERLAY] map event bind 成功 (zoomend/moveend/viewreset/zoomanim)');
   }catch(e){console.warn('[VILLA-OVERLAY] map event bind failed:',e);}
 }
 
