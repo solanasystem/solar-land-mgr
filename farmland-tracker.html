@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260630i / 別荘地番図 「合成情報をコピー」ボタン追加（手作業バックアップ用） -->
+<!-- BUILD: farmland-tracker v20260630k / 回転中心バグ修正(画像中心で回転、translate(W/2,H/2)挟み込み) -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -3340,6 +3340,12 @@ function _clearAllOverlays(){
     var ent=villaOverlayLayers[id];
     if(!ent)return;
     if(ent.overlay)try{map.removeLayer(ent.overlay);}catch(e){}
+    // 4ハンドル全削除（NW/NE/SW/SE）+ 旧互換のNW/SEも対応
+    if(ent.markers){
+      ['nw','ne','sw','se'].forEach(function(key){
+        if(ent.markers[key])try{map.removeLayer(ent.markers[key]);}catch(e){}
+      });
+    }
     if(ent.nwMarker)try{map.removeLayer(ent.nwMarker);}catch(e){}
     if(ent.seMarker)try{map.removeLayer(ent.seMarker);}catch(e){}
   });
@@ -3637,7 +3643,11 @@ function _applyTransform(id){
   
   var m3d=_homographyToMatrix3D(h);
   var newTransform=translatePart+(translatePart?' ':'')+m3d;
-  if(deg!==0) newTransform+=' rotate('+deg+'deg)';
+  // 回転は画像中心軸で行う: translate(W/2,H/2) rotate translate(-W/2,-H/2)
+  // CSS transform は右→左に適用されるので、見かけ順は中心移動→回転→戻す
+  if(deg!==0){
+    newTransform += ' translate('+(W/2)+'px,'+(H/2)+'px) rotate('+deg+'deg) translate('+(-W/2)+'px,'+(-H/2)+'px)';
+  }
   
   img.style.transformOrigin='0 0';
   img.style.transform=newTransform;
@@ -3694,6 +3704,12 @@ function _toggleOverlay(id,checked){
     var ent=villaOverlayLayers[id];
     if(ent){
       if(ent.overlay)try{map.removeLayer(ent.overlay);}catch(e){}
+      // 4ハンドル全削除（NW/NE/SW/SE）+ 旧互換のNW/SEも対応
+      if(ent.markers){
+        ['nw','ne','sw','se'].forEach(function(key){
+          if(ent.markers[key])try{map.removeLayer(ent.markers[key]);}catch(e){}
+        });
+      }
       if(ent.nwMarker)try{map.removeLayer(ent.nwMarker);}catch(e){}
       if(ent.seMarker)try{map.removeLayer(ent.seMarker);}catch(e){}
       delete villaOverlayLayers[id];
@@ -3738,19 +3754,22 @@ function _setVillaRotation(id,val){
   }
 }
 
-// CSS transform に rotate を適用（既存 translate 等は保持）
+// CSS transform に rotate を適用（既存 translate 等は保持）画像中心軸で回転
 function _applyRotation(id){
   var ent=villaOverlayLayers[id];
   if(!ent||!ent.overlay)return;
   var img=ent.overlay.getElement();
   if(!img)return;
   var deg=parseFloat(ent.rotation_deg)||0;
-  img.style.transformOrigin='50% 50%';
+  var W=img.offsetWidth || img.naturalWidth;
+  var H=img.offsetHeight || img.naturalHeight;
+  img.style.transformOrigin='0 0'; // matrix3d/translate3d 起点を0,0に統一
   var cur=img.style.transform||'';
-  // 既存 rotate を一旦除去
+  // 既存 rotate と前後 translate を一旦除去
+  cur=cur.replace(/\s*translate\([^)]*\)\s*rotate\([^)]*\)\s*translate\([^)]*\)/g,'').trim();
   cur=cur.replace(/\s*rotate\([^)]+\)/g,'').trim();
-  if(deg!==0){
-    img.style.transform=(cur?cur+' ':'')+'rotate('+deg+'deg)';
+  if(deg!==0 && W && H){
+    img.style.transform=(cur?cur+' ':'')+'translate('+(W/2)+'px,'+(H/2)+'px) rotate('+deg+'deg) translate('+(-W/2)+'px,'+(-H/2)+'px)';
   }else{
     img.style.transform=cur;
   }
@@ -3763,16 +3782,31 @@ function _watchRotation(id){
   if(!ent||!ent.overlay)return;
   var img=ent.overlay.getElement();
   if(!img)return;
-  img.style.transformOrigin='50% 50%';
+  img.style.transformOrigin='0 0';
   img.style.mixBlendMode = villaBlendMode ? 'multiply' : 'normal';
-  _applyRotation(id);
+  if(ent.corners){
+    _applyTransform(id);
+  }else{
+    _applyRotation(id);
+  }
   if(img._rotObs)return; // 既に監視中ならスキップ
   var obs=new MutationObserver(function(){
     var deg=parseFloat(ent.rotation_deg)||0;
-    if(deg===0)return;
     var cur=img.style.transform||'';
-    if(cur.indexOf('rotate(')>=0)return; // 既に rotate 含むなら何もしない
-    img.style.transform=(cur?cur+' ':'')+'rotate('+deg+'deg)';
+    // corners ありなら matrix3d + 中心軸 rotate が必要
+    // corners なしなら rotate のみ
+    if(ent.corners){
+      // matrix3d が無ければ再適用
+      if(cur.indexOf('matrix3d')<0){
+        _applyTransform(id);
+      }else if(deg!==0 && cur.indexOf('rotate(')<0){
+        _applyTransform(id);
+      }
+    }else{
+      if(deg===0)return;
+      if(cur.indexOf('rotate(')>=0)return;
+      _applyRotation(id);
+    }
   });
   obs.observe(img,{attributes:true,attributeFilter:['style']});
   img._rotObs=obs;
