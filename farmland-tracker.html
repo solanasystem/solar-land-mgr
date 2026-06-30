@@ -92,8 +92,7 @@
 })();
 </script>
 <!-- v20260624b: 分布ミニマップをヘッダドラッグで移動可能化（ズームコントロール干渉解消）。 -->
-<!-- v20260626c: ポップアップにGoogle地図・ストリートビューボタン追加
-<!-- v20260626a: 別荘地候補レイヤー追加（villa_place_names 16件・v_villa_places_map ビュー経由）。🏘️別荘地候補トグル+パターン別色分け凡例（別荘地#7c3aed/ハイランド・リゾート#c026d3/高原#a855f7）。villaPane(zIndex640)+canvas。クリックで名称・県・パターン・リゾート法構想・中京圏フラグ表示。中京圏11県OSM地名検出パイプライン Step 3 -->
+<!-- v20260626c: ポップアップにGoogle地図・ストリートビューボタン追加 -->
 <!-- v20260624a: Track B residual_filter_result 色分け3色化（OK=緑黄/NG_building=赤/未判定=グレー）＋OKのみトグル＋ポップアップ残地判定行追加。get_trackb_in_bbox RPC にresidual_filter_result カラム追加済。 -->
 <!-- v20260623d: Track B「✅案件候補へ」をA化＝farmland_snapshots に trackB_<id> 行INSERT(cases未使用→cases_city_planning_zone_check制約エラーを構造回避)。XKT001日本語値をcasesに渡して失敗していた既存バグを解消。地番はAMX筆PMTilesからクリック点で自動取得（prompt廃止）。昇格後はtrackbLayerから該当idを即時除去＋以降の再描画でadopted行を描画スキップ→Track B残地から消える。 -->
 <title>農地変更トラッカー | GRID LAND MGR v3.0</title>
@@ -623,6 +622,22 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <div id="candLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
       <div style="display:flex;align-items:center;gap:6px;font-size:10px;white-space:nowrap;"><span style="width:11px;height:11px;border-radius:50%;background:#fff;border:3px solid #0891b2;flex-shrink:0;display:inline-block"></span>開拓候補（NG/昇格済 除外）</div>
     </div>
+    <!-- 別荘地候補（villa_candidates、目視判定用） v20260630a -->
+    <button class="hazard-toggle-btn" id="hzVilla" onclick="toggleVilla()">
+      <span class="hazard-toggle-dot"></span>🏡 別荘地候補
+    </button>
+    <div id="villaLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
+      <div style="font-size:10px;line-height:1.8;">
+        <div style="font-weight:600;margin-bottom:2px">目視判定ステータス</div>
+        <div><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#facc15;border:2px solid #a16207;margin-right:5px"></span>未判定（クリックで判定）</div>
+        <div><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#22c55e;border:2px solid #15803d;margin-right:5px"></span>別荘地（確定）</div>
+        <div><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#9ca3af;border:2px solid #4b5563;margin-right:5px"></span>除外（別荘地でない）</div>
+        <div style="margin-top:4px;color:var(--text-dim);font-size:9px;line-height:1.4;">ピンをクリック→「別荘地」「除外」で判定。<br>森林率×閉鎖性×道路総延長で抽出（v4）</div>
+        <div style="margin-top:4px;display:flex;gap:4px;">
+          <label style="font-size:9px;color:var(--text-muted);cursor:pointer;"><input type="checkbox" id="villaHideExcluded" onchange="_renderVilla()" style="vertical-align:middle;"> 除外を隠す</label>
+        </div>
+      </div>
+    </div>
     <!-- 変電所（OSM power=substation, R2配信） Phase1 v20260529k -->
     <button class="hazard-btn" id="hzSubstation" onclick="toggleSubstations()">&#9889; 変電所</button>
     <button class="hazard-btn" id="hzCapacity" onclick="toggleCapacitySubstations()">&#9889; 空容量</button>
@@ -648,17 +663,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#1e88e5;border:1px solid #333;margin-right:5px"></span>66–110kV（高圧/特高連系の主対象）</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#9e9e9e;border:1px solid #333;margin-right:5px"></span>電圧不明・その他</div>
         <div style="margin-top:3px;color:var(--text-dim);font-size:9px;">© OpenStreetMap contributors</div>
-      </div>
-    </div>
-    <!-- 別荘地候補（villa_place_names・紫点表示） v20260626a -->
-    <button class="hazard-btn" id="hzVilla" onclick="toggleVilla()">&#127960; 別荘地候補</button>
-    <div id="villaLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
-      <div style="font-size:10px;line-height:1.7;">
-        <div style="font-weight:600;margin-bottom:2px">🏘️ 別荘地候補（OSM地名検出）</div>
-        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#7c3aed;border:1px solid #4c1d95;margin-right:5px"></span>別荘・別荘地（本命）</div>
-        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#c026d3;border:1px solid #4c1d95;margin-right:5px"></span>ハイランド・リゾート</div>
-        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#a855f7;border:1px solid #4c1d95;margin-right:5px"></span>高原（地形名）</div>
-        <div style="margin-top:3px;color:var(--text-dim);font-size:9px;">中京圏11県・リゾート法構想と紐付け済</div>
       </div>
     </div>
     <div class="hazard-divider"></div>
@@ -3174,8 +3178,6 @@ async function _fetchAndRenderCityPlan() {
 // ※候補ページが行う「アプローチ済の自動昇格(DB書込)」は副作用のため本トグルでは実施しない（読取専用）。
 var candEnabled=false, candLoading=false, candLayer=null, candCache=null, candRenderer=null;
 var subEnabled=false, subLoading=false, subLayer=null, subCache=null, subRenderer=null;
-// v20260626a: 別荘地候補レイヤー（villa_place_names・紫点表示）
-var villaEnabled=false, villaLoading=false, villaLayer=null, villaCache=null, villaRenderer=null;
 var measureMode=false, measureLayer=null, measureClickHandler=null;
 // ===== NG地点（座標）近傍判定：過去にNG除外した地点の半径15m以内は feature_id が違っても除外（再表示防止） =====
 var NG_NEAR_M=15, NG_CELL=0.0003; var _ngGrid=null;
@@ -3274,6 +3276,130 @@ async function excludeCandidate(fid){
   }
 }
 
+// ======== 別荘地候補レイヤー（villa_candidates、地図上で目視判定） v20260630a ========
+var villaEnabled=false, villaLoading=false, villaLayer=null, villaCache=null, villaRenderer=null;
+var VILLA_COLORS={
+  '未判定':{fill:'#facc15',stroke:'#a16207'},
+  '別荘地':{fill:'#22c55e',stroke:'#15803d'},
+  '除外'  :{fill:'#9ca3af',stroke:'#4b5563'}
+};
+function toggleVilla(){
+  var btn=document.getElementById('hzVilla');
+  var lg=document.getElementById('villaLegend');
+  villaEnabled=!villaEnabled;
+  if(!villaEnabled){
+    if(villaLayer){map.removeLayer(villaLayer);villaLayer=null;}
+    if(btn)btn.classList.remove('active');
+    if(lg)lg.style.display='none';
+    showToast('別荘地候補を非表示にしました','success');
+    return;
+  }
+  if(btn)btn.classList.add('active');
+  if(lg)lg.style.display='block';
+  if(villaCache){_renderVilla();return;}
+  _loadVilla();
+}
+async function _loadVilla(){
+  if(villaLoading)return;
+  villaLoading=true;
+  showToast('別荘地候補を読み込み中...','success');
+  try{
+    var res=await _fetchAllPaged(function(){return db.from('villa_candidates').select('*');});
+    if(res.error)throw res.error;
+    villaCache=(res.data||[]).filter(function(v){return v.center_lat!=null&&v.center_lng!=null;});
+    villaLoading=false;
+    if(villaEnabled)_renderVilla();
+  }catch(e){
+    villaLoading=false; villaEnabled=false;
+    var btn=document.getElementById('hzVilla'); if(btn)btn.classList.remove('active');
+    var lg=document.getElementById('villaLegend'); if(lg)lg.style.display='none';
+    showToast('別荘地候補の読み込みに失敗: '+(e&&e.message?e.message:e),'error');
+  }
+}
+function _villaFmt(v,d){return (v==null||v==='')?(d||'—'):v;}
+function _renderVilla(){
+  if(!villaEnabled||!villaCache)return;
+  if(villaLayer){map.removeLayer(villaLayer);villaLayer=null;}
+  if(!map.getPane('villaPane')){var p=map.createPane('villaPane');p.style.zIndex=645;}
+  if(!villaRenderer)villaRenderer=L.canvas({pane:'villaPane',padding:0.5});
+  villaLayer=L.layerGroup([],{pane:'villaPane'});
+  var hideExcluded=document.getElementById('villaHideExcluded');
+  hideExcluded=hideExcluded&&hideExcluded.checked;
+  var n=0, byStatus={'未判定':0,'別荘地':0,'除外':0};
+  villaCache.forEach(function(v){
+    var st=v.status||'未判定';
+    if(byStatus[st]!=null)byStatus[st]++;
+    if(hideExcluded&&st==='除外')return;
+    var lat=Number(v.center_lat),lng=Number(v.center_lng);
+    if(isNaN(lat)||isNaN(lng))return;
+    var col=VILLA_COLORS[st]||VILLA_COLORS['未判定'];
+    var m=L.circleMarker([lat,lng],{renderer:villaRenderer,pane:'villaPane',radius:9,color:col.stroke,weight:3,fillColor:col.fill,fillOpacity:0.95,opacity:1});
+    m._vid=v.id;
+    var score=(v.villa_score!=null)?Number(v.villa_score).toFixed(3):'—';
+    var forest=(v.forest_ratio!=null)?Number(v.forest_ratio).toFixed(2):'—';
+    var closure=(v.closure!=null)?Number(v.closure).toFixed(2):'—';
+    var road=(v.road_total_m!=null)?Math.round(Number(v.road_total_m))+'m':'—';
+    var area=(v.bbox_area_ha!=null)?Number(v.bbox_area_ha).toFixed(0)+'ha':'—';
+    var gmap='https://www.google.com/maps/@'+lat+','+lng+',16z/data=!3m1!1e3';
+    var stColor=col.fill;
+    var btns=''+
+      '<div style="display:flex;gap:6px;margin-top:10px;">'+
+        '<button onclick="judgeVilla(&quot;'+v.id+'&quot;,&quot;別荘地&quot;)" style="flex:1;padding:7px 4px;border:1px solid #15803d;background:#0f2417;color:#4ade80;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">🏡 別荘地</button>'+
+        '<button onclick="judgeVilla(&quot;'+v.id+'&quot;,&quot;除外&quot;)" style="flex:1;padding:7px 4px;border:1px solid #4b5563;background:#1f2937;color:#d1d5db;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">✕ 除外</button>'+
+      '</div>'+
+      '<button onclick="judgeVilla(&quot;'+v.id+'&quot;,&quot;未判定&quot;)" style="width:100%;margin-top:6px;padding:5px 4px;border:1px solid #a16207;background:#251c08;color:#fcd34d;border-radius:6px;font-size:10px;cursor:pointer;">↺ 未判定に戻す</button>'+
+      '<button onclick="deleteVilla(&quot;'+v.id+'&quot;)" style="width:100%;margin-top:6px;padding:5px 4px;border:1px solid #7f1d1d;background:#2a1212;color:#fca5a5;border-radius:6px;font-size:10px;cursor:pointer;">🗑 この候補を削除</button>';
+    var html='<div class="popup-body">'+
+      '<div class="popup-case-no" style="color:'+stColor+';font-size:13px;margin-bottom:8px">🏡 別荘地候補 <span style="font-size:10px;opacity:0.8">['+_villaFmt(st)+']</span></div>'+
+      '<div class="popup-info">'+
+        '<div class="popup-row"><span class="popup-label">スコア</span><span class="popup-value">'+score+'</span></div>'+
+        '<div class="popup-row"><span class="popup-label">森林率</span><span class="popup-value">'+forest+'</span></div>'+
+        '<div class="popup-row"><span class="popup-label">閉鎖性</span><span class="popup-value">'+closure+'</span></div>'+
+        '<div class="popup-row"><span class="popup-label">道路総延長</span><span class="popup-value">'+road+'</span></div>'+
+        '<div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">'+area+'</span></div>'+
+        '<div class="popup-row"><span class="popup-label">区分</span><span class="popup-value">'+_villaFmt(v.cpz_class)+'</span></div>'+
+      '</div>'+
+      '<a href="'+gmap+'" target="_blank" rel="noopener" style="display:block;margin-top:8px;text-align:center;padding:5px;border:1px solid var(--border);background:var(--surface2);color:#60a5fa;border-radius:6px;font-size:10px;text-decoration:none;">🛰 Google衛星で確認</a>'+
+      btns+
+      '</div>';
+    m.bindPopup(html,{maxWidth:280,minWidth:230});
+    villaLayer.addLayer(m); n++;
+  });
+  villaLayer.addTo(map);
+  showToast('別荘地候補 '+n+'件表示（未判定'+byStatus['未判定']+'/別荘地'+byStatus['別荘地']+'/除外'+byStatus['除外']+'）','success');
+}
+// 判定: status を更新して即座にピン色を変える
+async function judgeVilla(id,status){
+  if(!id)return;
+  try{
+    var res=await db.from('villa_candidates').update({status:status,judged_at:new Date().toISOString()}).eq('id',id);
+    if(res.error)throw res.error;
+    // キャッシュ更新
+    if(villaCache){villaCache.forEach(function(v){if(v.id===id){v.status=status;v.judged_at=new Date().toISOString();}});}
+    map.closePopup();
+    _renderVilla();
+    var label=status==='別荘地'?'🏡 別荘地として確定':status==='除外'?'✕ 除外':'↺ 未判定に戻しました';
+    showToast(label,'success');
+  }catch(e){
+    showToast('判定の保存に失敗: '+(e&&e.message?e.message:e),'error');
+  }
+}
+// 削除: 候補そのものをDBから削除
+async function deleteVilla(id){
+  if(!id)return;
+  if(!window.confirm('この候補をデータベースから完全に削除します。よろしいですか？'))return;
+  try{
+    var res=await db.from('villa_candidates').delete().eq('id',id);
+    if(res.error)throw res.error;
+    if(villaCache)villaCache=villaCache.filter(function(v){return v.id!==id;});
+    map.closePopup();
+    _renderVilla();
+    showToast('候補を削除しました','success');
+  }catch(e){
+    showToast('削除に失敗: '+(e&&e.message?e.message:e),'error');
+  }
+}
+
 // ======== 変電所レイヤー（Phase1：OSM power=substation, R2配信, トグル表示） ========
 function _subColor(kv){ if(kv==null)return '#9e9e9e'; if(kv>=500)return '#e53935'; if(kv>=154)return '#fb8c00'; if(kv>=60)return '#1e88e5'; return '#66bb6a'; }
 function toggleSubstations(){
@@ -3320,103 +3446,6 @@ function _renderSubstations(){
   });
   subLayer.addTo(map);
   showToast(n+'件の変電所を表示（© OpenStreetMap contributors）','success');
-}
-
-// ======== v20260626a: 別荘地候補レイヤー（villa_place_names・紫点表示） ========
-// パターン別色分け: 別荘地系=濃紫, 高原=薄紫, リゾート/ハイランド=ピンク紫
-function _villaColor(pattern){
-  if(pattern==='別荘'||pattern==='別荘地') return '#7c3aed';   // 濃紫（本命）
-  if(pattern==='ハイランド'||pattern==='リゾート') return '#c026d3'; // ピンク紫
-  return '#a855f7';  // 標準紫（高原等）
-}
-function toggleVilla(){
-  var btn=document.getElementById('hzVilla'); var lg=document.getElementById('villaLegend');
-  villaEnabled=!villaEnabled;
-  if(!villaEnabled){
-    if(villaLayer){map.removeLayer(villaLayer);villaLayer=null;}
-    if(btn)btn.classList.remove('active');
-    if(lg)lg.style.display='none';
-    showToast('別荘地候補を非表示にしました','success');
-    return;
-  }
-  if(btn)btn.classList.add('active');
-  if(lg)lg.style.display='block';
-  if(villaCache){_renderVilla();return;}
-  _loadVilla();
-}
-async function _loadVilla(){
-  if(villaLoading)return; villaLoading=true;
-  showToast('別荘地候補を読み込み中...','success');
-  try{
-    var res=await db.from('v_villa_places_map').select('*').order('pref_name');
-    if(res.error)throw new Error(res.error.message||'fetch error');
-    villaCache=res.data||[];
-    villaLoading=false;
-    if(villaEnabled)_renderVilla();
-  }catch(e){
-    villaLoading=false; villaEnabled=false;
-    var btn=document.getElementById('hzVilla'); if(btn)btn.classList.remove('active');
-    var lg=document.getElementById('villaLegend'); if(lg)lg.style.display='none';
-    showToast('別荘地候補の読み込みに失敗: '+e.message,'error');
-  }
-}
-function _renderVilla(){
-  if(!villaEnabled||!villaCache)return;
-  if(villaLayer){map.removeLayer(villaLayer);villaLayer=null;}
-  if(!map.getPane('villaPane')){var pp=map.createPane('villaPane');pp.style.zIndex=640;}
-  if(!villaRenderer)villaRenderer=L.canvas({pane:'villaPane',padding:0.5});
-  villaLayer=L.layerGroup([],{pane:'villaPane'});
-  var n=0;
-  villaCache.forEach(function(row){
-    var lat=Number(row.lat), lng=Number(row.lng);
-    if(isNaN(lat)||isNaN(lng))return;
-    var col=_villaColor(row.pattern_match);
-    var m=L.circleMarker([lat,lng],{
-      renderer:villaRenderer,pane:'villaPane',
-      radius:7,color:'#4c1d95',weight:1.5,fillColor:col,fillOpacity:0.85,opacity:1
-    });
-    var resortLine = row.resort_construct 
-      ? _esc(row.resort_construct) + (row.chukyo_accessible ? ' <span style="color:#7c3aed;font-weight:700">★中京圏</span>' : '')
-      : '<span style="color:#9ca3af">該当なし</span>';
-    m.bindPopup(
-      '<div class="popup-body">'+
-      '<div class="popup-case-no" style="color:#7c3aed;font-size:13px;margin-bottom:10px">🏘️ 別荘地候補</div>'+
-      '<div class="popup-info">'+
-      '<div class="popup-row"><span class="popup-label">名称</span><span class="popup-value" style="font-weight:700">'+_esc(row.name||'—')+'</span></div>'+
-      '<div class="popup-row"><span class="popup-label">県</span><span class="popup-value">'+_esc(row.pref_name||'—')+'</span></div>'+
-      '<div class="popup-row"><span class="popup-label">パターン</span><span class="popup-value">'+_esc(row.pattern_match||'—')+'</span></div>'+
-      '<div class="popup-row"><span class="popup-label">リゾート法</span><span class="popup-value">'+resortLine+'</span></div>'+
-      '</div>'+
-      '<div style="display:flex;gap:6px;margin-top:10px">'+
-      '<a href="https://www.google.com/maps?q='+row.lat+','+row.lng+'&t=k&z=17" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:8px;background:#3b82f6;color:white;text-decoration:none;border-radius:6px;font-size:12px;font-weight:600">🗺️ 地図</a>'+
-      '<a href="https://www.google.com/maps?q=&layer=c&cbll='+row.lat+','+row.lng+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:8px;background:#10b981;color:white;text-decoration:none;border-radius:6px;font-size:12px;font-weight:600">🚶 ストビュー</a>'+
-      '</div>'+
-      '<button onclick="villaDeleteNG('+row.id+')" style="margin-top:6px;width:100%;padding:8px;background:#dc2626;color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:700">⛔ NG削除（この1件を物理削除）</button>'+
-      '</div>',
-      {maxWidth:300,minWidth:220}
-    );
-    villaLayer.addLayer(m);
-  });
-  villaLayer.addTo(map);
-  showToast(villaCache.length+'件の別荘地候補を表示','success');
-}
-
-// v20260626b: 別荘地候補のNG削除（1件ずつ）
-async function villaDeleteNG(id){
-  var row=(villaCache||[]).find(function(r){return r.id===id;});
-  if(!row){showToast('対象レコードが見つかりません','error');return;}
-  if(!confirm('「'+row.name+'」('+row.pref_name+') を NG として物理削除します。\nこの操作は取り消せません。実行しますか？'))return;
-  try{
-    var res=await db.rpc('delete_villa_by_id',{p_id:id});
-    if(res.error)throw new Error(res.error.message);
-    if(!res.data||!res.data.success)throw new Error((res.data&&res.data.error)||'unknown');
-    villaCache=villaCache.filter(function(r){return r.id!==id;});
-    map.closePopup();
-    _renderVilla();
-    showToast('「'+row.name+'」を削除しました（残り'+villaCache.length+'件）','success');
-  }catch(e){
-    showToast('削除失敗: '+e.message,'error');
-  }
 }
 
 // ======== v20260530a: 配電用変電所(空容量)レイヤー ========
