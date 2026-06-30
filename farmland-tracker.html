@@ -113,9 +113,7 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <!-- ベクトルタイル＋面積計算 用ライブラリ -->
 <script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
-<!-- v20260630b: 別荘地番図オーバーレイ (Leaflet.DistortableImage) -->
-<script src="https://cdn.jsdelivr.net/npm/leaflet-distortableimage@0.21.7/dist/vendor.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/leaflet-distortableimage@0.21.7/dist/leaflet.distortableimage.js"></script>
+<!-- v20260630b: 別荘地番図オーバーレイは自作実装（L.imageOverlay + draggable markers）-->
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
 <script src="https://unpkg.com/pbf@3.2.1/dist/pbf.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.0.0/turf.min.js"></script>
@@ -641,7 +639,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
         </div>
       </div>
     </div>
-    <!-- 別荘地番図オーバーレイ (Leaflet.DistortableImage) v20260630b -->
+    <!-- 別荘地番図オーバーレイ (L.imageOverlay + draggable markers) v20260630b -->
     <button class="hazard-toggle-btn" id="hzVillaOverlay" onclick="toggleVillaOverlay()">
       <span class="hazard-toggle-dot"></span>📐 別荘地番図
     </button>
@@ -3298,17 +3296,20 @@ async function excludeCandidate(fid){
   }
 }
 
-// ======== 別荘地番図オーバーレイ (Leaflet.DistortableImage) v20260630b ========
-// びわこ台・びわこの森の地番図画像を衛星地図に重ねる。4隅ドラッグで位置調整、Supabaseに保存。
+// ======== 別荘地番図オーバーレイ (自作: L.imageOverlay + draggable markers) v20260630b ========
+// びわこ台・びわこの森の地番図画像を衛星地図に重ねる。
+// 編集モードでNW/SEの2隅マーカーをドラッグして bounds を調整、Supabaseに4隅として保存。
+// 北を上に固定する単純なBox配置（台形変形は使用しない）。
 var villaOverlayEnabled=false, villaOverlayLoading=false;
-var villaOverlayCache=[]; // [{id, villa_name, image_url, tl_lat..br_lng, opacity, enabled, _layer}]
-var villaOverlayLayers={}; // id -> DistortableImageOverlay
+var villaOverlayCache=[]; // [{id, villa_name, image_url, tl/tr/bl/br_lat/lng, opacity, enabled}]
+var villaOverlayLayers={}; // id -> {overlay, nwMarker, seMarker}
 var villaEditMode=false;
 
 // デフォルト初期位置（4隅座標がNULLの場合に使う、衛星画像上で手動調整前提）
+// (lat, lng) は中心、(dlat, dlng) は半径
 var VILLA_DEFAULT_BOX={
-  'びわこ台':    {lat:35.349, lng:135.972, dlat:0.018, dlng:0.020},
-  'びわこの森':  {lat:35.360, lng:135.960, dlat:0.012, dlng:0.030}
+  'びわこ台':    {lat:35.349, lng:135.972, dlat:0.015, dlng:0.018},
+  'びわこの森':  {lat:35.360, lng:135.960, dlat:0.010, dlng:0.025}
 };
 
 function toggleVillaOverlay(){
@@ -3316,10 +3317,7 @@ function toggleVillaOverlay(){
   var panel=document.getElementById('villaOverlayPanel');
   villaOverlayEnabled=!villaOverlayEnabled;
   if(!villaOverlayEnabled){
-    Object.keys(villaOverlayLayers).forEach(function(id){
-      try{map.removeLayer(villaOverlayLayers[id]);}catch(e){}
-    });
-    villaOverlayLayers={};
+    _clearAllOverlays();
     if(btn)btn.classList.remove('active');
     if(panel)panel.style.display='none';
     showToast('別荘地番図を非表示にしました','success');
@@ -3329,6 +3327,17 @@ function toggleVillaOverlay(){
   if(panel)panel.style.display='block';
   if(villaOverlayCache.length>0){_renderVillaOverlays();return;}
   _loadVillaOverlays();
+}
+
+function _clearAllOverlays(){
+  Object.keys(villaOverlayLayers).forEach(function(id){
+    var ent=villaOverlayLayers[id];
+    if(!ent)return;
+    if(ent.overlay)try{map.removeLayer(ent.overlay);}catch(e){}
+    if(ent.nwMarker)try{map.removeLayer(ent.nwMarker);}catch(e){}
+    if(ent.seMarker)try{map.removeLayer(ent.seMarker);}catch(e){}
+  });
+  villaOverlayLayers={};
 }
 
 async function _loadVillaOverlays(){
@@ -3356,39 +3365,34 @@ async function _loadVillaOverlays(){
 
 function _renderVillaOverlays(){
   if(!villaOverlayEnabled)return;
-  // 既存レイヤーをクリア
-  Object.keys(villaOverlayLayers).forEach(function(id){
-    try{map.removeLayer(villaOverlayLayers[id]);}catch(e){}
-  });
-  villaOverlayLayers={};
-  if(typeof L.DistortableImageOverlay==='undefined'){
-    showToast('Leaflet.DistortableImageが読み込まれていません','error');
-    return;
+  _clearAllOverlays();
+  // 専用ペイン作成（z-index は他レイヤーの上）
+  if(!map.getPane('villaOverlayPane')){
+    var p=map.createPane('villaOverlayPane');
+    p.style.zIndex=425; // overlayPane(400) と markerPane(600) の間
+  }
+  if(!map.getPane('villaOverlayHandlePane')){
+    var p2=map.createPane('villaOverlayHandlePane');
+    p2.style.zIndex=650; // 操作ハンドルは最前面
   }
   var shown=0;
   villaOverlayCache.forEach(function(row){
     if(!row.image_url){console.warn('[VILLA-OVERLAY] image_urlなし:',row.villa_name);return;}
-    var corners=_getCorners(row);
-    if(!corners){console.warn('[VILLA-OVERLAY] 4隅座標決定できず:',row.villa_name);return;}
+    if(row.enabled===false)return;
+    var bounds=_getBounds(row);
+    if(!bounds){console.warn('[VILLA-OVERLAY] bounds決定できず:',row.villa_name);return;}
     try{
-      var ov=L.distortableImageOverlay(row.image_url,{
-        corners:corners,
-        editable:false,
-        suppressToolbar:true,
-        mode:'lock'
+      var op=row.opacity!=null?row.opacity:0.65;
+      var ov=L.imageOverlay(row.image_url,bounds,{
+        opacity:op,
+        interactive:false,
+        pane:'villaOverlayPane'
       });
       ov.addTo(map);
-      // 透過度設定（_image読み込み後に適用）
-      var setOp=function(){
-        if(ov.getElement()){
-          ov.getElement().style.opacity=(row.opacity!=null?row.opacity:0.65);
-        }
-      };
-      setTimeout(setOp,300);
-      setTimeout(setOp,800);
-      villaOverlayLayers[row.id]=ov;
-      // 編集モードならeditable化
-      if(villaEditMode){_enableEditOnLayer(row.id);}
+      var ent={overlay:ov, nwMarker:null, seMarker:null, bounds:bounds};
+      villaOverlayLayers[row.id]=ent;
+      // 編集モードならハンドル追加
+      if(villaEditMode){_addHandles(row.id);}
       shown++;
     }catch(e){
       console.error('[VILLA-OVERLAY] 表示失敗 '+row.villa_name+':',e);
@@ -3397,30 +3401,64 @@ function _renderVillaOverlays(){
   showToast('別荘地番図 '+shown+'件を表示','success');
 }
 
-// 4隅座標を決定 (DBに登録済みならそれを使う、なければVILLA_DEFAULT_BOXから生成)
-function _getCorners(row){
-  if(row.tl_lat!=null&&row.tl_lng!=null&&row.tr_lat!=null&&row.tr_lng!=null
-     &&row.bl_lat!=null&&row.bl_lng!=null&&row.br_lat!=null&&row.br_lng!=null){
-    return [
-      L.latLng(row.tl_lat,row.tl_lng),
-      L.latLng(row.tr_lat,row.tr_lng),
-      L.latLng(row.bl_lat,row.bl_lng),
-      L.latLng(row.br_lat,row.br_lng)
-    ];
+// bounds を決定 (DB登録済みなら4隅から、なければVILLA_DEFAULT_BOXから)
+function _getBounds(row){
+  // 4隅すべてが登録済みなら、tl(北西), br(南東) から bounds 作成（北を上の前提）
+  if(row.tl_lat!=null&&row.tl_lng!=null&&row.br_lat!=null&&row.br_lng!=null){
+    var sLat=Math.min(row.tl_lat,row.br_lat);
+    var nLat=Math.max(row.tl_lat,row.br_lat);
+    var wLng=Math.min(row.tl_lng,row.br_lng);
+    var eLng=Math.max(row.tl_lng,row.br_lng);
+    return [[sLat,wLng],[nLat,eLng]];
   }
   // デフォルト位置
   var def=VILLA_DEFAULT_BOX[row.villa_name];
   if(!def){
-    // 未定義の物件は地図中心
     var c=map.getCenter();
     def={lat:c.lat,lng:c.lng,dlat:0.005,dlng:0.008};
   }
-  return [
-    L.latLng(def.lat+def.dlat, def.lng-def.dlng), // TL
-    L.latLng(def.lat+def.dlat, def.lng+def.dlng), // TR
-    L.latLng(def.lat-def.dlat, def.lng-def.dlng), // BL
-    L.latLng(def.lat-def.dlat, def.lng+def.dlng)  // BR
-  ];
+  return [[def.lat-def.dlat, def.lng-def.dlng],[def.lat+def.dlat, def.lng+def.dlng]];
+}
+
+// 編集ハンドル（NW/SE）追加
+function _addHandles(id){
+  var ent=villaOverlayLayers[id];
+  if(!ent||!ent.overlay)return;
+  var b=ent.overlay.getBounds();
+  var nw=L.latLng(b.getNorth(),b.getWest());
+  var se=L.latLng(b.getSouth(),b.getEast());
+  var icon=L.divIcon({
+    className:'villa-handle',
+    html:'<div style="width:18px;height:18px;background:#2563eb;border:3px solid white;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,0.6);cursor:move;"></div>',
+    iconSize:[18,18],
+    iconAnchor:[9,9]
+  });
+  var nwM=L.marker(nw,{draggable:true,icon:icon,pane:'villaOverlayHandlePane',title:'北西角'}).addTo(map);
+  var seM=L.marker(se,{draggable:true,icon:icon,pane:'villaOverlayHandlePane',title:'南東角'}).addTo(map);
+  nwM.on('drag',function(){_updateBoundsFromHandles(id);});
+  seM.on('drag',function(){_updateBoundsFromHandles(id);});
+  ent.nwMarker=nwM;
+  ent.seMarker=seM;
+}
+
+function _removeHandles(id){
+  var ent=villaOverlayLayers[id];
+  if(!ent)return;
+  if(ent.nwMarker){try{map.removeLayer(ent.nwMarker);}catch(e){}ent.nwMarker=null;}
+  if(ent.seMarker){try{map.removeLayer(ent.seMarker);}catch(e){}ent.seMarker=null;}
+}
+
+// ハンドルから bounds 再計算 + 画像更新
+function _updateBoundsFromHandles(id){
+  var ent=villaOverlayLayers[id];
+  if(!ent||!ent.overlay||!ent.nwMarker||!ent.seMarker)return;
+  var nw=ent.nwMarker.getLatLng();
+  var se=ent.seMarker.getLatLng();
+  var sLat=Math.min(nw.lat,se.lat), nLat=Math.max(nw.lat,se.lat);
+  var wLng=Math.min(nw.lng,se.lng), eLng=Math.max(nw.lng,se.lng);
+  var newBounds=[[sLat,wLng],[nLat,eLng]];
+  ent.overlay.setBounds(newBounds);
+  ent.bounds=newBounds;
 }
 
 // パネルに物件リスト + 個別ON/OFF + 透過スライダー + 位置保存ボタンを描画
@@ -3464,8 +3502,11 @@ function _toggleOverlay(id,checked){
   if(checked){
     _renderVillaOverlays();
   }else{
-    if(villaOverlayLayers[id]){
-      try{map.removeLayer(villaOverlayLayers[id]);}catch(e){}
+    var ent=villaOverlayLayers[id];
+    if(ent){
+      if(ent.overlay)try{map.removeLayer(ent.overlay);}catch(e){}
+      if(ent.nwMarker)try{map.removeLayer(ent.nwMarker);}catch(e){}
+      if(ent.seMarker)try{map.removeLayer(ent.seMarker);}catch(e){}
       delete villaOverlayLayers[id];
     }
   }
@@ -3479,11 +3520,10 @@ function _setVillaOpacity(id,val){
   row.opacity=op;
   var span=document.getElementById('opVal_'+id);
   if(span)span.textContent=Math.round(op*100)+'%';
-  var ov=villaOverlayLayers[id];
-  if(ov&&ov.getElement()){
-    ov.getElement().style.opacity=op;
+  var ent=villaOverlayLayers[id];
+  if(ent&&ent.overlay&&ent.overlay.setOpacity){
+    ent.overlay.setOpacity(op);
   }
-  // DBには即時保存しない（頻繁すぎる）。位置保存時にまとめて保存される。
 }
 
 // 位置調整モードON/OFF
@@ -3491,58 +3531,33 @@ function _toggleVillaEditMode(){
   var cb=document.getElementById('villaEditMode');
   villaEditMode=cb?cb.checked:false;
   if(villaEditMode){
-    showToast('位置調整モード: 各画像の4隅をドラッグして位置合わせしてください','success');
-    Object.keys(villaOverlayLayers).forEach(function(id){_enableEditOnLayer(id);});
+    showToast('位置調整モード: 各画像の北西/南東の青い丸をドラッグして位置合わせ','success');
+    Object.keys(villaOverlayLayers).forEach(function(id){_addHandles(id);});
   }else{
     showToast('位置調整モード解除','success');
-    Object.keys(villaOverlayLayers).forEach(function(id){_disableEditOnLayer(id);});
+    Object.keys(villaOverlayLayers).forEach(function(id){_removeHandles(id);});
   }
   _updateVillaOverlayPanel();
 }
 
-function _enableEditOnLayer(id){
-  var ov=villaOverlayLayers[id];
-  if(!ov)return;
-  try{
-    if(ov.editing){
-      ov.editing.enable();
-    }else if(typeof ov.enableEdit==='function'){
-      ov.enableEdit();
-    }
-  }catch(e){console.warn('[VILLA-OVERLAY] enableEdit失敗:',e);}
-}
-
-function _disableEditOnLayer(id){
-  var ov=villaOverlayLayers[id];
-  if(!ov)return;
-  try{
-    if(ov.editing){
-      ov.editing.disable();
-    }else if(typeof ov.disableEdit==='function'){
-      ov.disableEdit();
-    }
-  }catch(e){console.warn('[VILLA-OVERLAY] disableEdit失敗:',e);}
-}
-
 // 4隅座標+透過度をSupabaseに保存
 async function _saveOverlayCorners(id){
-  var ov=villaOverlayLayers[id];
+  var ent=villaOverlayLayers[id];
   var row=villaOverlayCache.find(function(r){return r.id===id;});
-  if(!ov||!row){showToast('保存対象が見つかりません','error');return;}
+  if(!ent||!ent.overlay||!row){showToast('保存対象が見つかりません','error');return;}
   try{
-    var c=ov.getCorners();
-    // c[0]=TL, c[1]=TR, c[2]=BL, c[3]=BR (DistortableImageの並び)
+    var b=ent.overlay.getBounds();
+    // 北を上の前提で4隅を生成: TL=NW, TR=NE, BL=SW, BR=SE
     var payload={
-      tl_lat:c[0].lat, tl_lng:c[0].lng,
-      tr_lat:c[1].lat, tr_lng:c[1].lng,
-      bl_lat:c[2].lat, bl_lng:c[2].lng,
-      br_lat:c[3].lat, br_lng:c[3].lng,
+      tl_lat:b.getNorth(), tl_lng:b.getWest(),
+      tr_lat:b.getNorth(), tr_lng:b.getEast(),
+      bl_lat:b.getSouth(), bl_lng:b.getWest(),
+      br_lat:b.getSouth(), br_lng:b.getEast(),
       opacity:row.opacity!=null?row.opacity:0.65,
       updated_at:new Date().toISOString()
     };
     var res=await db.from('villa_overlays').update(payload).eq('id',id);
     if(res.error)throw res.error;
-    // キャッシュ更新
     Object.assign(row,payload);
     _updateVillaOverlayPanel();
     showToast('「'+row.villa_name+'」の位置を保存しました','success');
