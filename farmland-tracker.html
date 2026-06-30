@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260630f / 別荘地番図 NW/SEハンドルを画像内側15%にオフセット（ズーム時の画面外問題対策） -->
+<!-- BUILD: farmland-tracker v20260630g / 別荘地番図 キャッシュバスター追加(?v=g) + 回転処理の堅牢化 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -3388,7 +3388,9 @@ function _renderVillaOverlays(){
     if(!bounds){console.warn('[VILLA-OVERLAY] bounds決定できず:',row.villa_name);return;}
     try{
       var op=row.opacity!=null?row.opacity:0.65;
-      var ov=L.imageOverlay(row.image_url,bounds,{
+      // キャッシュバスター: GitHub Pages の CDN キャッシュ回避
+      var imgUrlWithBust = row.image_url + (row.image_url.indexOf('?')>=0 ? '&' : '?') + 'v=g';
+      var ov=L.imageOverlay(imgUrlWithBust,bounds,{
         opacity:op,
         interactive:false,
         pane:'villaOverlayPane'
@@ -3579,6 +3581,9 @@ function _setVillaRotation(id,val){
   if(ent){
     ent.rotation_deg=deg;
     _applyRotation(id);
+    // 念のため次フレームでも再適用（Leaflet 内部処理との競合対策）
+    requestAnimationFrame(function(){_applyRotation(id);});
+    setTimeout(function(){_applyRotation(id);}, 50);
   }
 }
 
@@ -3620,6 +3625,28 @@ function _watchRotation(id){
   });
   obs.observe(img,{attributes:true,attributeFilter:['style']});
   img._rotObs=obs;
+}
+
+// マップのズーム・移動・リセット時に全オーバーレイの回転を再適用（Leafletの上書き対策）
+function _reapplyAllRotations(){
+  Object.keys(villaOverlayLayers).forEach(function(id){
+    _applyRotation(id);
+  });
+}
+// イベント登録は1度だけ
+if(typeof window.__VILLA_ROT_EVT_BOUND__ === 'undefined'){
+  window.__VILLA_ROT_EVT_BOUND__ = true;
+  // map 変数が定義済の前提
+  try{
+    map.on('zoomend moveend viewreset zoomanim', function(){
+      // ズームアニメ中は連続発火するため requestAnimationFrame でまとめる
+      if(window.__VILLA_ROT_RAF__)return;
+      window.__VILLA_ROT_RAF__=requestAnimationFrame(function(){
+        window.__VILLA_ROT_RAF__=null;
+        _reapplyAllRotations();
+      });
+    });
+  }catch(e){console.warn('[VILLA-OVERLAY] map event bind failed:',e);}
 }
 
 // 白背景を抜く線画モード（mix-blend-mode: multiply）ON/OFF
