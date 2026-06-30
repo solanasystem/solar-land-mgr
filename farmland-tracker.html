@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260630n / 別荘地番図ズレ修正(_getBounds:4点bbox統一、_applyTransform:naturalWidthフォールバック削除、map.onバインドを遅延化、診断をconsole→toast表示に変更) -->
+<!-- BUILD: farmland-tracker v20260701a / 別荘地番図PlanX: L.imageOverlay廃止、<img>をvillaPaneに直接配置、matrix3dで位置決め+透視変換を一括処理（Leafletとの透過合戦を完全排除） -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -3339,6 +3339,8 @@ function _clearAllOverlays(){
   Object.keys(villaOverlayLayers).forEach(function(id){
     var ent=villaOverlayLayers[id];
     if(!ent)return;
+    // v20260701a PlanX: <img>を直接DOM配置しているためimg.remove()
+    if(ent.img){try{ent.img.remove();}catch(e){}}
     if(ent.overlay)try{map.removeLayer(ent.overlay);}catch(e){}
     // 4ハンドル全削除（NW/NE/SW/SE）+ 旧互換のNW/SEも対応
     if(ent.markers){
@@ -3384,43 +3386,70 @@ function _renderVillaOverlays(){
   if(!map.getPane('villaOverlayPane')){
     var p=map.createPane('villaOverlayPane');
     p.style.zIndex=425; // overlayPane(400) と markerPane(600) の間
+    p.style.pointerEvents='none';
   }
   if(!map.getPane('villaOverlayHandlePane')){
     var p2=map.createPane('villaOverlayHandlePane');
     p2.style.zIndex=650; // 操作ハンドルは最前面
   }
+  // v20260701a PlanX: map 確定後にイベントバインド
+  _bindVillaMapEvents();
   var shown=0;
   villaOverlayCache.forEach(function(row){
     if(!row.image_url){console.warn('[VILLA-OVERLAY] image_urlなし:',row.villa_name);return;}
     if(row.enabled===false)return;
-    var bounds=_getBounds(row);
-    if(!bounds){console.warn('[VILLA-OVERLAY] bounds決定できず:',row.villa_name);return;}
     try{
-      var op=row.opacity!=null?row.opacity:0.65;
-      // キャッシュバスター: GitHub Pages の CDN キャッシュ回避
-      var imgUrlWithBust = row.image_url + (row.image_url.indexOf('?')>=0 ? '&' : '?') + 'v=g';
-      var ov=L.imageOverlay(imgUrlWithBust,bounds,{
-        opacity:op,
-        interactive:false,
-        pane:'villaOverlayPane'
-      });
-      ov.addTo(map);
-      var ent={overlay:ov, nwMarker:null, seMarker:null, markers:null, bounds:bounds, rotation_deg:parseFloat(row.rotation_deg)||0, corners:null};
-      // DB に 4隅すべて登録済なら corners を復元
+      // corners を決定（DB 4隅 or デフォルト矩形から）
+      var corners;
       if(row.tl_lat!=null && row.tl_lng!=null && row.tr_lat!=null && row.tr_lng!=null
          && row.bl_lat!=null && row.bl_lng!=null && row.br_lat!=null && row.br_lng!=null){
-        ent.corners={
+        corners={
           nw: L.latLng(row.tl_lat, row.tl_lng),
           ne: L.latLng(row.tr_lat, row.tr_lng),
           sw: L.latLng(row.bl_lat, row.bl_lng),
           se: L.latLng(row.br_lat, row.br_lng)
         };
+      }else{
+        // デフォルト矩形
+        var bounds=_getBounds(row);
+        var sw=bounds[0], ne=bounds[1];
+        corners={
+          nw: L.latLng(ne[0], sw[1]),
+          ne: L.latLng(ne[0], ne[1]),
+          sw: L.latLng(sw[0], sw[1]),
+          se: L.latLng(sw[0], ne[1])
+        };
       }
+      // v20260701a PlanX: <img>を直接 villaOverlayPane に配置（L.imageOverlay使わない）
+      var img=document.createElement('img');
+      img.style.position='absolute';
+      img.style.top='0';
+      img.style.left='0';
+      img.style.transformOrigin='0 0';
+      img.style.opacity=(row.opacity!=null?row.opacity:0.65);
+      img.style.pointerEvents='none';
+      img.style.userSelect='none';
+      img.draggable=false;
+      img.alt='villa_overlay_'+row.villa_name;
+      var ent={img:img, overlay:null, nwMarker:null, seMarker:null, markers:null, bounds:null, rotation_deg:parseFloat(row.rotation_deg)||0, corners:corners};
       villaOverlayLayers[row.id]=ent;
-      // 画像 DOM 生成タイミングに合わせて回転・透視変換を適用＆監視開始
-      ov.on('load',(function(rid){return function(){_watchRotation(rid);_applyTransform(rid);};})(row.id));
-      setTimeout((function(rid){return function(){_watchRotation(rid);_applyTransform(rid);};})(row.id),50);
-      setTimeout((function(rid){return function(){_watchRotation(rid);_applyTransform(rid);};})(row.id),300);
+      // 画像 onload で natural size 確定後に matrix3d 適用
+      (function(rid){
+        img.onload=function(){
+          var e=villaOverlayLayers[rid];
+          if(!e)return;
+          e.img.style.width=e.img.naturalWidth+'px';
+          e.img.style.height=e.img.naturalHeight+'px';
+          map.getPane('villaOverlayPane').appendChild(e.img);
+          _applyTransform(rid);
+        };
+        img.onerror=function(){
+          showToast('番図画像ロード失敗: '+row.villa_name,'error');
+        };
+      })(row.id);
+      // キャッシュバスター
+      var imgUrlWithBust = row.image_url + (row.image_url.indexOf('?')>=0 ? '&' : '?') + 'v=g';
+      img.src=imgUrlWithBust;
       // 編集モードならハンドル追加
       if(villaEditMode){_addHandles(row.id);}
       shown++;
@@ -3464,17 +3493,9 @@ function _getBounds(row){
 var HANDLE_INSET_RATIO = 0.15; // 画像幅・高さの15%内側
 function _addHandles(id){
   var ent=villaOverlayLayers[id];
-  if(!ent||!ent.overlay)return;
-  // ent.corners が未設定なら、現在の bounds から初期化
-  if(!ent.corners){
-    var b=ent.overlay.getBounds();
-    ent.corners={
-      nw: L.latLng(b.getNorth(), b.getWest()),
-      ne: L.latLng(b.getNorth(), b.getEast()),
-      sw: L.latLng(b.getSouth(), b.getWest()),
-      se: L.latLng(b.getSouth(), b.getEast())
-    };
-  }
+  if(!ent)return;
+  // v20260701a PlanX: ent.corners は _renderVillaOverlays 時点で必ず設定済
+  if(!ent.corners)return;
   // 4 corners の中心
   var c=ent.corners;
   var centerLat=(c.nw.lat+c.ne.lat+c.sw.lat+c.se.lat)/4;
@@ -3521,7 +3542,7 @@ function _removeHandles(id){
 // 4ハンドルから 4 corners（画像の実際の4隅）を逆算 + 透視変換適用
 function _updateCornersFromHandles(id){
   var ent=villaOverlayLayers[id];
-  if(!ent||!ent.overlay||!ent.markers)return;
+  if(!ent||!ent.markers)return;
   var hNw=ent.markers.nw.getLatLng();
   var hNe=ent.markers.ne.getLatLng();
   var hSw=ent.markers.sw.getLatLng();
@@ -3540,14 +3561,7 @@ function _updateCornersFromHandles(id){
     sw: expandToCorner(hSw),
     se: expandToCorner(hSe)
   };
-  // bounds は 4 corners の bounding box
-  var lats=[ent.corners.nw.lat, ent.corners.ne.lat, ent.corners.sw.lat, ent.corners.se.lat];
-  var lngs=[ent.corners.nw.lng, ent.corners.ne.lng, ent.corners.sw.lng, ent.corners.se.lng];
-  var newBounds=[[Math.min.apply(null,lats), Math.min.apply(null,lngs)],
-                 [Math.max.apply(null,lats), Math.max.apply(null,lngs)]];
-  ent.overlay.setBounds(newBounds);
-  ent.bounds=newBounds;
-  // 透視変換を適用
+  // v20260701a PlanX: setBounds 廃止（L.imageOverlay 使わないため不要）。matrix3d 単発で全て解決
   _applyTransform(id);
 }
 
@@ -3605,65 +3619,52 @@ function _homographyToMatrix3D(h){
     h[2]+','+h[5]+',0,1)';
 }
 
-// 4 corners の地理座標 → 画面ピクセル → 透視変換 matrix3d を <img> に適用
+// v20260701a PlanX: 自前<img>に対し matrix3d 単発で 位置決め+透視変換+回転を一括適用
+// （Leafletのbounds/translate3dと干渉しない / offsetWidthも使わない / 全て naturalWidth/Height 基準）
 function _applyTransform(id){
   var ent=villaOverlayLayers[id];
-  if(!ent||!ent.overlay)return;
-  var img=ent.overlay.getElement();
-  if(!img)return;
-  var deg=parseFloat(ent.rotation_deg)||0;
-  
-  if(!ent.corners){
-    // 4点未設定 → 旧 rotate のみ適用
-    _applyRotation(id);
-    return;
-  }
-  
-  // 画像の表示サイズ（Leaflet が bounds から計算した実サイズ）
-  // v20260630l: naturalWidth フォールバック削除 - offsetWidth が0(=Leaflet未確定)なら早期return
-  // → 後続の setTimeout(300ms) や MutationObserver で正しいサイズが入ってから再適用される
-  var W=img.offsetWidth;
-  var H=img.offsetHeight;
+  if(!ent||!ent.img)return;
+  var img=ent.img;
+  var W=img.naturalWidth;
+  var H=img.naturalHeight;
   if(!W||!H)return;
+  if(!ent.corners)return;
   
-  // 各 corner の画面ピクセル座標
+  // 4 corners の layer point（= villaOverlayPane のローカル座標系）
   var pNw=map.latLngToLayerPoint(ent.corners.nw);
   var pNe=map.latLngToLayerPoint(ent.corners.ne);
   var pSw=map.latLngToLayerPoint(ent.corners.sw);
   var pSe=map.latLngToLayerPoint(ent.corners.se);
   
-  // <img> の左上ピクセル座標（Leaflet が translate3d で配置している位置）
-  var b=ent.overlay.getBounds();
-  var pOrigin=map.latLngToLayerPoint(b.getNorthWest());
+  // src: 自然サイズ画像の4隅。回転がある場合は回転後の位置
+  var deg=parseFloat(ent.rotation_deg)||0;
+  var src;
+  if(deg!==0){
+    var cx=W/2, cy=H/2;
+    var rad=deg*Math.PI/180;
+    var cos=Math.cos(rad), sin=Math.sin(rad);
+    var rotPt=function(x,y){
+      var dx=x-cx, dy=y-cy;
+      return [cx+dx*cos-dy*sin, cy+dx*sin+dy*cos];
+    };
+    src=[rotPt(0,0), rotPt(W,0), rotPt(0,H), rotPt(W,H)];
+  }else{
+    src=[[0,0],[W,0],[0,H],[W,H]];
+  }
   
-  // <img> 左上を原点とした corner 座標
-  var src=[[0,0],[W,0],[0,H],[W,H]];
   var dst=[
-    [pNw.x-pOrigin.x, pNw.y-pOrigin.y],
-    [pNe.x-pOrigin.x, pNe.y-pOrigin.y],
-    [pSw.x-pOrigin.x, pSw.y-pOrigin.y],
-    [pSe.x-pOrigin.x, pSe.y-pOrigin.y]
+    [pNw.x, pNw.y],
+    [pNe.x, pNe.y],
+    [pSw.x, pSw.y],
+    [pSe.x, pSe.y]
   ];
   
   var h=_computeHomography(src,dst);
-  if(!h){_applyRotation(id);return;}
+  if(!h)return;
   
-  // Leaflet の translate3d はそのまま保持、その後に matrix3d、最後に rotate
-  // <img> の現在 transform から translate3d 部分だけ抽出
-  var cur=img.style.transform||'';
-  var translateMatch=cur.match(/translate3d\([^)]*\)|translate\([^)]*\)/);
-  var translatePart=translateMatch?translateMatch[0]:'';
-  
-  var m3d=_homographyToMatrix3D(h);
-  var newTransform=translatePart+(translatePart?' ':'')+m3d;
-  // 回転は画像中心軸で行う: translate(W/2,H/2) rotate translate(-W/2,-H/2)
-  // CSS transform は右→左に適用されるので、見かけ順は中心移動→回転→戻す
-  if(deg!==0){
-    newTransform += ' translate('+(W/2)+'px,'+(H/2)+'px) rotate('+deg+'deg) translate('+(-W/2)+'px,'+(-H/2)+'px)';
-  }
-  
+  // matrix3d 単発で配置完了。translate3d など他の transform は一切付けない
   img.style.transformOrigin='0 0';
-  img.style.transform=newTransform;
+  img.style.transform=_homographyToMatrix3D(h);
 }
 
 // パネルに物件リスト + 個別ON/OFF + 透過スライダー + 位置保存ボタンを描画
@@ -3716,6 +3717,8 @@ function _toggleOverlay(id,checked){
   }else{
     var ent=villaOverlayLayers[id];
     if(ent){
+      // v20260701a PlanX: img も削除
+      if(ent.img){try{ent.img.remove();}catch(e){}}
       if(ent.overlay)try{map.removeLayer(ent.overlay);}catch(e){}
       // 4ハンドル全削除（NW/NE/SW/SE）+ 旧互換のNW/SEも対応
       if(ent.markers){
@@ -3739,8 +3742,10 @@ function _setVillaOpacity(id,val){
   var span=document.getElementById('opVal_'+id);
   if(span)span.textContent=Math.round(op*100)+'%';
   var ent=villaOverlayLayers[id];
-  if(ent&&ent.overlay&&ent.overlay.setOpacity){
-    ent.overlay.setOpacity(op);
+  // v20260701a PlanX: img.style.opacity を直接更新（L.imageOverlay.setOpacity互換も保持）
+  if(ent){
+    if(ent.img){ent.img.style.opacity=op;}
+    if(ent.overlay&&ent.overlay.setOpacity){ent.overlay.setOpacity(op);}
   }
 }
 
@@ -3760,70 +3765,25 @@ function _setVillaRotation(id,val){
   var ent=villaOverlayLayers[id];
   if(ent){
     ent.rotation_deg=deg;
-    var applyFn=ent.corners?_applyTransform:_applyRotation;
-    applyFn(id);
-    requestAnimationFrame(function(){applyFn(id);});
-    setTimeout(function(){applyFn(id);}, 50);
+    // v20260701a PlanX: matrix3d 1発で済むので二重呼び不要
+    _applyTransform(id);
   }
 }
 
-// CSS transform に rotate を適用（既存 translate 等は保持）画像中心軸で回転
+// v20260701a PlanX: _applyRotation は _applyTransform に統合（matrix3dが回転も含めて1発で適用）
 function _applyRotation(id){
-  var ent=villaOverlayLayers[id];
-  if(!ent||!ent.overlay)return;
-  var img=ent.overlay.getElement();
-  if(!img)return;
-  var deg=parseFloat(ent.rotation_deg)||0;
-  // v20260630l: naturalWidth フォールバック削除（offsetWidth=0時は処理スキップ → 後続で再呼び出し）
-  var W=img.offsetWidth;
-  var H=img.offsetHeight;
-  img.style.transformOrigin='0 0'; // matrix3d/translate3d 起点を0,0に統一
-  var cur=img.style.transform||'';
-  // 既存 rotate と前後 translate を一旦除去
-  cur=cur.replace(/\s*translate\([^)]*\)\s*rotate\([^)]*\)\s*translate\([^)]*\)/g,'').trim();
-  cur=cur.replace(/\s*rotate\([^)]+\)/g,'').trim();
-  if(deg!==0 && W && H){
-    img.style.transform=(cur?cur+' ':'')+'translate('+(W/2)+'px,'+(H/2)+'px) rotate('+deg+'deg) translate('+(-W/2)+'px,'+(-H/2)+'px)';
-  }else{
-    img.style.transform=cur;
-  }
+  // 後方互換のためのスタブ。_applyTransform が回転を内包
+  _applyTransform(id);
 }
 
-// Leaflet が transform を上書きするタイミングで rotate を再適用する MutationObserver
-// 兼: 画像 DOM 準備時に blend mode（白背景を抜く線画モード）も適用
+// v20260701a PlanX: MutationObserver不要（Leafletがtransformを上書きする経路を排除済）
+// blend mode（白背景を抜く線画モード）の設定のみここで管理
 function _watchRotation(id){
   var ent=villaOverlayLayers[id];
-  if(!ent||!ent.overlay)return;
-  var img=ent.overlay.getElement();
-  if(!img)return;
-  img.style.transformOrigin='0 0';
-  img.style.mixBlendMode = villaBlendMode ? 'multiply' : 'normal';
-  if(ent.corners){
-    _applyTransform(id);
-  }else{
-    _applyRotation(id);
-  }
-  if(img._rotObs)return; // 既に監視中ならスキップ
-  var obs=new MutationObserver(function(){
-    var deg=parseFloat(ent.rotation_deg)||0;
-    var cur=img.style.transform||'';
-    // corners ありなら matrix3d + 中心軸 rotate が必要
-    // corners なしなら rotate のみ
-    if(ent.corners){
-      // matrix3d が無ければ再適用
-      if(cur.indexOf('matrix3d')<0){
-        _applyTransform(id);
-      }else if(deg!==0 && cur.indexOf('rotate(')<0){
-        _applyTransform(id);
-      }
-    }else{
-      if(deg===0)return;
-      if(cur.indexOf('rotate(')>=0)return;
-      _applyRotation(id);
-    }
-  });
-  obs.observe(img,{attributes:true,attributeFilter:['style']});
-  img._rotObs=obs;
+  if(!ent||!ent.img)return;
+  ent.img.style.transformOrigin='0 0';
+  ent.img.style.mixBlendMode = villaBlendMode ? 'multiply' : 'normal';
+  _applyTransform(id);
 }
 
 // マップのズーム・移動・リセット時に全オーバーレイの回転＋透視変換を再適用
@@ -3868,8 +3828,9 @@ function _toggleVillaBlend(){
   villaBlendMode=cb?cb.checked:true;
   Object.keys(villaOverlayLayers).forEach(function(id){
     var ent=villaOverlayLayers[id];
-    if(!ent||!ent.overlay)return;
-    var img=ent.overlay.getElement();
+    if(!ent)return;
+    // v20260701a PlanX: ent.img 優先（旧 overlay 互換も保持）
+    var img=ent.img || (ent.overlay && ent.overlay.getElement && ent.overlay.getElement());
     if(!img)return;
     img.style.mixBlendMode = villaBlendMode ? 'multiply' : 'normal';
   });
@@ -3917,7 +3878,8 @@ function _copyMergeInfo(){
         sw:[ent.corners.sw.lat, ent.corners.sw.lng],
         se:[ent.corners.se.lat, ent.corners.se.lng]
       };
-    }else{
+    }else if(ent.overlay && ent.overlay.getBounds){
+      // 旧L.imageOverlay経由（PlanX移行前データのフォールバック）
       var b=ent.overlay.getBounds();
       overlayInfo.bounds={
         north:b.getNorth(), south:b.getSouth(),
@@ -3963,33 +3925,19 @@ function _fallbackCopyToClipboard(text, count){
 async function _saveOverlayCorners(id){
   var ent=villaOverlayLayers[id];
   var row=villaOverlayCache.find(function(r){return r.id===id;});
-  if(!ent||!ent.overlay||!row){showToast('保存対象が見つかりません','error');return;}
+  // v20260701a PlanX: ent.img があれば OK（旧 ent.overlay 互換も維持）
+  if(!ent||(!ent.img && !ent.overlay)||!row){showToast('保存対象が見つかりません','error');return;}
+  if(!ent.corners){showToast('4隅の位置情報が未設定です。位置調整モードでハンドルを動かしてください','error');return;}
   try{
-    var payload;
-    if(ent.corners){
-      // 4点独立保存: NW=TL, NE=TR, SW=BL, SE=BR
-      payload={
-        tl_lat:ent.corners.nw.lat, tl_lng:ent.corners.nw.lng,
-        tr_lat:ent.corners.ne.lat, tr_lng:ent.corners.ne.lng,
-        bl_lat:ent.corners.sw.lat, bl_lng:ent.corners.sw.lng,
-        br_lat:ent.corners.se.lat, br_lng:ent.corners.se.lng,
-        opacity:row.opacity!=null?row.opacity:0.65,
-        rotation_deg:parseFloat(row.rotation_deg)||0,
-        updated_at:new Date().toISOString()
-      };
-    }else{
-      // フォールバック: bounds の bounding box を矩形として保存
-      var b=ent.overlay.getBounds();
-      payload={
-        tl_lat:b.getNorth(), tl_lng:b.getWest(),
-        tr_lat:b.getNorth(), tr_lng:b.getEast(),
-        bl_lat:b.getSouth(), bl_lng:b.getWest(),
-        br_lat:b.getSouth(), br_lng:b.getEast(),
-        opacity:row.opacity!=null?row.opacity:0.65,
-        rotation_deg:parseFloat(row.rotation_deg)||0,
-        updated_at:new Date().toISOString()
-      };
-    }
+    var payload={
+      tl_lat:ent.corners.nw.lat, tl_lng:ent.corners.nw.lng,
+      tr_lat:ent.corners.ne.lat, tr_lng:ent.corners.ne.lng,
+      bl_lat:ent.corners.sw.lat, bl_lng:ent.corners.sw.lng,
+      br_lat:ent.corners.se.lat, br_lng:ent.corners.se.lng,
+      opacity:row.opacity!=null?row.opacity:0.65,
+      rotation_deg:parseFloat(row.rotation_deg)||0,
+      updated_at:new Date().toISOString()
+    };
     var res=await db.from('villa_overlays').update(payload).eq('id',id);
     if(res.error)throw res.error;
     Object.assign(row,payload);
