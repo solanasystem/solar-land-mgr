@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260630h / 別荘地番図 4点独立操作（透視変換 matrix3d）対応、紙のねじれ補正可能 -->
+<!-- BUILD: farmland-tracker v20260630i / 別荘地番図 「合成情報をコピー」ボタン追加（手作業バックアップ用） -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -659,6 +659,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
           <div style="color:var(--text-dim);font-size:9px;line-height:1.4;margin-left:14px;">
             位置はONで4隅(↖↗↙↘)をドラッグ。各点独立で台形補正可。回転は常時調整可。
           </div>
+          <button onclick="_copyMergeInfo()" style="margin-top:6px;width:100%;padding:5px 8px;font-size:10px;background:#16a34a;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:600;">📋 合成情報をコピー (Claude貼付用)</button>
         </div>
       </div>
     </div>
@@ -3833,6 +3834,75 @@ function _toggleVillaEditMode(){
 }
 
 // 4隅座標+透過度をSupabaseに保存
+// 合成情報をJSONでクリップボードにコピー（Claude貼付用）
+// 栗本さんが手作業で重ね合わせた後、現在の各オーバーレイの4点座標を Claude に渡して合成PNGを作成する
+function _copyMergeInfo(){
+  var info={
+    timestamp: new Date().toISOString(),
+    map_zoom: map.getZoom(),
+    map_center: {lat: map.getCenter().lat, lng: map.getCenter().lng},
+    overlays: []
+  };
+  villaOverlayCache.forEach(function(row){
+    if(row.enabled===false)return;
+    var ent=villaOverlayLayers[row.id];
+    if(!ent||!ent.overlay)return;
+    var overlayInfo={
+      villa_name: row.villa_name,
+      image_url: row.image_url,
+      rotation_deg: parseFloat(row.rotation_deg)||0,
+      opacity: row.opacity!=null?row.opacity:0.65
+    };
+    if(ent.corners){
+      overlayInfo.corners={
+        nw:[ent.corners.nw.lat, ent.corners.nw.lng],
+        ne:[ent.corners.ne.lat, ent.corners.ne.lng],
+        sw:[ent.corners.sw.lat, ent.corners.sw.lng],
+        se:[ent.corners.se.lat, ent.corners.se.lng]
+      };
+    }else{
+      var b=ent.overlay.getBounds();
+      overlayInfo.bounds={
+        north:b.getNorth(), south:b.getSouth(),
+        west:b.getWest(), east:b.getEast()
+      };
+    }
+    info.overlays.push(overlayInfo);
+  });
+  var jsonStr=JSON.stringify(info, null, 2);
+  // クリップボード API （HTTPS or localhost で動作）
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(jsonStr).then(function(){
+      showToast('合成情報をクリップボードにコピーしました ('+info.overlays.length+'件のオーバーレイ)。Claudeに貼り付けてください。','success');
+    }).catch(function(e){
+      // フォールバック: textarea で表示
+      _fallbackCopyToClipboard(jsonStr, info.overlays.length);
+    });
+  }else{
+    _fallbackCopyToClipboard(jsonStr, info.overlays.length);
+  }
+}
+
+function _fallbackCopyToClipboard(text, count){
+  // モーダルで JSON を表示し、栗本さんがコピーできるようにする
+  var modal=document.createElement('div');
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.onclick=function(e){if(e.target===modal)modal.remove();};
+  var dialog=document.createElement('div');
+  dialog.style.cssText='background:#1a1a1a;color:#fff;padding:20px;border-radius:8px;max-width:600px;width:100%;max-height:80vh;display:flex;flex-direction:column;gap:10px;';
+  dialog.innerHTML='<div style="font-weight:600;font-size:14px;">合成情報 ('+count+'件のオーバーレイ)</div>'+
+    '<div style="font-size:11px;color:#aaa;">下のテキストを全選択(Ctrl+A)→コピー(Ctrl+C)してClaudeに貼り付けてください</div>'+
+    '<textarea readonly style="flex:1;min-height:300px;background:#000;color:#0f0;font-family:monospace;font-size:11px;padding:10px;border:1px solid #444;border-radius:4px;">'+text+'</textarea>'+
+    '<button style="padding:8px 16px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;">閉じる</button>';
+  modal.appendChild(dialog);
+  document.body.appendChild(modal);
+  dialog.querySelector('button').onclick=function(){modal.remove();};
+  // テキストエリアを自動選択
+  var ta=dialog.querySelector('textarea');
+  ta.focus();
+  ta.select();
+}
+
 async function _saveOverlayCorners(id){
   var ent=villaOverlayLayers[id];
   var row=villaOverlayCache.find(function(r){return r.id===id;});
