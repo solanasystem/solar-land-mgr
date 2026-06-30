@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260512l / 耕作者色分け 自動全件色分け方式（10色、eMAFF互換）に変更 -->
+<!-- BUILD: farmland-tracker v20260630c / 別荘地番図オーバーレイに回転機能（-180°〜+180°）追加 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -653,7 +653,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
             <span style="font-weight:600">🔧 位置調整モード</span>
           </label>
           <div style="color:var(--text-dim);font-size:9px;line-height:1.4;margin-left:14px;">
-            ON時に4隅をドラッグして位置合わせ可能。確定後「位置を保存」で確定。
+            回転は常時調整可能。位置はONで青い丸をドラッグ。確定後「位置を保存」で確定。
           </div>
         </div>
       </div>
@@ -3389,8 +3389,12 @@ function _renderVillaOverlays(){
         pane:'villaOverlayPane'
       });
       ov.addTo(map);
-      var ent={overlay:ov, nwMarker:null, seMarker:null, bounds:bounds};
+      var ent={overlay:ov, nwMarker:null, seMarker:null, bounds:bounds, rotation_deg:parseFloat(row.rotation_deg)||0};
       villaOverlayLayers[row.id]=ent;
+      // 画像 DOM 生成タイミングに合わせて回転を適用＆監視開始
+      ov.on('load',(function(rid){return function(){_watchRotation(rid);};})(row.id));
+      setTimeout((function(rid){return function(){_watchRotation(rid);};})(row.id),50);
+      setTimeout((function(rid){return function(){_watchRotation(rid);};})(row.id),300);
       // 編集モードならハンドル追加
       if(villaEditMode){_addHandles(row.id);}
       shown++;
@@ -3486,6 +3490,13 @@ function _updateVillaOverlayPanel(){
     html+='    <input type="range" min="0" max="100" value="'+op+'" oninput="_setVillaOpacity(\''+row.id+'\',this.value)" style="flex:1;height:14px;">';
     html+='    <span id="opVal_'+row.id+'" style="color:var(--text-muted);width:28px;text-align:right;">'+op+'%</span>';
     html+='  </div>';
+    var rot=Math.round(parseFloat(row.rotation_deg)||0);
+    html+='  <div style="display:flex;align-items:center;gap:4px;margin-top:2px;font-size:9px;">';
+    html+='    <span style="color:var(--text-muted);">回転</span>';
+    html+='    <input type="range" id="rotSlider_'+row.id+'" min="-180" max="180" step="1" value="'+rot+'" oninput="_setVillaRotation(\''+row.id+'\',this.value)" style="flex:1;height:14px;">';
+    html+='    <span id="rotVal_'+row.id+'" style="color:var(--text-muted);width:36px;text-align:right;">'+rot+'°</span>';
+    html+='    <button onclick="_setVillaRotation(\''+row.id+'\',0);document.getElementById(\'rotSlider_'+row.id+'\').value=0;" title="リセット" style="padding:0 4px;font-size:9px;background:var(--surface3,#444);color:var(--text-muted);border:1px solid var(--border);border-radius:3px;cursor:pointer;">0</button>';
+    html+='  </div>';
     if(villaEditMode){
       html+='  <button onclick="_saveOverlayCorners(\''+row.id+'\')" style="margin-top:3px;width:100%;padding:3px 6px;font-size:9px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:600;">💾 位置を保存</button>';
     }
@@ -3526,6 +3537,64 @@ function _setVillaOpacity(id,val){
   }
 }
 
+// 回転角度変更（-180〜+180°）
+function _setVillaRotation(id,val){
+  var row=villaOverlayCache.find(function(r){return r.id===id;});
+  if(!row)return;
+  var deg=parseFloat(val);
+  if(!isFinite(deg))deg=0;
+  if(deg<-180)deg=-180;
+  if(deg>180)deg=180;
+  row.rotation_deg=deg;
+  var span=document.getElementById('rotVal_'+id);
+  if(span)span.textContent=deg+'°';
+  var slider=document.getElementById('rotSlider_'+id);
+  if(slider&&parseFloat(slider.value)!==deg)slider.value=deg;
+  var ent=villaOverlayLayers[id];
+  if(ent){
+    ent.rotation_deg=deg;
+    _applyRotation(id);
+  }
+}
+
+// CSS transform に rotate を適用（既存 translate 等は保持）
+function _applyRotation(id){
+  var ent=villaOverlayLayers[id];
+  if(!ent||!ent.overlay)return;
+  var img=ent.overlay.getElement();
+  if(!img)return;
+  var deg=parseFloat(ent.rotation_deg)||0;
+  img.style.transformOrigin='50% 50%';
+  var cur=img.style.transform||'';
+  // 既存 rotate を一旦除去
+  cur=cur.replace(/\s*rotate\([^)]+\)/g,'').trim();
+  if(deg!==0){
+    img.style.transform=(cur?cur+' ':'')+'rotate('+deg+'deg)';
+  }else{
+    img.style.transform=cur;
+  }
+}
+
+// Leaflet が transform を上書きするタイミングで rotate を再適用する MutationObserver
+function _watchRotation(id){
+  var ent=villaOverlayLayers[id];
+  if(!ent||!ent.overlay)return;
+  var img=ent.overlay.getElement();
+  if(!img)return;
+  img.style.transformOrigin='50% 50%';
+  _applyRotation(id);
+  if(img._rotObs)return; // 既に監視中ならスキップ
+  var obs=new MutationObserver(function(){
+    var deg=parseFloat(ent.rotation_deg)||0;
+    if(deg===0)return;
+    var cur=img.style.transform||'';
+    if(cur.indexOf('rotate(')>=0)return; // 既に rotate 含むなら何もしない
+    img.style.transform=(cur?cur+' ':'')+'rotate('+deg+'deg)';
+  });
+  obs.observe(img,{attributes:true,attributeFilter:['style']});
+  img._rotObs=obs;
+}
+
 // 位置調整モードON/OFF
 function _toggleVillaEditMode(){
   var cb=document.getElementById('villaEditMode');
@@ -3554,6 +3623,7 @@ async function _saveOverlayCorners(id){
       bl_lat:b.getSouth(), bl_lng:b.getWest(),
       br_lat:b.getSouth(), br_lng:b.getEast(),
       opacity:row.opacity!=null?row.opacity:0.65,
+      rotation_deg:parseFloat(row.rotation_deg)||0,
       updated_at:new Date().toISOString()
     };
     var res=await db.from('villa_overlays').update(payload).eq('id',id);
