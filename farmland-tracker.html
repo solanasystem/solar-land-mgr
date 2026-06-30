@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260630c / 別荘地番図オーバーレイに回転機能（-180°〜+180°）追加 -->
+<!-- BUILD: farmland-tracker v20260630e / 別荘地番図PNG透過化(黄色線画)に対応、blend modeデフォルトOFF -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -648,6 +648,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
         <div style="font-weight:600;margin-bottom:4px">表示中の地番図</div>
         <div id="villaOverlayList" style="margin-bottom:6px;">読み込み中...</div>
         <div style="border-top:1px solid var(--border);padding-top:4px;margin-top:4px;">
+          <label style="font-size:9px;color:var(--text-muted);cursor:pointer;display:block;margin-bottom:3px;">
+            <input type="checkbox" id="villaBlendMode" onchange="_toggleVillaBlend()" style="vertical-align:middle;"> 
+            <span style="font-weight:600">🖍 白背景を抜く（線画モード）</span>
+          </label>
           <label style="font-size:9px;color:var(--text-muted);cursor:pointer;display:block;margin-bottom:3px;">
             <input type="checkbox" id="villaEditMode" onchange="_toggleVillaEditMode()" style="vertical-align:middle;"> 
             <span style="font-weight:600">🔧 位置調整モード</span>
@@ -3301,9 +3305,10 @@ async function excludeCandidate(fid){
 // 編集モードでNW/SEの2隅マーカーをドラッグして bounds を調整、Supabaseに4隅として保存。
 // 北を上に固定する単純なBox配置（台形変形は使用しない）。
 var villaOverlayEnabled=false, villaOverlayLoading=false;
-var villaOverlayCache=[]; // [{id, villa_name, image_url, tl/tr/bl/br_lat/lng, opacity, enabled}]
-var villaOverlayLayers={}; // id -> {overlay, nwMarker, seMarker}
+var villaOverlayCache=[]; // [{id, villa_name, image_url, tl/tr/bl/br_lat/lng, opacity, enabled, rotation_deg}]
+var villaOverlayLayers={}; // id -> {overlay, nwMarker, seMarker, rotation_deg}
 var villaEditMode=false;
+var villaBlendMode=false; // 白背景を抜く線画モード（mix-blend-mode: multiply）デフォルトOFF（PNG透過済のため）
 
 // デフォルト初期位置（4隅座標がNULLの場合に使う、衛星画像上で手動調整前提）
 // (lat, lng) は中心、(dlat, dlng) は半径
@@ -3576,12 +3581,14 @@ function _applyRotation(id){
 }
 
 // Leaflet が transform を上書きするタイミングで rotate を再適用する MutationObserver
+// 兼: 画像 DOM 準備時に blend mode（白背景を抜く線画モード）も適用
 function _watchRotation(id){
   var ent=villaOverlayLayers[id];
   if(!ent||!ent.overlay)return;
   var img=ent.overlay.getElement();
   if(!img)return;
   img.style.transformOrigin='50% 50%';
+  img.style.mixBlendMode = villaBlendMode ? 'multiply' : 'normal';
   _applyRotation(id);
   if(img._rotObs)return; // 既に監視中ならスキップ
   var obs=new MutationObserver(function(){
@@ -3593,6 +3600,20 @@ function _watchRotation(id){
   });
   obs.observe(img,{attributes:true,attributeFilter:['style']});
   img._rotObs=obs;
+}
+
+// 白背景を抜く線画モード（mix-blend-mode: multiply）ON/OFF
+function _toggleVillaBlend(){
+  var cb=document.getElementById('villaBlendMode');
+  villaBlendMode=cb?cb.checked:true;
+  Object.keys(villaOverlayLayers).forEach(function(id){
+    var ent=villaOverlayLayers[id];
+    if(!ent||!ent.overlay)return;
+    var img=ent.overlay.getElement();
+    if(!img)return;
+    img.style.mixBlendMode = villaBlendMode ? 'multiply' : 'normal';
+  });
+  showToast(villaBlendMode ? '線画モードON（白背景を抜く）' : '通常モード（背景込みで表示）','success');
 }
 
 // 位置調整モードON/OFF
