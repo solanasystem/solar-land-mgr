@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260630g / 別荘地番図 キャッシュバスター追加(?v=g) + 回転処理の堅牢化 -->
+<!-- BUILD: farmland-tracker v20260630h / 別荘地番図 4点独立操作（透視変換 matrix3d）対応、紙のねじれ補正可能 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -657,7 +657,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
             <span style="font-weight:600">🔧 位置調整モード</span>
           </label>
           <div style="color:var(--text-dim);font-size:9px;line-height:1.4;margin-left:14px;">
-            回転は常時調整可能。位置はONで青い丸(↖↘)をドラッグ。ハンドルは画像内側に配置されています。
+            位置はONで4隅(↖↗↙↘)をドラッグ。各点独立で台形補正可。回転は常時調整可。
           </div>
         </div>
       </div>
@@ -3396,12 +3396,22 @@ function _renderVillaOverlays(){
         pane:'villaOverlayPane'
       });
       ov.addTo(map);
-      var ent={overlay:ov, nwMarker:null, seMarker:null, bounds:bounds, rotation_deg:parseFloat(row.rotation_deg)||0};
+      var ent={overlay:ov, nwMarker:null, seMarker:null, markers:null, bounds:bounds, rotation_deg:parseFloat(row.rotation_deg)||0, corners:null};
+      // DB に 4隅すべて登録済なら corners を復元
+      if(row.tl_lat!=null && row.tl_lng!=null && row.tr_lat!=null && row.tr_lng!=null
+         && row.bl_lat!=null && row.bl_lng!=null && row.br_lat!=null && row.br_lng!=null){
+        ent.corners={
+          nw: L.latLng(row.tl_lat, row.tl_lng),
+          ne: L.latLng(row.tr_lat, row.tr_lng),
+          sw: L.latLng(row.bl_lat, row.bl_lng),
+          se: L.latLng(row.br_lat, row.br_lng)
+        };
+      }
       villaOverlayLayers[row.id]=ent;
-      // 画像 DOM 生成タイミングに合わせて回転を適用＆監視開始
-      ov.on('load',(function(rid){return function(){_watchRotation(rid);};})(row.id));
-      setTimeout((function(rid){return function(){_watchRotation(rid);};})(row.id),50);
-      setTimeout((function(rid){return function(){_watchRotation(rid);};})(row.id),300);
+      // 画像 DOM 生成タイミングに合わせて回転・透視変換を適用＆監視開始
+      ov.on('load',(function(rid){return function(){_watchRotation(rid);_applyTransform(rid);};})(row.id));
+      setTimeout((function(rid){return function(){_watchRotation(rid);_applyTransform(rid);};})(row.id),50);
+      setTimeout((function(rid){return function(){_watchRotation(rid);_applyTransform(rid);};})(row.id),300);
       // 編集モードならハンドル追加
       if(villaEditMode){_addHandles(row.id);}
       shown++;
@@ -3431,65 +3441,205 @@ function _getBounds(row){
   return [[def.lat-def.dlat, def.lng-def.dlng],[def.lat+def.dlat, def.lng+def.dlng]];
 }
 
-// 編集ハンドル（NW/SE）追加
-// ハンドルは画像内側 HANDLE_INSET_RATIO 分オフセットされた位置に配置（画面外に出にくくするため）
+// 編集ハンドル（NW/NE/SW/SE 4点）追加 - 透視変換対応 v20260630h
+// 各ハンドルは画像内側 HANDLE_INSET_RATIO 分オフセットされた位置に配置
 var HANDLE_INSET_RATIO = 0.15; // 画像幅・高さの15%内側
 function _addHandles(id){
   var ent=villaOverlayLayers[id];
   if(!ent||!ent.overlay)return;
-  var b=ent.overlay.getBounds();
-  var N=b.getNorth(), S=b.getSouth(), W=b.getWest(), E=b.getEast();
-  var dlat=(N-S), dlng=(E-W);
-  // 内側オフセット位置
-  var nw=L.latLng(N - dlat*HANDLE_INSET_RATIO, W + dlng*HANDLE_INSET_RATIO);
-  var se=L.latLng(S + dlat*HANDLE_INSET_RATIO, E - dlng*HANDLE_INSET_RATIO);
-  var nwIcon=L.divIcon({
-    className:'villa-handle',
-    html:'<div style="width:20px;height:20px;background:#2563eb;border:3px solid white;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,0.7);cursor:move;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:bold;">↖</div>',
-    iconSize:[20,20],
-    iconAnchor:[10,10]
+  // ent.corners が未設定なら、現在の bounds から初期化
+  if(!ent.corners){
+    var b=ent.overlay.getBounds();
+    ent.corners={
+      nw: L.latLng(b.getNorth(), b.getWest()),
+      ne: L.latLng(b.getNorth(), b.getEast()),
+      sw: L.latLng(b.getSouth(), b.getWest()),
+      se: L.latLng(b.getSouth(), b.getEast())
+    };
+  }
+  // 4 corners の中心
+  var c=ent.corners;
+  var centerLat=(c.nw.lat+c.ne.lat+c.sw.lat+c.se.lat)/4;
+  var centerLng=(c.nw.lng+c.ne.lng+c.sw.lng+c.se.lng)/4;
+  var k=1-2*HANDLE_INSET_RATIO; // 0.7
+  // 各 corner を中心方向に 15% 寄せた位置がハンドル
+  function insetHandle(corner){
+    return L.latLng(centerLat + (corner.lat - centerLat) * k,
+                    centerLng + (corner.lng - centerLng) * k);
+  }
+  var arrows={nw:'↖', ne:'↗', sw:'↙', se:'↘'};
+  var titles={nw:'北西角', ne:'北東角', sw:'南西角', se:'南東角'};
+  ent.markers={};
+  ['nw','ne','sw','se'].forEach(function(key){
+    var pos=insetHandle(c[key]);
+    var icon=L.divIcon({
+      className:'villa-handle',
+      html:'<div style="width:22px;height:22px;background:#2563eb;border:3px solid white;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,0.7);cursor:move;display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:bold;">'+arrows[key]+'</div>',
+      iconSize:[22,22],
+      iconAnchor:[11,11]
+    });
+    var m=L.marker(pos,{draggable:true,icon:icon,pane:'villaOverlayHandlePane',title:titles[key]+'（画像内側）'}).addTo(map);
+    m.on('drag',function(){_updateCornersFromHandles(id);});
+    ent.markers[key]=m;
   });
-  var seIcon=L.divIcon({
-    className:'villa-handle',
-    html:'<div style="width:20px;height:20px;background:#2563eb;border:3px solid white;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,0.7);cursor:move;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:bold;">↘</div>',
-    iconSize:[20,20],
-    iconAnchor:[10,10]
-  });
-  var nwM=L.marker(nw,{draggable:true,icon:nwIcon,pane:'villaOverlayHandlePane',title:'北西方向（画像内側）'}).addTo(map);
-  var seM=L.marker(se,{draggable:true,icon:seIcon,pane:'villaOverlayHandlePane',title:'南東方向（画像内側）'}).addTo(map);
-  nwM.on('drag',function(){_updateBoundsFromHandles(id);});
-  seM.on('drag',function(){_updateBoundsFromHandles(id);});
-  ent.nwMarker=nwM;
-  ent.seMarker=seM;
+  // 互換性のため旧名でもアクセス可能に
+  ent.nwMarker=ent.markers.nw;
+  ent.seMarker=ent.markers.se;
 }
 
 function _removeHandles(id){
   var ent=villaOverlayLayers[id];
   if(!ent)return;
-  if(ent.nwMarker){try{map.removeLayer(ent.nwMarker);}catch(e){}ent.nwMarker=null;}
-  if(ent.seMarker){try{map.removeLayer(ent.seMarker);}catch(e){}ent.seMarker=null;}
+  if(ent.markers){
+    ['nw','ne','sw','se'].forEach(function(key){
+      if(ent.markers[key]){try{map.removeLayer(ent.markers[key]);}catch(e){}}
+    });
+    ent.markers=null;
+  }
+  ent.nwMarker=null;
+  ent.seMarker=null;
 }
 
-// ハンドルから bounds 再計算 + 画像更新
-// ハンドルは画像内側 HANDLE_INSET_RATIO 分オフセットされているので、その分を戻して元の bounds を計算する
-function _updateBoundsFromHandles(id){
+// 4ハンドルから 4 corners（画像の実際の4隅）を逆算 + 透視変換適用
+function _updateCornersFromHandles(id){
   var ent=villaOverlayLayers[id];
-  if(!ent||!ent.overlay||!ent.nwMarker||!ent.seMarker)return;
-  var nw=ent.nwMarker.getLatLng();
-  var se=ent.seMarker.getLatLng();
-  // ハンドル間の距離は元の画像サイズの (1 - 2*offset) 倍
-  var k = 1 - 2*HANDLE_INSET_RATIO; // 0.7
-  var midLat = (nw.lat + se.lat) / 2;
-  var midLng = (nw.lng + se.lng) / 2;
-  var halfDlat = Math.abs(nw.lat - se.lat) / 2 / k;
-  var halfDlng = Math.abs(se.lng - nw.lng) / 2 / k;
-  var sLat = midLat - halfDlat;
-  var nLat = midLat + halfDlat;
-  var wLng = midLng - halfDlng;
-  var eLng = midLng + halfDlng;
-  var newBounds=[[sLat,wLng],[nLat,eLng]];
+  if(!ent||!ent.overlay||!ent.markers)return;
+  var hNw=ent.markers.nw.getLatLng();
+  var hNe=ent.markers.ne.getLatLng();
+  var hSw=ent.markers.sw.getLatLng();
+  var hSe=ent.markers.se.getLatLng();
+  // 4ハンドルの中心
+  var centerLat=(hNw.lat+hNe.lat+hSw.lat+hSe.lat)/4;
+  var centerLng=(hNw.lng+hNe.lng+hSw.lng+hSe.lng)/4;
+  var inv=1/(1-2*HANDLE_INSET_RATIO); // 1/0.7 ≈ 1.4286
+  function expandToCorner(h){
+    return L.latLng(centerLat + (h.lat - centerLat) * inv,
+                    centerLng + (h.lng - centerLng) * inv);
+  }
+  ent.corners={
+    nw: expandToCorner(hNw),
+    ne: expandToCorner(hNe),
+    sw: expandToCorner(hSw),
+    se: expandToCorner(hSe)
+  };
+  // bounds は 4 corners の bounding box
+  var lats=[ent.corners.nw.lat, ent.corners.ne.lat, ent.corners.sw.lat, ent.corners.se.lat];
+  var lngs=[ent.corners.nw.lng, ent.corners.ne.lng, ent.corners.sw.lng, ent.corners.se.lng];
+  var newBounds=[[Math.min.apply(null,lats), Math.min.apply(null,lngs)],
+                 [Math.max.apply(null,lats), Math.max.apply(null,lngs)]];
   ent.overlay.setBounds(newBounds);
   ent.bounds=newBounds;
+  // 透視変換を適用
+  _applyTransform(id);
+}
+
+// 旧API互換（既存呼び出しがあれば、透視変換にリダイレクト）
+function _updateBoundsFromHandles(id){_updateCornersFromHandles(id);}
+
+// === ホモグラフィ計算（4点透視変換のための行列計算） ===
+// 4つの src 点 [[xs1,ys1],...[xs4,ys4]] を 4つの dst 点 [[xd1,yd1],...] にマッピングする
+// 3x3 行列 H の 8 要素を返す（h33=1 固定）
+function _computeHomography(src,dst){
+  // 8x8 線形システム A*x = b
+  var A=[],b=[];
+  for(var i=0;i<4;i++){
+    var xs=src[i][0], ys=src[i][1], xd=dst[i][0], yd=dst[i][1];
+    A.push([xs, ys, 1, 0, 0, 0, -xs*xd, -ys*xd]);
+    A.push([0, 0, 0, xs, ys, 1, -xs*yd, -ys*yd]);
+    b.push(xd); b.push(yd);
+  }
+  return _gaussianSolve(A,b);
+}
+
+function _gaussianSolve(A,b){
+  var n=A.length;
+  // 拡大行列
+  var M=[];
+  for(var i=0;i<n;i++){ M.push(A[i].slice()); M[i].push(b[i]); }
+  // 前進消去（部分ピボット）
+  for(var i=0;i<n;i++){
+    var maxRow=i;
+    for(var k=i+1;k<n;k++) if(Math.abs(M[k][i])>Math.abs(M[maxRow][i])) maxRow=k;
+    if(maxRow!==i){ var tmp=M[i]; M[i]=M[maxRow]; M[maxRow]=tmp; }
+    if(Math.abs(M[i][i])<1e-12) return null;
+    for(var k=i+1;k<n;k++){
+      var f=M[k][i]/M[i][i];
+      for(var j=i;j<=n;j++) M[k][j]-=f*M[i][j];
+    }
+  }
+  // 後退代入
+  var x=new Array(n);
+  for(var i=n-1;i>=0;i--){
+    var s=M[i][n];
+    for(var j=i+1;j<n;j++) s-=M[i][j]*x[j];
+    x[i]=s/M[i][i];
+  }
+  return x;
+}
+
+// ホモグラフィ係数 [h11,h12,h13,h21,h22,h23,h31,h32] を CSS matrix3d 文字列に変換
+function _homographyToMatrix3D(h){
+  // CSS matrix3d は列優先 (column-major)
+  return 'matrix3d(' +
+    h[0]+','+h[3]+',0,'+h[6]+',' +
+    h[1]+','+h[4]+',0,'+h[7]+',' +
+    '0,0,1,0,' +
+    h[2]+','+h[5]+',0,1)';
+}
+
+// 4 corners の地理座標 → 画面ピクセル → 透視変換 matrix3d を <img> に適用
+function _applyTransform(id){
+  var ent=villaOverlayLayers[id];
+  if(!ent||!ent.overlay)return;
+  var img=ent.overlay.getElement();
+  if(!img)return;
+  var deg=parseFloat(ent.rotation_deg)||0;
+  
+  if(!ent.corners){
+    // 4点未設定 → 旧 rotate のみ適用
+    _applyRotation(id);
+    return;
+  }
+  
+  // 画像の表示サイズ（Leaflet が bounds から計算した実サイズ）
+  var W=img.offsetWidth || img.naturalWidth;
+  var H=img.offsetHeight || img.naturalHeight;
+  if(!W||!H)return;
+  
+  // 各 corner の画面ピクセル座標
+  var pNw=map.latLngToLayerPoint(ent.corners.nw);
+  var pNe=map.latLngToLayerPoint(ent.corners.ne);
+  var pSw=map.latLngToLayerPoint(ent.corners.sw);
+  var pSe=map.latLngToLayerPoint(ent.corners.se);
+  
+  // <img> の左上ピクセル座標（Leaflet が translate3d で配置している位置）
+  var b=ent.overlay.getBounds();
+  var pOrigin=map.latLngToLayerPoint(b.getNorthWest());
+  
+  // <img> 左上を原点とした corner 座標
+  var src=[[0,0],[W,0],[0,H],[W,H]];
+  var dst=[
+    [pNw.x-pOrigin.x, pNw.y-pOrigin.y],
+    [pNe.x-pOrigin.x, pNe.y-pOrigin.y],
+    [pSw.x-pOrigin.x, pSw.y-pOrigin.y],
+    [pSe.x-pOrigin.x, pSe.y-pOrigin.y]
+  ];
+  
+  var h=_computeHomography(src,dst);
+  if(!h){_applyRotation(id);return;}
+  
+  // Leaflet の translate3d はそのまま保持、その後に matrix3d、最後に rotate
+  // <img> の現在 transform から translate3d 部分だけ抽出
+  var cur=img.style.transform||'';
+  var translateMatch=cur.match(/translate3d\([^)]*\)|translate\([^)]*\)/);
+  var translatePart=translateMatch?translateMatch[0]:'';
+  
+  var m3d=_homographyToMatrix3D(h);
+  var newTransform=translatePart+(translatePart?' ':'')+m3d;
+  if(deg!==0) newTransform+=' rotate('+deg+'deg)';
+  
+  img.style.transformOrigin='0 0';
+  img.style.transform=newTransform;
 }
 
 // パネルに物件リスト + 個別ON/OFF + 透過スライダー + 位置保存ボタンを描画
@@ -3580,10 +3730,10 @@ function _setVillaRotation(id,val){
   var ent=villaOverlayLayers[id];
   if(ent){
     ent.rotation_deg=deg;
-    _applyRotation(id);
-    // 念のため次フレームでも再適用（Leaflet 内部処理との競合対策）
-    requestAnimationFrame(function(){_applyRotation(id);});
-    setTimeout(function(){_applyRotation(id);}, 50);
+    var applyFn=ent.corners?_applyTransform:_applyRotation;
+    applyFn(id);
+    requestAnimationFrame(function(){applyFn(id);});
+    setTimeout(function(){applyFn(id);}, 50);
   }
 }
 
@@ -3627,10 +3777,15 @@ function _watchRotation(id){
   img._rotObs=obs;
 }
 
-// マップのズーム・移動・リセット時に全オーバーレイの回転を再適用（Leafletの上書き対策）
+// マップのズーム・移動・リセット時に全オーバーレイの回転＋透視変換を再適用
 function _reapplyAllRotations(){
   Object.keys(villaOverlayLayers).forEach(function(id){
-    _applyRotation(id);
+    var ent=villaOverlayLayers[id];
+    if(ent && ent.corners){
+      _applyTransform(id);
+    }else{
+      _applyRotation(id);
+    }
   });
 }
 // イベント登録は1度だけ
@@ -3683,17 +3838,31 @@ async function _saveOverlayCorners(id){
   var row=villaOverlayCache.find(function(r){return r.id===id;});
   if(!ent||!ent.overlay||!row){showToast('保存対象が見つかりません','error');return;}
   try{
-    var b=ent.overlay.getBounds();
-    // 北を上の前提で4隅を生成: TL=NW, TR=NE, BL=SW, BR=SE
-    var payload={
-      tl_lat:b.getNorth(), tl_lng:b.getWest(),
-      tr_lat:b.getNorth(), tr_lng:b.getEast(),
-      bl_lat:b.getSouth(), bl_lng:b.getWest(),
-      br_lat:b.getSouth(), br_lng:b.getEast(),
-      opacity:row.opacity!=null?row.opacity:0.65,
-      rotation_deg:parseFloat(row.rotation_deg)||0,
-      updated_at:new Date().toISOString()
-    };
+    var payload;
+    if(ent.corners){
+      // 4点独立保存: NW=TL, NE=TR, SW=BL, SE=BR
+      payload={
+        tl_lat:ent.corners.nw.lat, tl_lng:ent.corners.nw.lng,
+        tr_lat:ent.corners.ne.lat, tr_lng:ent.corners.ne.lng,
+        bl_lat:ent.corners.sw.lat, bl_lng:ent.corners.sw.lng,
+        br_lat:ent.corners.se.lat, br_lng:ent.corners.se.lng,
+        opacity:row.opacity!=null?row.opacity:0.65,
+        rotation_deg:parseFloat(row.rotation_deg)||0,
+        updated_at:new Date().toISOString()
+      };
+    }else{
+      // フォールバック: bounds の bounding box を矩形として保存
+      var b=ent.overlay.getBounds();
+      payload={
+        tl_lat:b.getNorth(), tl_lng:b.getWest(),
+        tr_lat:b.getNorth(), tr_lng:b.getEast(),
+        bl_lat:b.getSouth(), bl_lng:b.getWest(),
+        br_lat:b.getSouth(), br_lng:b.getEast(),
+        opacity:row.opacity!=null?row.opacity:0.65,
+        rotation_deg:parseFloat(row.rotation_deg)||0,
+        updated_at:new Date().toISOString()
+      };
+    }
     var res=await db.from('villa_overlays').update(payload).eq('id',id);
     if(res.error)throw res.error;
     Object.assign(row,payload);
