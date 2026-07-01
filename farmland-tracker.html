@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260701c / 上部ツールバーからTrack B範囲除外ボタン削除(関数本体は温存・将来復活可)。範囲除外は別荘地候補パネル内ボタンで完結 -->
+<!-- BUILD: farmland-tracker v20260701d / CAD区画図トグル追加(villa_parcels_geojson・びわこの森手動トレース459件をピンク線ベクター表示、閉区画クリックで面積㎡popup)。既存の別荘地番図画像機構・_applyTransformには非干渉 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -643,6 +643,21 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <button class="hazard-toggle-btn" id="hzVillaOverlay" onclick="toggleVillaOverlay()">
       <span class="hazard-toggle-dot"></span>📐 別荘地番図
     </button>
+    <!-- CAD区画ベクター (villa_parcels_geojson) v20260701d -->
+    <button class="hazard-toggle-btn" id="hzVillaParcels" onclick="toggleVillaParcels()">
+      <span class="hazard-toggle-dot"></span>🗺 CAD区画図
+    </button>
+    <div id="villaParcelsPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.8;">
+        <div style="font-weight:600;margin-bottom:4px">CAD区画図（トレース）</div>
+        <div id="villaParcelsInfo" style="margin-bottom:4px;color:var(--text-muted);">読み込み中...</div>
+        <label style="font-size:9px;color:var(--text-muted);cursor:pointer;display:block;">
+          <input type="checkbox" id="villaParcelsFillMode" onchange="_toggleVillaParcelsFill()" style="vertical-align:middle;">
+          <span style="font-weight:600">区画を塗りつぶし表示</span>
+        </label>
+        <div style="color:var(--text-dim);font-size:9px;line-height:1.4;margin-top:3px;">閉じた区画をクリックすると面積(㎡)を表示します。</div>
+      </div>
+    </div>
     <div id="villaOverlayPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
       <div style="font-size:10px;line-height:1.8;">
         <div style="font-weight:600;margin-bottom:4px">表示中の地番図</div>
@@ -4032,6 +4047,135 @@ async function _saveOverlayCorners(id){
     console.error('[VILLA-OVERLAY] 保存失敗:',e);
     showToast('保存失敗: '+(e&&e.message?e.message:JSON.stringify(e)),'error');
   }
+}
+
+// ======== CAD区画ベクター (villa_parcels_geojson / びわこの森 手動トレース) v20260701d ========
+// DXFトレースを緯度経度化した LineString / Polygon を Leaflet に描画。
+// 既存の別荘地番図（画像）オーバーレイ機構とは完全独立。_applyTransform 等には触れない。
+var villaParcelsEnabled=false, villaParcelsLoading=false;
+var villaParcelsCache=null;          // Supabase から取得した行配列
+var villaParcelsLayer=null;          // L.geoJSON レイヤ
+var villaParcelsFillMode=false;      // 区画塗りつぶし ON/OFF
+var VILLA_PARCELS_COLOR='#ec4899';   // ピンク（別荘画像の雰囲気を継承）
+
+function toggleVillaParcels(){
+  var btn=document.getElementById('hzVillaParcels');
+  var panel=document.getElementById('villaParcelsPanel');
+  villaParcelsEnabled=!villaParcelsEnabled;
+  if(!villaParcelsEnabled){
+    _clearVillaParcels();
+    if(btn)btn.classList.remove('active');
+    if(panel)panel.style.display='none';
+    showToast('CAD区画図を非表示にしました','success');
+    return;
+  }
+  if(btn)btn.classList.add('active');
+  if(panel)panel.style.display='block';
+  if(villaParcelsCache){_renderVillaParcels();return;}
+  _loadVillaParcels();
+}
+
+function _clearVillaParcels(){
+  if(villaParcelsLayer){try{map.removeLayer(villaParcelsLayer);}catch(e){}villaParcelsLayer=null;}
+}
+
+async function _loadVillaParcels(){
+  if(villaParcelsLoading)return;
+  villaParcelsLoading=true;
+  showToast('CAD区画図を読み込み中...','success');
+  try{
+    // 459件 < 1000 なのでページングは不要だが、安全のため range 指定
+    var res=await db.from('villa_parcels_geojson')
+      .select('feature_id,dxf_type,is_closed,area_m2,geom')
+      .eq('villa_name','びわこの森')
+      .order('feature_id')
+      .range(0,999);
+    if(res.error){throw res.error;}
+    villaParcelsCache=res.data||[];
+    console.log('[VILLA-PARCELS] 取得件数=',villaParcelsCache.length);
+    villaParcelsLoading=false;
+    _renderVillaParcels();
+  }catch(e){
+    villaParcelsLoading=false; villaParcelsEnabled=false;
+    console.error('[VILLA-PARCELS] エラー:',e);
+    var btn=document.getElementById('hzVillaParcels'); if(btn)btn.classList.remove('active');
+    var panel=document.getElementById('villaParcelsPanel'); if(panel)panel.style.display='none';
+    showToast('CAD区画図の読み込みに失敗: '+(e&&e.message?e.message:JSON.stringify(e)),'error');
+  }
+}
+
+function _villaParcelsFeatureCollection(){
+  var features=[];
+  (villaParcelsCache||[]).forEach(function(row){
+    if(!row.geom)return;
+    var geom=(typeof row.geom==='string')?JSON.parse(row.geom):row.geom;
+    features.push({
+      type:'Feature',
+      geometry:geom,
+      properties:{
+        feature_id:row.feature_id,
+        dxf_type:row.dxf_type,
+        is_closed:row.is_closed,
+        area_m2:row.area_m2
+      }
+    });
+  });
+  return {type:'FeatureCollection',features:features};
+}
+
+function _renderVillaParcels(){
+  if(!villaParcelsEnabled)return;
+  _clearVillaParcels();
+  if(!map.getPane('villaParcelsPane')){
+    var p=map.createPane('villaParcelsPane');
+    p.style.zIndex=428; // 画像オーバーレイ(425)の少し上、マーカー(600)より下
+  }
+  var fc=_villaParcelsFeatureCollection();
+  villaParcelsLayer=L.geoJSON(fc,{
+    pane:'villaParcelsPane',
+    style:function(feat){
+      var isPoly=(feat.geometry.type==='Polygon');
+      return {
+        color:VILLA_PARCELS_COLOR,
+        weight:isPoly?1.4:1.1,
+        opacity:0.95,
+        fill:isPoly&&villaParcelsFillMode,
+        fillColor:VILLA_PARCELS_COLOR,
+        fillOpacity:villaParcelsFillMode?0.12:0
+      };
+    },
+    onEachFeature:function(feat,layer){
+      var p=feat.properties||{};
+      if(p.is_closed && p.area_m2!=null){
+        var tsubo=(p.area_m2/3.305785).toFixed(1);
+        layer.bindPopup(
+          '<div style="font-size:12px;line-height:1.6;">'+
+          '<b>区画 #'+p.feature_id+'</b><br>'+
+          '面積: '+Number(p.area_m2).toLocaleString()+' ㎡<br>'+
+          '（約 '+tsubo+' 坪）'+
+          '</div>'
+        );
+        layer.on('mouseover',function(){this.setStyle({weight:3,fillOpacity:villaParcelsFillMode?0.25:0.08,fill:true});});
+        layer.on('mouseout',function(){villaParcelsLayer.resetStyle(this);});
+      }
+    }
+  }).addTo(map);
+
+  // 情報パネル更新
+  var info=document.getElementById('villaParcelsInfo');
+  if(info){
+    var lines=(villaParcelsCache||[]).filter(function(r){return r.dxf_type==='LINE';}).length;
+    var polys=(villaParcelsCache||[]).filter(function(r){return r.dxf_type==='POLYLINE';}).length;
+    var closed=(villaParcelsCache||[]).filter(function(r){return r.is_closed && r.area_m2!=null;}).length;
+    info.innerHTML='線 '+lines+'本 / ポリライン '+polys+'本<br>面積算出可能な区画 '+closed+'件';
+  }
+  showToast('CAD区画図 '+(villaParcelsCache?villaParcelsCache.length:0)+'件を表示','success');
+}
+
+function _toggleVillaParcelsFill(){
+  var cb=document.getElementById('villaParcelsFillMode');
+  villaParcelsFillMode=cb?cb.checked:false;
+  if(villaParcelsEnabled)_renderVillaParcels();
 }
 
 // ======== 別荘地候補レイヤー（villa_candidates、地図上で目視判定） v20260630a ========
