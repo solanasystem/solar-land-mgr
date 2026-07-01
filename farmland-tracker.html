@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260630p / o版で壊した表示ロジックをk版の正常挙動に復元(_applyTransformに中心軸rotateを戻す、_setVillaRotationを単純方式に戻す)。栗本さんの保存済み座標を正しく表示するための修正 -->
+<!-- BUILD: farmland-tracker v20260701c / 上部ツールバーからTrack B範囲除外ボタン削除(関数本体は温存・将来復活可)。範囲除外は別荘地候補パネル内ボタンで完結 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -517,7 +517,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <button class="btn btn-ghost active" id="btnNgFilter" onclick="toggleNgFilter()" style="font-size:12px;padding:5px 12px;">&#128683; NG非表示</button>
   <button class="btn btn-ghost" id="btnAutoJudge" onclick="runAutoNgJudgment()" style="font-size:12px;padding:5px 12px;">&#129302; AI自動判定</button>
   <button class="btn btn-ghost" id="btnRectNg" onclick="toggleRectNgMode()" style="font-size:12px;padding:5px 12px;">&#128306; 範囲NG</button>
-  <button class="btn btn-ghost" id="btnTrackbRect" onclick="toggleTrackbRectExclude()" style="font-size:12px;padding:5px 12px;">&#128465; Track B範囲除外</button>
   <button class="btn btn-ghost" id="btnOwnerColor" onclick="toggleOwnerColorMode()" style="font-size:12px;padding:5px 12px;">&#127912; 耕作者色分け</button>
   <button class="btn btn-ghost" id="btnDiagnose" onclick="diagnosePBFKeys()" style="font-size:12px;padding:5px 12px;">&#128269; PBF診断</button>
   <div class="stats-bar">
@@ -634,8 +633,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
         <div><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#22c55e;border:2px solid #15803d;margin-right:5px"></span>別荘地（確定）</div>
         <div><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#9ca3af;border:2px solid #4b5563;margin-right:5px"></span>除外（別荘地でない）</div>
         <div style="margin-top:4px;color:var(--text-dim);font-size:9px;line-height:1.4;">ピンをクリック→「別荘地」「除外」で判定。<br>森林率×閉鎖性×道路総延長で抽出（v4）</div>
-        <div style="margin-top:4px;display:flex;gap:4px;">
+        <div style="margin-top:4px;display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
           <label style="font-size:9px;color:var(--text-muted);cursor:pointer;"><input type="checkbox" id="villaHideExcluded" onchange="_renderVilla()" style="vertical-align:middle;"> 除外を隠す</label>
+          <button id="btnVillaRectExclude" onclick="toggleVillaRectExclude()" style="font-size:9px;padding:3px 8px;background:#7f1d1d;color:#fecaca;border:1px solid #b91c1c;border-radius:4px;cursor:pointer;font-weight:600;">&#128465; 範囲除外</button>
         </div>
       </div>
     </div>
@@ -4173,6 +4173,102 @@ async function deleteVilla(id){
     showToast('削除に失敗: '+(e&&e.message?e.message:e),'error');
   }
 }
+
+/* ===== 別荘地候補 範囲除外モード（v20260701b：Track B範囲除外UXを複製・villa専用） =====
+   矩形をドラッグ → 矩形内の status='未判定' の候補だけを '除外' に一括UPDATE。
+   別荘地(確定)は対象外で必ず守る。連続除外可、ESC/ボタンで終了。復元は個別に未判定へ戻せる。 */
+var vRectMode=false, vRectStart=null, vRectLayer=null, vRectBanner=null;
+var vSavedDrag=null, vSavedDbl=null, vSavedBox=null, vPeSaved=[];
+function toggleVillaRectExclude(){
+  if(vRectMode){ _vExitRect(); } else { _vEnterRect(); }
+}
+function _vEnterRect(){
+  if(!map){ showToast('地図が初期化されていません','error'); return; }
+  if(!villaEnabled){ showToast('先に🏡別荘地候補レイヤをONにしてください','error'); return; }
+  vRectMode=true;
+  document.body.classList.add('rect-ng-active');
+  var btn=document.getElementById('btnVillaRectExclude'); if(btn)btn.classList.add('active');
+  vSavedDrag=map.dragging.enabled(); vSavedDbl=map.doubleClickZoom.enabled(); vSavedBox=map.boxZoom.enabled();
+  map.dragging.disable(); map.doubleClickZoom.disable(); map.boxZoom.disable();
+  if(!vRectBanner){
+    vRectBanner=document.createElement('div');
+    vRectBanner.className='rect-ng-banner';
+    vRectBanner.style.background='rgba(239,68,68,.92)';
+    vRectBanner.innerHTML='🗑 別荘地候補 範囲除外｜地図上をドラッグで矩形を描いてください（未判定のみ除外／別荘地は守る）<button class="rect-ng-cancel" id="vRectCancel">キャンセル (ESC)</button>';
+    (document.getElementById('map')||document.body).appendChild(vRectBanner);
+    document.getElementById('vRectCancel').addEventListener('click', _vExitRect);
+  }
+  map.on('mousedown', _vDown); map.on('mousemove', _vMove); map.on('mouseup', _vUp);
+  vPeSaved=[];
+  try{
+    document.querySelectorAll('#map canvas').forEach(function(c){ vPeSaved.push({el:c,prev:c.style.pointerEvents}); c.style.pointerEvents='none'; });
+  }catch(_){}
+  document.addEventListener('keydown', _vKey);
+}
+function _vExitRect(){
+  vRectMode=false;
+  document.body.classList.remove('rect-ng-active');
+  var btn=document.getElementById('btnVillaRectExclude'); if(btn)btn.classList.remove('active');
+  if(map){
+    map.off('mousedown', _vDown); map.off('mousemove', _vMove); map.off('mouseup', _vUp);
+    if(vSavedDrag!==false)map.dragging.enable();
+    if(vSavedDbl!==false)map.doubleClickZoom.enable();
+    if(vSavedBox!==false)map.boxZoom.enable();
+    if(vRectLayer){ try{map.removeLayer(vRectLayer);}catch(_){} vRectLayer=null; }
+  }
+  try{ vPeSaved.forEach(function(r){ try{r.el.style.pointerEvents=r.prev||'';}catch(_){} }); }catch(_){}
+  vPeSaved=[];
+  document.removeEventListener('keydown', _vKey);
+  if(vRectBanner && vRectBanner.parentNode)vRectBanner.parentNode.removeChild(vRectBanner);
+  vRectBanner=null; vRectStart=null;
+}
+function _vKey(ev){ if(ev.key==='Escape'||ev.keyCode===27)_vExitRect(); }
+function _vDown(ev){
+  if(!vRectMode)return;
+  vRectStart=ev.latlng;
+  if(vRectLayer){ try{map.removeLayer(vRectLayer);}catch(_){} }
+  vRectLayer=L.rectangle([ev.latlng,ev.latlng],{className:'rect-ng-rectangle',interactive:false}).addTo(map);
+}
+function _vMove(ev){ if(vRectMode && vRectStart && vRectLayer)vRectLayer.setBounds([vRectStart,ev.latlng]); }
+async function _vUp(ev){
+  if(!vRectMode || !vRectStart)return;
+  var end=ev.latlng;
+  var startPt=map.latLngToContainerPoint(vRectStart), endPt=map.latLngToContainerPoint(end);
+  if(Math.abs(startPt.x-endPt.x)+Math.abs(startPt.y-endPt.y)<6){
+    if(vRectLayer){ try{map.removeLayer(vRectLayer);}catch(_){} vRectLayer=null; }
+    vRectStart=null; return;
+  }
+  var b=L.latLngBounds(vRectStart,end);
+  if(vRectLayer){ try{map.removeLayer(vRectLayer);}catch(_){} vRectLayer=null; }
+  vRectStart=null;
+  // 矩形内の「未判定」候補を数える（別荘地・除外は対象外）
+  var targets=(villaCache||[]).filter(function(v){
+    if(v.status!=='未判定')return false;
+    if(v.center_lat==null||v.center_lng==null)return false;
+    return b.contains(L.latLng(v.center_lat, v.center_lng));
+  });
+  if(targets.length===0){ showToast('矩形内に未判定の候補がありません','error'); return; }
+  if(!confirm('この矩形内の未判定候補 '+targets.length+'件を「除外」にします。よろしいですか？\n（別荘地(確定)は対象外。除外後も個別に未判定へ戻せます）'))return;
+  try{
+    var ids=targets.map(function(v){return v.id;});
+    var res=await db.from('villa_candidates')
+      .update({status:'除外', judged_at:new Date().toISOString()})
+      .in('id', ids)
+      .eq('status','未判定'); // 二重の安全: DB側でも未判定のみ
+    if(res.error)throw res.error;
+    // キャッシュ更新
+    if(villaCache){
+      var idset={}; ids.forEach(function(x){idset[x]=1;});
+      villaCache.forEach(function(v){ if(idset[v.id]&&v.status==='未判定'){ v.status='除外'; v.judged_at=new Date().toISOString(); } });
+    }
+    _renderVilla();
+    showToast('範囲除外：'+targets.length+'件を除外しました','success');
+  }catch(e){
+    showToast('範囲除外に失敗: '+(e&&e.message?e.message:e),'error');
+  }
+  // モード継続（連続除外可。ESC/ボタンで終了）
+}
+
 
 // ======== 変電所レイヤー（Phase1：OSM power=substation, R2配信, トグル表示） ========
 function _subColor(kv){ if(kv==null)return '#9e9e9e'; if(kv>=500)return '#e53935'; if(kv>=154)return '#fb8c00'; if(kv>=60)return '#1e88e5'; return '#66bb6a'; }
