@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260701d / CAD区画図トグル追加(villa_parcels_geojson・びわこの森手動トレース459件をピンク線ベクター表示、閉区画クリックで面積㎡popup)。既存の別荘地番図画像機構・_applyTransformには非干渉 -->
+<!-- BUILD: farmland-tracker v20260701e / CAD区画図を正しい1:1スケール(v3データ)対応。位置調整UIを平行移動＋回転のみに(拡大縮小は実寸のため廃止)。villa_parcels_transformに変換保存。 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -655,6 +655,39 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
           <input type="checkbox" id="villaParcelsFillMode" onchange="_toggleVillaParcelsFill()" style="vertical-align:middle;">
           <span style="font-weight:600">区画を塗りつぶし表示</span>
         </label>
+        <label style="font-size:9px;color:var(--text-muted);cursor:pointer;display:block;margin-top:3px;">
+          <input type="checkbox" id="villaParcelsAdjustMode" onchange="_toggleVillaParcelsAdjust()" style="vertical-align:middle;">
+          <span style="font-weight:600">🔧 位置調整モード（平行移動・回転・拡縮）</span>
+        </label>
+        <div id="villaParcelsAdjustPanel" style="display:none;border-top:1px solid var(--border);padding-top:6px;margin-top:6px;">
+          <!-- 平行移動 -->
+          <div style="font-weight:600;margin-bottom:3px;">平行移動</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;width:96px;margin-bottom:6px;">
+            <span></span>
+            <button onclick="_vpNudge(0,1)" style="cursor:pointer;padding:3px;background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--text);">⬆</button>
+            <span></span>
+            <button onclick="_vpNudge(-1,0)" style="cursor:pointer;padding:3px;background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--text);">⬅</button>
+            <button onclick="_vpNudgeReset()" style="cursor:pointer;padding:3px;background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:8px;">中央</button>
+            <button onclick="_vpNudge(1,0)" style="cursor:pointer;padding:3px;background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--text);">➡</button>
+            <span></span>
+            <button onclick="_vpNudge(0,-1)" style="cursor:pointer;padding:3px;background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--text);">⬇</button>
+            <span></span>
+          </div>
+          <label style="font-size:9px;display:block;margin-bottom:4px;">移動ステップ
+            <select id="vpStep" style="font-size:9px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:3px;">
+              <option value="0.00005">細かい(約5m)</option>
+              <option value="0.0002" selected>普通(約20m)</option>
+              <option value="0.001">粗い(約100m)</option>
+            </select>
+          </label>
+          <!-- 回転 -->
+          <div style="font-weight:600;margin:6px 0 2px;">回転 <span id="vpRotVal" style="color:var(--text-muted);">0°</span></div>
+          <input type="range" id="vpRotSlider" min="-180" max="180" step="0.5" value="0" oninput="_vpSetRotation(this.value)" style="width:100%;">
+          <div style="color:var(--text-dim);font-size:8px;margin:2px 0;">※1:1実寸のため拡大縮小は不要。平行移動と回転のみで合います。</div>
+          <!-- 保存 -->
+          <button onclick="_vpSaveTransform()" style="width:100%;margin-top:6px;cursor:pointer;padding:5px;background:#166534;color:#dcfce7;border:1px solid #22c55e;border-radius:4px;font-weight:600;font-size:10px;">💾 位置を保存</button>
+          <button onclick="_vpReloadTransform()" style="width:100%;margin-top:4px;cursor:pointer;padding:4px;background:var(--surface);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;font-size:9px;">保存済みに戻す</button>
+        </div>
         <div style="color:var(--text-dim);font-size:9px;line-height:1.4;margin-top:3px;">閉じた区画をクリックすると面積(㎡)を表示します。</div>
       </div>
     </div>
@@ -4057,6 +4090,10 @@ var villaParcelsCache=null;          // Supabase から取得した行配列
 var villaParcelsLayer=null;          // L.geoJSON レイヤ
 var villaParcelsFillMode=false;      // 区画塗りつぶし ON/OFF
 var VILLA_PARCELS_COLOR='#ec4899';   // ピンク（別荘画像の雰囲気を継承）
+var villaParcelsAdjustMode=false;    // 位置調整モード
+// 剛体変換パラメータ（平行移動＋回転のみ。スケールは1:1実寸のため不要）
+var vpTransform={offset_lat:0, offset_lng:0, rotation_deg:0, center_lat:null, center_lng:null};
+var vpTransformSaved=null;            // 保存済みパラメータ（「保存済みに戻す」用）
 
 function toggleVillaParcels(){
   var btn=document.getElementById('hzVillaParcels');
@@ -4084,7 +4121,6 @@ async function _loadVillaParcels(){
   villaParcelsLoading=true;
   showToast('CAD区画図を読み込み中...','success');
   try{
-    // 459件 < 1000 なのでページングは不要だが、安全のため range 指定
     var res=await db.from('villa_parcels_geojson')
       .select('feature_id,dxf_type,is_closed,area_m2,geom')
       .eq('villa_name','びわこの森')
@@ -4093,6 +4129,8 @@ async function _loadVillaParcels(){
     if(res.error){throw res.error;}
     villaParcelsCache=res.data||[];
     console.log('[VILLA-PARCELS] 取得件数=',villaParcelsCache.length);
+    // 変換パラメータを読み込む（無ければゼロ）
+    await _vpLoadTransform();
     villaParcelsLoading=false;
     _renderVillaParcels();
   }catch(e){
@@ -4104,20 +4142,77 @@ async function _loadVillaParcels(){
   }
 }
 
+// 変換パラメータをDBから取得
+async function _vpLoadTransform(){
+  try{
+    var res=await db.from('villa_parcels_transform')
+      .select('offset_lat,offset_lng,rotation_deg,center_lat,center_lng')
+      .eq('villa_name','びわこの森').limit(1);
+    if(res.error){console.warn('[VILLA-PARCELS] transform取得失敗(初回は正常):',res.error.message);return;}
+    if(res.data && res.data.length>0){
+      var t=res.data[0];
+      vpTransform.offset_lat=t.offset_lat||0;
+      vpTransform.offset_lng=t.offset_lng||0;
+      vpTransform.rotation_deg=t.rotation_deg||0;
+      vpTransform.center_lat=t.center_lat;
+      vpTransform.center_lng=t.center_lng;
+    }
+    vpTransformSaved=JSON.parse(JSON.stringify(vpTransform));
+    _vpSyncUI();
+  }catch(e){console.warn('[VILLA-PARCELS] transform読込例外:',e);}
+}
+
+// データ重心を計算（回転中心のデフォルト）
+function _vpComputeCenter(){
+  var latSum=0,lngSum=0,n=0;
+  (villaParcelsCache||[]).forEach(function(row){
+    var geom=(typeof row.geom==='string')?JSON.parse(row.geom):row.geom;
+    var coords=(geom.type==='Polygon')?geom.coordinates[0]:geom.coordinates;
+    coords.forEach(function(c){lngSum+=c[0];latSum+=c[1];n++;});
+  });
+  if(n===0)return null;
+  return {lat:latSum/n, lng:lngSum/n};
+}
+
+// 1点に剛体変換（回転→平行移動）を適用
+function _vpApplyPoint(lng, lat, cLat, cLng, rad, cosLatC){
+  // 中心基準の相対座標（メートル的スケールに補正: 経度はcos(lat)倍）
+  var dx=(lng-cLng)*cosLatC;
+  var dy=(lat-cLat);
+  var cos=Math.cos(rad), sin=Math.sin(rad);
+  var nx=dx*cos - dy*sin;
+  var ny=dx*sin + dy*cos;
+  var outLat=cLat + ny + vpTransform.offset_lat;
+  var outLng=cLng + nx/cosLatC + vpTransform.offset_lng;
+  return [outLng, outLat];
+}
+
 function _villaParcelsFeatureCollection(){
   var features=[];
+  // 回転中心
+  var ctr=(vpTransform.center_lat!=null&&vpTransform.center_lng!=null)
+    ? {lat:vpTransform.center_lat, lng:vpTransform.center_lng}
+    : _vpComputeCenter();
+  var cLat=ctr?ctr.lat:35.3374, cLng=ctr?ctr.lng:135.9744;
+  var rad=(vpTransform.rotation_deg||0)*Math.PI/180;
+  var cosLatC=Math.cos(cLat*Math.PI/180)||1;
+  var identity=(!vpTransform.offset_lat&&!vpTransform.offset_lng&&!vpTransform.rotation_deg);
+
   (villaParcelsCache||[]).forEach(function(row){
     if(!row.geom)return;
     var geom=(typeof row.geom==='string')?JSON.parse(row.geom):row.geom;
+    var g;
+    if(identity){
+      g=geom; // 変換なしならそのまま
+    }else if(geom.type==='Polygon'){
+      g={type:'Polygon',coordinates:[geom.coordinates[0].map(function(c){return _vpApplyPoint(c[0],c[1],cLat,cLng,rad,cosLatC);})]};
+    }else{
+      g={type:'LineString',coordinates:geom.coordinates.map(function(c){return _vpApplyPoint(c[0],c[1],cLat,cLng,rad,cosLatC);})};
+    }
     features.push({
       type:'Feature',
-      geometry:geom,
-      properties:{
-        feature_id:row.feature_id,
-        dxf_type:row.dxf_type,
-        is_closed:row.is_closed,
-        area_m2:row.area_m2
-      }
+      geometry:g,
+      properties:{feature_id:row.feature_id, dxf_type:row.dxf_type, is_closed:row.is_closed, area_m2:row.area_m2}
     });
   });
   return {type:'FeatureCollection',features:features};
@@ -4161,21 +4256,90 @@ function _renderVillaParcels(){
     }
   }).addTo(map);
 
-  // 情報パネル更新
   var info=document.getElementById('villaParcelsInfo');
   if(info){
-    var lines=(villaParcelsCache||[]).filter(function(r){return r.dxf_type==='LINE';}).length;
-    var polys=(villaParcelsCache||[]).filter(function(r){return r.dxf_type==='POLYLINE';}).length;
-    var closed=(villaParcelsCache||[]).filter(function(r){return r.is_closed && r.area_m2!=null;}).length;
-    info.innerHTML='線 '+lines+'本 / ポリライン '+polys+'本<br>面積算出可能な区画 '+closed+'件';
+    var lc=(villaParcelsCache||[]).filter(function(r){return r.dxf_type==='LINE';}).length;
+    var pc=(villaParcelsCache||[]).filter(function(r){return r.dxf_type==='POLYLINE';}).length;
+    var cc=(villaParcelsCache||[]).filter(function(r){return r.is_closed && r.area_m2!=null;}).length;
+    info.innerHTML='線 '+lc+'本 / ポリライン '+pc+'本<br>面積算出可能な区画 '+cc+'件';
   }
-  showToast('CAD区画図 '+(villaParcelsCache?villaParcelsCache.length:0)+'件を表示','success');
 }
 
 function _toggleVillaParcelsFill(){
   var cb=document.getElementById('villaParcelsFillMode');
   villaParcelsFillMode=cb?cb.checked:false;
   if(villaParcelsEnabled)_renderVillaParcels();
+}
+
+// ===== 位置調整 =====
+function _toggleVillaParcelsAdjust(){
+  var cb=document.getElementById('villaParcelsAdjustMode');
+  villaParcelsAdjustMode=cb?cb.checked:false;
+  var panel=document.getElementById('villaParcelsAdjustPanel');
+  if(panel)panel.style.display=villaParcelsAdjustMode?'block':'none';
+  // 調整開始時、回転中心が未設定ならデータ重心で固定
+  if(villaParcelsAdjustMode && vpTransform.center_lat==null){
+    var ctr=_vpComputeCenter();
+    if(ctr){vpTransform.center_lat=ctr.lat; vpTransform.center_lng=ctr.lng;}
+  }
+  _vpSyncUI();
+}
+
+// 平行移動（dx=経度方向±1, dy=緯度方向±1、ステップ倍）
+function _vpNudge(dx, dy){
+  var stepEl=document.getElementById('vpStep');
+  var step=stepEl?parseFloat(stepEl.value):0.0002;
+  vpTransform.offset_lng+=dx*step;
+  vpTransform.offset_lat+=dy*step;
+  if(villaParcelsEnabled)_renderVillaParcels();
+}
+function _vpNudgeReset(){
+  vpTransform.offset_lat=0; vpTransform.offset_lng=0;
+  if(villaParcelsEnabled)_renderVillaParcels();
+}
+function _vpSetRotation(v){
+  vpTransform.rotation_deg=parseFloat(v)||0;
+  var span=document.getElementById('vpRotVal'); if(span)span.textContent=vpTransform.rotation_deg.toFixed(1)+'°';
+  if(villaParcelsEnabled)_renderVillaParcels();
+}
+
+// UIをvpTransformの値に同期
+function _vpSyncUI(){
+  var rs=document.getElementById('vpRotSlider'); if(rs)rs.value=vpTransform.rotation_deg;
+  var rv=document.getElementById('vpRotVal'); if(rv)rv.textContent=(vpTransform.rotation_deg||0).toFixed(1)+'°';
+}
+
+// 保存
+async function _vpSaveTransform(){
+  try{
+    var orgRes=await db.from('villa_overlays').select('organization_id').eq('villa_name','びわこの森').limit(1);
+    var orgId=(orgRes.data&&orgRes.data[0])?orgRes.data[0].organization_id:null;
+    if(!orgId){showToast('organization_id取得失敗','error');return;}
+    var payload={
+      organization_id:orgId,
+      villa_name:'びわこの森',
+      offset_lat:vpTransform.offset_lat,
+      offset_lng:vpTransform.offset_lng,
+      rotation_deg:vpTransform.rotation_deg,
+      center_lat:vpTransform.center_lat,
+      center_lng:vpTransform.center_lng,
+      updated_at:new Date().toISOString()
+    };
+    var res=await db.from('villa_parcels_transform').upsert(payload,{onConflict:'villa_name'});
+    if(res.error){throw res.error;}
+    vpTransformSaved=JSON.parse(JSON.stringify(vpTransform));
+    showToast('CAD区画図の位置を保存しました','success');
+  }catch(e){
+    console.error('[VILLA-PARCELS] 保存失敗:',e);
+    showToast('位置の保存に失敗: '+(e&&e.message?e.message:JSON.stringify(e)),'error');
+  }
+}
+function _vpReloadTransform(){
+  if(!vpTransformSaved){showToast('保存済みデータがありません','error');return;}
+  vpTransform=JSON.parse(JSON.stringify(vpTransformSaved));
+  _vpSyncUI();
+  if(villaParcelsEnabled)_renderVillaParcels();
+  showToast('保存済みの位置に戻しました','success');
 }
 
 // ======== 別荘地候補レイヤー（villa_candidates、地図上で目視判定） v20260630a ========
