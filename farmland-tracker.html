@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260630o / 別荘地番図ズレ根本修正(回転の二重適用を排除: _applyTransformの追加rotateを削除しhomographyに一本化、回転スライダーはcornersを実回転させる方式に変更) -->
+<!-- BUILD: farmland-tracker v20260630p / o版で壊した表示ロジックをk版の正常挙動に復元(_applyTransformに中心軸rotateを戻す、_setVillaRotationを単純方式に戻す)。栗本さんの保存済み座標を正しく表示するための修正 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -3648,15 +3648,17 @@ function _applyTransform(id){
   var h=_computeHomography(src,dst);
   if(!h){_applyRotation(id);return;}
   
-  // v20260630o: 追加 rotate を完全削除。
-  // corners(4隅)が確定していれば、homography が回転含めた全変形を表現する。
-  // 以前はここで rotate(deg) を二重がけしていたため、保存→リロードでズレていた。
+  // v20260630p: k版の挙動に復元（o版で追加rotateを消したのが表示ズレの原因だった）
+  // homography(matrix3d) の後に、画像中心軸で rotate を適用する
   var cur=img.style.transform||'';
   var translateMatch=cur.match(/translate3d\([^)]*\)|translate\([^)]*\)/);
   var translatePart=translateMatch?translateMatch[0]:'';
   
   var m3d=_homographyToMatrix3D(h);
   var newTransform=translatePart+(translatePart?' ':'')+m3d;
+  if(deg!==0){
+    newTransform += ' translate('+(W/2)+'px,'+(H/2)+'px) rotate('+deg+'deg) translate('+(-W/2)+'px,'+(-H/2)+'px)';
+  }
   
   img.style.transformOrigin='0 0';
   img.style.transform=newTransform;
@@ -3748,27 +3750,18 @@ function _setVillaRotation(id,val){
   if(!isFinite(deg))deg=0;
   if(deg<-180)deg=-180;
   if(deg>180)deg=180;
+  row.rotation_deg=deg;
   var span=document.getElementById('rotVal_'+id);
   if(span)span.textContent=deg+'°';
   var slider=document.getElementById('rotSlider_'+id);
   if(slider&&parseFloat(slider.value)!==deg)slider.value=deg;
   var ent=villaOverlayLayers[id];
-  if(ent && ent.corners){
-    // v20260630o: スライダーの絶対角度に対し、前回角からの差分だけ corners を実回転
-    var prev=parseFloat(ent.rotation_deg)||0;
-    var delta=deg-prev;
-    if(delta!==0){
-      _rotateCorners(ent, delta);
-    }
+  if(ent){
     ent.rotation_deg=deg;
-    row.rotation_deg=deg;
-    _applyTransform(id);
-    // ハンドル表示中なら追従させる
-    if(ent.markers){_refreshHandlePositions(id);}
-  }else{
-    row.rotation_deg=deg;
-    if(ent)ent.rotation_deg=deg;
-    if(ent)_applyRotation(id);
+    var applyFn=ent.corners?_applyTransform:_applyRotation;
+    applyFn(id);
+    requestAnimationFrame(function(){applyFn(id);});
+    setTimeout(function(){applyFn(id);}, 50);
   }
 }
 
