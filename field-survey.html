@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260702p / 案件フラグ(現地調査マーカー)のサイズを18px→12pxに縮小し、案件候補ピン(radius5≈直径10-13px)にサイズ統一。UI微調整(右パネルコンパクト化・背景edge-panel化)はv20260702oから継続。 -->
+<!-- BUILD: field-survey v20260702q / 【重大バグ修正】initMap()が2回呼ばれ「Map container is already initialized」でJS全停止していた重複ブロック(132行)を削除。これでv20260702n〜pの全UI変更(CAD移植・現在地判定・右パネル縮小・背景edge-panel・フラグサイズ統一)が正しく反映される。version.jsonリロード機構に無限ループ防止ガード追加。 -->
 <!-- v20260626c: ポップアップにGoogle地図・ストリートビューボタン追加
 <!-- v20260626a: 別荘地候補レイヤー追加（villa_place_names 16件・v_villa_places_map ビュー経由）。🏘️別荘地候補トグル+パターン別色分け凡例（別荘地#7c3aed/ハイランド・リゾート#c026d3/高原#a855f7）。villaPane(zIndex640)+canvas。3マップ同期実装。 -->
 <html lang="ja">
@@ -42,11 +42,14 @@
       if (hasOpenModal) {
         if (!confirm('新しいバージョンが利用可能です。編集中の内容は失われる可能性があります。更新しますか？')) return;
       }
-      // v20260702p: location.reload()はHTMLキャッシュを破棄しないため、
-      // クエリ文字列付きで再アクセスしてブラウザキャッシュを確実に無効化する
+      // v20260702p: 無限リロード防止 — 既に _v が付いていれば通常reloadのみ
       var u = new URL(window.location.href);
-      u.searchParams.set('_v', j.version);
-      window.location.replace(u.toString());
+      if (u.searchParams.get('_v') === j.version) {
+        location.reload();
+      } else {
+        u.searchParams.set('_v', j.version);
+        window.location.replace(u.toString());
+      }
     }
   } catch(e) {}
 })();
@@ -3418,9 +3421,9 @@ initDraggablePanels('fieldSurvey', [
   { id: '#chibanSearch' },
   { id: '#statsOverlay' },
   { id: '#controlPanel' },
-  { id: '#layerControl', handle: '.layer-panel-header' },
-  { id: '#bgAdjustPanel', handle: '.mc-panel-header' }
+  { id: '#layerControl', handle: '.layer-panel-header' }
 ]);
+// v20260702p: #bgAdjustPanel は edge-panel化したためドラッグ登録から除外
 
 // ======== 地番・住所検索 ========
 /* Leaflet地図のイベント吸収を防ぐため、検索ボックス全体に伝播停止を適用 */
@@ -3525,138 +3528,6 @@ function jumpToChiban(lat, lng, label) {
   document.getElementById('chibanInput').value = label;
 }
 
-initMap();
-setTimeout(() => { map.invalidateSize(); }, 100);
-loadData();
-
-// ======== \u30ec\u30a4\u30e4\u30fc\u30d1\u30cd\u30eb \u6298\u308a\u305f\u305f\u307f\u30c8\u30b0\u30eb ========
-function toggleLayerPanel() {
-  const lc = document.getElementById('layerControl');
-  if (lc) lc.classList.toggle('collapsed');
-}
-if (window.innerWidth <= 1024) {
-  const lc = document.getElementById('layerControl');
-  if (lc) lc.classList.add('collapsed');
-}
-
-// ======== \u30a2\u30af\u30b7\u30e7\u30f3\u30d1\u30cd\u30eb \u6298\u308a\u305f\u305f\u307f\u30c8\u30b0\u30eb ========
-function toggleActionPanel(id) {
-  const el = document.getElementById(id);
-  if (el) el.classList.toggle('collapsed');
-}
-function toggleBgAdjust() {
-  const el = document.getElementById('bgAdjustPanel');
-  if (el) el.classList.toggle('collapsed');
-}
-if (window.innerWidth <= 1024) {
-  ['planPanel'].forEach(function(id){
-    const el = document.getElementById(id);
-    if (el) el.classList.add('collapsed');
-  });
-}
-
-// ======== \u30c9\u30e9\u30c3\u30b0\u53ef\u80fd\u30d1\u30cd\u30eb \u5171\u901aJS\uff083\u30de\u30c3\u30d7\u5171\u901a\uff09========
-function initDraggablePanels(storageKeyPrefix, configs) {
-  configs.forEach(function(cfg) {
-    var panel = document.querySelector(cfg.id);
-    if (!panel) return;
-    panel.classList.add('draggable-panel');
-    // \u65e7\u30ad\u30fc\u306e\u53e4\u3044\u30c7\u30fc\u30bf\u3092\u524a\u9664\uff08v2\u5316\u3067\u4e0d\u6574\u5408\u30c7\u30fc\u30bf\u3092\u7834\u68c4\uff09
-    var oldStorageKey = 'dragPos_' + storageKeyPrefix + '_' + cfg.id.replace(/[^a-zA-Z0-9]/g, '_');
-    try { localStorage.removeItem(oldStorageKey); } catch (_) {}
-    var storageKey = oldStorageKey + '_v2';
-    var savedPos = null;
-    try { savedPos = JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch (e) {}
-    if (savedPos && typeof savedPos.left === 'number' && typeof savedPos.top === 'number') {
-      // 画面サイズ範囲チェック：画面外の値は破棄して初期位置に戻す（大画面で保存→小画面で復元時の対策）
-      var isOutside = savedPos.left > window.innerWidth - 40 || savedPos.left < -200 ||
-                      savedPos.top > window.innerHeight - 40 || savedPos.top < -100;
-      if (isOutside) {
-        try { localStorage.removeItem(storageKey); } catch (_) {}
-      } else {
-        panel.style.left = savedPos.left + 'px';
-        panel.style.top = savedPos.top + 'px';
-        panel.style.right = 'auto';
-        panel.style.bottom = 'auto';
-      }
-    }
-    // \u30cf\u30f3\u30c9\u30eb\u6c7a\u5b9a\uff1acfg.handle\u6307\u5b9a\u3042\u308a\u2192\u305d\u308c\u3092\u4f7f\u7528 / \u306a\u3057\u2192panel\u81ea\u8eab\u3092\u30cf\u30f3\u30c9\u30eb\u306b
-    var handle = null;
-    if (cfg.handle) handle = panel.querySelector(cfg.handle);
-    if (!handle) handle = panel;
-    handle.title = '\u30c9\u30e9\u30c3\u30b0\u3067\u79fb\u52d5\u30fb\u30c0\u30d6\u30eb\u30af\u30ea\u30c3\u30af\u3067\u4f4d\u7f6e\u30ea\u30bb\u30c3\u30c8';
-    handle.style.cursor = 'grab';
-    var SKIP_SELECTOR = 'button, input, select, textarea, a, .chiban-result-item, .chiban-results';
-    // \u30d1\u30cd\u30eb\u306eoffsetParent\u57fa\u6e96\u306e\u4f4d\u7f6e\u3092\u8a08\u7b97\u3059\u308b\u30d8\u30eb\u30d1\u30fc
-    function getParentOffset() {
-      var op = panel.offsetParent || document.body;
-      var r = op.getBoundingClientRect();
-      return { left: r.left, top: r.top };
-    }
-    handle.addEventListener('dblclick', function(e) {
-      if (e.target.closest(SKIP_SELECTOR)) return;
-      e.stopPropagation();
-      localStorage.removeItem(storageKey);
-      panel.style.left = ''; panel.style.top = ''; panel.style.right = ''; panel.style.bottom = '';
-      if (typeof showToast === 'function') showToast('\u4f4d\u7f6e\u3092\u521d\u671f\u5316\u3057\u307e\u3057\u305f', 'success');
-    });
-    var dragging = false, offsetX = 0, offsetY = 0;
-    handle.addEventListener('pointerdown', function(e) {
-      if (e.target.closest(SKIP_SELECTOR)) return;
-      dragging = true;
-      document.body.classList.add('dragging-panel');
-      var rect = panel.getBoundingClientRect();
-      var po = getParentOffset();
-      // \u30ab\u30fc\u30bd\u30eb\u3068\u30d1\u30cd\u30eb\u5de6\u4e0a\u306e\u76f8\u5bfe\u8ddd\u96e2\u3092\u8a18\u9332
-      offsetX = e.clientX - rect.left;
-      offsetY = e.clientY - rect.top;
-      // \u89aa\u8981\u7d20\u57fa\u6e96\u3067panel\u306e\u73fe\u5728\u4f4d\u7f6e\u3092\u30bb\u30c3\u30c8\uff08viewport \u2192 offsetParent\u57fa\u6e96\u306b\u5909\u63db\uff09
-      panel.style.left = (rect.left - po.left) + 'px';
-      panel.style.top = (rect.top - po.top) + 'px';
-      panel.style.right = 'auto'; panel.style.bottom = 'auto';
-      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
-      e.stopPropagation();
-      e.preventDefault();
-    });
-    handle.addEventListener('pointermove', function(e) {
-      if (!dragging) return;
-      var po = getParentOffset();
-      // \u30d1\u30cd\u30eb\u306e\u65b0\u3057\u3044\u4f4d\u7f6e = \u30ab\u30fc\u30bd\u30eb\u4f4d\u7f6e - offset - \u89aa\u8981\u7d20\u4f4d\u7f6e\uff08offsetParent\u57fa\u6e96\uff09
-      var newLeft = e.clientX - offsetX - po.left;
-      var newTop = e.clientY - offsetY - po.top;
-      var rect = panel.getBoundingClientRect();
-      // \u5883\u754c\u30c1\u30a7\u30c3\u30af\u3082offsetParent\u57fa\u6e96\u3067\u8a08\u7b97
-      var maxLeft = window.innerWidth - po.left - 16;
-      var maxTop = window.innerHeight - po.top - 16;
-      var minLeft = -(rect.width - 16);
-      var minTop = -po.top;
-      if (newLeft < minLeft) newLeft = minLeft;
-      if (newLeft > maxLeft) newLeft = maxLeft;
-      if (newTop < minTop) newTop = minTop;
-      if (newTop > maxTop) newTop = maxTop;
-      panel.style.left = newLeft + 'px'; panel.style.top = newTop + 'px';
-    });
-    function endDrag(e) {
-      if (!dragging) return;
-      dragging = false;
-      document.body.classList.remove('dragging-panel');
-      try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
-      var left = parseFloat(panel.style.left) || 0;
-      var top = parseFloat(panel.style.top) || 0;
-      try { localStorage.setItem(storageKey, JSON.stringify({ left: left, top: top })); } catch (_) {}
-    }
-    handle.addEventListener('pointerup', endDrag);
-    handle.addEventListener('pointercancel', endDrag);
-  });
-}
-// field-survey\u5c02\u7528\u306e\u30c9\u30e9\u30c3\u30b0\u30d1\u30cd\u30eb\u521d\u671f\u5316
-initDraggablePanels('fieldSurvey', [
-  { id: '#chibanSearch' },
-  { id: '#statsOverlay' },
-  { id: '#controlPanel' },
-  { id: '#layerControl', handle: '.layer-panel-header' },
-  { id: '#bgAdjustPanel', handle: '.mc-panel-header' }
-]);
 </script>
 <script src="case-candidates-recorder.js?v=20260702m3"></script>
 <script>
