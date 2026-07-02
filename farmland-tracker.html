@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260702i / 距離計測が動作しなかった根本原因を修正：関数名 _measureClick が変電所計測用と距離計測用で衝突していた。変電所計測側を _subDistClick にリネーム。
+<!-- BUILD: farmland-tracker v20260702j / 凡例(mapLegend)と地番検索(chibanSearch)を edge-panel 方式(画面外折り畳み)に刷新。凡例=右端固定, 検索=左端固定, いずれも縦タブクリックで展開/収納。フォント統一(mc-panel-title を他モーダルと同じ 10px/700/uppercase/letter-spacing に)。ドラッグ機能廃止・旧位置localStorage清掃。
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -168,10 +168,19 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 .zoom-controls{position:absolute;bottom:80px;right:12px;z-index:500;display:flex;flex-direction:column;gap:2px;}
 .zoom-btn{width:32px;height:32px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;}
 .zoom-level{width:32px;height:28px;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--accent);font-family:var(--font-mono);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;}
-.map-legend{position:absolute;bottom:24px;left:12px;z-index:500;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;}
-.legend-title{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;}
-.legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-bottom:5px;}
+/* 凡例パネル: 右端固定・画面外折り畳み (v20260702j) */
+.map-legend{position:absolute;top:60px;right:0;left:auto;bottom:auto;z-index:500;display:flex;flex-direction:row-reverse;align-items:stretch;background:transparent;border:none;border-radius:0;padding:0;transform:translateX(calc(100% - 32px));transition:transform 0.25s ease;}
+.map-legend.expanded{transform:translateX(0);}
+.map-legend .mc-panel-body{padding:12px 14px;min-width:200px;background:var(--surface);border:1px solid var(--border);border-right:none;border-radius:8px 0 0 8px;}
+.map-legend .edge-panel-tab{border:1px solid var(--border);border-right:none;border-radius:8px 0 0 8px;background:var(--surface);}
+.legend-title{font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;font-family:var(--font-main);}
+.legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-bottom:5px;font-family:var(--font-main);}
 .legend-marker{width:14px;height:14px;border-radius:50%;border:2px solid rgba(0,0,0,0.3);}
+/* エッジ折り畳みパネル 共通タブ (v20260702j) */
+.edge-panel-tab{background:var(--surface2);color:var(--text-muted);cursor:pointer;padding:14px 6px;writing-mode:vertical-rl;text-orientation:mixed;font-family:var(--font-main);font-size:11px;font-weight:700;letter-spacing:0.15em;min-height:90px;display:flex;align-items:center;justify-content:center;transition:color 0.15s,background 0.15s;flex-shrink:0;user-select:none;}
+.edge-panel-tab:hover{color:var(--accent);background:var(--surface);}
+/* mc-panel-title フォント統一 (v20260702j) */
+.mc-panel-title{display:block;font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;font-family:var(--font-main);}
 .side-panel{position:absolute;top:0;right:0;width:320px;height:100%;background:var(--surface);border-left:1px solid var(--border);z-index:600;transform:translateX(100%);transition:transform 0.3s ease;overflow-y:auto;display:flex;flex-direction:column;}
 .side-panel.open{transform:translateX(0);}
 .side-panel-header{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:1;}
@@ -200,11 +209,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 .toast-container{position:fixed;bottom:20px;right:60px;z-index:3000;display:flex;flex-direction:column;gap:8px;}
 .farmland-tooltip{background:#161b22;border:1px solid #f0b429;border-radius:6px;color:#e6edf3;font-size:12px;padding:4px 10px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);}
 .farmland-tooltip::before{display:none;}
-/* 地番検索 */
-.chiban-search{position:absolute;top:60px;left:12px;z-index:501;width:260px;}
-.chiban-search input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px 8px 32px;color:var(--text);font-family:var(--font-main);font-size:12px;outline:none;}
+/* 地番検索: 左端固定・画面外折り畳み (v20260702j) */
+.chiban-search{position:absolute;top:60px;left:0;right:auto;bottom:auto;z-index:501;display:flex;flex-direction:row;align-items:stretch;width:auto;transform:translateX(calc(-100% + 32px));transition:transform 0.25s ease;}
+.chiban-search.expanded{transform:translateX(0);}
+.chiban-search-body{position:relative;width:260px;padding:10px;background:var(--surface);border:1px solid var(--border);border-left:none;border-radius:0 0 8px 0;}
+.chiban-search .edge-panel-tab{border:1px solid var(--border);border-left:none;border-radius:0 8px 8px 0;background:var(--surface);}
+.chiban-search input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px 8px 32px;color:var(--text);font-family:var(--font-main);font-size:12px;outline:none;}
 .chiban-search input:focus{border-color:var(--accent);}
-.chiban-search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;pointer-events:none;}
+.chiban-search-icon{position:absolute;left:20px;top:22px;font-size:13px;pointer-events:none;}
 .chiban-results{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-top:4px;max-height:200px;overflow-y:auto;display:none;}
 /* 市区町村境界の点滅アニメーション（マゼンタ） */
 @keyframes boundary-pulse {
@@ -536,19 +548,16 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   </div>
   <div class="loading-overlay" id="loadingOverlay" style="display:none;"><div class="spinner"></div><div class="loading-text" id="loadingText">データを読み込み中...</div></div>
   <div class="empty-state" id="emptyState"><div class="empty-icon">&#127807;</div><div class="empty-text">上の「&#128229; 今日のデータ取得」ボタンを押してデータを収集してください<br>2日分のデータが溜まると変更が表示されます</div></div>
-  <div class="map-legend mc-collapsible" id="mapLegend">
-    <div class="mc-panel-header" id="mapLegendHeader" style="cursor:grab;user-select:none">
-      <span class="mc-panel-title" style="pointer-events:none">⠿ 🎯 凡例 (変更状況)</span>
-      <button class="mc-panel-toggle" type="button" aria-label="開閉" onclick="event.stopPropagation();toggleMapLegend()" style="cursor:pointer">▼</button>
-    </div>
+  <div class="map-legend" id="mapLegend">
+    <button class="edge-panel-tab" type="button" onclick="toggleEdgePanel('mapLegend')" title="凡例を開閉">🎯 凡例</button>
     <div class="mc-panel-body">
-    <div class="legend-title">変更状況</div>
-    <div class="legend-item"><div class="legend-marker" style="background:#3fb950;"></div>新規追加</div>
-    <div class="legend-item"><div class="legend-marker" style="background:#a855f7;border-color:#a855f7;"></div>変更なし</div>
-    <div class="legend-item"><div class="legend-marker" style="background:#0ea5e9;"></div>eMAFF売却希望</div>
-    <div class="legend-item"><div class="legend-marker" style="background:#a855f7;border-color:#3b82f6;border-width:3px;"></div>💬 コメント有り</div>
-    <div class="legend-item"><div class="legend-marker" style="background:#fef08a;border-color:#eab308;border-style:dashed;border-width:2px;border-radius:2px;"></div>農振農用地（黄破線）</div>
-    <div class="legend-item"><div class="legend-marker" style="background:#dc2626;border-color:#dc2626;width:14px;height:3px;border-radius:0;"></div>都市計画道路（赤線）</div>
+      <div class="mc-panel-title">凡例 (変更状況)</div>
+      <div class="legend-item"><div class="legend-marker" style="background:#3fb950;"></div>新規追加</div>
+      <div class="legend-item"><div class="legend-marker" style="background:#a855f7;border-color:#a855f7;"></div>変更なし</div>
+      <div class="legend-item"><div class="legend-marker" style="background:#0ea5e9;"></div>eMAFF売却希望</div>
+      <div class="legend-item"><div class="legend-marker" style="background:#a855f7;border-color:#3b82f6;border-width:3px;"></div>💬 コメント有り</div>
+      <div class="legend-item"><div class="legend-marker" style="background:#fef08a;border-color:#eab308;border-style:dashed;border-width:2px;border-radius:2px;"></div>農振農用地（黄破線）</div>
+      <div class="legend-item"><div class="legend-marker" style="background:#dc2626;border-color:#dc2626;width:14px;height:3px;border-radius:0;"></div>都市計画道路（赤線）</div>
     </div>
   </div>
   <div class="zoom-controls">
@@ -561,11 +570,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <button class="gis-switch-btn" id="gisSat" onclick="switchGIS('satellite')">&#128752; GSI衛星</button>
     <button class="gis-switch-btn" id="gisEsri" onclick="switchGIS('esri')">&#127381; 最新衛星</button>
   </div>
-  <!-- 地番・住所検索 -->
+  <!-- 地番・住所検索 (v20260702j: 左端固定・画面外折り畳み) -->
   <div class="chiban-search" id="chibanSearch">
-    <span class="chiban-search-icon">&#128269;</span>
-    <input type="text" id="chibanInput" placeholder="市区町村 大字 地番で検索...">
-    <div class="chiban-results" id="chibanResults"></div>
+    <div class="chiban-search-body">
+      <span class="chiban-search-icon">&#128269;</span>
+      <input type="text" id="chibanInput" placeholder="市区町村 大字 地番で検索...">
+      <div class="chiban-results" id="chibanResults"></div>
+    </div>
+    <button class="edge-panel-tab" type="button" onclick="toggleEdgePanel('chibanSearch')" title="地番検索を開閉">🔍 検索</button>
   </div>
   <div class="hazard-controls" id="hazardControls">
     <div class="hazard-panel-header" onclick="toggleHazardPanel()">
@@ -2000,10 +2012,13 @@ function _tbOvClose(){
   // ミニマップ自体は残す(再表示時の初期化コスト回避)
 }
 
-/* ===== 凡例パネル ドラッグ可能化 v20260622i =====
-   ヘッダ(mapLegendHeader)をつかんでドラッグ。位置はlocalStorageに保存して次回再現。
-   ▼開閉ボタン(.mc-panel-toggle)はクリック処理を維持(stopPropagation)。 */
+/* ===== 凡例パネル ドラッグ可能化 v20260622i (v20260702jで無効化) =====
+   凡例は edge-panel 方式（右端固定・画面外折り畳み）に移行したため、
+   ドラッグ機能・localStorage位置保存は不要になった。
+   古いlocalStorage('mapLegendPos')はロード時に削除して残骸を除去する。 */
 (function(){
+  try{ localStorage.removeItem('mapLegendPos'); }catch(_){}
+  return;
   function init(){
     var panel=document.getElementById('mapLegend');
     var header=document.getElementById('mapLegendHeader');
@@ -5446,12 +5461,34 @@ function initDraggablePanels(storageKeyPrefix, configs) {
   });
 }
 // farmland-tracker\u5c02\u7528\u306e\u30c9\u30e9\u30c3\u30b0\u30d1\u30cd\u30eb\u521d\u671f\u5316
+// v20260702j: #chibanSearch と #mapLegend は edge-panel 方式に移行のため除外
 initDraggablePanels('farmlandTracker', [
-  { id: '#chibanSearch' },
   { id: '.gis-switch' },
-  { id: '#hazardControls', handle: '.hazard-panel-header' },
-  { id: '#mapLegend', handle: '.mc-panel-header' }
+  { id: '#hazardControls', handle: '.hazard-panel-header' }
 ]);
+// v20260702j: 旧ドラッグ位置の localStorage を清掃
+try{
+  localStorage.removeItem('dragPos_farmlandTracker__chibanSearch_v2');
+  localStorage.removeItem('dragPos_farmlandTracker__mapLegend_v2');
+}catch(_){}
+// v20260702j: エッジパネル(凡例・地番検索) 開閉トグル & 状態復元
+window.toggleEdgePanel = function(id){
+  var el = document.getElementById(id);
+  if(!el) return;
+  el.classList.toggle('expanded');
+  try{ localStorage.setItem('edgePanel:'+id, el.classList.contains('expanded') ? '1' : '0'); }catch(_){}
+};
+(function initEdgePanels(){
+  ['mapLegend','chibanSearch'].forEach(function(id){
+    try{
+      var s = localStorage.getItem('edgePanel:'+id);
+      var el = document.getElementById(id);
+      if(!el) return;
+      // デフォルト状態は「折り畳み」。'1' が保存されている場合のみ展開して復元
+      if(s === '1') el.classList.add('expanded');
+    }catch(_){}
+  });
+})();
 </script>
 <script src="case-candidates-recorder.js?v=20260522a"></script>
 <script>
