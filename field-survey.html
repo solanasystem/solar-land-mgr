@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260519a / 写真アップロードsilent failure撲滅・iPhone標準カメラ運用・EXIF GPS抽出対応／v4.1 にバージョンアップ -->
+<!-- BUILD: field-survey v20260702m / 土砂災害警戒区域を「重ねるハザードマップ」公式タイル方式に変更(3種類重畳: 土石流・急傾斜地・地すべり)。旧Supabase A33ポリゴン方式(row_limit=300で欠落あり)を廃止。事業性判断で公式ハザードマップと100%一致。3-map共通ルールに従い farmland-tracker.html と同じ実装。 -->
 <!-- v20260626c: ポップアップにGoogle地図・ストリートビューボタン追加
 <!-- v20260626a: 別荘地候補レイヤー追加（villa_place_names 16件・v_villa_places_map ビュー経由）。🏘️別荘地候補トグル+パターン別色分け凡例（別荘地#7c3aed/ハイランド・リゾート#c026d3/高原#a855f7）。villaPane(zIndex640)+canvas。3マップ同期実装。 -->
 <html lang="ja">
@@ -2105,21 +2105,19 @@ function showToast(msg, type = 'success') {
 function closeSidePanel() { document.getElementById('sidePanel').classList.remove('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
-// ======== \u571f\u7802\u707d\u5bb3\u8b66\u6212\u533a\u57df\u30dd\u30ea\u30b4\u30f3 ========
-let dosyaLayer = null;
-let dosyaEnabled = false;
-let dosyaRenderTimer = null;
-
-function getDosyaStyle(phenomenon, areaType) {
-  const isSpecial = areaType === '\u7279\u5225\u8b66\u6212\u533a\u57df';
-  const colorMap = {
-    '\u571f\u77f3\u6d41':         isSpecial ? '#dc2626' : '#f59e0b',
-    '\u6025\u50be\u659c\u5730\u306e\u5d29\u58ca': isSpecial ? '#9f1239' : '#f97316',
-    '\u5730\u3059\u3079\u308a':       isSpecial ? '#7c3aed' : '#84cc16',
-  };
-  const color = colorMap[phenomenon] || (isSpecial ? '#dc2626' : '#f59e0b');
-  return { fillColor: color, fillOpacity: isSpecial ? 0.35 : 0.2, color, weight: isSpecial ? 2 : 1.5, opacity: 0.9 };
-}
+// ======== 土砂災害警戒区域: 国土地理院公式タイル方式 (v20260702m) ==========
+// 「重ねるハザードマップ」と100%同一のタイル配信を利用。
+// Supabase A33ポリゴン方式(row_limit=300で欠落)を廃止。
+// 3種類(土石流・急傾斜地の崩壊・地すべり)を重畳表示 = 事業性判断で完全一致。
+// タイル出典: https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html
+var dosyaTileLayers = null;
+var dosyaEnabled = false;
+var DOSYA_TILE_URLS = {
+  dosekiryu: 'https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki/{z}/{x}/{y}.png',
+  kyukeisha: 'https://disaportaldata.gsi.go.jp/raster/05_kyukeishakeikaikuiki/{z}/{x}/{y}.png',
+  jisuberi:  'https://disaportaldata.gsi.go.jp/raster/05_jisuberikeikaikuiki/{z}/{x}/{y}.png'
+};
+var DOSYA_ATTRIBUTION = '<a href="https://disaportal.gsi.go.jp/" target="_blank">ハザードマップポータルサイト</a>';
 
 // ======== v20260626a: 別荘地候補レイヤー（villa_place_names・紫点表示） ========
 var villaEnabled=false, villaLoading=false, villaLayer=null, villaCache=null, villaRenderer=null;
@@ -2222,71 +2220,44 @@ function toggleDosyaPolygon() {
   dosyaEnabled = !dosyaEnabled;
   if (dosyaEnabled) {
     btn.classList.add('active');
-    loadDosya();
+    _loadDosyaTiles();
   } else {
     btn.classList.remove('active');
-    if (dosyaLayer) { map.removeLayer(dosyaLayer); dosyaLayer = null; }
-    map.off('moveend', renderDosyaInView);
-    map.off('zoomend', renderDosyaInView);
+    _unloadDosyaTiles();
   }
 }
 
-function renderDosyaInView() {
-  if (dosyaRenderTimer) clearTimeout(dosyaRenderTimer);
-  dosyaRenderTimer = setTimeout(_doRenderDosya, 300);
-}
-
-function _doRenderDosya() {
-  if (!dosyaEnabled) return;
-  if (map.getZoom() < 12) {
-    if (dosyaLayer) { map.removeLayer(dosyaLayer); dosyaLayer = null; }
-    showToast('\u30ba\u30fc\u30e0\u30ec\u30d9\u30eb12\u4ee5\u4e0a\u3067\u8868\u793a\u3055\u308c\u307e\u3059', 'error');
-    return;
+function _loadDosyaTiles() {
+  if (dosyaTileLayers) return;
+  if (!map.getPane('hazardTilePane')) {
+    var p = map.createPane('hazardTilePane');
+    p.style.zIndex = '220';
+    p.style.pointerEvents = 'none';
   }
-  _fetchAndRenderDosya();
-}
-
-async function _fetchAndRenderDosya() {
-  const b = map.getBounds().pad(0.05);
-  const { data, error } = await db.rpc('get_dosya_in_bbox', {
-    lat_min: b.getSouth(), lat_max: b.getNorth(),
-    lng_min: b.getWest(),  lng_max: b.getEast(),
-    row_limit: 300,
+  dosyaTileLayers = {};
+  ['dosekiryu','kyukeisha','jisuberi'].forEach(function(k){
+    var layer = L.tileLayer(DOSYA_TILE_URLS[k], {
+      opacity: 0.75,
+      minZoom: 2, maxZoom: 19, maxNativeZoom: 17,
+      attribution: DOSYA_ATTRIBUTION,
+      pane: 'hazardTilePane'
+    });
+    layer.addTo(map);
+    dosyaTileLayers[k] = layer;
   });
-  if (error || !data || !data.length) return;
-  if (dosyaLayer) { map.removeLayer(dosyaLayer); dosyaLayer = null; }
-  const features = data.map(row => ({
-    type: 'Feature', geometry: row.geojson,
-    properties: { area_name: row.area_name, phenomenon: row.phenomenon, area_type: row.area_type, city_name: row.city_name, area_code: row.area_code },
-  }));
-  dosyaLayer = L.geoJSON({ type: 'FeatureCollection', features }, {
-    style: f => getDosyaStyle(f.properties.phenomenon, f.properties.area_type),
-    onEachFeature: (feature, layer) => {
-      const p = feature.properties;
-      const typeColor = p.area_type === '\u7279\u5225\u8b66\u6212\u533a\u57df' ? '#dc2626' : '#f59e0b';
-      layer.on('click', function(e) {
-        L.popup({ maxWidth: 300, minWidth: 240 }).setLatLng(e.latlng).setContent(`
-          <div class="popup-body">
-            <div class="popup-case-no" style="font-size:13px;color:${typeColor};margin-bottom:10px">\u26a0\ufe0f \u571f\u7802\u707d\u5bb3${p.area_type}</div>
-            <div class="popup-info">
-              <div class="popup-row"><span class="popup-label">\u73fe\u8c61</span><span class="popup-value">${p.phenomenon||'\u2014'}</span></div>
-              <div class="popup-row"><span class="popup-label">\u533a\u57df\u540d</span><span class="popup-value">${p.area_name||'\u2014'}</span></div>
-              <div class="popup-row"><span class="popup-label">\u5e02\u533a\u753a\u6751</span><span class="popup-value">${p.city_name||'\u2014'}</span></div>
-              <div class="popup-row"><span class="popup-label">\u533a\u57df\u30b3\u30fc\u30c9</span><span class="popup-value" style="font-family:monospace;font-size:11px">${p.area_code||'\u2014'}</span></div>
-            </div>
-            <hr class="popup-divider">
-            <div style="font-size:11px;color:#aaa;line-height:1.5">
-              ${p.area_type==='\u7279\u5225\u8b66\u6212\u533a\u57df'?'\ud83d\udd34 \u5efa\u7bc9\u7269\u306e\u5012\u58ca\u30fb\u6d41\u5931\u304c\u751f\u3058\u308b\u6050\u308c\u306e\u3042\u308b\u533a\u57df\u3067\u3059':'\ud83d\udfe1 \u571f\u7802\u707d\u5bb3\u304c\u767a\u751f\u3057\u305f\u5834\u5408\u306b\u88ab\u5bb3\u3092\u53d7\u3051\u308b\u6050\u308c\u306e\u3042\u308b\u533a\u57df\u3067\u3059'}
-            </div>
-          </div>
-        `).openOn(map);
-      });
-      layer.on('mouseover', function() { layer.setStyle({ fillOpacity: 0.55, weight: 3 }); });
-      layer.on('mouseout', function() { dosyaLayer.resetStyle(layer); });
-    },
-  }).addTo(map);
-  dosyaLayer.bringToFront();
 }
+
+function _unloadDosyaTiles() {
+  if (!dosyaTileLayers) return;
+  Object.keys(dosyaTileLayers).forEach(function(k){
+    try { map.removeLayer(dosyaTileLayers[k]); } catch(_) {}
+  });
+  dosyaTileLayers = null;
+}
+
+// 旧A33ポリゴン方式のダミー関数(内部呼び出し互換用、無効化)
+function renderDosyaInView() {}
+function loadDosya() {}
 
 async function unConfirm(caseId) {
   if (!confirm('\u73fe\u5730\u78ba\u8a8d\u3092\u89e3\u9664\u3057\u307e\u3059\u304b\uff1f')) return;
@@ -2306,11 +2277,7 @@ async function unConfirm(caseId) {
   showToast('\u73fe\u5730\u78ba\u8a8d\u3092\u89e3\u9664\u3057\u307e\u3057\u305f', 'success');
 }
 
-function loadDosya() {
-  map.on('moveend', renderDosyaInView);
-  map.on('zoomend', renderDosyaInView);
-  renderDosyaInView();
-}
+function loadDosya() { /* v20260702m: 廃止済み (公式タイル方式に移行) */ }
 
 // ======== \u90fd\u5e02\u8a08\u753b\u60c5\u5831\uff08\u7528\u9014\u5730\u57df XKT002\uff09 ========
 const WORKER_BASE = 'https://reinfolib-proxy.takumi-29b.workers.dev/api';
