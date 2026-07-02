@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260702a / CADハッチングトグル追加(villa_hatch 10個・ON/OFF・透明度調整)。 CAD区画図を正しい1:1スケール(v3データ)対応。位置調整UIを平行移動＋回転のみに(拡大縮小は実寸のため廃止)。villa_parcels_transformに変換保存。 -->
+<!-- BUILD: farmland-tracker v20260702c / 線画・ハッチ両方の回転中心をDB保存値のみに統一(点平均フォールバック廃止)。位置ズレ根絶。 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -4202,11 +4202,9 @@ function _vpApplyPoint(lng, lat, cLat, cLng, rad, cosLatC){
 
 function _villaParcelsFeatureCollection(){
   var features=[];
-  // 回転中心
-  var ctr=(vpTransform.center_lat!=null&&vpTransform.center_lng!=null)
-    ? {lat:vpTransform.center_lat, lng:vpTransform.center_lng}
-    : _vpComputeCenter();
-  var cLat=ctr?ctr.lat:35.3374, cLng=ctr?ctr.lng:135.9744;
+  // 回転中心は必ずDB保存値のみ（ハッチと完全一致させるため、点平均フォールバックは使わない）
+  var cLat=(vpTransform.center_lat!=null)?vpTransform.center_lat:35.3374368645772;
+  var cLng=(vpTransform.center_lng!=null)?vpTransform.center_lng:135.974279191393;
   var rad=(vpTransform.rotation_deg||0)*Math.PI/180;
   var cosLatC=Math.cos(cLat*Math.PI/180)||1;
   var identity=(!vpTransform.offset_lat&&!vpTransform.offset_lng&&!vpTransform.rotation_deg);
@@ -4373,6 +4371,8 @@ async function _loadVillaHatch(){
   if(villaHatchLoading)return; villaHatchLoading=true;
   showToast('CADハッチングを読み込み中...','success');
   try{
+    // 位置変換を確実に取得（CAD区画図と同じ位置に合わせるため）
+    await _vpLoadTransform();
     var res=await db.from('villa_hatch').select('hatch_idx,aci_color,color_hex,geom').eq('villa_name','びわこの森').order('hatch_idx').range(0,999);
     if(res.error)throw res.error;
     villaHatchCache=res.data||[]; villaHatchLoading=false; _renderVillaHatch();
@@ -4387,9 +4387,20 @@ function _renderVillaHatch(){
   if(!villaHatchEnabled)return;
   if(villaHatchLayer){try{map.removeLayer(villaHatchLayer);}catch(e){}villaHatchLayer=null;}
   if(!map.getPane('villaHatchPane')){var p=map.createPane('villaHatchPane');p.style.zIndex=427;}
+  // 線画と完全に同じ変換を使う。回転中心は必ずDB保存値のみ（フォールバック禁止）。
+  var cLat=(vpTransform.center_lat!=null)?vpTransform.center_lat:35.3374368645772;
+  var cLng=(vpTransform.center_lng!=null)?vpTransform.center_lng:135.974279191393;
+  var rad=(vpTransform.rotation_deg||0)*Math.PI/180;
+  var cosLatC=Math.cos(cLat*Math.PI/180)||1;
+  var identity=(!vpTransform.offset_lat&&!vpTransform.offset_lng&&!vpTransform.rotation_deg);
   var feats=[];
   (villaHatchCache||[]).forEach(function(row){
-    if(!row.geom)return; var g=(typeof row.geom==='string')?JSON.parse(row.geom):row.geom;
+    if(!row.geom)return; var g0=(typeof row.geom==='string')?JSON.parse(row.geom):row.geom;
+    var g;
+    if(identity){g=g0;}
+    else if(g0.type==='Polygon'){
+      g={type:'Polygon',coordinates:[g0.coordinates[0].map(function(c){return _vpApplyPoint(c[0],c[1],cLat,cLng,rad,cosLatC);})]};
+    }else{g=g0;}
     feats.push({type:'Feature',geometry:g,properties:{color:row.color_hex||'#ff8800',idx:row.hatch_idx}});
   });
   villaHatchLayer=L.geoJSON({type:'FeatureCollection',features:feats},{
