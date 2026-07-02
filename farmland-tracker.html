@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260701e / CAD区画図を正しい1:1スケール(v3データ)対応。位置調整UIを平行移動＋回転のみに(拡大縮小は実寸のため廃止)。villa_parcels_transformに変換保存。 -->
+<!-- BUILD: farmland-tracker v20260702a / CADハッチングトグル追加(villa_hatch 10個・ON/OFF・透明度調整)。 CAD区画図を正しい1:1スケール(v3データ)対応。位置調整UIを平行移動＋回転のみに(拡大縮小は実寸のため廃止)。villa_parcels_transformに変換保存。 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -689,6 +689,19 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
           <button onclick="_vpReloadTransform()" style="width:100%;margin-top:4px;cursor:pointer;padding:4px;background:var(--surface);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;font-size:9px;">保存済みに戻す</button>
         </div>
         <div style="color:var(--text-dim);font-size:9px;line-height:1.4;margin-top:3px;">閉じた区画をクリックすると面積(㎡)を表示します。</div>
+      </div>
+    </div>
+    <!-- CADハッチング (villa_hatch・色分け区画) v20260702a -->
+    <button class="hazard-toggle-btn" id="hzVillaHatch" onclick="toggleVillaHatch()">
+      <span class="hazard-toggle-dot"></span>🎨 CADハッチング
+    </button>
+    <div id="villaHatchPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.7;">
+        <div style="font-weight:600;margin-bottom:4px">CADハッチング（色分け区画）</div>
+        <div id="villaHatchInfo" style="color:var(--text-muted);">読み込み中...</div>
+        <label style="font-size:9px;color:var(--text-muted);cursor:pointer;display:block;margin-top:4px;">塗り透明度
+          <input type="range" id="villaHatchOpacity" min="10" max="90" step="5" value="45" oninput="_setVillaHatchOpacity(this.value)" style="width:100%;">
+        </label>
       </div>
     </div>
     <div id="villaOverlayPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
@@ -4342,8 +4355,52 @@ function _vpReloadTransform(){
   showToast('保存済みの位置に戻しました','success');
 }
 
+// ======== CADハッチング (villa_hatch / びわこの森 色分け区画) v20260702a ========
+var villaHatchEnabled=false, villaHatchLoading=false, villaHatchCache=null, villaHatchLayer=null, villaHatchOpacity=0.45;
+function toggleVillaHatch(){
+  var btn=document.getElementById('hzVillaHatch'); var panel=document.getElementById('villaHatchPanel');
+  villaHatchEnabled=!villaHatchEnabled;
+  if(!villaHatchEnabled){
+    if(villaHatchLayer){try{map.removeLayer(villaHatchLayer);}catch(e){}villaHatchLayer=null;}
+    if(btn)btn.classList.remove('active'); if(panel)panel.style.display='none';
+    showToast('CADハッチングを非表示にしました','success'); return;
+  }
+  if(btn)btn.classList.add('active'); if(panel)panel.style.display='block';
+  if(villaHatchCache){_renderVillaHatch();return;}
+  _loadVillaHatch();
+}
+async function _loadVillaHatch(){
+  if(villaHatchLoading)return; villaHatchLoading=true;
+  showToast('CADハッチングを読み込み中...','success');
+  try{
+    var res=await db.from('villa_hatch').select('hatch_idx,aci_color,color_hex,geom').eq('villa_name','びわこの森').order('hatch_idx').range(0,999);
+    if(res.error)throw res.error;
+    villaHatchCache=res.data||[]; villaHatchLoading=false; _renderVillaHatch();
+  }catch(e){
+    villaHatchLoading=false; villaHatchEnabled=false;
+    var btn=document.getElementById('hzVillaHatch'); if(btn)btn.classList.remove('active');
+    var panel=document.getElementById('villaHatchPanel'); if(panel)panel.style.display='none';
+    showToast('CADハッチング読み込み失敗: '+(e&&e.message?e.message:JSON.stringify(e)),'error');
+  }
+}
+function _renderVillaHatch(){
+  if(!villaHatchEnabled)return;
+  if(villaHatchLayer){try{map.removeLayer(villaHatchLayer);}catch(e){}villaHatchLayer=null;}
+  if(!map.getPane('villaHatchPane')){var p=map.createPane('villaHatchPane');p.style.zIndex=427;}
+  var feats=[];
+  (villaHatchCache||[]).forEach(function(row){
+    if(!row.geom)return; var g=(typeof row.geom==='string')?JSON.parse(row.geom):row.geom;
+    feats.push({type:'Feature',geometry:g,properties:{color:row.color_hex||'#ff8800',idx:row.hatch_idx}});
+  });
+  villaHatchLayer=L.geoJSON({type:'FeatureCollection',features:feats},{
+    pane:'villaHatchPane',
+    style:function(f){return {color:f.properties.color,weight:1,opacity:0.9,fill:true,fillColor:f.properties.color,fillOpacity:villaHatchOpacity};}
+  }).addTo(map);
+  var info=document.getElementById('villaHatchInfo'); if(info)info.innerHTML='ハッチング '+(villaHatchCache?villaHatchCache.length:0)+'個を表示中';
+}
+function _setVillaHatchOpacity(v){villaHatchOpacity=parseInt(v)/100; if(villaHatchEnabled&&villaHatchLayer)villaHatchLayer.setStyle({fillOpacity:villaHatchOpacity});}
+
 // ======== 別荘地候補レイヤー（villa_candidates、地図上で目視判定） v20260630a ========
-var villaEnabled=false, villaLoading=false, villaLayer=null, villaCache=null, villaRenderer=null;
 var VILLA_COLORS={
   '未判定':{fill:'#facc15',stroke:'#a16207'},
   '別荘地':{fill:'#22c55e',stroke:'#15803d'},
