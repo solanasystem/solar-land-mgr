@@ -254,28 +254,7 @@
           to   { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
 
-        /* v20260702m: 案件候補ピン */
-        .cc-marker-wrap {
-          position: relative;
-          width: 26px;
-          height: 34px;
-          display: flex;
-          align-items: flex-start;
-          justify-content: center;
-        }
-        .cc-marker {
-          width: 22px;
-          height: 22px;
-          border-radius: 50% 50% 50% 0;
-          transform: rotate(-45deg);
-          border: 2px solid rgba(255,255,255,0.95);
-          box-shadow: 0 2px 8px rgba(0,0,0,0.5);
-          margin-top: 2px;
-        }
-        .cc-marker.cc-new      { background: #f85149; }
-        .cc-marker.cc-reviewed { background: #f0b429; }
-        .cc-marker.cc-adopted  { background: #3fb950; }
-        .cc-marker.cc-ng       { background: #6e7681; opacity: 0.55; }
+        /* v20260702m3: 案件候補ピンは L.circleMarker を使うため、CSS 定義は不要 */
 
         /* popup 中身 */
         .cc-popup {
@@ -380,7 +359,7 @@
       if (e.originalEvent && e.originalEvent.button !== 0) return;
 
       pressTriggered = false;
-      // v20260702m2: Leafletのイベントオブジェクトが再利用される可能性を考慮し、
+      // v20260702m3: Leafletのイベントオブジェクトが再利用される可能性を考慮し、
       // e.latlng を参照ではなく値でコピーして固定する（座標ズレ予防）
       startLatLng = { lat: e.latlng.lat, lng: e.latlng.lng };
       startContainerPoint = L.point(e.containerPoint.x, e.containerPoint.y);
@@ -608,14 +587,24 @@
     if (isNaN(lat) || isNaN(lng)) return;
 
     const status = (rec.status || 'new').toLowerCase();
-    const icon = L.divIcon({
-      className: 'cc-marker-wrap',
-      html: '<div class="cc-marker cc-' + status + '"></div>',
-      iconSize: [26, 34],
-      iconAnchor: [13, 24],
-      popupAnchor: [0, -22]
+    // v20260702m3: divIcon(涙滴形+rotate)は位置ズレの原因になるため廃止。
+    // Leaflet標準の L.circleMarker で確実に緯度経度=中心に描画。
+    const statusColors = {
+      new:      '#f85149',
+      reviewed: '#f0b429',
+      adopted:  '#3fb950',
+      ng:       '#6e7681'
+    };
+    const fillColor = statusColors[status] || '#f85149';
+    const marker = L.circleMarker([lat, lng], {
+      pane: 'candidatePane',
+      radius: 9,
+      fillColor: fillColor,
+      color: '#ffffff',
+      weight: 2.5,
+      fillOpacity: status === 'ng' ? 0.5 : 0.92,
+      opacity: 1
     });
-    const marker = L.marker([lat, lng], { icon: icon, pane: 'candidatePane' });
     marker.bindPopup(function() { return _buildCandidatePopup(rec); }, {
       maxWidth: 300,
       minWidth: 240,
@@ -705,14 +694,18 @@
       const entry = _candidateMarkers[id];
       if (entry && data && data[0]) {
         entry.record = data[0];
-        const icon = L.divIcon({
-          className: 'cc-marker-wrap',
-          html: '<div class="cc-marker cc-' + newStatus + '"></div>',
-          iconSize: [26, 34],
-          iconAnchor: [13, 24],
-          popupAnchor: [0, -22]
+        // v20260702m3: circleMarker.setStyle で色を切り替え
+        const statusColors = {
+          new:      '#f85149',
+          reviewed: '#f0b429',
+          adopted:  '#3fb950',
+          ng:       '#6e7681'
+        };
+        const newColor = statusColors[newStatus] || '#f85149';
+        entry.marker.setStyle({
+          fillColor: newColor,
+          fillOpacity: newStatus === 'ng' ? 0.5 : 0.92
         });
-        entry.marker.setIcon(icon);
         entry.marker.setPopupContent(_buildCandidatePopup(data[0]));
       }
       showToast('ステータスを「' + newStatus + '」に更新しました', 'success');
