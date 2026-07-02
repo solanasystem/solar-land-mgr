@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260702k / エッジパネル修正：凡例のflex-directionを row-reverse → row に。従来はタブが画面外に飛んでクリック不可だった問題を解消。縦タブサイズ縮小(min-height 90→60, padding 14→8)。露出量30pxに統一。
+<!-- BUILD: farmland-tracker v20260702l / 地番検索をツールバー内に組み込み(新規ハイライト基準日の左)。edge-panel方式から独立、コンパクト常時表示。凡例のみ edge-panel 方式(右端折り畳み)を維持。
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -209,15 +209,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 .toast-container{position:fixed;bottom:20px;right:60px;z-index:3000;display:flex;flex-direction:column;gap:8px;}
 .farmland-tooltip{background:#161b22;border:1px solid #f0b429;border-radius:6px;color:#e6edf3;font-size:12px;padding:4px 10px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);}
 .farmland-tooltip::before{display:none;}
-/* 地番検索: 左端固定・画面外折り畳み (v20260702j) */
-.chiban-search{position:absolute;top:60px;left:0;right:auto;bottom:auto;z-index:501;display:flex;flex-direction:row;align-items:stretch;width:auto;transform:translateX(calc(-100% + 30px));transition:transform 0.25s ease;}
-.chiban-search.expanded{transform:translateX(0);}
-.chiban-search-body{position:relative;width:260px;padding:10px;background:var(--surface);border:1px solid var(--border);border-left:none;border-radius:0 0 8px 0;}
-.chiban-search .edge-panel-tab{border:1px solid var(--border);border-left:none;border-radius:0 8px 8px 0;background:var(--surface);}
-.chiban-search input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px 8px 32px;color:var(--text);font-family:var(--font-main);font-size:12px;outline:none;}
+/* 地番検索: ツールバー組み込み (v20260702l) */
+.chiban-search{position:relative;display:flex;align-items:center;width:230px;flex-shrink:0;}
+.chiban-search input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px 5px 28px;color:var(--text);font-family:var(--font-main);font-size:12px;outline:none;height:28px;box-sizing:border-box;}
 .chiban-search input:focus{border-color:var(--accent);}
-.chiban-search-icon{position:absolute;left:20px;top:22px;font-size:13px;pointer-events:none;}
-.chiban-results{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-top:4px;max-height:200px;overflow-y:auto;display:none;}
+.chiban-search input::placeholder{color:var(--text-muted);font-size:11px;}
+.chiban-search-icon{position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:12px;pointer-events:none;color:var(--text-muted);}
+.chiban-results{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:280px;overflow-y:auto;display:none;z-index:1002;box-shadow:0 6px 20px rgba(0,0,0,0.5);}
 /* 市区町村境界の点滅アニメーション（マゼンタ） */
 @keyframes boundary-pulse {
   0%   { stroke-opacity: 1.0; fill-opacity: 0.12; }
@@ -522,6 +520,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   </div>
 </header>
 <div class="toolbar">
+  <!-- v20260702l: 地番検索をツールバー先頭（新規ハイライト基準日の左）に組み込み -->
+  <div class="chiban-search" id="chibanSearch">
+    <span class="chiban-search-icon">&#128269;</span>
+    <input type="text" id="chibanInput" placeholder="市区町村 大字 地番で検索...">
+    <div class="chiban-results" id="chibanResults"></div>
+  </div>
   <span class="toolbar-label">新規ハイライト基準日</span>
   <select class="date-select" id="dateFrom" onchange="loadDiff()"><option value="">なし（全件「既存」表示）</option></select>
   <select class="date-select" id="dateTo" style="display:none;" onchange="loadDiff()"><option value=""></option></select>
@@ -570,15 +574,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <button class="gis-switch-btn" id="gisSat" onclick="switchGIS('satellite')">&#128752; GSI衛星</button>
     <button class="gis-switch-btn" id="gisEsri" onclick="switchGIS('esri')">&#127381; 最新衛星</button>
   </div>
-  <!-- 地番・住所検索 (v20260702j: 左端固定・画面外折り畳み) -->
-  <div class="chiban-search" id="chibanSearch">
-    <div class="chiban-search-body">
-      <span class="chiban-search-icon">&#128269;</span>
-      <input type="text" id="chibanInput" placeholder="市区町村 大字 地番で検索...">
-      <div class="chiban-results" id="chibanResults"></div>
-    </div>
-    <button class="edge-panel-tab" type="button" onclick="toggleEdgePanel('chibanSearch')" title="地番検索を開閉">🔍 検索</button>
-  </div>
+  <!-- 地番・住所検索は v20260702l でツールバー内に移設したため、ここには置かない -->
   <div class="hazard-controls" id="hazardControls">
     <div class="hazard-panel-header" onclick="toggleHazardPanel()">
       <span class="hazard-panel-title">🚨 防災・都市計画</span>
@@ -5479,7 +5475,8 @@ window.toggleEdgePanel = function(id){
   try{ localStorage.setItem('edgePanel:'+id, el.classList.contains('expanded') ? '1' : '0'); }catch(_){}
 };
 (function initEdgePanels(){
-  ['mapLegend','chibanSearch'].forEach(function(id){
+  // v20260702l: chibanSearch はツールバー組み込みに移行のため対象外
+  ['mapLegend'].forEach(function(id){
     try{
       var s = localStorage.getItem('edgePanel:'+id);
       var el = document.getElementById(id);
