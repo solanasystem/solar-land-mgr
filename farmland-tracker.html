@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260702g / カテゴリタブをコンパクト化(アイコンのみ1行・7個で高さ最小)。デフォルト全ON・アイコンクリックで個別ON/OFF・×で全復元。 -->
+<!-- BUILD: farmland-tracker v20260702h / 距離計測クリック改善(カーソル十字表示・マーカー可視性向上・伝播停止で他レイヤ干渉回避)。
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -4503,23 +4503,28 @@ function toggleRuler(){
     map.off('click',_measureClick); map.off('dblclick',_measureFinish);
     if(map.doubleClickZoom)map.doubleClickZoom.enable();
     if(btn)btn.classList.remove('active'); if(panel)panel.style.display='none';
+    // カーソルを戻す
+    var mc=document.getElementById('map'); if(mc)mc.style.cursor='';
     showToast('計測を終了しました','success'); return;
   }
   if(btn)btn.classList.add('active'); if(panel)panel.style.display='block';
   if(map.doubleClickZoom)map.doubleClickZoom.disable();
   map.on('click',_measureClick); map.on('dblclick',_measureFinish);
+  // カーソルを十字に変更
+  var mc=document.getElementById('map'); if(mc)mc.style.cursor='crosshair';
   showToast('地図をクリックして計測開始','success');
 }
 function _measureClick(e){
+  // 他のハンドラより優先。伝播停止
+  if(e.originalEvent){try{L.DomEvent.stopPropagation(e.originalEvent);L.DomEvent.preventDefault(e.originalEvent);}catch(_e){}}
   var ll=e.latlng;
   // 3点以上あって始点近くなら閉じる
   if(measurePoints.length>=3){
-    var d=_haversine(ll.lat,ll.lng,measurePoints[0].lat,measurePoints[0].lng);
     var pxdist=map.latLngToContainerPoint(ll).distanceTo(map.latLngToContainerPoint(measurePoints[0]));
     if(pxdist<15){_measureClosePolygon();return;}
   }
   measurePoints.push({lat:ll.lat,lng:ll.lng});
-  var m=L.circleMarker(ll,{radius:4,color:'#ffb020',fillColor:'#ffb020',fillOpacity:1,weight:1}).addTo(map);
+  var m=L.circleMarker(ll,{radius:5,color:'#ff6b00',fillColor:'#ffb020',fillOpacity:1,weight:2,pane:'markerPane'}).addTo(map);
   measureMarkers.push(m);
   _measureRedraw();
 }
