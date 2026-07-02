@@ -598,10 +598,10 @@
     const fillColor = statusColors[status] || '#f85149';
     const marker = L.circleMarker([lat, lng], {
       pane: 'candidatePane',
-      radius: 9,
+      radius: 5,             // v20260702m4: 9→5 (見た目サイズを1/2に)
       fillColor: fillColor,
       color: '#ffffff',
-      weight: 2.5,
+      weight: 1.5,           // v20260702m4: 2.5→1.5
       fillOpacity: status === 'ng' ? 0.5 : 0.92,
       opacity: 1
     });
