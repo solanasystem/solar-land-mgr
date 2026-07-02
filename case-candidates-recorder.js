@@ -4,6 +4,11 @@
    役割：
      1. PC地図クリック → 確認モーダル → case_candidates へ INSERT
      2. モバイルGPS FAB → 現在地取得 → 確認 → INSERT
+     3. [v20260702m] 保存済み case_candidates を地図上にピンで可視化
+        - ページ読み込み時に全件取得 → マーカー表示
+        - 記録成功時に即マーカー追加（リロード不要）
+        - ピンクリックで memo/日時/記録元/状態を popup 表示
+        - popup内の削除ボタンで1件削除
 
    使い方（各3マップHTMLの末尾で）：
      1. <script src="case-candidates-recorder.js"></script> を読み込む
@@ -11,6 +16,12 @@
         - map: Leaflet map インスタンス
         - db: Supabase クライアント
         - sourcePage: 'field-survey' | 'landowner-visit' | 'farmland-tracker'
+
+   ステータス色分け:
+     - new (デフォルト): 赤 #f85149
+     - reviewed:        黄 #f0b429
+     - adopted:         緑 #3fb950
+     - ng:              グレー #6e7681 (半透明)
    ============================================================ */
 
 (function() {
@@ -24,6 +35,10 @@
   let _db = null;
   let _sourcePage = null;
   let _initialized = false;
+  // v20260702m: 候補ピン関連
+  let _candidateLayer = null;      // Leaflet layerGroup
+  let _candidateMarkers = {};      // id -> marker
+  let _candidatesLoaded = false;
 
   /* ----------------------------------------------------------
      初期化（各HTMLから呼ぶ）
@@ -42,6 +57,9 @@
     setupModal();
     setupPcClickHandler();
     setupMobileGpsFab();
+    // v20260702m: 保存済み案件候補のピン可視化
+    setupCandidateLayer();
+    loadExistingCandidates();
   }
 
   /* ----------------------------------------------------------
@@ -235,6 +253,100 @@
           from { opacity: 0; transform: translateX(-50%) translateY(10px); }
           to   { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
+
+        /* v20260702m: 案件候補ピン */
+        .cc-marker-wrap {
+          position: relative;
+          width: 26px;
+          height: 34px;
+          display: flex;
+          align-items: flex-start;
+          justify-content: center;
+        }
+        .cc-marker {
+          width: 22px;
+          height: 22px;
+          border-radius: 50% 50% 50% 0;
+          transform: rotate(-45deg);
+          border: 2px solid rgba(255,255,255,0.95);
+          box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+          margin-top: 2px;
+        }
+        .cc-marker.cc-new      { background: #f85149; }
+        .cc-marker.cc-reviewed { background: #f0b429; }
+        .cc-marker.cc-adopted  { background: #3fb950; }
+        .cc-marker.cc-ng       { background: #6e7681; opacity: 0.55; }
+
+        /* popup 中身 */
+        .cc-popup {
+          font-family: var(--font-main, system-ui);
+          color: var(--text, #e6edf3);
+          min-width: 220px;
+          padding: 4px 2px;
+        }
+        .cc-popup-title {
+          font-size: 13px;
+          font-weight: 700;
+          color: var(--accent, #f0b429);
+          margin-bottom: 10px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .cc-popup-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 4px 0;
+          font-size: 12px;
+          border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .cc-popup-row:last-of-type { border-bottom: none; }
+        .cc-popup-label {
+          color: var(--text-muted, #8b949e);
+          font-size: 11px;
+          flex-shrink: 0;
+        }
+        .cc-popup-val {
+          text-align: right;
+          font-size: 12px;
+          word-break: break-word;
+        }
+        .cc-popup-memo-block {
+          margin: 8px 0;
+          padding: 8px;
+          background: var(--bg, #0d1117);
+          border-radius: 5px;
+          border: 1px solid var(--border, #30363d);
+          font-size: 12px;
+          line-height: 1.5;
+          max-height: 120px;
+          overflow-y: auto;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        .cc-popup-actions {
+          display: flex;
+          gap: 6px;
+          margin-top: 12px;
+        }
+        .cc-popup-btn {
+          flex: 1;
+          padding: 6px 10px;
+          border: 1px solid var(--border, #30363d);
+          background: var(--surface2, #1c2333);
+          color: var(--text, #e6edf3);
+          border-radius: 5px;
+          cursor: pointer;
+          font-size: 11px;
+          font-weight: 600;
+        }
+        .cc-popup-btn:hover { background: var(--surface, #161b22); }
+        .cc-popup-btn.cc-danger {
+          border-color: #f85149;
+          color: #f85149;
+        }
+        .cc-popup-btn.cc-danger:hover { background: rgba(248,81,73,0.15); }
       `;
       document.head.appendChild(style);
     }
@@ -456,6 +568,157 @@
     _pendingRecord = null;
   }
 
+  /* ----------------------------------------------------------
+     v20260702m: 案件候補ピン可視化
+     ---------------------------------------------------------- */
+  function setupCandidateLayer() {
+    if (!_map || _candidateLayer) return;
+    if (!_map.getPane('candidatePane')) {
+      const p = _map.createPane('candidatePane');
+      p.style.zIndex = '650';  // marker(500)より上、popup(700)より下
+    }
+    _candidateLayer = L.layerGroup([], { pane: 'candidatePane' }).addTo(_map);
+  }
+
+  async function loadExistingCandidates() {
+    if (!_db || _candidatesLoaded) return;
+    try {
+      const { data, error } = await _db.from('case_candidates')
+        .select('id, latitude, longitude, source, source_page, memo, status, created_at')
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.warn('[CaseCandidatesRecorder] load error:', error);
+        return;
+      }
+      _candidatesLoaded = true;
+      (data || []).forEach(function(rec) { _addCandidateMarker(rec); });
+      console.log('[CaseCandidatesRecorder] loaded ' + (data ? data.length : 0) + ' candidates');
+    } catch (e) {
+      console.warn('[CaseCandidatesRecorder] load exception:', e);
+    }
+  }
+
+  function _addCandidateMarker(rec) {
+    if (!rec || !_candidateLayer) return;
+    if (_candidateMarkers[rec.id]) return; // 重複ガード
+    const lat = Number(rec.latitude);
+    const lng = Number(rec.longitude);
+    if (isNaN(lat) || isNaN(lng)) return;
+
+    const status = (rec.status || 'new').toLowerCase();
+    const icon = L.divIcon({
+      className: 'cc-marker-wrap',
+      html: '<div class="cc-marker cc-' + status + '"></div>',
+      iconSize: [26, 34],
+      iconAnchor: [13, 24],
+      popupAnchor: [0, -22]
+    });
+    const marker = L.marker([lat, lng], { icon: icon, pane: 'candidatePane' });
+    marker.bindPopup(function() { return _buildCandidatePopup(rec); }, {
+      maxWidth: 300,
+      minWidth: 240,
+      className: 'cc-popup-container'
+    });
+    marker.addTo(_candidateLayer);
+    _candidateMarkers[rec.id] = { marker: marker, record: rec };
+  }
+
+  function _buildCandidatePopup(rec) {
+    const sourceLabel = rec.source === 'pc_click' ? '🖱 PC地図クリック'
+                      : rec.source === 'mobile_gps' ? '📱 モバイルGPS'
+                      : (rec.source || '—');
+    const statusLabels = { new: '🆕 新規', reviewed: '👁 確認済', adopted: '✅ 採用', ng: '⛔ NG' };
+    const statusLabel = statusLabels[rec.status] || rec.status || 'new';
+    let dateStr = '—';
+    try {
+      const d = new Date(rec.created_at);
+      if (!isNaN(d.getTime())) {
+        dateStr = d.getFullYear() + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + String(d.getDate()).padStart(2,'0')
+               + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+      }
+    } catch(_) {}
+
+    const memoBlock = rec.memo
+      ? '<div class="cc-popup-memo-block">' + _escapeHtml(rec.memo) + '</div>'
+      : '<div class="cc-popup-memo-block" style="color:var(--text-muted);font-style:italic">(メモなし)</div>';
+
+    return ''
+      + '<div class="cc-popup">'
+      +   '<div class="cc-popup-title">📍 案件候補</div>'
+      +   memoBlock
+      +   '<div class="cc-popup-row"><span class="cc-popup-label">状態</span><span class="cc-popup-val">' + statusLabel + '</span></div>'
+      +   '<div class="cc-popup-row"><span class="cc-popup-label">記録日時</span><span class="cc-popup-val">' + dateStr + '</span></div>'
+      +   '<div class="cc-popup-row"><span class="cc-popup-label">記録元</span><span class="cc-popup-val">' + sourceLabel + '</span></div>'
+      +   '<div class="cc-popup-row"><span class="cc-popup-label">記録画面</span><span class="cc-popup-val">' + (rec.source_page || '—') + '</span></div>'
+      +   '<div class="cc-popup-row"><span class="cc-popup-label">緯度経度</span><span class="cc-popup-val" style="font-family:monospace;font-size:11px">' + Number(rec.latitude).toFixed(6) + ', ' + Number(rec.longitude).toFixed(6) + '</span></div>'
+      +   '<div class="cc-popup-actions">'
+      +     '<button class="cc-popup-btn" onclick="CaseCandidatesRecorder._updateStatus(\'' + rec.id + '\', \'adopted\')">✅ 採用</button>'
+      +     '<button class="cc-popup-btn cc-danger" onclick="CaseCandidatesRecorder._delete(\'' + rec.id + '\')">🗑 削除</button>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  function _escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  function _removeCandidateMarker(id) {
+    const entry = _candidateMarkers[id];
+    if (!entry) return;
+    if (_candidateLayer && entry.marker) {
+      _candidateLayer.removeLayer(entry.marker);
+    }
+    delete _candidateMarkers[id];
+  }
+
+  async function _deleteCandidate(id) {
+    if (!id || !_db) return;
+    if (!confirm('この案件候補を削除します。よろしいですか？')) return;
+    try {
+      const { error } = await _db.from('case_candidates').delete().eq('id', id);
+      if (error) {
+        showToast('削除に失敗：' + error.message, 'error');
+        return;
+      }
+      _removeCandidateMarker(id);
+      _map.closePopup();
+      showToast('案件候補を削除しました', 'success');
+    } catch (e) {
+      showToast('削除エラー：' + e.message, 'error');
+    }
+  }
+
+  async function _updateStatus(id, newStatus) {
+    if (!id || !_db) return;
+    try {
+      const { data, error } = await _db.from('case_candidates')
+        .update({ status: newStatus })
+        .eq('id', id)
+        .select();
+      if (error) {
+        showToast('更新に失敗：' + error.message, 'error');
+        return;
+      }
+      // マーカーを更新（色を変える）
+      const entry = _candidateMarkers[id];
+      if (entry && data && data[0]) {
+        entry.record = data[0];
+        const icon = L.divIcon({
+          className: 'cc-marker-wrap',
+          html: '<div class="cc-marker cc-' + newStatus + '"></div>',
+          iconSize: [26, 34],
+          iconAnchor: [13, 24],
+          popupAnchor: [0, -22]
+        });
+        entry.marker.setIcon(icon);
+        entry.marker.setPopupContent(_buildCandidatePopup(data[0]));
+      }
+      showToast('ステータスを「' + newStatus + '」に更新しました', 'success');
+    } catch (e) {
+      showToast('更新エラー：' + e.message, 'error');
+    }
+  }
+
   async function save() {
     if (!_pendingRecord || !_db) {
       showToast('記録できません（初期化エラー）', 'error');
@@ -482,6 +745,10 @@
         console.error('[CaseCandidatesRecorder] insert error:', error);
         showToast('記録に失敗：' + error.message, 'error');
       } else {
+        // v20260702m: 保存成功直後に地図へマーカーを追加（リロード不要）
+        if (data && data[0]) {
+          _addCandidateMarker(data[0]);
+        }
         showToast('案件候補を記録しました', 'success');
         closeModal();
       }
@@ -516,7 +783,17 @@
   window.CaseCandidatesRecorder = {
     init: init,
     _close: closeModal,
-    _save: save
+    _save: save,
+    // v20260702m: popup 内ボタンから呼ばれる
+    _delete: _deleteCandidate,
+    _updateStatus: _updateStatus,
+    // 手動で候補を再読み込みしたい場合
+    reload: function() {
+      // 既存マーカーをクリアして再取得
+      Object.keys(_candidateMarkers).forEach(function(id) { _removeCandidateMarker(id); });
+      _candidatesLoaded = false;
+      loadExistingCandidates();
+    }
   };
 
 })();
