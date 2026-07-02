@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260702q / 【重大バグ修正】initMap()が2回呼ばれ「Map container is already initialized」でJS全停止していた重複ブロック(132行)を削除。これでv20260702n〜pの全UI変更(CAD移植・現在地判定・右パネル縮小・背景edge-panel・フラグサイズ統一)が正しく反映される。version.jsonリロード機構に無限ループ防止ガード追加。 -->
+<!-- BUILD: field-survey v20260702r / 【根本修正】version.json自動リロード機構を完全撤去(location.replaceによる地図二重初期化の元凶)。initMap()に二重初期化ガード追加。これで「Map container is already initialized」エラーが解消。全UI変更(CAD移植・現在地判定・右パネル縮小・背景edge-panel・フラグサイズ統一)が正常動作する。 -->
 <!-- v20260626c: ポップアップにGoogle地図・ストリートビューボタン追加
 <!-- v20260626a: 別荘地候補レイヤー追加（villa_place_names 16件・v_villa_places_map ビュー経由）。🏘️別荘地候補トグル+パターン別色分け凡例（別荘地#7c3aed/ハイランド・リゾート#c026d3/高原#a855f7）。villaPane(zIndex640)+canvas。3マップ同期実装。 -->
 <html lang="ja">
@@ -20,39 +20,10 @@
 
 
 <script>
-/* ===== version.json による自動更新チェック =====
-   修正時は version.json のバージョン文字列を更新すること。
-   ユーザーは Ctrl+Shift+R 不要。次回アクセス時に自動でリロード。 */
-(async function _vchk(){
-  try {
-    var lastCheck = parseInt(sessionStorage.getItem('vchk_at') || '0', 10);
-    if (Date.now() - lastCheck < 30000) return;
-    sessionStorage.setItem('vchk_at', String(Date.now()));
-    var ctrl = new AbortController();
-    setTimeout(function(){ ctrl.abort(); }, 3000);
-    var r = await fetch('./version.json?t=' + Date.now(), { cache: 'no-store', signal: ctrl.signal });
-    if (!r.ok) return;
-    var j = await r.json();
-    if (!j || !j.version) return;
-    var stored = localStorage.getItem('app_version');
-    if (!stored) { localStorage.setItem('app_version', j.version); return; }
-    if (stored !== j.version) {
-      localStorage.setItem('app_version', j.version);
-      var hasOpenModal = !!document.querySelector('.modal-overlay.open');
-      if (hasOpenModal) {
-        if (!confirm('新しいバージョンが利用可能です。編集中の内容は失われる可能性があります。更新しますか？')) return;
-      }
-      // v20260702p: 無限リロード防止 — 既に _v が付いていれば通常reloadのみ
-      var u = new URL(window.location.href);
-      if (u.searchParams.get('_v') === j.version) {
-        location.reload();
-      } else {
-        u.searchParams.set('_v', j.version);
-        window.location.replace(u.toString());
-      }
-    }
-  } catch(e) {}
-})();
+/* ===== version.json 自動リロード機構は v20260702r で撤去 =====
+   この機構が location.replace による再アクセスで地図を二重初期化し、
+   「Map container is already initialized」エラーを引き起こしていた。
+   キャッシュ更新は各JS/HTMLの ?v= クエリと通常リロードで対応する。 */
 </script>
 <!-- v20260623c: XKT001点照合バグ修正(全ポリゴン走査→最具体区分採用)。 -->
 <title>現地調査マップ | GRID LAND MGR v4.1</title>
@@ -1122,6 +1093,9 @@ function surveyStateOf(caseId, confirmed) {
 }
 
 function initMap() {
+  // v20260702r: 二重初期化ガード — 既にmapが存在すれば何もしない
+  // (「Map container is already initialized」エラーの根本防止)
+  if (map) { return; }
   map = L.map('map', { zoomControl: false }).setView([36.5, 138], 5);
   baseTileRef = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18 }).addTo(map);
   gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18, opacity: 0.85, zIndex: 1 });
