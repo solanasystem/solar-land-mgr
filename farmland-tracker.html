@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260702e / 計測ボタンID/関数名衝突修正(hzMeasure→hzMeasureRuler,toggleMeasure→toggleRuler)。既存の最寄り変電所測距機能と分離。 -->
+<!-- BUILD: farmland-tracker v20260702f / サイドバーにカテゴリタブ追加(全て/防災/都市計画/地番区画/電力/候補調査/ツール)。既存ボタン・機能は無変更。 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -573,6 +573,16 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
       <button class="hazard-panel-toggle" type="button" aria-label="開閉">▼</button>
     </div>
     <div class="hazard-body">
+    <!-- カテゴリタブ v20260702f -->
+    <div id="sidebarTabs" style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--border);">
+      <button class="sb-tab" data-tab="all" onclick="_sbTab('all')" style="flex:1;min-width:calc(33% - 3px);padding:5px 4px;background:#1F4E78;color:#fff;border:none;border-radius:4px;font-size:10px;cursor:pointer;font-weight:600;">全て</button>
+      <button class="sb-tab" data-tab="hazard" onclick="_sbTab('hazard')" style="flex:1;min-width:calc(33% - 3px);padding:5px 4px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:10px;cursor:pointer;">🌊 防災</button>
+      <button class="sb-tab" data-tab="urban" onclick="_sbTab('urban')" style="flex:1;min-width:calc(33% - 3px);padding:5px 4px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:10px;cursor:pointer;">🏘 都市計画</button>
+      <button class="sb-tab" data-tab="villa" onclick="_sbTab('villa')" style="flex:1;min-width:calc(33% - 3px);padding:5px 4px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:10px;cursor:pointer;">🏔 地番・区画</button>
+      <button class="sb-tab" data-tab="power" onclick="_sbTab('power')" style="flex:1;min-width:calc(33% - 3px);padding:5px 4px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:10px;cursor:pointer;">⚡ 電力</button>
+      <button class="sb-tab" data-tab="survey" onclick="_sbTab('survey')" style="flex:1;min-width:calc(33% - 3px);padding:5px 4px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:10px;cursor:pointer;">🎯 候補・調査</button>
+      <button class="sb-tab" data-tab="tool" onclick="_sbTab('tool')" style="flex:1;min-width:calc(33% - 3px);padding:5px 4px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:10px;cursor:pointer;">📏 ツール</button>
+    </div>
     <button class="hazard-btn" id="hzFlood" onclick="toggleHazard('flood')">&#128167; 浸水</button>
     <button class="hazard-btn" id="hzInner" onclick="toggleHazard('inner')">&#128167; 内水</button>
     <button class="hazard-btn" id="hzSediment" onclick="toggleDosyaPolygon()">&#9888; 土砂災害</button>
@@ -4425,6 +4435,69 @@ function _renderVillaHatch(){
   var info=document.getElementById('villaHatchInfo'); if(info)info.innerHTML='ハッチング '+(villaHatchCache?villaHatchCache.length:0)+'個を表示中';
 }
 function _setVillaHatchOpacity(v){villaHatchOpacity=parseInt(v)/100; if(villaHatchEnabled&&villaHatchLayer)villaHatchLayer.setStyle({fillOpacity:villaHatchOpacity});}
+
+// ======== サイドバー カテゴリタブ v20260702f ========
+// カテゴリ割り当て: ボタンID → カテゴリ
+var SB_CATS={
+  hazard:['hzFlood','hzInner','hzSediment','hzTide','hzTsunami'],
+  urban:['btnUrbanPlanning','btnCityPlan','hzDouro','hzNoshin'],
+  villa:['hzVillaOverlay','hzVillaParcels','hzVillaHatch','hzFude','hzFudeAgri'],
+  power:['hzSubstation','hzCapacity','hzMeasure'],
+  survey:['hzCandidates','hzVilla','hzFarmlandFlag','hzTrackb','hzForest5jou','hzSatAnalysis'],
+  tool:['hzMeasureRuler']
+};
+// ボタン直後のパネル(id: villaOverlayPanel, villaParcelsPanel, villaHatchPanel, measurePanel, 凡例div等)を、同一カテゴリで扱う
+var SB_PANELS={
+  hzVillaOverlay:'villaOverlayPanel',
+  hzVillaParcels:'villaParcelsPanel',
+  hzVillaHatch:'villaHatchPanel',
+  hzMeasureRuler:'measurePanel'
+};
+function _sbInit(){
+  // 各ボタンにdata-cat設定
+  Object.keys(SB_CATS).forEach(function(cat){
+    SB_CATS[cat].forEach(function(bid){
+      var b=document.getElementById(bid);
+      if(b)b.setAttribute('data-sb-cat',cat);
+      var pid=SB_PANELS[bid]; if(pid){var p=document.getElementById(pid); if(p)p.setAttribute('data-sb-cat',cat);}
+    });
+  });
+  // 凡例・設定divも隣接ボタンと同カテゴリに（用途地域・都市計画区域の凡例）
+  var btnUP=document.getElementById('btnUrbanPlanning');
+  if(btnUP){var el=btnUP.nextElementSibling; while(el && el.tagName!=='BUTTON' && !el.classList.contains('hazard-divider')){if(el.setAttribute)el.setAttribute('data-sb-cat','urban');el=el.nextElementSibling;}}
+  var btnCP=document.getElementById('btnCityPlan');
+  if(btnCP){var el=btnCP.nextElementSibling; while(el && el.tagName!=='BUTTON' && !el.classList.contains('hazard-divider')){if(el.setAttribute)el.setAttribute('data-sb-cat','urban');el=el.nextElementSibling;}}
+  // dividerもデフォルト非表示制御対象に
+}
+function _sbTab(cat){
+  // タブ見た目更新
+  document.querySelectorAll('.sb-tab').forEach(function(t){
+    if(t.getAttribute('data-tab')===cat){t.style.background='#1F4E78';t.style.color='#fff';t.style.border='none';t.style.fontWeight='600';}
+    else{t.style.background='var(--surface2)';t.style.color='var(--text)';t.style.border='1px solid var(--border)';t.style.fontWeight='400';}
+  });
+  // 要素表示制御
+  var allEls=document.querySelectorAll('[data-sb-cat]');
+  if(cat==='all'){
+    allEls.forEach(function(e){e.style.display='';});
+    // dividerも表示
+    document.querySelectorAll('.hazard-body .hazard-divider').forEach(function(d){d.style.display='';});
+  }else{
+    allEls.forEach(function(e){e.style.display=(e.getAttribute('data-sb-cat')===cat)?'':'none';});
+    // 選択カテゴリ以外の生ボタン(data-sb-cat無し)も隠す。ただしタブ自身は残す。
+    document.querySelectorAll('.hazard-body > button, .hazard-body > div').forEach(function(e){
+      if(e.id==='sidebarTabs')return;
+      if(e.classList && e.classList.contains('hazard-divider')){e.style.display='none';return;}
+      if(!e.hasAttribute('data-sb-cat')){
+        // タブ配下のうち、カテゴリ未割当は隠す（誤って重要要素も隠れないよう、buttonとpanel系のみ）
+        if(e.tagName==='BUTTON' || (e.id && (e.id.indexOf('Panel')>=0||e.id.indexOf('panel')>=0||e.id.indexOf('Legend')>=0||e.id.indexOf('legend')>=0))){
+          e.style.display='none';
+        }
+      }
+    });
+  }
+}
+// 初期化：DOMContentLoaded後に一度実行
+if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',_sbInit);}else{_sbInit();}
 
 // ======== 距離・面積計測 v20260702d ========
 var measureEnabled=false, measurePoints=[], measurePolyline=null, measurePolygon=null, measureMarkers=[], measureLabels=[];
