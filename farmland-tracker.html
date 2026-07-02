@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260702c / 線画・ハッチ両方の回転中心をDB保存値のみに統一(点平均フォールバック廃止)。位置ズレ根絶。 -->
+<!-- BUILD: farmland-tracker v20260702d / 距離・面積計測ツール追加(連続クリック折れ線・始点クリックで閉じて面積㎡/坪表示・海抜補正なしの平面近似)。 -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -702,6 +702,21 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
         <label style="font-size:9px;color:var(--text-muted);cursor:pointer;display:block;margin-top:4px;">塗り透明度
           <input type="range" id="villaHatchOpacity" min="10" max="90" step="5" value="45" oninput="_setVillaHatchOpacity(this.value)" style="width:100%;">
         </label>
+      </div>
+    </div>
+    <!-- 距離・面積計測ツール v20260702d -->
+    <button class="hazard-toggle-btn" id="hzMeasure" onclick="toggleMeasure()">
+      <span class="hazard-toggle-dot"></span>📏 距離・面積計測
+    </button>
+    <div id="measurePanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.7;">
+        <div style="font-weight:600;margin-bottom:4px">距離・面積計測</div>
+        <div id="measureInfo" style="color:var(--text-muted);line-height:1.6;">地図をクリックして頂点追加<br>ダブルクリックで終了<br>始点付近クリックで閉じて面積表示</div>
+        <div id="measureResult" style="margin-top:6px;padding:4px 6px;background:var(--surface);border-radius:4px;font-size:11px;color:var(--text);"></div>
+        <div style="display:flex;gap:4px;margin-top:6px;">
+          <button onclick="_measureClear()" style="flex:1;cursor:pointer;padding:4px;background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:9px;">クリア</button>
+          <button onclick="_measureUndo()" style="flex:1;cursor:pointer;padding:4px;background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:9px;">1点戻す</button>
+        </div>
       </div>
     </div>
     <div id="villaOverlayPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
@@ -4410,6 +4425,113 @@ function _renderVillaHatch(){
   var info=document.getElementById('villaHatchInfo'); if(info)info.innerHTML='ハッチング '+(villaHatchCache?villaHatchCache.length:0)+'個を表示中';
 }
 function _setVillaHatchOpacity(v){villaHatchOpacity=parseInt(v)/100; if(villaHatchEnabled&&villaHatchLayer)villaHatchLayer.setStyle({fillOpacity:villaHatchOpacity});}
+
+// ======== 距離・面積計測 v20260702d ========
+var measureEnabled=false, measurePoints=[], measurePolyline=null, measurePolygon=null, measureMarkers=[], measureLabels=[];
+function toggleMeasure(){
+  var btn=document.getElementById('hzMeasure'); var panel=document.getElementById('measurePanel');
+  measureEnabled=!measureEnabled;
+  if(!measureEnabled){
+    _measureClear();
+    map.off('click',_measureClick); map.off('dblclick',_measureFinish);
+    if(map.doubleClickZoom)map.doubleClickZoom.enable();
+    if(btn)btn.classList.remove('active'); if(panel)panel.style.display='none';
+    showToast('計測を終了しました','success'); return;
+  }
+  if(btn)btn.classList.add('active'); if(panel)panel.style.display='block';
+  if(map.doubleClickZoom)map.doubleClickZoom.disable();
+  map.on('click',_measureClick); map.on('dblclick',_measureFinish);
+  showToast('地図をクリックして計測開始','success');
+}
+function _measureClick(e){
+  var ll=e.latlng;
+  // 3点以上あって始点近くなら閉じる
+  if(measurePoints.length>=3){
+    var d=_haversine(ll.lat,ll.lng,measurePoints[0].lat,measurePoints[0].lng);
+    var pxdist=map.latLngToContainerPoint(ll).distanceTo(map.latLngToContainerPoint(measurePoints[0]));
+    if(pxdist<15){_measureClosePolygon();return;}
+  }
+  measurePoints.push({lat:ll.lat,lng:ll.lng});
+  var m=L.circleMarker(ll,{radius:4,color:'#ffb020',fillColor:'#ffb020',fillOpacity:1,weight:1}).addTo(map);
+  measureMarkers.push(m);
+  _measureRedraw();
+}
+function _measureFinish(e){
+  L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+  if(measurePoints.length>=2)_measureShowResult(false);
+}
+function _measureClosePolygon(){
+  if(measurePoints.length<3)return;
+  if(measurePolyline){try{map.removeLayer(measurePolyline);}catch(e){}measurePolyline=null;}
+  var ring=measurePoints.map(function(p){return [p.lat,p.lng];}); ring.push(ring[0]);
+  measurePolygon=L.polygon(ring,{color:'#ffb020',weight:2,opacity:0.9,fillColor:'#ffb020',fillOpacity:0.15}).addTo(map);
+  _measureShowResult(true);
+}
+function _measureRedraw(){
+  if(measurePolyline){try{map.removeLayer(measurePolyline);}catch(e){}measurePolyline=null;}
+  if(measurePolygon){try{map.removeLayer(measurePolygon);}catch(e){}measurePolygon=null;}
+  if(measurePoints.length>=2){
+    measurePolyline=L.polyline(measurePoints.map(function(p){return [p.lat,p.lng];}),{color:'#ffb020',weight:2,opacity:0.9,dashArray:'6,4'}).addTo(map);
+  }
+  _measureShowResult(false);
+}
+function _haversine(lat1,lng1,lat2,lng2){
+  var R=6371000, toR=Math.PI/180;
+  var dLat=(lat2-lat1)*toR, dLng=(lng2-lng1)*toR;
+  var a=Math.sin(dLat/2)**2 + Math.cos(lat1*toR)*Math.cos(lat2*toR)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+function _polyAreaM2(pts){
+  // 平面近似（ラット緯度基準のメートル座標系で shoelace）
+  if(pts.length<3)return 0;
+  var lat0=pts[0].lat, m2lat=111320, m2lng=111320*Math.cos(lat0*Math.PI/180);
+  var s=0;
+  for(var i=0;i<pts.length;i++){
+    var j=(i+1)%pts.length;
+    var xi=(pts[i].lng)*m2lng, yi=(pts[i].lat)*m2lat;
+    var xj=(pts[j].lng)*m2lng, yj=(pts[j].lat)*m2lat;
+    s += xi*yj - xj*yi;
+  }
+  return Math.abs(s)/2;
+}
+function _measureShowResult(closed){
+  var res=document.getElementById('measureResult'); if(!res)return;
+  if(measurePoints.length<2){res.innerHTML=''; return;}
+  var total=0;
+  for(var i=1;i<measurePoints.length;i++){
+    total += _haversine(measurePoints[i-1].lat,measurePoints[i-1].lng,measurePoints[i].lat,measurePoints[i].lng);
+  }
+  var html='距離: <b>'+_fmtDist(total)+'</b> ('+measurePoints.length+'点)';
+  if(closed && measurePoints.length>=3){
+    // 閉じ辺
+    var last=measurePoints[measurePoints.length-1], first=measurePoints[0];
+    total += _haversine(last.lat,last.lng,first.lat,first.lng);
+    var area=_polyAreaM2(measurePoints);
+    html='周長: <b>'+_fmtDist(total)+'</b><br>面積: <b>'+_fmtArea(area)+'</b><br>('+area.toFixed(0)+' ㎡ / '+(area/3.305785).toFixed(1)+' 坪)';
+  }
+  res.innerHTML=html;
+}
+function _fmtDist(m){
+  if(m>=1000)return (m/1000).toFixed(3)+' km ('+m.toFixed(1)+' m)';
+  return m.toFixed(2)+' m';
+}
+function _fmtArea(m2){
+  if(m2>=10000)return (m2/10000).toFixed(4)+' ha';
+  return m2.toFixed(2)+' ㎡';
+}
+function _measureClear(){
+  measurePoints=[];
+  measureMarkers.forEach(function(m){try{map.removeLayer(m);}catch(e){}}); measureMarkers=[];
+  if(measurePolyline){try{map.removeLayer(measurePolyline);}catch(e){}measurePolyline=null;}
+  if(measurePolygon){try{map.removeLayer(measurePolygon);}catch(e){}measurePolygon=null;}
+  var res=document.getElementById('measureResult'); if(res)res.innerHTML='';
+}
+function _measureUndo(){
+  if(measurePoints.length===0)return;
+  measurePoints.pop();
+  var m=measureMarkers.pop(); if(m){try{map.removeLayer(m);}catch(e){}}
+  _measureRedraw();
+}
 
 // ======== 別荘地候補レイヤー（villa_candidates、地図上で目視判定） v20260630a ========
 var VILLA_COLORS={
