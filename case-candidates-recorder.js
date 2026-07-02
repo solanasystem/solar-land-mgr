@@ -380,8 +380,10 @@
       if (e.originalEvent && e.originalEvent.button !== 0) return;
 
       pressTriggered = false;
-      startLatLng = e.latlng;
-      startContainerPoint = e.containerPoint;
+      // v20260702m2: Leafletのイベントオブジェクトが再利用される可能性を考慮し、
+      // e.latlng を参照ではなく値でコピーして固定する（座標ズレ予防）
+      startLatLng = { lat: e.latlng.lat, lng: e.latlng.lng };
+      startContainerPoint = L.point(e.containerPoint.x, e.containerPoint.y);
 
       pressTimer = setTimeout(function() {
         pressTriggered = true;
