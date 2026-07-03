@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260703u / 地番プレビュー草案のラベル回転を「一律-12度」に変更。個別回転は形状複雑さで逆に見にくかったため撤回。前:v20260703t 個別回転(廃止)
+<!-- BUILD: farmland-tracker v20260703v / 地番プレビュー草案の表示改善: (1)地番ラベルを枝番のみ表示 (4957-15→15) (2)街区ラベル(4桁)を大きな帯で表示、ドラッグ可能、位置はvilla_block_labelsテーブルに保存 (3)地番プレビューON/OFFで街区ラベルも連動 前:v20260703u 一律-12度回転
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -445,6 +445,33 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     box-shadow: 0 1px 3px rgba(0,0,0,0.3);
     white-space: nowrap;
     pointer-events: none;
+  }
+
+  /* 街区ラベル (villa_block_labels) v20260703v */
+  .block-label-container {
+    background: transparent !important;
+    border: none !important;
+  }
+  .block-label {
+    display: inline-block;
+    padding: 6px 14px;
+    background: var(--bg, #808080);
+    color: #ffffff;
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.6);
+    white-space: nowrap;
+    cursor: move;
+    border: 2px solid rgba(255,255,255,0.85);
+    transform: translate(-50%, -50%);
+    user-select: none;
+  }
+  .block-label:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.7);
   }
 
   /* ======== ドラッグ可能パネル 共通CSS ======== */
@@ -4562,6 +4589,7 @@ function toggleLandNumberDraft(){
     btn.classList.remove('active');
     panel.style.display='none';
     if(landNumberDraftLayer){try{map.removeLayer(landNumberDraftLayer);}catch(e){}landNumberDraftLayer=null;}
+    if(blockLabelsLayer){try{map.removeLayer(blockLabelsLayer);}catch(e){}blockLabelsLayer=null;}
   }
 }
 
@@ -4595,10 +4623,13 @@ function _renderLandNumberDraft(){
     if(row.lat==null||row.lng==null)return;
     // 一律-12度傾斜（街区全体の向きに合わせる）
     var rot=-12;
+    // 表示は枝番のみ（4957-15 → 15）
+    var suffix=(row.land_number||'').split('-').slice(1).join('-');
+    if(!suffix) suffix=row.land_number;
     // CSS変数 --rot でラベル部分だけ個別回転
     var html='<div class="landnum-marker-wrapper" style="--rot:'+rot+'deg">'
            +'<div class="landnum-dot"></div>'
-           +'<div class="landnum-label">'+row.land_number+'</div>'
+           +'<div class="landnum-label">'+suffix+'</div>'
            +'</div>';
     var icon=L.divIcon({
       className:'landnum-marker-container',
@@ -4614,6 +4645,70 @@ function _renderLandNumberDraft(){
   landNumberDraftLayer.addTo(map);
   var info=document.getElementById('landNumberDraftInfo');
   if(info)info.innerHTML='地番 '+(landNumberDraftCache?landNumberDraftCache.length:0)+'件を表示中(街区長辺に沿った個別回転)';
+  // 街区ラベルも同時に読み込み
+  _loadBlockLabels();
+}
+
+// ======== 街区ラベル (villa_block_labels) v20260703v ========
+// 各街区(4桁)の位置に大きな帯ラベルを表示。ドラッグで位置調整可能。
+// 位置はDB保存され、リロード後も維持される。
+var blockLabelsCache=null;
+var blockLabelsLayer=null;
+var blockLabelsLoading=false;
+
+async function _loadBlockLabels(){
+  if(blockLabelsLoading)return;
+  if(blockLabelsCache){_renderBlockLabels();return;}
+  blockLabelsLoading=true;
+  try{
+    var res=await db.from('villa_block_labels').select('block_prefix,color_hex,lat,lng,moved_by_user').eq('villa_name','びわこの森');
+    if(res.error)throw res.error;
+    blockLabelsCache=res.data||[];
+    blockLabelsLoading=false;
+    _renderBlockLabels();
+  }catch(e){
+    console.error('街区ラベル読み込みエラー:',e);
+    blockLabelsLoading=false;
+  }
+}
+
+function _renderBlockLabels(){
+  if(blockLabelsLayer){try{map.removeLayer(blockLabelsLayer);}catch(e){}blockLabelsLayer=null;}
+  if(!landNumberDraftEnabled)return; // 地番プレビューがOFFなら表示しない
+  if(!blockLabelsCache||!blockLabelsCache.length)return;
+  if(!map.getPane('blockLabelsPane')){var p=map.createPane('blockLabelsPane');p.style.zIndex=429;}
+  var group=L.layerGroup([],{pane:'blockLabelsPane'});
+  blockLabelsCache.forEach(function(row){
+    if(row.lat==null||row.lng==null)return;
+    var html='<span class="block-label" style="--bg:'+row.color_hex+';background:'+row.color_hex+'">'+row.block_prefix+'</span>';
+    var icon=L.divIcon({
+      className:'block-label-container',
+      html:html,
+      iconSize:[0,0],
+      iconAnchor:[0,0]
+    });
+    var marker=L.marker([row.lat,row.lng],{icon:icon,pane:'blockLabelsPane',draggable:true});
+    marker.blockPrefix=row.block_prefix;
+    marker.on('dragend',async function(e){
+      var pos=e.target.getLatLng();
+      var prefix=e.target.blockPrefix;
+      try{
+        var res=await db.from('villa_block_labels').update({
+          lat:pos.lat, lng:pos.lng, moved_by_user:true, updated_at:new Date().toISOString()
+        }).eq('villa_name','びわこの森').eq('block_prefix',prefix);
+        if(res.error)throw res.error;
+        // キャッシュ更新
+        var cached=blockLabelsCache.find(function(r){return r.block_prefix===prefix;});
+        if(cached){cached.lat=pos.lat;cached.lng=pos.lng;cached.moved_by_user=true;}
+        console.log('街区ラベル位置保存:',prefix,pos.lat,pos.lng);
+      }catch(err){
+        console.error('街区ラベル位置保存エラー:',err);
+      }
+    });
+    group.addLayer(marker);
+  });
+  blockLabelsLayer=group;
+  blockLabelsLayer.addTo(map);
 }
 
 // ======== サイドバー カテゴリタブ v20260702g ========
