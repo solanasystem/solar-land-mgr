@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260702m / 土砂災害警戒区域を「重ねるハザードマップ」公式タイル方式に変更(3種類重畳: 土石流・急傾斜地・地すべり)。旧Supabase A33ポリゴン方式(row_limit=300で欠落あり)を廃止。事業性判断で公式ハザードマップと100%一致。データ更新は国土地理院配信元がリアルタイム反映。
+<!-- BUILD: farmland-tracker v20260703p / 地番プレビュー草案(villa_hatch_landnumber_draft)機能追加。CADから抽出した地番TEXT位置を紫の点で地図表示し目視確認できるようにした。トグルはCADハッチングの下。 前:v20260702m 土砂災害警戒区域を「重ねるハザードマップ」公式タイル方式に変更(3種類重畳: 土石流・急傾斜地・地すべり)。旧Supabase A33ポリゴン方式(row_limit=300で欠落あり)を廃止。事業性判断で公式ハザードマップと100%一致。データ更新は国土地理院配信元がリアルタイム反映。
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -408,6 +408,20 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   }
   .hazard-toggle-btn:hover { background: var(--surface2); color: var(--text); }
 
+  /* 地番プレビュー用ラベル */
+  .landnum-tip {
+    background: rgba(124,58,237,0.9) !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 3px !important;
+    padding: 1px 4px !important;
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3) !important;
+    white-space: nowrap !important;
+  }
+  .landnum-tip:before { display: none !important; }
+
   /* ======== ドラッグ可能パネル 共通CSS ======== */
   body.dragging-panel * { user-select: none !important; cursor: grabbing !important; }
   body.dragging-panel .draggable-panel { transition: none !important; }
@@ -720,6 +734,21 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
         <label style="font-size:9px;color:var(--text-muted);cursor:pointer;display:block;margin-top:4px;">塗り透明度
           <input type="range" id="villaHatchOpacity" min="10" max="90" step="5" value="45" oninput="_setVillaHatchOpacity(this.value)" style="width:100%;">
         </label>
+      </div>
+    </div>
+    <!-- 地番プレビュー草案 (villa_hatch_landnumber_draft) v20260703p -->
+    <button class="hazard-toggle-btn" id="hzLandNumberDraft" onclick="toggleLandNumberDraft()">
+      <span class="hazard-toggle-dot"></span>🔢 地番プレビュー(草案)
+    </button>
+    <div id="landNumberDraftPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.7;">
+        <div style="font-weight:600;margin-bottom:4px">地番プレビュー(草案)</div>
+        <div id="landNumberDraftInfo" style="color:var(--text-muted);">読み込み中...</div>
+        <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.5;">
+          CADで入力した地番位置の草案表示。<br>
+          目視確認用。正しい位置にあるか、<br>
+          hatch上に載っているかを確認。
+        </div>
       </div>
     </div>
     <!-- 距離・面積計測ツール v20260702d -->
@@ -4488,12 +4517,81 @@ function _renderVillaHatch(){
 }
 function _setVillaHatchOpacity(v){villaHatchOpacity=parseInt(v)/100; if(villaHatchEnabled&&villaHatchLayer)villaHatchLayer.setStyle({fillOpacity:villaHatchOpacity});}
 
+// ======== 地番プレビュー草案 (villa_hatch_landnumber_draft) v20260703p ========
+// CADから抽出した地番TEXT位置を紫の点で地図表示。目視確認用。
+var landNumberDraftEnabled=false;
+var landNumberDraftLayer=null;
+var landNumberDraftCache=null;
+var landNumberDraftLoading=false;
+
+function toggleLandNumberDraft(){
+  var btn=document.getElementById('hzLandNumberDraft');
+  var panel=document.getElementById('landNumberDraftPanel');
+  landNumberDraftEnabled=!landNumberDraftEnabled;
+  if(landNumberDraftEnabled){
+    btn.classList.add('active');
+    panel.style.display='block';
+    if(landNumberDraftCache){_renderLandNumberDraft();return;}
+    _loadLandNumberDraft();
+  }else{
+    btn.classList.remove('active');
+    panel.style.display='none';
+    if(landNumberDraftLayer){try{map.removeLayer(landNumberDraftLayer);}catch(e){}landNumberDraftLayer=null;}
+  }
+}
+
+async function _loadLandNumberDraft(){
+  if(landNumberDraftLoading)return;
+  landNumberDraftLoading=true;
+  var info=document.getElementById('landNumberDraftInfo');
+  if(info)info.textContent='読み込み中...';
+  try{
+    var res=await db.from('villa_hatch_landnumber_draft').select('land_number,lat,lng').eq('villa_name','びわこの森').range(0,999);
+    if(res.error)throw res.error;
+    landNumberDraftCache=res.data||[];
+    landNumberDraftLoading=false;
+    _renderLandNumberDraft();
+  }catch(e){
+    console.error('地番プレビュー読み込みエラー:',e);
+    if(info)info.textContent='読み込み失敗: '+e.message;
+    landNumberDraftLoading=false;
+    var btn=document.getElementById('hzLandNumberDraft');if(btn)btn.classList.remove('active');
+    var panel=document.getElementById('landNumberDraftPanel');if(panel)panel.style.display='none';
+    landNumberDraftEnabled=false;
+  }
+}
+
+function _renderLandNumberDraft(){
+  if(!landNumberDraftEnabled)return;
+  if(landNumberDraftLayer){try{map.removeLayer(landNumberDraftLayer);}catch(e){}landNumberDraftLayer=null;}
+  if(!map.getPane('landNumberDraftPane')){var p=map.createPane('landNumberDraftPane');p.style.zIndex=428;}
+  var group=L.layerGroup([],{pane:'landNumberDraftPane'});
+  (landNumberDraftCache||[]).forEach(function(row){
+    if(row.lat==null||row.lng==null)return;
+    var marker=L.circleMarker([row.lat,row.lng],{
+      radius:5,
+      color:'#7c3aed',
+      weight:1.5,
+      fillColor:'#a78bfa',
+      fillOpacity:0.85,
+      pane:'landNumberDraftPane'
+    });
+    marker.bindTooltip(row.land_number,{permanent:true,direction:'right',offset:[6,0],className:'landnum-tip',opacity:0.9});
+    marker.bindPopup('<div style="font-weight:600">地番: '+row.land_number+'</div><div style="font-size:11px;color:#666">緯度: '+row.lat.toFixed(7)+'<br>経度: '+row.lng.toFixed(7)+'</div>');
+    group.addLayer(marker);
+  });
+  landNumberDraftLayer=group;
+  landNumberDraftLayer.addTo(map);
+  var info=document.getElementById('landNumberDraftInfo');
+  if(info)info.innerHTML='地番 '+(landNumberDraftCache?landNumberDraftCache.length:0)+'件を表示中';
+}
+
 // ======== サイドバー カテゴリタブ v20260702g ========
 // 全カテゴリ独立ON/OFF。デフォルトは全部ON。
 var SB_CATS={
   hazard:['hzFlood','hzInner','hzSediment','hzTide','hzTsunami'],
   urban:['btnUrbanPlanning','btnCityPlan','hzDouro','hzNoshin'],
-  villa:['hzVillaOverlay','hzVillaParcels','hzVillaHatch','hzFude','hzFudeAgri'],
+  villa:['hzVillaOverlay','hzVillaParcels','hzVillaHatch','hzLandNumberDraft','hzFude','hzFudeAgri'],
   power:['hzSubstation','hzCapacity','hzMeasure'],
   survey:['hzCandidates','hzVilla','hzFarmlandFlag','hzTrackb','hzForest5jou','hzSatAnalysis'],
   tool:['hzMeasureRuler']
@@ -4502,6 +4600,7 @@ var SB_PANELS={
   hzVillaOverlay:'villaOverlayPanel',
   hzVillaParcels:'villaParcelsPanel',
   hzVillaHatch:'villaHatchPanel',
+  hzLandNumberDraft:'landNumberDraftPanel',
   hzMeasureRuler:'measurePanel'
 };
 var _sbState={hazard:true,urban:true,villa:true,power:true,survey:true,tool:true};
