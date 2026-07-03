@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260704b / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。前:v20260703d -->
+<!-- BUILD: field-survey v20260704d / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。+ 判定モーダルに「戻る」ボタン追加(誤操作対策)+電柱マーカーをタップで削除可能に。前:v20260703d -->
 <!-- v20260703b: GPS疑似テストマーカーを目立つ赤パルス+🧪絵文字のDivIconに変更。 -->
 <!-- v20260703a: CAD区画・現在地セクションを右パネル最上部に移動。 -->
 <!-- v20260702s: GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。 -->
@@ -655,6 +655,12 @@
   }
   .survey-done-btn:active { transform:scale(0.98); }
   .survey-done-btn:disabled { opacity:0.5; }
+  .survey-back-btn {
+    padding:18px 22px; border:none; border-radius:14px; font-size:16px; font-weight:700;
+    background:rgba(255,255,255,0.12); color:#fff; cursor:pointer; flex-shrink:0;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .survey-back-btn:active { transform:scale(0.97); }
   .survey-hint { font-size:11px; color:var(--text-muted,#9aa4b2); text-align:center; margin-top:8px; }
 
   /* 電柱記録ボタン（地図右下・常設） */
@@ -1164,6 +1170,7 @@
     </div>
 
     <div class="survey-actions">
+      <button class="survey-back-btn" onclick="resetSurveyModal()">&#8635; リセット</button>
       <button class="survey-done-btn" id="surveyDoneBtn" onclick="saveSurvey()" disabled>判定を選んでください</button>
     </div>
     <div class="survey-hint" id="surveyHint">写真は端末に即保存され、電波がある場所で自動アップロードされます</div>
@@ -3073,6 +3080,22 @@ function closeSurveyModal(){
   document.getElementById('surveyModal').classList.remove('open');
 }
 
+// リセット：判定・写真・コメントを全てクリア（モーダルは開いたまま初期状態へ）
+function resetSurveyModal(){
+  currentJudgment = null;
+  ['jbUsable','jbConsider','jbUnusable'].forEach(function(id){ document.getElementById(id).classList.remove('selected'); });
+  document.getElementById('surveyPhotoSection').style.display='none';
+  document.getElementById('surveyComment').value='';
+  ['road1','land1','land2','land3','land4'].forEach(function(k){
+    var inp=document.getElementById('sp_'+k); if(inp) inp.value='';
+    var img=document.getElementById('sp_prev_'+k); if(img){ img.src=''; img.style.display='none'; }
+    var ph=document.getElementById('sp_ph_'+k); if(ph) ph.style.display='flex';
+  });
+  var doneBtn=document.getElementById('surveyDoneBtn');
+  doneBtn.disabled=true; doneBtn.textContent='判定を選んでください';
+  showToast('入力をリセットしました','success');
+}
+
 function selectJudgment(j){
   currentJudgment = j;
   document.getElementById('jbUsable').classList.toggle('selected', j==='usable');
@@ -3275,24 +3298,45 @@ function togglePoleMode(){
 async function _onPoleMapClick(e){
   var lat=e.latlng.lat, lng=e.latlng.lng;
   _ensurePoleLayer();
-  var icon=L.divIcon({ className:'pole-marker-icon', html:'<div style="font-size:26px;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.6))">\u26a1</div>', iconSize:[26,26], iconAnchor:[13,13] });
-  L.marker([lat,lng],{icon:icon}).addTo(poleLayer);
   try{
     var org=null;
     if(typeof allCases!=='undefined' && allCases && allCases[0]) org=allCases[0].organization_id||null;
-    await db.from('pole_records').insert({ villa_name:'びわこの森', lat:lat, lng:lng, organization_id:org });
-    showToast('電柱位置を記録しました','success');
+    var ins=await db.from('pole_records').insert({ villa_name:'びわこの森', lat:lat, lng:lng, organization_id:org }).select('id').single();
+    if(ins.error) throw ins.error;
+    _addPoleMarker(lat, lng, ins.data ? ins.data.id : null);
+    showToast('電柱位置を記録しました（タップで削除）','success');
   }catch(err){ showToast('電柱記録の保存に失敗: '+(err.message||err),'error'); }
+}
+// 電柱マーカーを地図に追加（タップで削除）
+function _addPoleMarker(lat, lng, id){
+  _ensurePoleLayer();
+  var icon=L.divIcon({ className:'pole-marker-icon', html:'<div style="font-size:26px;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.6))">\u26a1</div>', iconSize:[26,26], iconAnchor:[13,13] });
+  var m=L.marker([lat,lng],{icon:icon});
+  m._poleId=id;
+  m.on('click', function(ev){
+    if(ev.originalEvent){ L.DomEvent.stopPropagation(ev); }
+    _deletePole(m);
+  });
+  m.addTo(poleLayer);
+  return m;
+}
+async function _deletePole(marker){
+  if(!confirm('この電柱位置を削除しますか？')) return;
+  try{
+    if(marker._poleId){
+      var del=await db.from('pole_records').delete().eq('id', marker._poleId);
+      if(del.error) throw del.error;
+    }
+    poleLayer.removeLayer(marker);
+    showToast('電柱位置を削除しました','success');
+  }catch(err){ showToast('削除に失敗: '+(err.message||err),'error'); }
 }
 async function _loadExistingPoles(){
   try{
-    var res=await db.from('pole_records').select('lat,lng').eq('villa_name','びわこの森').range(0,999);
+    var res=await db.from('pole_records').select('id,lat,lng').eq('villa_name','びわこの森').range(0,999);
     if(res.error||!res.data) return;
     _ensurePoleLayer();
-    res.data.forEach(function(p){
-      var icon=L.divIcon({ className:'pole-marker-icon', html:'<div style="font-size:26px;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.6))">\u26a1</div>', iconSize:[26,26], iconAnchor:[13,13] });
-      L.marker([p.lat,p.lng],{icon:icon}).addTo(poleLayer);
-    });
+    res.data.forEach(function(p){ _addPoleMarker(p.lat, p.lng, p.id); });
   }catch(e){}
 }
 
