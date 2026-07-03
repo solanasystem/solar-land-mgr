@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260703c / GPS疑似テストON時に実GPSを完全停止(stopGpsWatch/watchPositionガード)。疑似マーカーを本番実GPSと同じ青点+🧪バッジ統一デザインに変更。青点1つで「自分の位置」を表現し、青点/赤点の二重表示による混乱を根本解消。 -->
+<!-- BUILD: field-survey v20260703d / (1)地番プレビュー(草案)トグルをfarmland-trackerから移植: villa_hatch_landnumber_draft 317件を紫点+枝番表示、街区ラベル(4桁帯・ズーム連動サイズ・ドラッグ保存)連動。(2)iPhone現地調査向けに背景マップ調整パネルを非表示化(input要素はDOM保持)。前:v20260703c GPS疑似テスト -->
 <!-- v20260703b: GPS疑似テストマーカーを目立つ赤パルス+🧪絵文字のDivIconに変更。 -->
 <!-- v20260703a: CAD区画・現在地セクションを右パネル最上部に移動。 -->
 <!-- v20260702s: GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。 -->
@@ -516,6 +516,72 @@
     0%   { transform: scale(0.4); opacity: 1; }
     100% { transform: scale(2.0); opacity: 0; }
   }
+
+  /* ======== 地番プレビュー草案 v20260703d (farmland-trackerから移植) ======== */
+  /* 地番プレビュー用マーカー（divIcon方式・個別回転対応） */
+  .landnum-marker-container {
+    background: transparent !important;
+    border: none !important;
+  }
+  .landnum-marker-wrapper {
+    position: relative;
+    width: 12px;
+    height: 12px;
+  }
+  .landnum-dot {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 12px;
+    height: 12px;
+    background: #a78bfa;
+    border: 1.5px solid #7c3aed;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .landnum-label {
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    margin-top: 4px;
+    transform: translateX(-50%) rotate(var(--rot, 0deg));
+    transform-origin: center center;
+    background: rgba(124,58,237,0.9);
+    color: #fff;
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  /* 街区ラベル (villa_block_labels) ズーム連動サイズ (--blk-scale) */
+  .block-label-container {
+    background: transparent !important;
+    border: none !important;
+  }
+  .block-label {
+    display: inline-block;
+    padding: calc(6px * var(--blk-scale, 1)) calc(14px * var(--blk-scale, 1));
+    background: var(--bg, #808080);
+    color: #ffffff;
+    font-size: calc(24px * var(--blk-scale, 1));
+    font-weight: 900;
+    letter-spacing: calc(1px * var(--blk-scale, 1));
+    border-radius: calc(6px * var(--blk-scale, 1));
+    box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.6);
+    white-space: nowrap;
+    cursor: move;
+    border: calc(2px * var(--blk-scale, 1)) solid rgba(255,255,255,0.85);
+    transform: translate(-50%, -50%);
+    user-select: none;
+  }
+  .block-label:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.7);
+  }
 </style>
 </head>
 <body>
@@ -654,6 +720,16 @@
         </label>
       </div>
     </div>
+    <!-- 地番プレビュー草案 (villa_hatch_landnumber_draft) v20260703d (farmland-trackerから移植) -->
+    <button class="hazard-toggle-btn" id="hzLandNumberDraft" onclick="toggleLandNumberDraft()">
+      <span class="hazard-toggle-dot"></span>🔢 地番プレビュー(草案)
+    </button>
+    <div id="landNumberDraftPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.7;">
+        <div style="font-weight:600;margin-bottom:4px">地番プレビュー(草案)</div>
+        <div id="landNumberDraftInfo" style="color:var(--text-muted);">読み込み中...</div>
+      </div>
+    </div>
     <!-- 現在地区画ハイライト設定 v20260702n -->
     <button class="hazard-toggle-btn active" id="hzGpsHighlight" onclick="toggleGpsHighlight()">
       <span class="hazard-toggle-dot"></span>🎯 現在地区画ハイライト
@@ -771,8 +847,8 @@
     </div><!-- /.layer-body -->
   </div>
 
-  <!-- 背景の濃さ・彩度スライダー (v20260702n: 左端 edge-panel化) -->
-  <div class="bg-edge-panel" id="bgAdjustPanel">
+  <!-- 背景の濃さ・彩度スライダー (v20260703d: iPhone現地調査向けに非表示。input要素はupdateBaseMap()参照のためDOM保持) -->
+  <div class="bg-edge-panel" id="bgAdjustPanel" style="display:none;">
     <div class="bg-edge-body">
       <div style="font-size:9px;font-weight:700;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">&#127912; 背景マップ調整</div>
       <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">明るさ</div>
@@ -1160,6 +1236,7 @@ function initMap() {
 
   map.on('zoomend', () => {
     document.getElementById('zoomLevel').textContent = map.getZoom();
+    if(typeof updateBlockLabelScale==='function') updateBlockLabelScale();
   });
 
   // ========== GPS現在地ボタン（bottomright に配置）==========
@@ -2654,6 +2731,155 @@ function _renderVillaHatch(){
   var info=document.getElementById('villaHatchInfo'); if(info)info.innerHTML='ハッチング '+(villaHatchCache?villaHatchCache.length:0)+'個を表示中';
 }
 function _setVillaHatchOpacity(v){villaHatchOpacity=parseInt(v)/100; if(villaHatchEnabled&&villaHatchLayer)villaHatchLayer.setStyle({fillOpacity:villaHatchOpacity});}
+
+
+// ============================================================
+// 地番プレビュー草案 (villa_hatch_landnumber_draft) v20260703d
+//   farmland-tracker から移植。CADから抽出した地番TEXT位置を紫点+枝番で表示。
+//   街区ラベル(4桁帯・ズーム連動サイズ・ドラッグ保存)も連動。
+// ============================================================
+var landNumberDraftEnabled=false;
+var landNumberDraftLayer=null;
+var landNumberDraftCache=null;
+var landNumberDraftLoading=false;
+
+function toggleLandNumberDraft(){
+  var btn=document.getElementById('hzLandNumberDraft');
+  var panel=document.getElementById('landNumberDraftPanel');
+  landNumberDraftEnabled=!landNumberDraftEnabled;
+  if(landNumberDraftEnabled){
+    btn.classList.add('active');
+    panel.style.display='block';
+    if(landNumberDraftCache){_renderLandNumberDraft();return;}
+    _loadLandNumberDraft();
+  }else{
+    btn.classList.remove('active');
+    panel.style.display='none';
+    if(landNumberDraftLayer){try{map.removeLayer(landNumberDraftLayer);}catch(e){}landNumberDraftLayer=null;}
+    if(blockLabelsLayer){try{map.removeLayer(blockLabelsLayer);}catch(e){}blockLabelsLayer=null;}
+  }
+}
+
+async function _loadLandNumberDraft(){
+  if(landNumberDraftLoading)return;
+  landNumberDraftLoading=true;
+  var info=document.getElementById('landNumberDraftInfo');
+  if(info)info.textContent='読み込み中...';
+  try{
+    var res=await db.from('villa_hatch_landnumber_draft').select('land_number,lat,lng,rotation_deg').eq('villa_name','びわこの森').range(0,999);
+    if(res.error)throw res.error;
+    landNumberDraftCache=res.data||[];
+    landNumberDraftLoading=false;
+    _renderLandNumberDraft();
+  }catch(e){
+    console.error('地番プレビュー読み込みエラー:',e);
+    if(info)info.textContent='読み込み失敗: '+e.message;
+    landNumberDraftLoading=false;
+    var btn=document.getElementById('hzLandNumberDraft');if(btn)btn.classList.remove('active');
+    var panel=document.getElementById('landNumberDraftPanel');if(panel)panel.style.display='none';
+    landNumberDraftEnabled=false;
+  }
+}
+
+function _renderLandNumberDraft(){
+  if(!landNumberDraftEnabled)return;
+  if(landNumberDraftLayer){try{map.removeLayer(landNumberDraftLayer);}catch(e){}landNumberDraftLayer=null;}
+  if(!map.getPane('landNumberDraftPane')){var p=map.createPane('landNumberDraftPane');p.style.zIndex=428;}
+  var group=L.layerGroup([],{pane:'landNumberDraftPane'});
+  (landNumberDraftCache||[]).forEach(function(row){
+    if(row.lat==null||row.lng==null)return;
+    var rot=-12; // 一律-12度傾斜（街区全体の向きに合わせる）
+    var suffix=(row.land_number||'').split('-').slice(1).join('-'); // 枝番のみ表示
+    if(!suffix) suffix=row.land_number;
+    var html='<div class="landnum-marker-wrapper" style="--rot:'+rot+'deg">'
+           +'<div class="landnum-dot"></div>'
+           +'<div class="landnum-label">'+suffix+'</div>'
+           +'</div>';
+    var icon=L.divIcon({
+      className:'landnum-marker-container',
+      html:html,
+      iconSize:[12,12],
+      iconAnchor:[6,6]
+    });
+    var marker=L.marker([row.lat,row.lng],{icon:icon,pane:'landNumberDraftPane'});
+    marker.bindPopup('<div style="font-weight:600">地番: '+row.land_number+'</div><div style="font-size:11px;color:#666">緯度: '+row.lat.toFixed(7)+'<br>経度: '+row.lng.toFixed(7)+'</div>');
+    group.addLayer(marker);
+  });
+  landNumberDraftLayer=group;
+  landNumberDraftLayer.addTo(map);
+  var info=document.getElementById('landNumberDraftInfo');
+  if(info)info.innerHTML='地番 '+(landNumberDraftCache?landNumberDraftCache.length:0)+'件を表示中';
+  _loadBlockLabels();
+}
+
+// ======== 街区ラベル (villa_block_labels) ズーム連動サイズ ========
+var blockLabelsCache=null;
+var blockLabelsLayer=null;
+var blockLabelsLoading=false;
+
+async function _loadBlockLabels(){
+  if(blockLabelsLoading)return;
+  if(blockLabelsCache){_renderBlockLabels();return;}
+  blockLabelsLoading=true;
+  try{
+    var res=await db.from('villa_block_labels').select('block_prefix,color_hex,lat,lng,moved_by_user').eq('villa_name','びわこの森');
+    if(res.error)throw res.error;
+    blockLabelsCache=res.data||[];
+    blockLabelsLoading=false;
+    _renderBlockLabels();
+  }catch(e){
+    console.error('街区ラベル読み込みエラー:',e);
+    blockLabelsLoading=false;
+  }
+}
+
+function _renderBlockLabels(){
+  if(blockLabelsLayer){try{map.removeLayer(blockLabelsLayer);}catch(e){}blockLabelsLayer=null;}
+  if(!landNumberDraftEnabled)return; // 地番プレビューがOFFなら表示しない
+  if(!blockLabelsCache||!blockLabelsCache.length)return;
+  if(!map.getPane('blockLabelsPane')){var p=map.createPane('blockLabelsPane');p.style.zIndex=429;}
+  var group=L.layerGroup([],{pane:'blockLabelsPane'});
+  blockLabelsCache.forEach(function(row){
+    if(row.lat==null||row.lng==null)return;
+    var html='<span class="block-label" style="--bg:'+row.color_hex+';background:'+row.color_hex+'">'+row.block_prefix+'</span>';
+    var icon=L.divIcon({
+      className:'block-label-container',
+      html:html,
+      iconSize:[0,0],
+      iconAnchor:[0,0]
+    });
+    var marker=L.marker([row.lat,row.lng],{icon:icon,pane:'blockLabelsPane',draggable:true});
+    marker.blockPrefix=row.block_prefix;
+    marker.on('dragend',async function(e){
+      var pos=e.target.getLatLng();
+      var prefix=e.target.blockPrefix;
+      try{
+        var res=await db.from('villa_block_labels').update({
+          lat:pos.lat, lng:pos.lng, moved_by_user:true, updated_at:new Date().toISOString()
+        }).eq('villa_name','びわこの森').eq('block_prefix',prefix);
+        if(res.error)throw res.error;
+        var cached=blockLabelsCache.find(function(r){return r.block_prefix===prefix;});
+        if(cached){cached.lat=pos.lat;cached.lng=pos.lng;cached.moved_by_user=true;}
+        console.log('街区ラベル位置保存:',prefix,pos.lat,pos.lng);
+      }catch(err){
+        console.error('街区ラベル位置保存エラー:',err);
+      }
+    });
+    group.addLayer(marker);
+  });
+  blockLabelsLayer=group;
+  blockLabelsLayer.addTo(map);
+  updateBlockLabelScale(); // 描画直後に現在ズームのスケール反映
+}
+
+// 街区ラベル(4桁)ズーム連動スケール。z18=1.0基準、ズームアウトで0.78^(18-z)縮小、下限0.34
+function updateBlockLabelScale(){
+  if(!map)return;
+  var z=map.getZoom();
+  var s=Math.pow(0.78, 18-z);
+  if(s>1)s=1; if(s<0.34)s=0.34;
+  document.documentElement.style.setProperty('--blk-scale', s.toFixed(3));
+}
 
 
 // ============================================================
