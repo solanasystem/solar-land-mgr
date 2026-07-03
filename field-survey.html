@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260702s / GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。びわこの森の区画をクリック→黄色枠+面積ポップアップが本番と同一に再現される。 -->
+<!-- BUILD: field-survey v20260703a / CAD区画・現在地セクション（CAD区画図/CADハッチング/現在地区画ハイライト/GPS疑似テスト）を右パネル最上部に移動。Phase 1-①検証中のトグル視認性確保。スクロール不要で即アクセス可能。 -->
+<!-- v20260702s: GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。 -->
 <!-- v20260626c: ポップアップにGoogle地図・ストリートビューボタン追加
 <!-- v20260626a: 別荘地候補レイヤー追加（villa_place_names 16件・v_villa_places_map ビュー経由）。🏘️別荘地候補トグル+パターン別色分け凡例（別荘地#7c3aed/ハイランド・リゾート#c026d3/高原#a855f7）。villaPane(zIndex640)+canvas。3マップ同期実装。 -->
 <html lang="ja">
@@ -585,6 +586,57 @@
     </div>
     <label class="layer-item"><input type="checkbox" id="layerFude" onchange="toggleLayer('fude',this.checked)"> 筆ポリゴン</label>
 
+    <!-- ★v20260703a: CAD区画・現在地セクションを最上部に移動（Phase 1-①検証中の視認性確保） -->
+    <!-- CAD区画ベクター (villa_parcels_geojson) v20260702n -->
+    <div class="layer-section-title">&#128506; CAD区画・現在地</div>
+    <button class="hazard-toggle-btn" id="hzVillaParcels" onclick="toggleVillaParcels()">
+      <span class="hazard-toggle-dot"></span>🗺 CAD区画図
+    </button>
+    <div id="villaParcelsPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.8;">
+        <div style="font-weight:600;margin-bottom:4px">CAD区画図（トレース）</div>
+        <div id="villaParcelsInfo" style="margin-bottom:4px;color:var(--text-muted);">読み込み中...</div>
+        <label style="font-size:9px;color:var(--text-muted);cursor:pointer;display:block;">
+          <input type="checkbox" id="villaParcelsFillMode" onchange="_toggleVillaParcelsFill()" style="vertical-align:middle;">
+          <span style="font-weight:600">区画を塗りつぶし表示</span>
+        </label>
+        <div style="color:var(--text-dim);font-size:9px;line-height:1.4;margin-top:3px;">閉じた区画をクリック or 現在地が入ると面積(㎡)を表示します。</div>
+      </div>
+    </div>
+    <!-- CADハッチング (villa_hatch) v20260702n -->
+    <button class="hazard-toggle-btn" id="hzVillaHatch" onclick="toggleVillaHatch()">
+      <span class="hazard-toggle-dot"></span>🎨 CADハッチング
+    </button>
+    <div id="villaHatchPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.7;">
+        <div style="font-weight:600;margin-bottom:4px">CADハッチング（色分け区画）</div>
+        <div id="villaHatchInfo" style="color:var(--text-muted);">読み込み中...</div>
+        <label style="font-size:9px;color:var(--text-muted);cursor:pointer;display:block;margin-top:4px;">塗り透明度
+          <input type="range" id="villaHatchOpacity" min="10" max="90" step="5" value="45" oninput="_setVillaHatchOpacity(this.value)" style="width:100%;">
+        </label>
+      </div>
+    </div>
+    <!-- 現在地区画ハイライト設定 v20260702n -->
+    <button class="hazard-toggle-btn active" id="hzGpsHighlight" onclick="toggleGpsHighlight()">
+      <span class="hazard-toggle-dot"></span>🎯 現在地区画ハイライト
+    </button>
+    <div id="gpsHighlightPanel" style="margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.7;">
+        <div id="gpsHighlightInfo" style="color:var(--text-muted);">CAD区画をONにすると現在地区画を自動判定します</div>
+      </div>
+    </div>
+    <!-- GPS疑似テストモード v20260702s (現地に行かず区画判定を検証) -->
+    <button class="hazard-toggle-btn" id="hzGpsSimulate" onclick="toggleGpsSimulate()">
+      <span class="hazard-toggle-dot"></span>🧪 GPS疑似テスト
+    </button>
+    <div id="gpsSimulatePanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.6;">
+        <div style="font-weight:600;color:#f0b429;margin-bottom:3px;">🧪 テストモードON</div>
+        <div style="color:var(--text-muted);">地図をクリックすると、その地点を<b>仮の現在地</b>として区画判定します。現地でGPSが区画に入った時と<b>全く同じ動作</b>を再現します。</div>
+        <div id="gpsSimulateInfo" style="color:var(--accent);margin-top:4px;">クリック待機中...</div>
+      </div>
+    </div>
+
     <!-- ハザードマップ（5種類トグル） -->
     <div class="layer-section-title">&#128680; ハザードマップ</div>
     <button class="hazard-toggle-btn" id="btnHazard1" onclick="toggleHazard('hazard1')">
@@ -678,55 +730,6 @@
       </div>
     </div>
 
-    <!-- CAD区画ベクター (villa_parcels_geojson) v20260702n -->
-    <div class="layer-section-title">&#128506; CAD区画・現在地</div>
-    <button class="hazard-toggle-btn" id="hzVillaParcels" onclick="toggleVillaParcels()">
-      <span class="hazard-toggle-dot"></span>🗺 CAD区画図
-    </button>
-    <div id="villaParcelsPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
-      <div style="font-size:10px;line-height:1.8;">
-        <div style="font-weight:600;margin-bottom:4px">CAD区画図（トレース）</div>
-        <div id="villaParcelsInfo" style="margin-bottom:4px;color:var(--text-muted);">読み込み中...</div>
-        <label style="font-size:9px;color:var(--text-muted);cursor:pointer;display:block;">
-          <input type="checkbox" id="villaParcelsFillMode" onchange="_toggleVillaParcelsFill()" style="vertical-align:middle;">
-          <span style="font-weight:600">区画を塗りつぶし表示</span>
-        </label>
-        <div style="color:var(--text-dim);font-size:9px;line-height:1.4;margin-top:3px;">閉じた区画をクリック or 現在地が入ると面積(㎡)を表示します。</div>
-      </div>
-    </div>
-    <!-- CADハッチング (villa_hatch) v20260702n -->
-    <button class="hazard-toggle-btn" id="hzVillaHatch" onclick="toggleVillaHatch()">
-      <span class="hazard-toggle-dot"></span>🎨 CADハッチング
-    </button>
-    <div id="villaHatchPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
-      <div style="font-size:10px;line-height:1.7;">
-        <div style="font-weight:600;margin-bottom:4px">CADハッチング（色分け区画）</div>
-        <div id="villaHatchInfo" style="color:var(--text-muted);">読み込み中...</div>
-        <label style="font-size:9px;color:var(--text-muted);cursor:pointer;display:block;margin-top:4px;">塗り透明度
-          <input type="range" id="villaHatchOpacity" min="10" max="90" step="5" value="45" oninput="_setVillaHatchOpacity(this.value)" style="width:100%;">
-        </label>
-      </div>
-    </div>
-    <!-- 現在地区画ハイライト設定 v20260702n -->
-    <button class="hazard-toggle-btn active" id="hzGpsHighlight" onclick="toggleGpsHighlight()">
-      <span class="hazard-toggle-dot"></span>🎯 現在地区画ハイライト
-    </button>
-    <div id="gpsHighlightPanel" style="margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
-      <div style="font-size:10px;line-height:1.7;">
-        <div id="gpsHighlightInfo" style="color:var(--text-muted);">CAD区画をONにすると現在地区画を自動判定します</div>
-      </div>
-    </div>
-    <!-- GPS疑似テストモード v20260702s (現地に行かず区画判定を検証) -->
-    <button class="hazard-toggle-btn" id="hzGpsSimulate" onclick="toggleGpsSimulate()">
-      <span class="hazard-toggle-dot"></span>🧪 GPS疑似テスト
-    </button>
-    <div id="gpsSimulatePanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
-      <div style="font-size:10px;line-height:1.6;">
-        <div style="font-weight:600;color:#f0b429;margin-bottom:3px;">🧪 テストモードON</div>
-        <div style="color:var(--text-muted);">地図をクリックすると、その地点を<b>仮の現在地</b>として区画判定します。現地でGPSが区画に入った時と<b>全く同じ動作</b>を再現します。</div>
-        <div id="gpsSimulateInfo" style="color:var(--accent);margin-top:4px;">クリック待機中...</div>
-      </div>
-    </div>
     </div><!-- /.layer-body -->
   </div>
 
