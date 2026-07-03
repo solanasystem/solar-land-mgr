@@ -1,6 +1,7 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260703b / GPS疑似テストマーカーを目立つ赤パルス+🧪絵文字のDivIconに変更。実GPSマーカー(青)と紛れないよう視覚的に明確化。GPS疑似テストON時は実GPSマーカーを一時退避、OFF時に復元。 -->
-<!-- v20260703a: CAD区画・現在地セクション（CAD区画図/CADハッチング/現在地区画ハイライト/GPS疑似テスト）を右パネル最上部に移動。 -->
+<!-- BUILD: field-survey v20260703c / GPS疑似テストON時に実GPSを完全停止(stopGpsWatch/watchPositionガード)。疑似マーカーを本番実GPSと同じ青点+🧪バッジ統一デザインに変更。青点1つで「自分の位置」を表現し、青点/赤点の二重表示による混乱を根本解消。 -->
+<!-- v20260703b: GPS疑似テストマーカーを目立つ赤パルス+🧪絵文字のDivIconに変更。 -->
+<!-- v20260703a: CAD区画・現在地セクションを右パネル最上部に移動。 -->
 <!-- v20260702s: GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。 -->
 <!-- v20260626c: ポップアップにGoogle地図・ストリートビューボタン追加
 <!-- v20260626a: 別荘地候補レイヤー追加（villa_place_names 16件・v_villa_places_map ビュー経由）。🏘️別荘地候補トグル+パターン別色分け凡例（別荘地#7c3aed/ハイランド・リゾート#c026d3/高原#a855f7）。villaPane(zIndex640)+canvas。3マップ同期実装。 -->
@@ -479,26 +480,37 @@
     0% { transform: scale(0.5); opacity: 1; }
     100% { transform: scale(2.4); opacity: 0; }
   }
-  /* GPS疑似テスト用マーカー v20260703b */
+  /* GPS疑似テスト用マーカー v20260703c: 本番実GPSと同じ青点＋🧪バッジで「自分の位置」を統一表現 */
   .gps-sim-marker { position: relative; width: 44px; height: 44px; pointer-events: none; }
   .gps-sim-pulse {
     position: absolute; top: 50%; left: 50%;
     width: 44px; height: 44px; margin: -22px 0 0 -22px;
     border-radius: 50%;
-    background: rgba(220, 38, 38, 0.35);
-    border: 2px solid #dc2626;
+    background: rgba(59, 130, 246, 0.30);
+    border: 2px solid rgba(59, 130, 246, 0.7);
     animation: gps-sim-pulse 1.4s ease-out infinite;
+    z-index: 1;
   }
-  .gps-sim-center {
+  .gps-sim-dot {
     position: absolute; top: 50%; left: 50%;
-    width: 26px; height: 26px; margin: -13px 0 0 -13px;
+    width: 18px; height: 18px; margin: -9px 0 0 -9px;
     border-radius: 50%;
-    background: #dc2626;
+    background: #3b82f6;
     border: 3px solid #ffffff;
-    box-shadow: 0 0 0 1px #dc2626, 0 2px 6px rgba(0,0,0,0.4);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 14px; line-height: 1;
+    box-shadow: 0 0 0 1px #1e40af, 0 2px 6px rgba(0,0,0,0.5);
     z-index: 2;
+  }
+  .gps-sim-badge {
+    position: absolute; top: 2px; right: 2px;
+    background: #f59e0b;
+    color: #1a1a1a;
+    font-size: 11px; line-height: 1;
+    padding: 2px 4px 3px;
+    border-radius: 8px;
+    border: 1.5px solid #ffffff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+    z-index: 3;
+    font-weight: 700;
   }
   @keyframes gps-sim-pulse {
     0%   { transform: scale(0.4); opacity: 1; }
@@ -657,8 +669,8 @@
     </button>
     <div id="gpsSimulatePanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
       <div style="font-size:10px;line-height:1.6;">
-        <div style="font-weight:600;color:#f0b429;margin-bottom:3px;">🧪 テストモードON</div>
-        <div style="color:var(--text-muted);">地図をクリックすると、その地点を<b>仮の現在地</b>として区画判定します。現地でGPSが区画に入った時と<b>全く同じ動作</b>を再現します。</div>
+        <div style="font-weight:600;color:#f0b429;margin-bottom:3px;">🧪 テストモードON（実GPS停止中）</div>
+        <div style="color:var(--text-muted);">地図をクリックすると、その地点があなたの<b>現在地（青点＋🧪バッジ）</b>になります。実GPSと全く同じ判定を再現します。</div>
         <div id="gpsSimulateInfo" style="color:var(--accent);margin-top:4px;">クリック待機中...</div>
       </div>
     </div>
@@ -1234,6 +1246,8 @@ function startGpsWatch() {
   if (!navigator.geolocation) return;
   _gpsWatchId = navigator.geolocation.watchPosition(
     function(pos) {
+      // v20260703c: 疑似テストモード中は実GPS更新を完全に無視
+      if (typeof gpsSimulateEnabled !== 'undefined' && gpsSimulateEnabled) return;
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
       const acc = pos.coords.accuracy;
@@ -2770,15 +2784,9 @@ function toggleGpsSimulate(){
   if(gpsSimulateEnabled){
     if(btn) btn.classList.add('active');
     if(panel) panel.style.display = 'block';
-    // v20260703b: 実GPSマーカーを一時退避（紛らわしさ排除）
-    try {
-      if(typeof _gpsWatchMarker !== 'undefined' && _gpsWatchMarker && map.hasLayer(_gpsWatchMarker)){
-        map.removeLayer(_gpsWatchMarker);
-      }
-      if(typeof _gpsWatchCircle !== 'undefined' && _gpsWatchCircle && map.hasLayer(_gpsWatchCircle)){
-        map.removeLayer(_gpsWatchCircle);
-      }
-    } catch(e){}
+    // v20260703c: 実GPSを完全停止（clearWatch + マーカー除去 + null化）
+    // これで実GPSの青点/精度円が完全に消え、疑似マーカーだけが残る
+    try { stopGpsWatch(); } catch(e){}
     // CAD区画がOFFなら警告
     if(!villaParcelsEnabled){
       _updateGpsSimulateInfo('⚠️ 先に「CAD区画図」をONにしてください');
@@ -2788,7 +2796,7 @@ function toggleGpsSimulate(){
     // 地図クリックで仮想現在地をセット
     map.on('click', _gpsSimulateClick);
     map.getContainer().style.cursor = 'crosshair';
-    showToast('🧪 GPS疑似テストON：地図をクリックすると仮の現在地として判定します','success');
+    showToast('🧪 GPS疑似テストON：実GPSを停止しました。地図クリックで仮の現在地を設定します','success');
   } else {
     if(btn) btn.classList.remove('active');
     if(panel) panel.style.display = 'none';
@@ -2796,17 +2804,10 @@ function toggleGpsSimulate(){
     map.getContainer().style.cursor = '';
     // 仮想現在地マーカーを消す
     if(gpsSimulateMarker){ try{map.removeLayer(gpsSimulateMarker);}catch(e){} gpsSimulateMarker=null; }
-    // v20260703b: 実GPSマーカーを復元
-    try {
-      if(typeof _gpsWatchMarker !== 'undefined' && _gpsWatchMarker && !map.hasLayer(_gpsWatchMarker)){
-        _gpsWatchMarker.addTo(map);
-      }
-      if(typeof _gpsWatchCircle !== 'undefined' && _gpsWatchCircle && !map.hasLayer(_gpsWatchCircle)){
-        _gpsWatchCircle.addTo(map);
-        try { _gpsWatchCircle.bringToBack(); } catch(e) {}
-      }
-    } catch(e){}
+    // v20260703c: 実GPSを再開（現地に着いたら自動で青点が復帰）
+    try { startGpsWatch(); } catch(e){}
     _updateGpsSimulateInfo('クリック待機中...');
+    showToast('GPS疑似テストOFF：実GPSを再開しました','success');
   }
 }
 
@@ -2819,11 +2820,11 @@ function _gpsSimulateClick(e){
   if(!gpsSimulateEnabled) return;
   var lat = e.latlng.lat;
   var lng = e.latlng.lng;
-  // v20260703b: 目立つDivIconマーカー（赤パルス+🧪絵文字）
+  // v20260703c: 本番実GPSと同じ青点＋🧪バッジ（テストモード明示）
   if(!gpsSimulateMarker){
     var simIcon = L.divIcon({
       className: 'gps-sim-marker',
-      html: '<div class="gps-sim-pulse"></div><div class="gps-sim-center">🧪</div>',
+      html: '<div class="gps-sim-pulse"></div><div class="gps-sim-dot"></div><div class="gps-sim-badge">🧪</div>',
       iconSize: [44, 44],
       iconAnchor: [22, 22]
     });
