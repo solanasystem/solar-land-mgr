@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260703a / CAD区画・現在地セクション（CAD区画図/CADハッチング/現在地区画ハイライト/GPS疑似テスト）を右パネル最上部に移動。Phase 1-①検証中のトグル視認性確保。スクロール不要で即アクセス可能。 -->
+<!-- BUILD: field-survey v20260703b / GPS疑似テストマーカーを目立つ赤パルス+🧪絵文字のDivIconに変更。実GPSマーカー(青)と紛れないよう視覚的に明確化。GPS疑似テストON時は実GPSマーカーを一時退避、OFF時に復元。 -->
+<!-- v20260703a: CAD区画・現在地セクション（CAD区画図/CADハッチング/現在地区画ハイライト/GPS疑似テスト）を右パネル最上部に移動。 -->
 <!-- v20260702s: GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。 -->
 <!-- v20260626c: ポップアップにGoogle地図・ストリートビューボタン追加
 <!-- v20260626a: 別荘地候補レイヤー追加（villa_place_names 16件・v_villa_places_map ビュー経由）。🏘️別荘地候補トグル+パターン別色分け凡例（別荘地#7c3aed/ハイランド・リゾート#c026d3/高原#a855f7）。villaPane(zIndex640)+canvas。3マップ同期実装。 -->
@@ -477,6 +478,31 @@
   @keyframes sf-pulse {
     0% { transform: scale(0.5); opacity: 1; }
     100% { transform: scale(2.4); opacity: 0; }
+  }
+  /* GPS疑似テスト用マーカー v20260703b */
+  .gps-sim-marker { position: relative; width: 44px; height: 44px; pointer-events: none; }
+  .gps-sim-pulse {
+    position: absolute; top: 50%; left: 50%;
+    width: 44px; height: 44px; margin: -22px 0 0 -22px;
+    border-radius: 50%;
+    background: rgba(220, 38, 38, 0.35);
+    border: 2px solid #dc2626;
+    animation: gps-sim-pulse 1.4s ease-out infinite;
+  }
+  .gps-sim-center {
+    position: absolute; top: 50%; left: 50%;
+    width: 26px; height: 26px; margin: -13px 0 0 -13px;
+    border-radius: 50%;
+    background: #dc2626;
+    border: 3px solid #ffffff;
+    box-shadow: 0 0 0 1px #dc2626, 0 2px 6px rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; line-height: 1;
+    z-index: 2;
+  }
+  @keyframes gps-sim-pulse {
+    0%   { transform: scale(0.4); opacity: 1; }
+    100% { transform: scale(2.0); opacity: 0; }
   }
 </style>
 </head>
@@ -2744,6 +2770,15 @@ function toggleGpsSimulate(){
   if(gpsSimulateEnabled){
     if(btn) btn.classList.add('active');
     if(panel) panel.style.display = 'block';
+    // v20260703b: 実GPSマーカーを一時退避（紛らわしさ排除）
+    try {
+      if(typeof _gpsWatchMarker !== 'undefined' && _gpsWatchMarker && map.hasLayer(_gpsWatchMarker)){
+        map.removeLayer(_gpsWatchMarker);
+      }
+      if(typeof _gpsWatchCircle !== 'undefined' && _gpsWatchCircle && map.hasLayer(_gpsWatchCircle)){
+        map.removeLayer(_gpsWatchCircle);
+      }
+    } catch(e){}
     // CAD区画がOFFなら警告
     if(!villaParcelsEnabled){
       _updateGpsSimulateInfo('⚠️ 先に「CAD区画図」をONにしてください');
@@ -2761,6 +2796,16 @@ function toggleGpsSimulate(){
     map.getContainer().style.cursor = '';
     // 仮想現在地マーカーを消す
     if(gpsSimulateMarker){ try{map.removeLayer(gpsSimulateMarker);}catch(e){} gpsSimulateMarker=null; }
+    // v20260703b: 実GPSマーカーを復元
+    try {
+      if(typeof _gpsWatchMarker !== 'undefined' && _gpsWatchMarker && !map.hasLayer(_gpsWatchMarker)){
+        _gpsWatchMarker.addTo(map);
+      }
+      if(typeof _gpsWatchCircle !== 'undefined' && _gpsWatchCircle && !map.hasLayer(_gpsWatchCircle)){
+        _gpsWatchCircle.addTo(map);
+        try { _gpsWatchCircle.bringToBack(); } catch(e) {}
+      }
+    } catch(e){}
     _updateGpsSimulateInfo('クリック待機中...');
   }
 }
@@ -2774,22 +2819,20 @@ function _gpsSimulateClick(e){
   if(!gpsSimulateEnabled) return;
   var lat = e.latlng.lat;
   var lng = e.latlng.lng;
-  // 仮想現在地マーカー(青丸)を表示 or 移動
+  // v20260703b: 目立つDivIconマーカー（赤パルス+🧪絵文字）
   if(!gpsSimulateMarker){
-    if(!map.getPane('gpsSimPane')){
-      var p = map.createPane('gpsSimPane');
-      p.style.zIndex = '690';
-    }
-    gpsSimulateMarker = L.circleMarker([lat,lng],{
-      pane:'gpsSimPane',
-      radius:8,
-      fillColor:'#2196F3',
-      color:'#ffffff',
-      weight:3,
-      fillOpacity:0.9,
-      opacity:1
+    var simIcon = L.divIcon({
+      className: 'gps-sim-marker',
+      html: '<div class="gps-sim-pulse"></div><div class="gps-sim-center">🧪</div>',
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
+    });
+    gpsSimulateMarker = L.marker([lat,lng], {
+      icon: simIcon,
+      zIndexOffset: 1000,
+      interactive: false,
+      keyboard: false
     }).addTo(map);
-    gpsSimulateMarker.bindTooltip('🧪 仮の現在地', {permanent:false, direction:'top'});
   } else {
     gpsSimulateMarker.setLatLng([lat,lng]);
   }
