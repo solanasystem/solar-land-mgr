@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260702r / 【根本修正】version.json自動リロード機構を完全撤去(location.replaceによる地図二重初期化の元凶)。initMap()に二重初期化ガード追加。これで「Map container is already initialized」エラーが解消。全UI変更(CAD移植・現在地判定・右パネル縮小・背景edge-panel・フラグサイズ統一)が正常動作する。 -->
+<!-- BUILD: field-survey v20260702s / GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。びわこの森の区画をクリック→黄色枠+面積ポップアップが本番と同一に再現される。 -->
 <!-- v20260626c: ポップアップにGoogle地図・ストリートビューボタン追加
 <!-- v20260626a: 別荘地候補レイヤー追加（villa_place_names 16件・v_villa_places_map ビュー経由）。🏘️別荘地候補トグル+パターン別色分け凡例（別荘地#7c3aed/ハイランド・リゾート#c026d3/高原#a855f7）。villaPane(zIndex640)+canvas。3マップ同期実装。 -->
 <html lang="ja">
@@ -714,6 +714,17 @@
     <div id="gpsHighlightPanel" style="margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
       <div style="font-size:10px;line-height:1.7;">
         <div id="gpsHighlightInfo" style="color:var(--text-muted);">CAD区画をONにすると現在地区画を自動判定します</div>
+      </div>
+    </div>
+    <!-- GPS疑似テストモード v20260702s (現地に行かず区画判定を検証) -->
+    <button class="hazard-toggle-btn" id="hzGpsSimulate" onclick="toggleGpsSimulate()">
+      <span class="hazard-toggle-dot"></span>🧪 GPS疑似テスト
+    </button>
+    <div id="gpsSimulatePanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.6;">
+        <div style="font-weight:600;color:#f0b429;margin-bottom:3px;">🧪 テストモードON</div>
+        <div style="color:var(--text-muted);">地図をクリックすると、その地点を<b>仮の現在地</b>として区画判定します。現地でGPSが区画に入った時と<b>全く同じ動作</b>を再現します。</div>
+        <div id="gpsSimulateInfo" style="color:var(--accent);margin-top:4px;">クリック待機中...</div>
       </div>
     </div>
     </div><!-- /.layer-body -->
@@ -2714,6 +2725,85 @@ function _updateGpsHighlight(lat, lng){
 }
 
 function _esc(s){if(s==null)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// ============================================================
+// GPS疑似テストモード (v20260702s)
+// 現地に行かず、地図クリックで「仮の現在地」を設定して区画判定を検証。
+// 実GPSと全く同じ _updateGpsHighlight() を呼ぶため、本番と同一動作を再現。
+// ============================================================
+var gpsSimulateEnabled = false;
+var gpsSimulateMarker = null;   // 仮想現在地マーカー(青丸)
+
+function toggleGpsSimulate(){
+  var btn = document.getElementById('hzGpsSimulate');
+  var panel = document.getElementById('gpsSimulatePanel');
+  gpsSimulateEnabled = !gpsSimulateEnabled;
+  if(gpsSimulateEnabled){
+    if(btn) btn.classList.add('active');
+    if(panel) panel.style.display = 'block';
+    // CAD区画がOFFなら警告
+    if(!villaParcelsEnabled){
+      _updateGpsSimulateInfo('⚠️ 先に「CAD区画図」をONにしてください');
+    } else {
+      _updateGpsSimulateInfo('地図をクリックしてください');
+    }
+    // 地図クリックで仮想現在地をセット
+    map.on('click', _gpsSimulateClick);
+    map.getContainer().style.cursor = 'crosshair';
+    showToast('🧪 GPS疑似テストON：地図をクリックすると仮の現在地として判定します','success');
+  } else {
+    if(btn) btn.classList.remove('active');
+    if(panel) panel.style.display = 'none';
+    map.off('click', _gpsSimulateClick);
+    map.getContainer().style.cursor = '';
+    // 仮想現在地マーカーを消す
+    if(gpsSimulateMarker){ try{map.removeLayer(gpsSimulateMarker);}catch(e){} gpsSimulateMarker=null; }
+    _updateGpsSimulateInfo('クリック待機中...');
+  }
+}
+
+function _updateGpsSimulateInfo(msg){
+  var el = document.getElementById('gpsSimulateInfo');
+  if(el) el.innerHTML = msg;
+}
+
+function _gpsSimulateClick(e){
+  if(!gpsSimulateEnabled) return;
+  var lat = e.latlng.lat;
+  var lng = e.latlng.lng;
+  // 仮想現在地マーカー(青丸)を表示 or 移動
+  if(!gpsSimulateMarker){
+    if(!map.getPane('gpsSimPane')){
+      var p = map.createPane('gpsSimPane');
+      p.style.zIndex = '690';
+    }
+    gpsSimulateMarker = L.circleMarker([lat,lng],{
+      pane:'gpsSimPane',
+      radius:8,
+      fillColor:'#2196F3',
+      color:'#ffffff',
+      weight:3,
+      fillOpacity:0.9,
+      opacity:1
+    }).addTo(map);
+    gpsSimulateMarker.bindTooltip('🧪 仮の現在地', {permanent:false, direction:'top'});
+  } else {
+    gpsSimulateMarker.setLatLng([lat,lng]);
+  }
+  _updateGpsSimulateInfo('判定中... ('+lat.toFixed(6)+', '+lng.toFixed(6)+')');
+  // ★本番と全く同じ判定ロジックを呼ぶ★
+  // gpsHighlightがOFFでも、テスト時は強制的に判定を実行
+  var savedEnabled = gpsHighlightEnabled;
+  gpsHighlightEnabled = true;
+  _updateGpsHighlight(lat, lng);
+  gpsHighlightEnabled = savedEnabled;
+  // 判定結果を gpsHighlightInfo から拾ってテスト欄にも反映
+  var hlInfo = document.getElementById('gpsHighlightInfo');
+  if(hlInfo){
+    _updateGpsSimulateInfo('結果 → ' + hlInfo.innerHTML);
+  }
+}
+
 
 function toggleDosyaPolygon() {
   const btn = document.getElementById('btnDosyaPolygon');
