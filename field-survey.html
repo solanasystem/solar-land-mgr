@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260704a / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真はIndexedDBに即保存(電波不要)→裏で自動アップロード+手動同期ボタン(オフライン対応)。電柱は⚡ボタンで地図タップ記録(pole_records)。前:v20260703d 地番プレビュー移植 -->
+<!-- BUILD: field-survey v20260704b / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。前:v20260703d -->
 <!-- v20260703b: GPS疑似テストマーカーを目立つ赤パルス+🧪絵文字のDivIconに変更。 -->
 <!-- v20260703a: CAD区画・現在地セクションを右パネル最上部に移動。 -->
 <!-- v20260702s: GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。 -->
@@ -2970,6 +2970,38 @@ function _renderLandNumberDraft(){
 }
 
 // ======== 現地調査モード v20260704a ========
+// 現地調査専用・強圧縮（証拠記録用: 1024px/品質0.5、上限~120KB。容量マージン確保）
+// 既存 compressImage(1280px/0.7) は従来の確認終了モーダル用にそのまま温存
+async function compressImageSurvey(file){
+  return new Promise(function(resolve,reject){
+    var reader=new FileReader();
+    reader.onload=function(e){
+      var img=new Image();
+      img.onload=function(){
+        var MAX_DIM=1024;
+        var w=img.width, h=img.height;
+        if(w>h && w>MAX_DIM){ h=h*MAX_DIM/w; w=MAX_DIM; }
+        else if(h>MAX_DIM){ w=w*MAX_DIM/h; h=MAX_DIM; }
+        var canvas=document.createElement('canvas');
+        canvas.width=w; canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        canvas.toBlob(function(blob){
+          if(!blob){ reject(new Error('圧縮失敗')); return; }
+          if(blob.size>120000){
+            canvas.toBlob(function(b2){ resolve(b2||blob); }, 'image/jpeg', 0.4);
+          }else{
+            resolve(blob);
+          }
+        }, 'image/jpeg', 0.5);
+      };
+      img.onerror=function(){ reject(new Error('画像読み込み失敗')); };
+      img.src=e.target.result;
+    };
+    reader.onerror=function(){ reject(new Error('ファイル読み込み失敗')); };
+    reader.readAsDataURL(file);
+  });
+}
+
 var landnumMarkers = {};            // land_number → marker
 var currentSurveyLand = null;       // 調査中の地番
 var currentSurveyCaseId = null;     // 対応する case_id
@@ -3090,7 +3122,7 @@ async function saveSurvey(){
     var f=inp && inp.files ? inp.files[0] : null;
     if(f){
       try{
-        var blob=await compressImage(f);
+        var blob=await compressImageSurvey(f);
         await _idbPutPhoto({ id: land+'__'+k, land_number:land, case_id:cid||null, key:k, blob:blob, ts:Date.now() });
         savedAny=true;
       }catch(e){ console.warn('photo local save failed',e); }
