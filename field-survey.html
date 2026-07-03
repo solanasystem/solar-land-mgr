@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260704d / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。+ 判定モーダルに「戻る」ボタン追加(誤操作対策)+電柱マーカーをタップで削除可能に。前:v20260703d -->
+<!-- BUILD: field-survey v20260704e / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。+ 判定モーダルに「戻る」ボタン追加(誤操作対策)+電柱マーカーをタップで削除可能に。前:v20260703d -->
 <!-- v20260703b: GPS疑似テストマーカーを目立つ赤パルス+🧪絵文字のDivIconに変更。 -->
 <!-- v20260703a: CAD区画・現在地セクションを右パネル最上部に移動。 -->
 <!-- v20260702s: GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。 -->
@@ -1170,7 +1170,7 @@
     </div>
 
     <div class="survey-actions">
-      <button class="survey-back-btn" onclick="resetSurveyModal()">&#8635; リセット</button>
+      <button type="button" class="survey-back-btn" onclick="resetSurveyModal()">&#8635; リセット</button>
       <button class="survey-done-btn" id="surveyDoneBtn" onclick="saveSurvey()" disabled>判定を選んでください</button>
     </div>
     <div class="survey-hint" id="surveyHint">写真は端末に即保存され、電波がある場所で自動アップロードされます</div>
@@ -3082,18 +3082,28 @@ function closeSurveyModal(){
 
 // リセット：判定・写真・コメントを全てクリア（モーダルは開いたまま初期状態へ）
 function resetSurveyModal(){
-  currentJudgment = null;
-  ['jbUsable','jbConsider','jbUnusable'].forEach(function(id){ document.getElementById(id).classList.remove('selected'); });
-  document.getElementById('surveyPhotoSection').style.display='none';
-  document.getElementById('surveyComment').value='';
-  ['road1','land1','land2','land3','land4'].forEach(function(k){
-    var inp=document.getElementById('sp_'+k); if(inp) inp.value='';
-    var img=document.getElementById('sp_prev_'+k); if(img){ img.src=''; img.style.display='none'; }
-    var ph=document.getElementById('sp_ph_'+k); if(ph) ph.style.display='flex';
-  });
-  var doneBtn=document.getElementById('surveyDoneBtn');
-  doneBtn.disabled=true; doneBtn.textContent='判定を選んでください';
-  showToast('入力をリセットしました','success');
+  console.log('[reset] リセット実行');
+  try{
+    currentJudgment = null;
+    ['jbUsable','jbConsider','jbUnusable'].forEach(function(id){
+      var el=document.getElementById(id);
+      if(el) el.classList.remove('selected');
+      else console.warn('[reset] 判定ボタンが見つからない:', id);
+    });
+    var ps=document.getElementById('surveyPhotoSection'); if(ps) ps.style.display='none';
+    var cm=document.getElementById('surveyComment'); if(cm) cm.value='';
+    ['road1','land1','land2','land3','land4'].forEach(function(k){
+      var inp=document.getElementById('sp_'+k); if(inp) inp.value='';
+      var img=document.getElementById('sp_prev_'+k); if(img){ img.src=''; img.style.display='none'; }
+      var ph=document.getElementById('sp_ph_'+k); if(ph) ph.style.display='flex';
+    });
+    var doneBtn=document.getElementById('surveyDoneBtn');
+    if(doneBtn){ doneBtn.disabled=true; doneBtn.textContent='判定を選んでください'; }
+    console.log('[reset] 完了');
+    if(typeof showToast==='function') showToast('リセットしました','success');
+  }catch(e){
+    console.error('[reset] エラー:', e);
+  }
 }
 
 function selectJudgment(j){
