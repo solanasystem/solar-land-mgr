@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260703d / (1)地番プレビュー(草案)トグルをfarmland-trackerから移植: villa_hatch_landnumber_draft 317件を紫点+枝番表示、街区ラベル(4桁帯・ズーム連動サイズ・ドラッグ保存)連動。(2)iPhone現地調査向けに背景マップ調整パネルを非表示化(input要素はDOM保持)。前:v20260703c GPS疑似テスト -->
+<!-- BUILD: field-survey v20260704a / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真はIndexedDBに即保存(電波不要)→裏で自動アップロード+手動同期ボタン(オフライン対応)。電柱は⚡ボタンで地図タップ記録(pole_records)。前:v20260703d 地番プレビュー移植 -->
 <!-- v20260703b: GPS疑似テストマーカーを目立つ赤パルス+🧪絵文字のDivIconに変更。 -->
 <!-- v20260703a: CAD区画・現在地セクションを右パネル最上部に移動。 -->
 <!-- v20260702s: GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。 -->
@@ -582,6 +582,103 @@
     filter: brightness(1.1);
     box-shadow: 0 3px 10px rgba(0,0,0,0.7);
   }
+
+  /* ======== 現地調査モード v20260704a (びわこの森 385区画対応) ======== */
+  /* 地番フラグの判定色（judgment連動） */
+  .landnum-dot.j-usable   { background:#22c55e; border-color:#15803d; }  /* 使用可=緑 */
+  .landnum-dot.j-consider { background:#eab308; border-color:#a16207; }  /* 検討=黄 */
+  .landnum-dot.j-unusable { background:#6b7280; border-color:#374151; }  /* 使用不可=灰 */
+  /* 未調査は既定の紫のまま */
+
+  /* 調査モーダル（iPhone全画面・下部固定操作） */
+  .survey-modal-overlay {
+    display:none; position:fixed; inset:0; z-index:5000;
+    background:rgba(0,0,0,0.55); align-items:flex-end; justify-content:center;
+  }
+  .survey-modal-overlay.open { display:flex; }
+  .survey-modal {
+    width:100%; max-width:520px; max-height:92vh; overflow-y:auto;
+    background:var(--surface, #1a1d24); border-radius:18px 18px 0 0;
+    padding:16px 16px calc(16px + env(safe-area-inset-bottom));
+    box-shadow:0 -4px 24px rgba(0,0,0,0.5);
+  }
+  .survey-modal-head {
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:12px;
+  }
+  .survey-modal-title { font-size:20px; font-weight:800; color:var(--text,#fff); }
+  .survey-modal-sub { font-size:12px; color:var(--text-muted,#9aa4b2); margin-top:2px; }
+  .survey-close-x {
+    width:40px; height:40px; border:none; border-radius:50%;
+    background:rgba(255,255,255,0.08); color:#fff; font-size:20px; cursor:pointer;
+  }
+  /* 3値判定 大ボタン */
+  .judge-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:14px; }
+  .judge-btn {
+    padding:20px 6px; border:3px solid transparent; border-radius:14px;
+    font-size:17px; font-weight:800; cursor:pointer; color:#fff;
+    display:flex; flex-direction:column; align-items:center; gap:6px;
+    min-height:88px; transition:transform .05s, box-shadow .15s;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .judge-btn:active { transform:scale(0.96); }
+  .judge-btn .je { font-size:30px; line-height:1; }
+  .judge-usable   { background:#16a34a; }
+  .judge-consider { background:#ca8a04; }
+  .judge-unusable { background:#4b5563; }
+  .judge-btn.selected { border-color:#fff; box-shadow:0 0 0 4px rgba(255,255,255,0.25); }
+  /* 写真セクション */
+  .survey-photos { margin-top:6px; }
+  .survey-photos-label { font-size:12px; font-weight:700; color:var(--text-muted,#9aa4b2); margin:12px 0 6px; }
+  .photo-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .photo-slot {
+    display:block; border:2px dashed var(--border,#3a3f4b); border-radius:12px;
+    aspect-ratio:4/3; cursor:pointer; overflow:hidden; position:relative; background:var(--bg,#12141a);
+  }
+  .photo-slot img { width:100%; height:100%; object-fit:cover; display:none; }
+  .photo-slot .ph {
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; color:var(--text-muted,#9aa4b2); font-size:13px; gap:6px;
+  }
+  .photo-slot .ph .pe { font-size:30px; }
+  .survey-comment {
+    width:100%; min-height:70px; margin-top:6px; padding:12px; font-size:16px;
+    border:1px solid var(--border,#3a3f4b); border-radius:10px;
+    background:var(--bg,#12141a); color:var(--text,#fff); resize:vertical;
+  }
+  /* 下部固定の完了ボタン */
+  .survey-actions { margin-top:16px; display:flex; gap:10px; }
+  .survey-done-btn {
+    flex:1; padding:18px; border:none; border-radius:14px; font-size:18px; font-weight:800;
+    background:var(--accent,#3b82f6); color:#fff; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .survey-done-btn:active { transform:scale(0.98); }
+  .survey-done-btn:disabled { opacity:0.5; }
+  .survey-hint { font-size:11px; color:var(--text-muted,#9aa4b2); text-align:center; margin-top:8px; }
+
+  /* 電柱記録ボタン（地図右下・常設） */
+  .pole-fab {
+    position:fixed; right:14px; bottom:150px; z-index:1200;
+    width:60px; height:60px; border-radius:50%; border:none;
+    background:#f59e0b; color:#fff; font-size:26px; cursor:pointer;
+    box-shadow:0 3px 12px rgba(0,0,0,0.4);
+    display:flex; align-items:center; justify-content:center;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .pole-fab.active { background:#dc2626; box-shadow:0 0 0 4px rgba(220,38,38,0.35),0 3px 12px rgba(0,0,0,0.4); }
+  .pole-fab:active { transform:scale(0.92); }
+  .pole-marker-icon { background:transparent!important; border:none!important; }
+  /* 写真同期バッジ */
+  .sync-fab {
+    position:fixed; right:14px; bottom:222px; z-index:1200;
+    min-width:60px; height:44px; padding:0 12px; border-radius:22px; border:none;
+    background:#2563eb; color:#fff; font-size:13px; font-weight:700; cursor:pointer;
+    box-shadow:0 3px 12px rgba(0,0,0,0.4); display:none; align-items:center; gap:6px;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .sync-fab.show { display:flex; }
+  .sync-fab.syncing { background:#6b7280; }
 </style>
 </head>
 <body>
@@ -1026,6 +1123,57 @@
     </div>
   </div>
 </div>
+
+<!-- ======== 現地調査 区画判定モーダル v20260704a ======== -->
+<div class="survey-modal-overlay" id="surveyModal">
+  <div class="survey-modal">
+    <div class="survey-modal-head">
+      <div>
+        <div class="survey-modal-title" id="surveyLandNo">地番</div>
+        <div class="survey-modal-sub" id="surveyLandSub"></div>
+      </div>
+      <button class="survey-close-x" onclick="closeSurveyModal()">&#10005;</button>
+    </div>
+
+    <!-- 3値判定 大ボタン -->
+    <div class="judge-row">
+      <button class="judge-btn judge-usable"   id="jbUsable"   onclick="selectJudgment('usable')"><span class="je">&#128994;</span>使用可</button>
+      <button class="judge-btn judge-consider" id="jbConsider" onclick="selectJudgment('consider')"><span class="je">&#128993;</span>検討</button>
+      <button class="judge-btn judge-unusable" id="jbUnusable" onclick="selectJudgment('unusable')"><span class="je">&#9899;</span>使用不可</button>
+    </div>
+
+    <!-- 写真セクション（使用可/検討でのみ表示） -->
+    <div class="survey-photos" id="surveyPhotoSection" style="display:none">
+      <div class="survey-photos-label">&#128248; 接道（1枚）</div>
+      <div class="photo-grid" style="grid-template-columns:1fr">
+        <label class="photo-slot">
+          <input type="file" accept="image/*" id="sp_road1" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_road1')">
+          <img id="sp_prev_road1" src="">
+          <div class="ph" id="sp_ph_road1"><span class="pe">&#128247;</span><span>タップして撮影</span></div>
+        </label>
+      </div>
+      <div class="survey-photos-label">&#128248; 敷地内（伐採・傾斜・整地の様子／最大4枚）</div>
+      <div class="photo-grid">
+        <label class="photo-slot"><input type="file" accept="image/*" id="sp_land1" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_land1')"><img id="sp_prev_land1" src=""><div class="ph" id="sp_ph_land1"><span class="pe">&#128247;</span><span>撮影</span></div></label>
+        <label class="photo-slot"><input type="file" accept="image/*" id="sp_land2" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_land2')"><img id="sp_prev_land2" src=""><div class="ph" id="sp_ph_land2"><span class="pe">&#128247;</span><span>撮影</span></div></label>
+        <label class="photo-slot"><input type="file" accept="image/*" id="sp_land3" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_land3')"><img id="sp_prev_land3" src=""><div class="ph" id="sp_ph_land3"><span class="pe">&#128247;</span><span>撮影</span></div></label>
+        <label class="photo-slot"><input type="file" accept="image/*" id="sp_land4" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_land4')"><img id="sp_prev_land4" src=""><div class="ph" id="sp_ph_land4"><span class="pe">&#128247;</span><span>撮影</span></div></label>
+      </div>
+      <div class="survey-photos-label">&#128172; コメント（音声入力可）</div>
+      <textarea class="survey-comment" id="surveyComment" placeholder="伐採・傾斜・整地の要否など。キーボードのマイクで音声入力できます"></textarea>
+    </div>
+
+    <div class="survey-actions">
+      <button class="survey-done-btn" id="surveyDoneBtn" onclick="saveSurvey()" disabled>判定を選んでください</button>
+    </div>
+    <div class="survey-hint" id="surveyHint">写真は端末に即保存され、電波がある場所で自動アップロードされます</div>
+  </div>
+</div>
+
+<!-- 電柱記録ボタン（常設） -->
+<button class="pole-fab" id="poleFab" onclick="togglePoleMode()" title="電柱位置を記録">&#9889;</button>
+<!-- 写真同期ボタン -->
+<button class="sync-fab" id="syncFab" onclick="syncPendingPhotos(true)">&#128228; <span id="syncCount">0</span></button>
 
 <div class="toast-container" id="toastContainer"></div>
 
@@ -1668,6 +1816,9 @@ async function loadData() {
   recalcFieldStats();
   /* 復元した予定が画面に反映されるよう、UIを更新 */
   updateSurveyUI();
+  /* v20260704a: 現地調査モード初期化 */
+  try{ if(typeof _loadExistingPoles==='function') _loadExistingPoles(); }catch(e){}
+  try{ if(typeof _updateSyncBadge==='function') _updateSyncBadge(); }catch(e){}
 }
 
 function clearMarkers(){
@@ -2786,13 +2937,15 @@ function _renderLandNumberDraft(){
   if(landNumberDraftLayer){try{map.removeLayer(landNumberDraftLayer);}catch(e){}landNumberDraftLayer=null;}
   if(!map.getPane('landNumberDraftPane')){var p=map.createPane('landNumberDraftPane');p.style.zIndex=428;}
   var group=L.layerGroup([],{pane:'landNumberDraftPane'});
+  landnumMarkers = {}; // v20260704a: land_number → marker 保持（判定色の即時更新用）
   (landNumberDraftCache||[]).forEach(function(row){
     if(row.lat==null||row.lng==null)return;
     var rot=-12; // 一律-12度傾斜（街区全体の向きに合わせる）
     var suffix=(row.land_number||'').split('-').slice(1).join('-'); // 枝番のみ表示
     if(!suffix) suffix=row.land_number;
+    var jcls = _judgmentClass(row.land_number); // v20260704a: 判定色
     var html='<div class="landnum-marker-wrapper" style="--rot:'+rot+'deg">'
-           +'<div class="landnum-dot"></div>'
+           +'<div class="landnum-dot '+jcls+'"></div>'
            +'<div class="landnum-label">'+suffix+'</div>'
            +'</div>';
     var icon=L.divIcon({
@@ -2802,14 +2955,313 @@ function _renderLandNumberDraft(){
       iconAnchor:[6,6]
     });
     var marker=L.marker([row.lat,row.lng],{icon:icon,pane:'landNumberDraftPane'});
-    marker.bindPopup('<div style="font-weight:600">地番: '+row.land_number+'</div><div style="font-size:11px;color:#666">緯度: '+row.lat.toFixed(7)+'<br>経度: '+row.lng.toFixed(7)+'</div>');
+    marker._landNumber = row.land_number;
+    marker._latlng2 = {lat:row.lat, lng:row.lng};
+    // v20260704a: クリックで区画調査モーダルを開く（従来のポップアップを置換）
+    marker.on('click', function(){ openSurveyModal(row.land_number, row.lat, row.lng); });
+    landnumMarkers[row.land_number] = marker;
     group.addLayer(marker);
   });
   landNumberDraftLayer=group;
   landNumberDraftLayer.addTo(map);
   var info=document.getElementById('landNumberDraftInfo');
-  if(info)info.innerHTML='地番 '+(landNumberDraftCache?landNumberDraftCache.length:0)+'件を表示中';
+  if(info)info.innerHTML='地番 '+(landNumberDraftCache?landNumberDraftCache.length:0)+'件を表示中（タップで調査）';
   _loadBlockLabels();
+}
+
+// ======== 現地調査モード v20260704a ========
+var landnumMarkers = {};            // land_number → marker
+var currentSurveyLand = null;       // 調査中の地番
+var currentSurveyCaseId = null;     // 対応する case_id
+var currentJudgment = null;         // 選択中の判定
+
+// land_number → 対応する case_id（land_info.chiban で照合）
+function _caseIdForLand(land_number){
+  if(typeof allLands !== 'undefined' && allLands){
+    var m = allLands.find(function(l){ return l.chiban === land_number; });
+    if(m) return m.case_id;
+  }
+  return null;
+}
+// land_number → 現在の判定クラス（field_survey_status.judgment）
+function _judgmentClass(land_number){
+  var cid = _caseIdForLand(land_number);
+  if(!cid || typeof allSurveys==='undefined' || !allSurveys) return '';
+  var s = allSurveys.find(function(x){ return x.case_id===cid; });
+  if(!s || !s.judgment) return '';
+  if(s.judgment==='usable')   return 'j-usable';
+  if(s.judgment==='consider') return 'j-consider';
+  if(s.judgment==='unusable') return 'j-unusable';
+  return '';
+}
+// 紫ドットの色を即時更新
+function _refreshLandDot(land_number, judgment){
+  var mk = landnumMarkers[land_number];
+  if(!mk) return;
+  var el = mk.getElement();
+  if(!el) return;
+  var dot = el.querySelector('.landnum-dot');
+  if(!dot) return;
+  dot.classList.remove('j-usable','j-consider','j-unusable');
+  if(judgment==='usable')   dot.classList.add('j-usable');
+  else if(judgment==='consider') dot.classList.add('j-consider');
+  else if(judgment==='unusable') dot.classList.add('j-unusable');
+}
+
+async function openSurveyModal(land_number, lat, lng){
+  currentSurveyLand = land_number;
+  currentSurveyCaseId = _caseIdForLand(land_number);
+  currentJudgment = null;
+  document.getElementById('surveyLandNo').textContent = '地番 ' + land_number;
+  document.getElementById('surveyLandSub').textContent = currentSurveyCaseId ? '案件に記録します' : '（案件未リンク）';
+  // リセット
+  ['jbUsable','jbConsider','jbUnusable'].forEach(function(id){ document.getElementById(id).classList.remove('selected'); });
+  document.getElementById('surveyPhotoSection').style.display='none';
+  document.getElementById('surveyComment').value='';
+  ['road1','land1','land2','land3','land4'].forEach(function(k){
+    var inp=document.getElementById('sp_'+k); if(inp) inp.value='';
+    var img=document.getElementById('sp_prev_'+k); if(img){ img.src=''; img.style.display='none'; }
+    var ph=document.getElementById('sp_ph_'+k); if(ph) ph.style.display='flex';
+  });
+  var doneBtn=document.getElementById('surveyDoneBtn');
+  doneBtn.disabled=true; doneBtn.textContent='判定を選んでください';
+  // 既存判定があれば復元
+  if(currentSurveyCaseId && typeof allSurveys!=='undefined' && allSurveys){
+    var s=allSurveys.find(function(x){return x.case_id===currentSurveyCaseId;});
+    if(s){
+      if(s.comment) document.getElementById('surveyComment').value=s.comment;
+      if(s.judgment) selectJudgment(s.judgment);
+    }
+  }
+  document.getElementById('surveyModal').classList.add('open');
+  if(map) map.closePopup();
+}
+
+function closeSurveyModal(){
+  document.getElementById('surveyModal').classList.remove('open');
+}
+
+function selectJudgment(j){
+  currentJudgment = j;
+  document.getElementById('jbUsable').classList.toggle('selected', j==='usable');
+  document.getElementById('jbConsider').classList.toggle('selected', j==='consider');
+  document.getElementById('jbUnusable').classList.toggle('selected', j==='unusable');
+  // 使用可/検討 → 写真セクション表示、使用不可 → 非表示
+  document.getElementById('surveyPhotoSection').style.display = (j==='unusable') ? 'none' : 'block';
+  var doneBtn=document.getElementById('surveyDoneBtn');
+  doneBtn.disabled=false;
+  doneBtn.textContent = (j==='unusable') ? '使用不可で記録して次へ' : '記録して次へ';
+}
+
+function onSurveyPhoto(input, previewId){
+  var file=input.files[0]; if(!file) return;
+  var img=document.getElementById(previewId);
+  var ph=document.getElementById(previewId.replace('sp_prev_','sp_ph_'));
+  var reader=new FileReader();
+  reader.onload=function(e){ img.src=e.target.result; img.style.display='block'; if(ph)ph.style.display='none'; };
+  reader.readAsDataURL(file);
+}
+
+async function saveSurvey(){
+  if(!currentJudgment){ showToast('判定を選んでください','error'); return; }
+  var land=currentSurveyLand, cid=currentSurveyCaseId;
+  var doneBtn=document.getElementById('surveyDoneBtn');
+  doneBtn.disabled=true; doneBtn.textContent='保存中...';
+  var comment=document.getElementById('surveyComment').value.trim();
+  // 作業時GPS
+  var slat=null, slng=null;
+  var mk=landnumMarkers[land];
+  if(mk && mk._latlng2){ slat=mk._latlng2.lat; slng=mk._latlng2.lng; }
+  if(_gpsWatchMarker){ try{ var gll=_gpsWatchMarker.getLatLng(); slat=gll.lat; slng=gll.lng; }catch(e){} }
+  // 写真：使用可/検討のみ。端末に即保存（電波不要）→ 裏で自動アップロード
+  var photoKeys=[]; var flagColor='red';
+  if(currentJudgment!=='unusable'){
+    photoKeys=['road1','land1','land2','land3','land4'];
+  }
+  if(currentJudgment==='usable') flagColor='green';
+  else if(currentJudgment==='consider') flagColor='yellow';
+  else flagColor='gray';
+
+  // 写真をローカル（IndexedDB）に即保存し、pendingに積む
+  var savedAny=false;
+  for(var i=0;i<photoKeys.length;i++){
+    var k=photoKeys[i];
+    var inp=document.getElementById('sp_'+k);
+    var f=inp && inp.files ? inp.files[0] : null;
+    if(f){
+      try{
+        var blob=await compressImage(f);
+        await _idbPutPhoto({ id: land+'__'+k, land_number:land, case_id:cid||null, key:k, blob:blob, ts:Date.now() });
+        savedAny=true;
+      }catch(e){ console.warn('photo local save failed',e); }
+    }
+  }
+  // 判定・コメントは即DB保存（軽量・電波あれば通る）
+  if(cid){
+    try{
+      var payload={ judgment:currentJudgment, comment:comment||null, flag_color:flagColor,
+                    confirmed:(currentJudgment!=='unusable'), confirmed_at:new Date().toISOString(),
+                    survey_lat:slat, survey_lng:slng };
+      var { data: existing } = await db.from('field_survey_status').select('id').eq('case_id',cid).maybeSingle();
+      var err;
+      if(existing){ ({error:err}=await db.from('field_survey_status').update(payload).eq('case_id',cid)); }
+      else { ({error:err}=await db.from('field_survey_status').insert(Object.assign({case_id:cid},payload))); }
+      if(err) throw err;
+      // allSurveys キャッシュ更新
+      if(typeof allSurveys!=='undefined' && allSurveys){
+        var idx=allSurveys.findIndex(function(x){return x.case_id===cid;});
+        if(idx>=0) allSurveys[idx]=Object.assign(allSurveys[idx],payload);
+        else allSurveys.push(Object.assign({case_id:cid},payload));
+      }
+    }catch(e){
+      console.error('judgment save error',e);
+      showToast('判定の保存に失敗（電波確認）: '+(e.message||e),'error');
+      doneBtn.disabled=false; doneBtn.textContent='もう一度保存';
+      return;
+    }
+  }
+  // 紫ドット色更新
+  _refreshLandDot(land, currentJudgment);
+  closeSurveyModal();
+  var jlabel = currentJudgment==='usable'?'使用可':currentJudgment==='consider'?'検討':'使用不可';
+  showToast('地番 '+land+' → '+jlabel+' を記録', 'success');
+  // 写真の自動アップロードを裏で試行
+  if(savedAny) syncPendingPhotos(false);
+  _updateSyncBadge();
+}
+
+// ======== 写真オフライン保存＋自動同期 (IndexedDB) v20260704a ========
+var _idb=null;
+function _openIdb(){
+  return new Promise(function(resolve,reject){
+    if(_idb){ resolve(_idb); return; }
+    var req=indexedDB.open('survey_photos_db',1);
+    req.onupgradeneeded=function(e){
+      var db=e.target.result;
+      if(!db.objectStoreNames.contains('pending')) db.createObjectStore('pending',{keyPath:'id'});
+    };
+    req.onsuccess=function(e){ _idb=e.target.result; resolve(_idb); };
+    req.onerror=function(e){ reject(e.target.error); };
+  });
+}
+function _idbPutPhoto(rec){
+  return _openIdb().then(function(db){
+    return new Promise(function(resolve,reject){
+      var tx=db.transaction('pending','readwrite');
+      tx.objectStore('pending').put(rec);
+      tx.oncomplete=function(){ resolve(); };
+      tx.onerror=function(e){ reject(e.target.error); };
+    });
+  });
+}
+function _idbAllPhotos(){
+  return _openIdb().then(function(db){
+    return new Promise(function(resolve,reject){
+      var tx=db.transaction('pending','readonly');
+      var req=tx.objectStore('pending').getAll();
+      req.onsuccess=function(){ resolve(req.result||[]); };
+      req.onerror=function(e){ reject(e.target.error); };
+    });
+  });
+}
+function _idbDeletePhoto(id){
+  return _openIdb().then(function(db){
+    return new Promise(function(resolve,reject){
+      var tx=db.transaction('pending','readwrite');
+      tx.objectStore('pending').delete(id);
+      tx.oncomplete=function(){ resolve(); };
+      tx.onerror=function(e){ reject(e.target.error); };
+    });
+  });
+}
+async function _updateSyncBadge(){
+  try{
+    var all=await _idbAllPhotos();
+    var fab=document.getElementById('syncFab');
+    var cnt=document.getElementById('syncCount');
+    if(all.length>0){ fab.classList.add('show'); cnt.textContent=all.length; }
+    else fab.classList.remove('show');
+  }catch(e){}
+}
+var _syncing=false;
+async function syncPendingPhotos(manual){
+  if(_syncing) return;
+  _syncing=true;
+  var fab=document.getElementById('syncFab');
+  fab.classList.add('syncing');
+  try{
+    var all=await _idbAllPhotos();
+    if(all.length===0){ if(manual) showToast('同期する写真はありません','success'); return; }
+    var okCid={}; // case_id → {key:url}
+    var uploaded=0;
+    for(var i=0;i<all.length;i++){
+      var rec=all[i];
+      try{
+        var path=(rec.case_id||rec.land_number)+'/'+rec.key+'_'+rec.ts+'.jpg';
+        var { error } = await db.storage.from('survey-photos').upload(path, rec.blob, {upsert:true, contentType:'image/jpeg'});
+        if(error) throw error;
+        var { data } = db.storage.from('survey-photos').getPublicUrl(path);
+        if(rec.case_id){
+          okCid[rec.case_id]=okCid[rec.case_id]||{};
+          okCid[rec.case_id]['photo_'+rec.key]=data.publicUrl;
+        }
+        await _idbDeletePhoto(rec.id);
+        uploaded++;
+      }catch(e){ /* 電波なし等：残して次回再送 */ }
+    }
+    // アップロード成功分をfield_survey_statusに反映
+    for(var cid in okCid){
+      try{ await db.from('field_survey_status').update(okCid[cid]).eq('case_id',cid); }catch(e){}
+    }
+    if(manual){
+      if(uploaded>0) showToast(uploaded+'枚の写真を同期しました','success');
+      else showToast('同期できませんでした（電波を確認）','error');
+    }
+  }catch(e){ console.warn('sync error',e); }
+  finally{
+    _syncing=false; fab.classList.remove('syncing');
+    _updateSyncBadge();
+  }
+}
+
+// ======== 電柱位置 記録 v20260704a ========
+var poleMode=false;
+var poleLayer=null;
+function _ensurePoleLayer(){ if(!poleLayer){ poleLayer=L.layerGroup().addTo(map); } }
+function togglePoleMode(){
+  poleMode=!poleMode;
+  var fab=document.getElementById('poleFab');
+  if(poleMode){
+    fab.classList.add('active');
+    showToast('電柱モード：地図をタップで位置を記録','success');
+    map.on('click', _onPoleMapClick);
+  }else{
+    fab.classList.remove('active');
+    map.off('click', _onPoleMapClick);
+  }
+}
+async function _onPoleMapClick(e){
+  var lat=e.latlng.lat, lng=e.latlng.lng;
+  _ensurePoleLayer();
+  var icon=L.divIcon({ className:'pole-marker-icon', html:'<div style="font-size:26px;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.6))">\u26a1</div>', iconSize:[26,26], iconAnchor:[13,13] });
+  L.marker([lat,lng],{icon:icon}).addTo(poleLayer);
+  try{
+    var org=null;
+    if(typeof allCases!=='undefined' && allCases && allCases[0]) org=allCases[0].organization_id||null;
+    await db.from('pole_records').insert({ villa_name:'びわこの森', lat:lat, lng:lng, organization_id:org });
+    showToast('電柱位置を記録しました','success');
+  }catch(err){ showToast('電柱記録の保存に失敗: '+(err.message||err),'error'); }
+}
+async function _loadExistingPoles(){
+  try{
+    var res=await db.from('pole_records').select('lat,lng').eq('villa_name','びわこの森').range(0,999);
+    if(res.error||!res.data) return;
+    _ensurePoleLayer();
+    res.data.forEach(function(p){
+      var icon=L.divIcon({ className:'pole-marker-icon', html:'<div style="font-size:26px;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.6))">\u26a1</div>', iconSize:[26,26], iconAnchor:[13,13] });
+      L.marker([p.lat,p.lng],{icon:icon}).addTo(poleLayer);
+    });
+  }catch(e){}
 }
 
 // ======== 街区ラベル (villa_block_labels) ズーム連動サイズ ========
