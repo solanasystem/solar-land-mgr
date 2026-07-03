@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260703s / 地番プレビュー草案のラベルを「対応hatchの長辺方向に沿って個別に回転」させる方式に変更。円マーカーとラベルをdivIcon HTMLで一体化し、ラベル部分のみ個別rotate。DB側にrotation_deg,hatch_idxカラム追加。前:v20260703r 一律-12度回転(廃止)
+<!-- BUILD: farmland-tracker v20260703t / 地番プレビュー草案のラベル個別回転のバグ修正。transform-origin:0 0が悪さしていたのを削除、CSS変数--rotで確実に個別回転。前:v20260703s(バグあり)
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -433,7 +433,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     position: absolute;
     left: 50%;
     top: 100%;
-    transform-origin: 0 0;
+    margin-top: 4px;
+    transform: translateX(-50%) rotate(var(--rot, 0deg));
+    transform-origin: center center;
     background: rgba(124,58,237,0.9);
     color: #fff;
     border-radius: 3px;
@@ -443,7 +445,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     box-shadow: 0 1px 3px rgba(0,0,0,0.3);
     white-space: nowrap;
     pointer-events: none;
-    margin-top: 4px;
   }
 
   /* ======== ドラッグ可能パネル 共通CSS ======== */
@@ -4593,11 +4594,10 @@ function _renderLandNumberDraft(){
   (landNumberDraftCache||[]).forEach(function(row){
     if(row.lat==null||row.lng==null)return;
     var rot=(row.rotation_deg!=null)?row.rotation_deg:0;
-    // ラベルの水平中央揃え+個別回転
-    var labelStyle='transform: translateX(-50%) rotate('+rot+'deg); transform-origin: 50% 0;';
-    var html='<div class="landnum-marker-wrapper">'
+    // CSS変数 --rot でラベル部分だけ個別回転
+    var html='<div class="landnum-marker-wrapper" style="--rot:'+rot+'deg">'
            +'<div class="landnum-dot"></div>'
-           +'<div class="landnum-label" style="'+labelStyle+'">'+row.land_number+'</div>'
+           +'<div class="landnum-label">'+row.land_number+'</div>'
            +'</div>';
     var icon=L.divIcon({
       className:'landnum-marker-container',
