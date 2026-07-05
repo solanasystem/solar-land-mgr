@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260704g / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。+ 判定モーダルに「戻る」ボタン追加(誤操作対策)+電柱マーカーをタップで削除可能に。前:v20260703d -->
+<!-- BUILD: field-survey v20260704h / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。+ 判定モーダルに「戻る」ボタン追加(誤操作対策)+電柱マーカーをタップで削除可能に。前:v20260703d -->
 <!-- v20260703b: GPS疑似テストマーカーを目立つ赤パルス+🧪絵文字のDivIconに変更。 -->
 <!-- v20260703a: CAD区画・現在地セクションを右パネル最上部に移動。 -->
 <!-- v20260702s: GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。 -->
@@ -631,6 +631,7 @@
   .survey-photos { margin-top:6px; }
   .survey-photos-label { font-size:12px; font-weight:700; color:var(--text-muted,#9aa4b2); margin:12px 0 6px; }
   .photo-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .photo-slot-wrap { position:relative; }
   .photo-slot {
     display:block; border:2px dashed var(--border,#3a3f4b); border-radius:12px;
     aspect-ratio:4/3; cursor:pointer; overflow:hidden; position:relative; background:var(--bg,#12141a);
@@ -641,6 +642,16 @@
     align-items:center; justify-content:center; color:var(--text-muted,#9aa4b2); font-size:13px; gap:6px;
   }
   .photo-slot .ph .pe { font-size:30px; }
+  /* 個別写真削除ボタン（撮影済み写真の右上に表示） */
+  .photo-del-btn {
+    display:none; position:absolute; top:6px; right:6px; z-index:5;
+    width:32px; height:32px; border-radius:50%; border:none;
+    background:rgba(220,38,38,0.92); color:#fff; font-size:16px; font-weight:800;
+    align-items:center; justify-content:center; cursor:pointer;
+    box-shadow:0 2px 6px rgba(0,0,0,0.5);
+    -webkit-tap-highlight-color:transparent;
+  }
+  .photo-del-btn:active { transform:scale(0.9); background:#b91c1c; }
   .survey-comment {
     width:100%; min-height:70px; margin-top:6px; padding:12px; font-size:16px;
     border:1px solid var(--border,#3a3f4b); border-radius:10px;
@@ -1177,18 +1188,33 @@
     <div class="survey-photos" id="surveyPhotoSection" style="display:none">
       <div class="survey-photos-label">&#128248; 接道（1枚）</div>
       <div class="photo-grid" style="grid-template-columns:1fr">
-        <label class="photo-slot">
-          <input type="file" accept="image/*" id="sp_road1" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_road1')">
-          <img id="sp_prev_road1" src="">
-          <div class="ph" id="sp_ph_road1"><span class="pe">&#128247;</span><span>タップして撮影</span></div>
-        </label>
+        <div class="photo-slot-wrap">
+          <label class="photo-slot">
+            <input type="file" accept="image/*" id="sp_road1" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_road1')">
+            <img id="sp_prev_road1" src="">
+            <div class="ph" id="sp_ph_road1"><span class="pe">&#128247;</span><span>タップして撮影</span></div>
+          </label>
+          <button type="button" class="photo-del-btn" id="sp_del_road1" onclick="deleteOnePhoto('road1')" title="この写真を削除">&#10005;</button>
+        </div>
       </div>
       <div class="survey-photos-label">&#128248; 敷地内（伐採・傾斜・整地の様子／最大4枚）</div>
       <div class="photo-grid">
-        <label class="photo-slot"><input type="file" accept="image/*" id="sp_land1" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_land1')"><img id="sp_prev_land1" src=""><div class="ph" id="sp_ph_land1"><span class="pe">&#128247;</span><span>撮影</span></div></label>
-        <label class="photo-slot"><input type="file" accept="image/*" id="sp_land2" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_land2')"><img id="sp_prev_land2" src=""><div class="ph" id="sp_ph_land2"><span class="pe">&#128247;</span><span>撮影</span></div></label>
-        <label class="photo-slot"><input type="file" accept="image/*" id="sp_land3" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_land3')"><img id="sp_prev_land3" src=""><div class="ph" id="sp_ph_land3"><span class="pe">&#128247;</span><span>撮影</span></div></label>
-        <label class="photo-slot"><input type="file" accept="image/*" id="sp_land4" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_land4')"><img id="sp_prev_land4" src=""><div class="ph" id="sp_ph_land4"><span class="pe">&#128247;</span><span>撮影</span></div></label>
+        <div class="photo-slot-wrap">
+          <label class="photo-slot"><input type="file" accept="image/*" id="sp_land1" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_land1')"><img id="sp_prev_land1" src=""><div class="ph" id="sp_ph_land1"><span class="pe">&#128247;</span><span>撮影</span></div></label>
+          <button type="button" class="photo-del-btn" id="sp_del_land1" onclick="deleteOnePhoto('land1')" title="この写真を削除">&#10005;</button>
+        </div>
+        <div class="photo-slot-wrap">
+          <label class="photo-slot"><input type="file" accept="image/*" id="sp_land2" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_land2')"><img id="sp_prev_land2" src=""><div class="ph" id="sp_ph_land2"><span class="pe">&#128247;</span><span>撮影</span></div></label>
+          <button type="button" class="photo-del-btn" id="sp_del_land2" onclick="deleteOnePhoto('land2')" title="この写真を削除">&#10005;</button>
+        </div>
+        <div class="photo-slot-wrap">
+          <label class="photo-slot"><input type="file" accept="image/*" id="sp_land3" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_land3')"><img id="sp_prev_land3" src=""><div class="ph" id="sp_ph_land3"><span class="pe">&#128247;</span><span>撮影</span></div></label>
+          <button type="button" class="photo-del-btn" id="sp_del_land3" onclick="deleteOnePhoto('land3')" title="この写真を削除">&#10005;</button>
+        </div>
+        <div class="photo-slot-wrap">
+          <label class="photo-slot"><input type="file" accept="image/*" id="sp_land4" style="display:none" onchange="onSurveyPhoto(this,'sp_prev_land4')"><img id="sp_prev_land4" src=""><div class="ph" id="sp_ph_land4"><span class="pe">&#128247;</span><span>撮影</span></div></label>
+          <button type="button" class="photo-del-btn" id="sp_del_land4" onclick="deleteOnePhoto('land4')" title="この写真を削除">&#10005;</button>
+        </div>
       </div>
       <div class="survey-photos-label">&#128172; コメント（音声入力可）</div>
       <textarea class="survey-comment" id="surveyComment" placeholder="伐採・傾斜・整地の要否など。キーボードのマイクで音声入力できます"></textarea>
@@ -3198,6 +3224,7 @@ async function openSurveyModal(land_number, lat, lng){
         var ph=document.getElementById('sp_ph_'+k);
         if(img){ img.src=url; img.style.display='block'; img.style.cursor='zoom-in'; img.onclick=function(ev){ ev.preventDefault(); ev.stopPropagation(); showPhotoLightbox(url); }; }
         if(ph) ph.style.display='none';
+        _showDeleteBtn(k);
       });
       // クラウドURL未設定のスロットは、IndexedDBのローカルblobで補完（電波なし・同期前でも表示可能）
       _restoreLocalPhotosForLand(land_number, savedMap);
@@ -3236,6 +3263,7 @@ async function _restoreLocalPhotosForLand(land_number, cloudMap){
         img.onclick = function(ev){ ev.preventDefault(); ev.stopPropagation(); showPhotoLightbox(url); };
       }
       if(ph) ph.style.display='none';
+      _showDeleteBtn(k);
     });
   }catch(e){ console.warn('[restore] local photo error', e); }
 }
@@ -3260,29 +3288,133 @@ function closeSurveyModal(){
 }
 
 // リセット：判定・写真・コメントを全てクリア（モーダルは開いたまま初期状態へ）
-function resetSurveyModal(){
-  console.log('[reset] リセット実行');
+async function resetSurveyModal(){
+  console.log('[reset] 完全リセット実行');
+  var land = currentSurveyLand;
+  var cid = currentSurveyCaseId;
+  // 保存済みかどうかで確認メッセージを変える
+  var hasSaved = false;
+  if(cid && typeof allSurveys!=='undefined' && allSurveys){
+    var s = allSurveys.find(function(x){return x.case_id===cid;});
+    if(s && (s.judgment || s.comment || s.photo_road1 || s.photo_land1 || s.photo_land2 || s.photo_land3 || s.photo_land4)) hasSaved=true;
+  }
+  if(hasSaved){
+    if(!confirm('地番 '+land+' の判定・写真・コメントを全て削除して未判定に戻します。よろしいですか？')) return;
+  }
+  var doneBtn = document.getElementById('surveyDoneBtn');
+  if(doneBtn){ doneBtn.disabled=true; doneBtn.textContent='リセット中...'; }
   try{
+    // ① DB(field_survey_status)を未判定にリセット
+    if(cid){
+      var payload = { judgment:null, comment:null, flag_color:null, confirmed:false, confirmed_at:null,
+                      photo_road1:null, photo_road2:null,
+                      photo_land1:null, photo_land2:null, photo_land3:null, photo_land4:null,
+                      survey_lat:null, survey_lng:null };
+      var upd = await db.from('field_survey_status').update(payload).eq('case_id', cid);
+      if(upd.error){
+        // レコードが存在しない場合はスキップ（既にリセット状態）
+        console.warn('[reset] DB update warn', upd.error);
+      }
+      // allSurveys キャッシュ更新
+      if(typeof allSurveys!=='undefined' && allSurveys){
+        var idx = allSurveys.findIndex(function(x){return x.case_id===cid;});
+        if(idx>=0) allSurveys[idx] = Object.assign(allSurveys[idx], payload);
+      }
+    }
+    // ② IndexedDB の該当land_number 写真を全削除
+    try{
+      var all = await _idbAllPhotos();
+      var deleteIds = (all||[]).filter(function(r){ return r && r.land_number===land; }).map(function(r){ return r.id; });
+      for(var i=0;i<deleteIds.length;i++){ await _idbDeletePhoto(deleteIds[i]); }
+    }catch(e){ console.warn('[reset] idb clear warn', e); }
+    // ③ Supabase Storage の該当ファイルを削除（listで検索して一括削除）
+    if(cid){
+      try{
+        var lst = await db.storage.from('survey-photos').list(cid);
+        if(lst && lst.data && lst.data.length){
+          var paths = lst.data.map(function(f){ return cid+'/'+f.name; });
+          await db.storage.from('survey-photos').remove(paths);
+        }
+      }catch(e){ console.warn('[reset] storage clear warn', e); }
+    }
+    // ④ 画面クリア
     currentJudgment = null;
     ['jbUsable','jbConsider','jbUnusable'].forEach(function(id){
-      var el=document.getElementById(id);
-      if(el) el.classList.remove('selected');
-      else console.warn('[reset] 判定ボタンが見つからない:', id);
+      var el=document.getElementById(id); if(el) el.classList.remove('selected');
     });
     var ps=document.getElementById('surveyPhotoSection'); if(ps) ps.style.display='none';
     var cm=document.getElementById('surveyComment'); if(cm) cm.value='';
     ['road1','land1','land2','land3','land4'].forEach(function(k){
       var inp=document.getElementById('sp_'+k); if(inp) inp.value='';
-      var img=document.getElementById('sp_prev_'+k); if(img){ img.src=''; img.style.display='none'; }
+      var img=document.getElementById('sp_prev_'+k); if(img){ img.src=''; img.style.display='none'; img.onclick=null; }
       var ph=document.getElementById('sp_ph_'+k); if(ph) ph.style.display='flex';
+      var del=document.getElementById('sp_del_'+k); if(del) del.style.display='none';
     });
-    var doneBtn=document.getElementById('surveyDoneBtn');
     if(doneBtn){ doneBtn.disabled=true; doneBtn.textContent='判定を選んでください'; }
+    // モーダル最上部へ
+    document.querySelectorAll('.survey-modal').forEach(function(m){ m.scrollTop=0; });
+    // 紫フラグの色を未判定(紫)に戻す
+    _refreshLandDot(land, null);
+    _updateReviewBadge();
+    _updateSyncBadge();
     console.log('[reset] 完了');
-    if(typeof showToast==='function') showToast('リセットしました','success');
+    if(typeof showToast==='function') showToast('未判定に戻しました','success');
   }catch(e){
     console.error('[reset] エラー:', e);
+    if(typeof showToast==='function') showToast('リセット失敗: '+(e.message||e),'error');
+    if(doneBtn){ doneBtn.disabled=false; doneBtn.textContent='もう一度リセット'; }
   }
+}
+
+// 写真1枚だけ削除（取り直し用）
+async function deleteOnePhoto(key){
+  var land = currentSurveyLand;
+  var cid = currentSurveyCaseId;
+  if(!confirm(_photoKeyLabel(key)+'の写真を削除します。よろしいですか？')) return;
+  try{
+    // ① DBの該当カラムをNULLに
+    if(cid){
+      var patch = {}; patch['photo_'+key] = null;
+      await db.from('field_survey_status').update(patch).eq('case_id', cid);
+      if(typeof allSurveys!=='undefined' && allSurveys){
+        var idx = allSurveys.findIndex(function(x){return x.case_id===cid;});
+        if(idx>=0) allSurveys[idx]['photo_'+key] = null;
+      }
+    }
+    // ② IndexedDBから該当キーを削除
+    try{
+      var all = await _idbAllPhotos();
+      var deleteIds = (all||[]).filter(function(r){ return r && r.land_number===land && r.key===key; }).map(function(r){ return r.id; });
+      for(var i=0;i<deleteIds.length;i++){ await _idbDeletePhoto(deleteIds[i]); }
+    }catch(e){ console.warn('[del1] idb warn', e); }
+    // ③ Storage の該当ファイル削除（listで該当プレフィックスを探して削除）
+    if(cid){
+      try{
+        var lst = await db.storage.from('survey-photos').list(cid);
+        if(lst && lst.data){
+          var paths = lst.data.filter(function(f){ return f.name.indexOf(key+'_')===0; }).map(function(f){ return cid+'/'+f.name; });
+          if(paths.length) await db.storage.from('survey-photos').remove(paths);
+        }
+      }catch(e){ console.warn('[del1] storage warn', e); }
+    }
+    // ④ 画面クリア
+    var inp = document.getElementById('sp_'+key); if(inp) inp.value='';
+    var img = document.getElementById('sp_prev_'+key); if(img){ img.src=''; img.style.display='none'; img.onclick=null; }
+    var ph = document.getElementById('sp_ph_'+key); if(ph) ph.style.display='flex';
+    var del = document.getElementById('sp_del_'+key); if(del) del.style.display='none';
+    _updateSyncBadge();
+    if(typeof showToast==='function') showToast(_photoKeyLabel(key)+'を削除しました。撮り直せます','success');
+  }catch(e){
+    console.error('[del1] エラー', e);
+    if(typeof showToast==='function') showToast('写真削除失敗: '+(e.message||e),'error');
+  }
+}
+function _photoKeyLabel(k){
+  return {road1:'接道', land1:'敷地内①', land2:'敷地内②', land3:'敷地内③', land4:'敷地内④'}[k] || k;
+}
+function _showDeleteBtn(key){
+  var del = document.getElementById('sp_del_'+key);
+  if(del) del.style.display='flex';
 }
 
 function selectJudgment(j){
@@ -3301,12 +3433,14 @@ function onSurveyPhoto(input, previewId){
   var file=input.files[0]; if(!file) return;
   var img=document.getElementById(previewId);
   var ph=document.getElementById(previewId.replace('sp_prev_','sp_ph_'));
+  var key = previewId.replace('sp_prev_','');
   var reader=new FileReader();
   reader.onload=function(e){
     img.src=e.target.result; img.style.display='block'; if(ph)ph.style.display='none';
-    // v20260704f: 撮影直後もタップで拡大できる
     img.style.cursor='zoom-in';
     img.onclick=function(ev){ ev.preventDefault(); ev.stopPropagation(); showPhotoLightbox(img.src); };
+    // v20260704h: 撮影後は個別削除ボタンを表示
+    _showDeleteBtn(key);
   };
   reader.readAsDataURL(file);
 }
