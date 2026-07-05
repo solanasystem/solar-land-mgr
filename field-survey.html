@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260704e / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。+ 判定モーダルに「戻る」ボタン追加(誤操作対策)+電柱マーカーをタップで削除可能に。前:v20260703d -->
+<!-- BUILD: field-survey v20260704f / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。+ 判定モーダルに「戻る」ボタン追加(誤操作対策)+電柱マーカーをタップで削除可能に。前:v20260703d -->
 <!-- v20260703b: GPS疑似テストマーカーを目立つ赤パルス+🧪絵文字のDivIconに変更。 -->
 <!-- v20260703a: CAD区画・現在地セクションを右パネル最上部に移動。 -->
 <!-- v20260702s: GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。 -->
@@ -685,6 +685,31 @@
   }
   .sync-fab.show { display:flex; }
   .sync-fab.syncing { background:#6b7280; }
+  /* 調査済み一覧FAB v20260704f */
+  .review-fab {
+    position:fixed; right:14px; bottom:275px; z-index:1200;
+    min-width:60px; height:44px; padding:0 12px; border-radius:22px; border:none;
+    background:#16a34a; color:#fff; font-size:13px; font-weight:700; cursor:pointer;
+    box-shadow:0 3px 12px rgba(0,0,0,0.4); display:flex; align-items:center; gap:6px;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .review-fab:active { transform:scale(0.95); }
+  .review-item {
+    display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center;
+    padding:10px 12px; margin-bottom:8px; border-radius:10px; background:var(--bg,#12141a);
+    border:1px solid var(--border,#3a3f4b); cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .review-item:active { transform:scale(0.98); }
+  .review-dot { width:14px; height:14px; border-radius:50%; }
+  .review-dot.usable { background:#22c55e; }
+  .review-dot.consider { background:#eab308; }
+  .review-dot.unusable { background:#6b7280; }
+  .review-land { font-weight:700; color:#fff; }
+  .review-badge { font-size:11px; color:#9aa4b2; }
+  .review-thumbs { display:flex; gap:2px; }
+  .review-thumbs .rt { width:20px; height:20px; border-radius:3px; background:#3a3f4b; }
+  .review-thumbs .rt.on { background:#3b82f6; }
 </style>
 </head>
 <body>
@@ -1179,8 +1204,21 @@
 
 <!-- 電柱記録ボタン（常設） -->
 <button class="pole-fab" id="poleFab" onclick="togglePoleMode()" title="電柱位置を記録">&#9889;</button>
+<!-- v20260704f: 調査済み一覧FAB（判定済み案件を一覧→タップで地図上の該当区画へ） -->
+<button class="review-fab" id="reviewFab" onclick="openSurveyReviewList()" title="調査済み一覧">&#128203; <span id="reviewCount">0</span></button>
 <!-- 写真同期ボタン -->
 <button class="sync-fab" id="syncFab" onclick="syncPendingPhotos(true)">&#128228; <span id="syncCount">0</span></button>
+
+<!-- 調査済み一覧モーダル v20260704f -->
+<div id="surveyReviewModal" style="display:none;position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,0.6);align-items:flex-end;justify-content:center;">
+  <div style="width:100%;max-width:520px;max-height:80vh;overflow-y:auto;background:var(--surface,#1a1d24);border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div style="font-size:18px;font-weight:800;color:#fff;">調査済み一覧 <span id="reviewListCount" style="font-size:13px;color:#9aa4b2;font-weight:600;"></span></div>
+      <button onclick="document.getElementById('surveyReviewModal').style.display='none'" style="width:40px;height:40px;border:none;border-radius:50%;background:rgba(255,255,255,0.08);color:#fff;font-size:20px;cursor:pointer;">&#10005;</button>
+    </div>
+    <div id="reviewListBody"></div>
+  </div>
+</div>
 
 <div class="toast-container" id="toastContainer"></div>
 
@@ -1825,7 +1863,8 @@ async function loadData() {
   updateSurveyUI();
   /* v20260704a: 現地調査モード初期化 */
   try{ if(typeof _loadExistingPoles==='function') _loadExistingPoles(); }catch(e){}
-  try{ if(typeof _updateSyncBadge==='function') _updateSyncBadge(); }catch(e){}
+  try{ if(typeof _updateSyncBadge==='function') _updateSyncBadge();
+  try{ if(typeof _updateReviewBadge==='function') _updateReviewBadge(); }catch(e){} }catch(e){}
 }
 
 function clearMarkers(){
@@ -2976,6 +3015,72 @@ function _renderLandNumberDraft(){
   _loadBlockLabels();
 }
 
+// ======== 調査済み一覧 v20260704f ========
+function _judgmentLabel(j){ return j==='usable'?'使用可':j==='consider'?'検討':j==='unusable'?'使用不可':j||''; }
+function _updateReviewBadge(){
+  try{
+    var n=0;
+    if(typeof allSurveys!=='undefined' && allSurveys){
+      allSurveys.forEach(function(s){ if(s && s.judgment) n++; });
+    }
+    var el=document.getElementById('reviewCount'); if(el) el.textContent=n;
+  }catch(e){}
+}
+function openSurveyReviewList(){
+  var body=document.getElementById('reviewListBody');
+  var countEl=document.getElementById('reviewListCount');
+  if(!body) return;
+  body.innerHTML='';
+  // land_number順で並べる：allLands(land_info) を case_id→land_number 引き
+  var caseToLand={};
+  if(typeof allLands!=='undefined' && allLands){
+    allLands.forEach(function(l){ if(l && l.case_id) caseToLand[l.case_id]=l.chiban; });
+  }
+  var items=[];
+  if(typeof allSurveys!=='undefined' && allSurveys){
+    allSurveys.forEach(function(s){
+      if(!s || !s.judgment) return;
+      var land=caseToLand[s.case_id]||'?';
+      items.push({ s:s, land:land });
+    });
+  }
+  // 街区順・枝番順
+  items.sort(function(a,b){
+    var pa=(a.land||'').split('-'); var pb=(b.land||'').split('-');
+    var na=parseInt(pa[0],10)||0, nb=parseInt(pb[0],10)||0;
+    if(na!==nb) return na-nb;
+    var sa=parseInt((pa[1]||'').replace(/[^0-9]/g,''),10)||0, sb=parseInt((pb[1]||'').replace(/[^0-9]/g,''),10)||0;
+    return sa-sb;
+  });
+  if(countEl) countEl.textContent='('+items.length+'件)';
+  if(items.length===0){
+    body.innerHTML='<div style="text-align:center;color:#9aa4b2;padding:24px;">まだ判定した区画がありません</div>';
+  }else{
+    items.forEach(function(it){
+      var s=it.s; var land=it.land;
+      var cls=s.judgment==='usable'?'usable':s.judgment==='consider'?'consider':'unusable';
+      var thumbKeys=['road1','land1','land2','land3','land4'];
+      var thumbHtml=thumbKeys.map(function(k){
+        var u=s['photo_'+k]; return '<div class="rt'+(u?' on':'')+'"></div>';
+      }).join('');
+      var div=document.createElement('div');
+      div.className='review-item';
+      div.innerHTML='<div class="review-dot '+cls+'"></div>'
+        +'<div><div class="review-land">地番 '+land+'</div><div class="review-badge">'+_judgmentLabel(s.judgment)+(s.comment?' ・ '+String(s.comment).substring(0,30):'')+'</div></div>'
+        +'<div class="review-thumbs">'+thumbHtml+'</div>';
+      div.onclick=function(){
+        document.getElementById('surveyReviewModal').style.display='none';
+        // 地図をその区画に寄せて、モーダルを開く
+        var mk=landnumMarkers[land];
+        if(mk && mk._latlng2 && map){ map.setView([mk._latlng2.lat, mk._latlng2.lng], Math.max(map.getZoom(),19)); }
+        openSurveyModal(land, mk&&mk._latlng2?mk._latlng2.lat:null, mk&&mk._latlng2?mk._latlng2.lng:null);
+      };
+      body.appendChild(div);
+    });
+  }
+  document.getElementById('surveyReviewModal').style.display='flex';
+}
+
 // ======== 現地調査モード v20260704a ========
 // 現地調査専用・強圧縮（証拠記録用: 1024px/品質0.5、上限~120KB。容量マージン確保）
 // 既存 compressImage(1280px/0.7) は従来の確認終了モーダル用にそのまま温存
@@ -3070,10 +3175,34 @@ async function openSurveyModal(land_number, lat, lng){
     if(s){
       if(s.comment) document.getElementById('surveyComment').value=s.comment;
       if(s.judgment) selectJudgment(s.judgment);
+      // v20260704f: 保存済み写真を各スロットに復元表示（タップで拡大）
+      var savedMap={ road1:s.photo_road1, land1:s.photo_land1, land2:s.photo_land2, land3:s.photo_land3, land4:s.photo_land4 };
+      Object.keys(savedMap).forEach(function(k){
+        var url=savedMap[k]; if(!url) return;
+        var img=document.getElementById('sp_prev_'+k);
+        var ph=document.getElementById('sp_ph_'+k);
+        if(img){ img.src=url; img.style.display='block'; img.style.cursor='zoom-in'; img.onclick=function(ev){ ev.preventDefault(); ev.stopPropagation(); showPhotoLightbox(url); }; }
+        if(ph) ph.style.display='none';
+      });
     }
   }
   document.getElementById('surveyModal').classList.add('open');
   if(map) map.closePopup();
+}
+
+// 写真拡大ライトボックス（タップで閉じる）
+function showPhotoLightbox(url){
+  var ov=document.getElementById('photoLightbox');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='photoLightbox';
+    ov.style.cssText='position:fixed;inset:0;z-index:6000;background:rgba(0,0,0,0.92);display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out;';
+    ov.onclick=function(){ ov.style.display='none'; };
+    ov.innerHTML='<img id="photoLightboxImg" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">';
+    document.body.appendChild(ov);
+  }
+  document.getElementById('photoLightboxImg').src=url;
+  ov.style.display='flex';
 }
 
 function closeSurveyModal(){
@@ -3123,7 +3252,12 @@ function onSurveyPhoto(input, previewId){
   var img=document.getElementById(previewId);
   var ph=document.getElementById(previewId.replace('sp_prev_','sp_ph_'));
   var reader=new FileReader();
-  reader.onload=function(e){ img.src=e.target.result; img.style.display='block'; if(ph)ph.style.display='none'; };
+  reader.onload=function(e){
+    img.src=e.target.result; img.style.display='block'; if(ph)ph.style.display='none';
+    // v20260704f: 撮影直後もタップで拡大できる
+    img.style.cursor='zoom-in';
+    img.onclick=function(ev){ ev.preventDefault(); ev.stopPropagation(); showPhotoLightbox(img.src); };
+  };
   reader.readAsDataURL(file);
 }
 
@@ -3193,6 +3327,7 @@ async function saveSurvey(){
   // 写真の自動アップロードを裏で試行
   if(savedAny) syncPendingPhotos(false);
   _updateSyncBadge();
+  try{ if(typeof _updateReviewBadge==='function') _updateReviewBadge(); }catch(e){}
 }
 
 // ======== 写真オフライン保存＋自動同期 (IndexedDB) v20260704a ========
@@ -3286,6 +3421,7 @@ async function syncPendingPhotos(manual){
   finally{
     _syncing=false; fab.classList.remove('syncing');
     _updateSyncBadge();
+  try{ if(typeof _updateReviewBadge==='function') _updateReviewBadge(); }catch(e){}
   }
 }
 
