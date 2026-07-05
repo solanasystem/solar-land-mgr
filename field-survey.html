@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260704i / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。+ 判定モーダルに「戻る」ボタン追加(誤操作対策)+電柱マーカーをタップで削除可能に。前:v20260703d -->
+<!-- BUILD: field-survey v20260704j / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。+ 判定モーダルに「戻る」ボタン追加(誤操作対策)+電柱マーカーをタップで削除可能に。前:v20260703d -->
 <!-- v20260703b: GPS疑似テストマーカーを目立つ赤パルス+🧪絵文字のDivIconに変更。 -->
 <!-- v20260703a: CAD区画・現在地セクションを右パネル最上部に移動。 -->
 <!-- v20260702s: GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。 -->
@@ -636,7 +636,8 @@
     display:block; border:2px dashed var(--border,#3a3f4b); border-radius:12px;
     aspect-ratio:4/3; cursor:pointer; overflow:hidden; position:relative; background:var(--bg,#12141a);
   }
-  .photo-slot img { width:100%; height:100%; object-fit:cover; display:none; }
+  .photo-slot img { width:100%; height:100%; object-fit:cover; display:none; position:relative; z-index:1; }
+  .photo-slot img.shown { display:block !important; }
   .photo-slot .ph {
     position:absolute; inset:0; display:flex; flex-direction:column;
     align-items:center; justify-content:center; color:var(--text-muted,#9aa4b2); font-size:13px; gap:6px;
@@ -3204,7 +3205,7 @@ async function openSurveyModal(land_number, lat, lng){
   document.getElementById('surveyComment').value='';
   ['road1','land1','land2','land3','land4'].forEach(function(k){
     var inp=document.getElementById('sp_'+k); if(inp) inp.value='';
-    var img=document.getElementById('sp_prev_'+k); if(img){ img.src=''; img.style.display='none'; }
+    var img=document.getElementById('sp_prev_'+k); if(img){ img.src=''; img.classList.remove('shown'); img.style.setProperty('display','none','important'); }
     var ph=document.getElementById('sp_ph_'+k); if(ph) ph.style.display='flex';
   });
   var doneBtn=document.getElementById('surveyDoneBtn');
@@ -3222,7 +3223,13 @@ async function openSurveyModal(land_number, lat, lng){
         var url=savedMap[k]; if(!url) return;
         var img=document.getElementById('sp_prev_'+k);
         var ph=document.getElementById('sp_ph_'+k);
-        if(img){ img.src=url; img.style.display='block'; img.style.cursor='zoom-in'; img.onclick=function(ev){ ev.preventDefault(); ev.stopPropagation(); showPhotoLightbox(url); }; }
+        if(img){
+          img.src=url;
+          img.classList.add('shown');
+          img.style.setProperty('display','block','important');
+          img.style.cursor='zoom-in';
+          img.onclick=function(ev){ ev.preventDefault(); ev.stopPropagation(); showPhotoLightbox(url); };
+        }
         if(ph) ph.style.display='none';
         _showDeleteBtn(k);
       });
@@ -3259,7 +3266,10 @@ async function _restoreLocalPhotosForLand(land_number, cloudMap){
       var img = document.getElementById('sp_prev_'+k);
       var ph = document.getElementById('sp_ph_'+k);
       if(img){
-        img.src = url; img.style.display='block'; img.style.cursor='zoom-in';
+        img.src = url;
+        img.classList.add('shown');
+        img.style.setProperty('display','block','important');
+        img.style.cursor='zoom-in';
         img.onclick = function(ev){ ev.preventDefault(); ev.stopPropagation(); showPhotoLightbox(url); };
       }
       if(ph) ph.style.display='none';
@@ -3346,7 +3356,7 @@ async function resetSurveyModal(){
     var cm=document.getElementById('surveyComment'); if(cm) cm.value='';
     ['road1','land1','land2','land3','land4'].forEach(function(k){
       var inp=document.getElementById('sp_'+k); if(inp) inp.value='';
-      var img=document.getElementById('sp_prev_'+k); if(img){ img.src=''; img.style.display='none'; img.onclick=null; }
+      var img=document.getElementById('sp_prev_'+k); if(img){ img.src=''; img.classList.remove('shown'); img.style.setProperty('display','none','important'); img.onclick=null; }
       var ph=document.getElementById('sp_ph_'+k); if(ph) ph.style.display='flex';
       var del=document.getElementById('sp_del_'+k); if(del) del.style.display='none';
     });
@@ -3399,7 +3409,7 @@ async function deleteOnePhoto(key){
     }
     // ④ 画面クリア
     var inp = document.getElementById('sp_'+key); if(inp) inp.value='';
-    var img = document.getElementById('sp_prev_'+key); if(img){ img.src=''; img.style.display='none'; img.onclick=null; }
+    var img = document.getElementById('sp_prev_'+key); if(img){ img.src=''; img.classList.remove('shown'); img.style.setProperty('display','none','important'); img.onclick=null; }
     var ph = document.getElementById('sp_ph_'+key); if(ph) ph.style.display='flex';
     var del = document.getElementById('sp_del_'+key); if(del) del.style.display='none';
     _updateSyncBadge();
@@ -3431,17 +3441,22 @@ function selectJudgment(j){
 
 function onSurveyPhoto(input, previewId){
   var file=input.files[0]; if(!file) return;
+  console.log('[photo] onSurveyPhoto', previewId, file.name, file.size);
   var img=document.getElementById(previewId);
   var ph=document.getElementById(previewId.replace('sp_prev_','sp_ph_'));
   var key = previewId.replace('sp_prev_','');
   var reader=new FileReader();
   reader.onload=function(e){
-    img.src=e.target.result; img.style.display='block'; if(ph)ph.style.display='none';
+    img.src=e.target.result;
+    img.classList.add('shown');
+    img.style.setProperty('display','block','important');
+    if(ph) ph.style.display='none';
     img.style.cursor='zoom-in';
     img.onclick=function(ev){ ev.preventDefault(); ev.stopPropagation(); showPhotoLightbox(img.src); };
-    // v20260704h: 撮影後は個別削除ボタンを表示
     _showDeleteBtn(key);
+    console.log('[photo] displayed', previewId, 'src len:', img.src.length);
   };
+  reader.onerror=function(e){ console.error('[photo] read error', e); };
   reader.readAsDataURL(file);
 }
 
