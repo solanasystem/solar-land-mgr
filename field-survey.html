@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260704f / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。+ 判定モーダルに「戻る」ボタン追加(誤操作対策)+電柱マーカーをタップで削除可能に。前:v20260703d -->
+<!-- BUILD: field-survey v20260704g / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。+ 判定モーダルに「戻る」ボタン追加(誤操作対策)+電柱マーカーをタップで削除可能に。前:v20260703d -->
 <!-- v20260703b: GPS疑似テストマーカーを目立つ赤パルス+🧪絵文字のDivIconに変更。 -->
 <!-- v20260703a: CAD区画・現在地セクションを右パネル最上部に移動。 -->
 <!-- v20260702s: GPS疑似テストモード追加。現地に行かず地図クリックで「仮の現在地」を設定し、実GPSと全く同じ区画判定ロジック(_updateGpsHighlight)を発火させて事前検証できる。 -->
@@ -3030,7 +3030,8 @@ function openSurveyReviewList(){
   var body=document.getElementById('reviewListBody');
   var countEl=document.getElementById('reviewListCount');
   if(!body) return;
-  body.innerHTML='';
+  body.innerHTML='<div style="text-align:center;color:#9aa4b2;padding:24px;">読み込み中...</div>';
+  document.getElementById('surveyReviewModal').style.display='flex';
   // land_number順で並べる：allLands(land_info) を case_id→land_number 引き
   var caseToLand={};
   if(typeof allLands!=='undefined' && allLands){
@@ -3044,24 +3045,36 @@ function openSurveyReviewList(){
       items.push({ s:s, land:land });
     });
   }
-  // 街区順・枝番順
-  items.sort(function(a,b){
-    var pa=(a.land||'').split('-'); var pb=(b.land||'').split('-');
-    var na=parseInt(pa[0],10)||0, nb=parseInt(pb[0],10)||0;
-    if(na!==nb) return na-nb;
-    var sa=parseInt((pa[1]||'').replace(/[^0-9]/g,''),10)||0, sb=parseInt((pb[1]||'').replace(/[^0-9]/g,''),10)||0;
-    return sa-sb;
-  });
-  if(countEl) countEl.textContent='('+items.length+'件)';
-  if(items.length===0){
-    body.innerHTML='<div style="text-align:center;color:#9aa4b2;padding:24px;">まだ判定した区画がありません</div>';
-  }else{
+  // IndexedDBの未同期写真も land_number でキーマップ化して、サムネイル判定に使う
+  _idbAllPhotos().then(function(all){
+    var localByLand = {};
+    (all||[]).forEach(function(rec){
+      if(!rec || !rec.land_number || !rec.key) return;
+      localByLand[rec.land_number] = localByLand[rec.land_number] || {};
+      localByLand[rec.land_number][rec.key] = true;
+    });
+    // 街区順・枝番順
+    items.sort(function(a,b){
+      var pa=(a.land||'').split('-'); var pb=(b.land||'').split('-');
+      var na=parseInt(pa[0],10)||0, nb=parseInt(pb[0],10)||0;
+      if(na!==nb) return na-nb;
+      var sa=parseInt((pa[1]||'').replace(/[^0-9]/g,''),10)||0, sb=parseInt((pb[1]||'').replace(/[^0-9]/g,''),10)||0;
+      return sa-sb;
+    });
+    if(countEl) countEl.textContent='('+items.length+'件)';
+    body.innerHTML='';
+    if(items.length===0){
+      body.innerHTML='<div style="text-align:center;color:#9aa4b2;padding:24px;">まだ判定した区画がありません</div>';
+      return;
+    }
     items.forEach(function(it){
       var s=it.s; var land=it.land;
       var cls=s.judgment==='usable'?'usable':s.judgment==='consider'?'consider':'unusable';
       var thumbKeys=['road1','land1','land2','land3','land4'];
+      var localMap = localByLand[land]||{};
       var thumbHtml=thumbKeys.map(function(k){
-        var u=s['photo_'+k]; return '<div class="rt'+(u?' on':'')+'"></div>';
+        var has = !!(s['photo_'+k]) || !!localMap[k];
+        return '<div class="rt'+(has?' on':'')+'"></div>';
       }).join('');
       var div=document.createElement('div');
       div.className='review-item';
@@ -3070,15 +3083,16 @@ function openSurveyReviewList(){
         +'<div class="review-thumbs">'+thumbHtml+'</div>';
       div.onclick=function(){
         document.getElementById('surveyReviewModal').style.display='none';
-        // 地図をその区画に寄せて、モーダルを開く
         var mk=landnumMarkers[land];
         if(mk && mk._latlng2 && map){ map.setView([mk._latlng2.lat, mk._latlng2.lng], Math.max(map.getZoom(),19)); }
         openSurveyModal(land, mk&&mk._latlng2?mk._latlng2.lat:null, mk&&mk._latlng2?mk._latlng2.lng:null);
       };
       body.appendChild(div);
     });
-  }
-  document.getElementById('surveyReviewModal').style.display='flex';
+  }).catch(function(e){
+    console.warn('[review] idb error', e);
+    body.innerHTML='<div style="text-align:center;color:#ef4444;padding:24px;">読み込みエラー</div>';
+  });
 }
 
 // ======== 現地調査モード v20260704a ========
@@ -3175,8 +3189,9 @@ async function openSurveyModal(land_number, lat, lng){
     if(s){
       if(s.comment) document.getElementById('surveyComment').value=s.comment;
       if(s.judgment) selectJudgment(s.judgment);
-      // v20260704f: 保存済み写真を各スロットに復元表示（タップで拡大）
+      // v20260704g: 保存済み写真を復元表示（クラウドURL→なければIndexedDBのローカルblob）
       var savedMap={ road1:s.photo_road1, land1:s.photo_land1, land2:s.photo_land2, land3:s.photo_land3, land4:s.photo_land4 };
+      // まずクラウドURLで復元
       Object.keys(savedMap).forEach(function(k){
         var url=savedMap[k]; if(!url) return;
         var img=document.getElementById('sp_prev_'+k);
@@ -3184,10 +3199,45 @@ async function openSurveyModal(land_number, lat, lng){
         if(img){ img.src=url; img.style.display='block'; img.style.cursor='zoom-in'; img.onclick=function(ev){ ev.preventDefault(); ev.stopPropagation(); showPhotoLightbox(url); }; }
         if(ph) ph.style.display='none';
       });
+      // クラウドURL未設定のスロットは、IndexedDBのローカルblobで補完（電波なし・同期前でも表示可能）
+      _restoreLocalPhotosForLand(land_number, savedMap);
     }
+  }
+  // 判定履歴が無くても、IndexedDBに撮影済み写真があれば復元（未同期分の対応）
+  if(!currentSurveyCaseId || (typeof allSurveys==='undefined') || !(allSurveys||[]).find(function(x){return x.case_id===currentSurveyCaseId;})){
+    _restoreLocalPhotosForLand(land_number, {});
   }
   document.getElementById('surveyModal').classList.add('open');
   if(map) map.closePopup();
+}
+
+// v20260704g: IndexedDB に保存された未同期の写真を、指定 land_number のスロットに復元表示
+async function _restoreLocalPhotosForLand(land_number, cloudMap){
+  cloudMap = cloudMap || {};
+  try{
+    var all = await _idbAllPhotos();
+    if(!all || all.length===0) return;
+    var byKey = {};
+    all.forEach(function(rec){
+      if(rec && rec.land_number===land_number && rec.key && rec.blob){
+        // 同じキーで複数あれば最新（ts大きい方）を採用
+        if(!byKey[rec.key] || (rec.ts||0) > (byKey[rec.key].ts||0)) byKey[rec.key]=rec;
+      }
+    });
+    Object.keys(byKey).forEach(function(k){
+      // クラウドURLがある場合はそちら優先（既に表示済み）
+      if(cloudMap[k]) return;
+      var rec = byKey[k];
+      var url = URL.createObjectURL(rec.blob);
+      var img = document.getElementById('sp_prev_'+k);
+      var ph = document.getElementById('sp_ph_'+k);
+      if(img){
+        img.src = url; img.style.display='block'; img.style.cursor='zoom-in';
+        img.onclick = function(ev){ ev.preventDefault(); ev.stopPropagation(); showPhotoLightbox(url); };
+      }
+      if(ph) ph.style.display='none';
+    });
+  }catch(e){ console.warn('[restore] local photo error', e); }
 }
 
 // 写真拡大ライトボックス（タップで閉じる）
