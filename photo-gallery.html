@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<!-- BUILD: photo-gallery v20260707a / PC向け 現地写真閲覧ページ。field_survey_status全件から写真URLを取得、地番選択でモーダル同等表示、右クリック保存＋一括ZIP対応 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📸 現地写真ギャラリー</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<style>
+  :root{
+    --bg:#0f172a;--panel:#1e293b;--panel2:#334155;
+    --ok:#10b981;--warn:#f59e0b;--err:#ef4444;--ng:#6b7280;
+    --fg:#f1f5f9;--muted:#94a3b8;--accent:#3b82f6
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sans-serif;font-size:14px;overflow:hidden}
+  
+  /* ヘッダー */
+  header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--panel2);height:52px}
+  header h1{font-size:16px;font-weight:600}
+  header .toolbar{display:flex;gap:8px;align-items:center}
+  .badge-count{background:var(--accent);padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700}
+  
+  button{background:var(--accent);color:#fff;border:none;padding:8px 12px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer}
+  button:hover{filter:brightness(1.1)}
+  button:disabled{opacity:0.5;cursor:not-allowed}
+  button.ok{background:var(--ok)}
+  button.warn{background:var(--warn)}
+  button.small{padding:5px 8px;font-size:11px}
+  button.ghost{background:transparent;border:1px solid var(--panel2);color:var(--fg)}
+  
+  input[type=text],input[type=password],input[type=email]{background:#0b1220;color:var(--fg);border:1px solid var(--panel2);padding:8px;border-radius:6px;font-size:13px;width:100%}
+  select{background:#0b1220;color:var(--fg);border:1px solid var(--panel2);padding:6px;border-radius:6px;font-size:13px}
+  
+  /* メインレイアウト */
+  #main{display:flex;height:calc(100vh - 52px)}
+  #sidebar{width:340px;background:var(--panel);border-right:1px solid var(--panel2);display:flex;flex-direction:column}
+  #filters{padding:10px;border-bottom:1px solid var(--panel2);display:flex;flex-direction:column;gap:6px}
+  #landList{flex:1;overflow-y:auto;padding:6px}
+  .land-item{padding:8px 10px;margin-bottom:4px;border-radius:6px;cursor:pointer;background:var(--panel2);display:flex;align-items:center;gap:8px;transition:background 0.1s}
+  .land-item:hover{background:#475569}
+  .land-item.active{background:var(--accent)}
+  .land-item .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+  .land-item .dot.ok{background:var(--ok)}
+  .land-item .dot.warn{background:var(--warn)}
+  .land-item .dot.ng{background:var(--ng)}
+  .land-item .num{font-weight:600;font-size:13px}
+  .land-item .cnt{margin-left:auto;font-size:10px;color:var(--muted);background:#0b1220;padding:2px 6px;border-radius:99px}
+  .land-item.active .cnt{background:rgba(255,255,255,0.2);color:#fff}
+  
+  /* 詳細 */
+  #detail{flex:1;overflow-y:auto;padding:20px}
+  .detail-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+  .detail-title{font-size:22px;font-weight:700}
+  .judgment-tag{display:inline-block;padding:6px 14px;border-radius:6px;font-weight:600;margin-left:12px;font-size:13px}
+  .judgment-tag.ok{background:var(--ok)}
+  .judgment-tag.warn{background:var(--warn);color:#000}
+  .judgment-tag.ng{background:var(--ng)}
+  .comment{background:var(--panel);padding:12px;border-radius:8px;margin-bottom:16px;line-height:1.6;white-space:pre-wrap;border-left:3px solid var(--accent)}
+  .section{margin-bottom:24px}
+  .section h2{font-size:14px;color:var(--muted);margin-bottom:10px;font-weight:600}
+  .photo-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+  .photo-cell{background:var(--panel);border-radius:8px;overflow:hidden;position:relative}
+  .photo-cell img{width:100%;height:220px;object-fit:cover;display:block;cursor:zoom-in;background:#000}
+  .photo-cell .label{padding:8px;font-size:11px;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+  .photo-cell .dl-btn{padding:3px 8px;background:var(--panel2);color:var(--fg);border-radius:4px;font-size:10px;cursor:pointer;border:none}
+  .photo-cell .dl-btn:hover{background:var(--accent)}
+  
+  /* ライトボックス */
+  .lightbox{position:fixed;inset:0;background:rgba(0,0,0,0.95);display:none;align-items:center;justify-content:center;z-index:1000;cursor:zoom-out}
+  .lightbox.show{display:flex}
+  .lightbox img{max-width:95vw;max-height:95vh;object-fit:contain}
+  .lightbox .close{position:absolute;top:16px;right:16px;background:rgba(255,255,255,0.2);color:#fff;border-radius:50%;width:36px;height:36px;font-size:20px;border:none;cursor:pointer}
+  
+  /* 空状態・ローディング */
+  .center-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--muted);gap:8px}
+  
+  /* 設定パネル */
+  .setup-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:2000}
+  .setup-card{background:var(--panel);padding:24px;border-radius:12px;width:min(90vw,480px);border:1px solid var(--panel2)}
+  .setup-card h2{margin-bottom:16px;font-size:18px}
+  .setup-card label{display:block;margin-bottom:4px;font-size:12px;color:var(--muted)}
+  .setup-card .form-row{margin-bottom:12px}
+  .setup-card .note{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5}
+  .setup-card a{color:var(--accent)}
+  
+  #toast{position:fixed;bottom:20px;right:20px;background:var(--panel);color:var(--fg);padding:12px 20px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.5);z-index:3000;display:none;border-left:3px solid var(--ok)}
+  #toast.show{display:block}
+  #toast.err{border-left-color:var(--err)}
+</style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex;align-items:center;gap:12px">
+    <h1>📸 現地写真ギャラリー</h1>
+    <span class="badge-count" id="totalCount">— 件</span>
+  </div>
+  <div class="toolbar">
+    <button class="ghost small" onclick="reloadData()">🔄 更新</button>
+    <button class="ok small" onclick="downloadAllSelected()" id="dlAllBtn" disabled>📦 表示中の全地番ZIP</button>
+    <button class="ghost small" onclick="exportCSV()">📊 CSV出力</button>
+    <span id="userLabel" style="font-size:11px;color:var(--muted)"></span>
+    <button class="ghost small" onclick="signOut()">🚪</button>
+  </div>
+</header>
+
+<div id="main">
+  <div id="sidebar">
+    <div id="filters">
+      <input type="text" id="searchInput" placeholder="🔍 地番検索..." oninput="applyFilter()">
+      <select id="judgmentFilter" onchange="applyFilter()">
+        <option value="all">全ての判定</option>
+        <option value="ok">🟢 使用可のみ</option>
+        <option value="warn">🟡 検討のみ</option>
+        <option value="ng">⚫ 使用不可のみ</option>
+        <option value="withphoto">📸 写真ありのみ</option>
+      </select>
+      <div style="font-size:11px;color:var(--muted);text-align:center">表示: <span id="filteredCount">0</span> / <span id="totalInSidebar">0</span></div>
+    </div>
+    <div id="landList">
+      <div class="center-state">読み込み中...</div>
+    </div>
+  </div>
+  <div id="detail">
+    <div class="center-state">
+      <div style="font-size:48px">👈</div>
+      <div>左の一覧から地番を選択してください</div>
+    </div>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <button class="close" onclick="closeLightbox()">✕</button>
+  <img id="lightboxImg" alt="">
+</div>
+
+<div id="toast"></div>
+
+<!-- 初回設定モーダル -->
+<div class="setup-overlay" id="setupOverlay" style="display:none">
+  <div class="setup-card">
+    <h2>🔑 Supabase接続</h2>
+    <div class="form-row">
+      <label>Supabase URL</label>
+      <input type="text" id="setupUrl" value="https://fygnrjjifoasozbhkxlk.supabase.co">
+    </div>
+    <div class="form-row">
+      <label>Anon Key（sb_publishable_... または eyJ...）</label>
+      <input type="password" id="setupKey" placeholder="ここに貼り付け">
+    </div>
+    <div class="form-row" style="display:flex;gap:8px">
+      <button onclick="saveSetup()" style="flex:1">💾 保存</button>
+    </div>
+    <div class="note">
+      Anon Keyは<a href="https://supabase.com/dashboard/project/fygnrjjifoasozbhkxlk/settings/api-keys" target="_blank">Supabase設定ページ</a>から「Publishable key」をコピーしてください。<br>
+      このブラウザにのみ保存されます。
+    </div>
+  </div>
+</div>
+
+<!-- ログインモーダル -->
+<div class="setup-overlay" id="loginOverlay" style="display:none">
+  <div class="setup-card">
+    <h2>🔐 ログイン</h2>
+    <div class="form-row">
+      <label>メールアドレス</label>
+      <input type="email" id="loginEmail" placeholder="takumi.kurimoto@gmail.com">
+    </div>
+    <div class="form-row">
+      <label>パスワード</label>
+      <input type="password" id="loginPassword" placeholder="password" onkeydown="if(event.key==='Enter') doLogin()">
+    </div>
+    <div class="form-row">
+      <button onclick="doLogin()" style="width:100%">ログイン</button>
+    </div>
+    <div class="note">Supabaseに登録済みのアカウントでログインしてください。</div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+let sb = null;
+let allRecords = [];       // field_survey_status の全レコード（写真あり）
+let filteredRecords = [];  // フィルタ後
+let selectedRecord = null; // 現在選択中
+
+// ============ 設定 ============
+const LS_URL = 'photo_gallery_url';
+const LS_KEY = 'photo_gallery_key';
+
+function toast(msg, kind='ok'){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + (kind==='err'?'err':'');
+  clearTimeout(window._toastT);
+  window._toastT = setTimeout(()=>el.className='', 3000);
+}
+
+function initSupabase(){
+  const url = localStorage.getItem(LS_URL);
+  const key = localStorage.getItem(LS_KEY);
+  if(!url || !key){
+    document.getElementById('setupOverlay').style.display = 'flex';
+    return false;
+  }
+  try{
+    sb = supabase.createClient(url, key, {
+      auth:{persistSession:true, autoRefreshToken:true}
+    });
+    return true;
+  }catch(e){
+    toast('Supabase初期化失敗: '+e.message, 'err');
+    return false;
+  }
+}
+
+function saveSetup(){
+  const url = document.getElementById('setupUrl').value.trim();
+  const key = document.getElementById('setupKey').value.trim();
+  if(!url || !key){ toast('URL/Key必須', 'err'); return; }
+  localStorage.setItem(LS_URL, url);
+  localStorage.setItem(LS_KEY, key);
+  document.getElementById('setupOverlay').style.display = 'none';
+  bootstrap();
+}
+
+// ============ 認証 ============
+async function checkAuth(){
+  const {data:{session}} = await sb.auth.getSession();
+  if(session){
+    document.getElementById('userLabel').textContent = session.user.email || session.user.id;
+    return true;
+  }
+  document.getElementById('loginOverlay').style.display = 'flex';
+  return false;
+}
+
+async function doLogin(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  if(!email || !password){ toast('メール/パスワード必須', 'err'); return; }
+  try{
+    const {data,error} = await sb.auth.signInWithPassword({email, password});
+    if(error) throw error;
+    document.getElementById('loginOverlay').style.display = 'none';
+    document.getElementById('userLabel').textContent = data.user.email;
+    toast('ログイン成功');
+    loadData();
+  }catch(e){
+    toast('ログイン失敗: '+e.message, 'err');
+  }
+}
+
+async function signOut(){
+  if(sb) await sb.auth.signOut();
+  location.reload();
+}
+
+// ============ データ取得 ============
+async function loadData(){
+  document.getElementById('landList').innerHTML = '<div class="center-state">📥 読み込み中...</div>';
+  try{
+    // field_survey_statusから、写真URLが1つでもあるレコードを全取得（1000件超対応）
+    const rows = await _fetchAllPaged(async (from, to)=>{
+      return await sb.from('field_survey_status')
+        .select('*')
+        .or('photo_road1.not.is.null,photo_road2.not.is.null,photo_land1.not.is.null,photo_land2.not.is.null,photo_land3.not.is.null,photo_land4.not.is.null')
+        .order('land_number', {ascending:true})
+        .range(from, to);
+    });
+    allRecords = rows;
+    document.getElementById('totalCount').textContent = rows.length + ' 件';
+    document.getElementById('totalInSidebar').textContent = rows.length;
+    toast(`${rows.length}件の写真付き案件を取得`);
+    applyFilter();
+    document.getElementById('dlAllBtn').disabled = false;
+  }catch(e){
+    toast('データ取得失敗: '+e.message, 'err');
+    document.getElementById('landList').innerHTML = `<div class="center-state">❌ ${escapeHTML(e.message)}</div>`;
+  }
+}
+
+async function _fetchAllPaged(fetcher){
+  const all = [];
+  const step = 1000;
+  let from = 0;
+  while(true){
+    const {data, error} = await fetcher(from, from+step-1);
+    if(error) throw error;
+    if(!data || data.length===0) break;
+    all.push(...data);
+    if(data.length < step) break;
+    from += step;
+    if(from > 100000) break; // 保険
+  }
+  return all;
+}
+
+function reloadData(){ loadData(); }
+
+// ============ フィルタ・描画 ============
+function judgmentKind(rec){
+  const j = String(rec.judgment || '').toLowerCase();
+  if(j.includes('使用可') || j==='ok' || j==='use') return 'ok';
+  if(j.includes('検討') || j==='warn' || j==='consider') return 'warn';
+  if(j.includes('使用不可') || j==='ng') return 'ng';
+  return 'ng';
+}
+
+function getPhotoUrls(rec){
+  return [
+    ['接道①', rec.photo_road1],
+    ['接道②', rec.photo_road2],
+    ['敷地内①', rec.photo_land1],
+    ['敷地内②', rec.photo_land2],
+    ['敷地内③', rec.photo_land3],
+    ['敷地内④', rec.photo_land4]
+  ].filter(([_,u])=>u);
+}
+
+function applyFilter(){
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  const jf = document.getElementById('judgmentFilter').value;
+  filteredRecords = allRecords.filter(rec=>{
+    if(q){
+      const s = (rec.land_number||'') + ' ' + (rec.case_no||'') + ' ' + (rec.comment||'');
+      if(!s.toLowerCase().includes(q)) return false;
+    }
+    if(jf === 'withphoto'){
+      if(getPhotoUrls(rec).length === 0) return false;
+    } else if(jf !== 'all'){
+      if(judgmentKind(rec) !== jf) return false;
+    }
+    return true;
+  });
+  document.getElementById('filteredCount').textContent = filteredRecords.length;
+  renderList();
+}
+
+function renderList(){
+  const list = document.getElementById('landList');
+  if(filteredRecords.length === 0){
+    list.innerHTML = '<div class="center-state" style="padding:20px">該当なし</div>';
+    return;
+  }
+  list.innerHTML = filteredRecords.map((rec, idx)=>{
+    const kind = judgmentKind(rec);
+    const photoCount = getPhotoUrls(rec).length;
+    const num = escapeHTML(rec.land_number || rec.case_no || '(unknown)');
+    return `
+      <div class="land-item ${selectedRecord===rec?'active':''}" onclick="selectRecord(${idx})" data-idx="${idx}">
+        <div class="dot ${kind}"></div>
+        <div class="num">${num}</div>
+        <div class="cnt">📸${photoCount}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function selectRecord(idx){
+  selectedRecord = filteredRecords[idx];
+  renderList();
+  renderDetail();
+}
+
+function renderDetail(){
+  if(!selectedRecord){
+    document.getElementById('detail').innerHTML = '<div class="center-state"><div style="font-size:48px">👈</div><div>左の一覧から地番を選択してください</div></div>';
+    return;
+  }
+  const rec = selectedRecord;
+  const kind = judgmentKind(rec);
+  const judgment = rec.judgment || '未判定';
+  const tagLabel = kind==='ok'?'🟢 使用可':kind==='warn'?'🟡 検討':'⚫ 使用不可';
+  const photos = getPhotoUrls(rec);
+  
+  const roadPhotos = photos.filter(([n])=>n.includes('接道'));
+  const landPhotos = photos.filter(([n])=>n.includes('敷地内'));
+  
+  const roadHtml = roadPhotos.length ? `
+    <div class="section">
+      <h2>📷 接道（${roadPhotos.length}枚）</h2>
+      <div class="photo-row">
+        ${roadPhotos.map(([label,url])=>photoCell(label,url,rec)).join('')}
+      </div>
+    </div>
+  ` : '';
+  
+  const landHtml = landPhotos.length ? `
+    <div class="section">
+      <h2>📷 敷地内（${landPhotos.length}枚）</h2>
+      <div class="photo-row">
+        ${landPhotos.map(([label,url])=>photoCell(label,url,rec)).join('')}
+      </div>
+    </div>
+  ` : '';
+  
+  document.getElementById('detail').innerHTML = `
+    <div class="detail-header">
+      <div>
+        <span class="detail-title">地番 ${escapeHTML(rec.land_number || rec.case_no || '')}</span>
+        <span class="judgment-tag ${kind}">${tagLabel}</span>
+      </div>
+      <div>
+        <button class="ok small" onclick="downloadOneLand()">📦 この地番の全写真ZIP</button>
+      </div>
+    </div>
+    ${rec.comment ? `<div class="comment">💬 ${escapeHTML(rec.comment)}</div>` : ''}
+    ${roadHtml}
+    ${landHtml}
+    ${photos.length===0 ? '<div class="center-state">写真なし</div>' : ''}
+  `;
+}
+
+function photoCell(label, url, rec){
+  const safeLabel = escapeHTML(label);
+  const filename = `${rec.land_number || rec.case_no || 'unknown'}_${label.replace(/[①②③④]/g,m=>({'①':'1','②':'2','③':'3','④':'4'}[m])).replace(/[^\w]/g,'_')}.jpg`;
+  return `
+    <div class="photo-cell">
+      <img src="${url}" alt="${safeLabel}" onclick="openLightbox('${url}')" loading="lazy">
+      <div class="label">
+        <span>${safeLabel}</span>
+        <a class="dl-btn" href="${url}" download="${filename}">💾 保存</a>
+      </div>
+    </div>
+  `;
+}
+
+function escapeHTML(s){ return String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ============ ライトボックス ============
+function openLightbox(url){
+  document.getElementById('lightboxImg').src = url;
+  document.getElementById('lightbox').classList.add('show');
+}
+function closeLightbox(){
+  document.getElementById('lightbox').classList.remove('show');
+}
+
+// ============ ダウンロード ============
+async function downloadOneLand(){
+  if(!selectedRecord) return;
+  const rec = selectedRecord;
+  const photos = getPhotoUrls(rec);
+  if(photos.length===0){ toast('写真なし', 'err'); return; }
+  const zip = new JSZip();
+  toast(`${photos.length}枚をダウンロード中...`);
+  const landId = rec.land_number || rec.case_no || 'unknown';
+  for(const [label, url] of photos){
+    try{
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const suffix = label.replace(/[①②③④]/g,m=>({'①':'1','②':'2','③':'3','④':'4'}[m])).replace(/[^\w]/g,'_');
+      zip.file(`${landId}_${suffix}.jpg`, blob);
+    }catch(e){ console.error('DL失敗', url, e); }
+  }
+  const blob = await zip.generateAsync({type:'blob'});
+  saveBlob(blob, `${landId}_photos.zip`);
+  toast(`ZIP保存完了: ${landId}`);
+}
+
+async function downloadAllSelected(){
+  if(filteredRecords.length===0){ toast('対象なし', 'err'); return; }
+  if(!confirm(`表示中の${filteredRecords.length}地番の全写真をZIP化します。続行しますか？（回線と時間がかかります）`)) return;
+  const zip = new JSZip();
+  let ok=0, ng=0;
+  toast(`0/${filteredRecords.length} 地番処理中...`);
+  for(let i=0;i<filteredRecords.length;i++){
+    const rec = filteredRecords[i];
+    const photos = getPhotoUrls(rec);
+    const landId = rec.land_number || rec.case_no || 'unknown';
+    const folder = zip.folder(landId);
+    for(const [label, url] of photos){
+      try{
+        const res = await fetch(url);
+        const blob = await res.blob();
+        const suffix = label.replace(/[①②③④]/g,m=>({'①':'1','②':'2','③':'3','④':'4'}[m])).replace(/[^\w]/g,'_');
+        folder.file(`${landId}_${suffix}.jpg`, blob);
+        ok++;
+      }catch(e){ ng++; console.error(e); }
+    }
+    if((i+1)%5===0) toast(`${i+1}/${filteredRecords.length} 地番処理中...`);
+  }
+  toast('ZIP生成中...');
+  const blob = await zip.generateAsync({type:'blob'});
+  const stamp = new Date().toISOString().substring(0,10);
+  saveBlob(blob, `photos_${stamp}_${filteredRecords.length}lots.zip`);
+  toast(`完了: 成功${ok}枚 / 失敗${ng}枚`);
+}
+
+function saveBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 5000);
+}
+
+// ============ CSV ============
+function exportCSV(){
+  if(filteredRecords.length===0){ toast('対象なし', 'err'); return; }
+  const header = ['地番','判定','コメント','接道1','接道2','敷地内1','敷地内2','敷地内3','敷地内4'];
+  const rows = [header];
+  filteredRecords.forEach(rec=>{
+    rows.push([
+      rec.land_number || rec.case_no || '',
+      rec.judgment || '',
+      rec.comment || '',
+      rec.photo_road1 || '',
+      rec.photo_road2 || '',
+      rec.photo_land1 || '',
+      rec.photo_land2 || '',
+      rec.photo_land3 || '',
+      rec.photo_land4 || ''
+    ]);
+  });
+  const csv = rows.map(r=>r.map(c=>{
+    const s = String(c).replace(/"/g,'""');
+    return /[,"\n]/.test(s) ? `"${s}"` : s;
+  }).join(',')).join('\r\n');
+  const bom = '\ufeff';
+  const blob = new Blob([bom+csv], {type:'text/csv;charset=utf-8'});
+  const stamp = new Date().toISOString().substring(0,10);
+  saveBlob(blob, `photos_${stamp}_${filteredRecords.length}件.csv`);
+  toast('CSV出力完了');
+}
+
+// ============ 起動 ============
+async function bootstrap(){
+  if(!initSupabase()) return;
+  if(!(await checkAuth())) return;
+  loadData();
+}
+
+window.addEventListener('DOMContentLoaded', ()=>{
+  document.addEventListener('keydown', e=>{
+    if(e.key === 'Escape') closeLightbox();
+  });
+  bootstrap();
+});
+</script>
+
+</body>
+</html>
