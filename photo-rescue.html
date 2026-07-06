@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<!-- BUILD: photo-rescue v20260707a / field-survey.html の IndexedDB に溜まった未同期写真を救出・再アップロード・診断するための独立ツール。同一origin(github.io/solar-land-mgr)配下に置くこと -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<title>📸 写真救出ツール</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<style>
+  :root{--bg:#0f172a;--panel:#1e293b;--panel2:#334155;--ok:#10b981;--warn:#f59e0b;--err:#ef4444;--fg:#f1f5f9;--muted:#94a3b8;--accent:#3b82f6}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sans-serif;font-size:14px;line-height:1.5;padding:12px;padding-bottom:80px}
+  h1{font-size:18px;margin-bottom:12px}
+  h2{font-size:15px;margin:16px 0 8px;color:var(--accent)}
+  .card{background:var(--panel);border-radius:10px;padding:12px;margin-bottom:12px;border:1px solid var(--panel2)}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  button{background:var(--accent);color:#fff;border:none;padding:10px 14px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;min-height:44px}
+  button:disabled{opacity:0.5}
+  button.warn{background:var(--warn)}
+  button.err{background:var(--err)}
+  button.ok{background:var(--ok)}
+  button.small{padding:6px 10px;font-size:12px;min-height:32px}
+  input[type=text],input[type=password]{background:#0b1220;color:var(--fg);border:1px solid var(--panel2);padding:8px;border-radius:6px;width:100%;font-size:13px;font-family:monospace}
+  .badge{background:var(--warn);color:#000;padding:2px 8px;border-radius:99px;font-weight:700;font-size:12px}
+  .badge.ok{background:var(--ok);color:#fff}
+  .badge.err{background:var(--err);color:#fff}
+  .log{background:#000;color:#0f0;font-family:monospace;font-size:11px;padding:8px;border-radius:6px;max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+  .photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+  .photo-item{background:var(--panel2);border-radius:8px;padding:8px}
+  .photo-item img{width:100%;height:120px;object-fit:cover;border-radius:4px;background:#000;display:block}
+  .photo-meta{font-size:10px;color:var(--muted);margin-top:6px;word-break:break-all;font-family:monospace}
+  .photo-actions{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}
+  .stat-line{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--panel2);font-size:12px}
+  .stat-line span:first-child{color:var(--muted)}
+  .stat-line span:last-child{font-family:monospace;font-weight:600}
+  .sticky-bottom{position:fixed;bottom:0;left:0;right:0;background:var(--panel);border-top:2px solid var(--accent);padding:10px;display:flex;gap:6px;flex-wrap:wrap;z-index:100}
+  details{margin-top:8px}
+  summary{cursor:pointer;padding:6px;background:var(--panel2);border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+
+<h1>📸 写真救出＆診断ツール <span style="font-size:11px;color:var(--muted)">v20260707a</span></h1>
+
+<!-- 1. 診断パネル -->
+<div class="card">
+  <h2>1. 診断</h2>
+  <div id="diagPanel"><div class="stat-line"><span>初期化中...</span><span>⏳</span></div></div>
+  <div class="row" style="margin-top:8px">
+    <button class="small" onclick="runDiagnostics()">🔬 再診断</button>
+    <button class="small" onclick="testUpload()">🧪 疎通テスト</button>
+    <button class="small warn" onclick="refreshAuth()">🔑 再ログイン</button>
+  </div>
+</div>
+
+<!-- 2. Supabase接続情報 -->
+<div class="card">
+  <h2>2. Supabase接続</h2>
+  <div style="font-size:12px;color:var(--muted);margin-bottom:6px">field-survey.htmlと同origin配下ならlocalStorageから自動取得します。空欄なら手動入力。</div>
+  <div class="row">
+    <input type="text" id="sbUrl" placeholder="https://xxxx.supabase.co">
+  </div>
+  <div class="row">
+    <input type="password" id="sbKey" placeholder="anon key (eyJ... または sb_publishable_...)">
+  </div>
+  <div class="row">
+    <button class="small" onclick="saveConn()">💾 保存して再接続</button>
+    <button class="small" onclick="revealKey()">👁 表示</button>
+  </div>
+</div>
+
+<!-- 3. IndexedDB内の写真一覧 -->
+<div class="card">
+  <h2>3. IndexedDB内の写真 <span class="badge" id="photoCountBadge">-</span></h2>
+  <div class="row">
+    <button class="small" onclick="scanAllDBs()">🔄 再スキャン</button>
+    <button class="small ok" onclick="downloadZip()">📦 全件ZIP保存</button>
+    <button class="small" onclick="retryAllUploads()">☁️ 全件再アップロード</button>
+  </div>
+  <div style="font-size:11px;color:var(--muted);margin:8px 0">iPhoneでは、写真の上を長押し→「写真に追加」でカメラロールに保存できます。</div>
+  <div id="photoGrid" class="photo-grid"></div>
+</div>
+
+<!-- 4. 詳細ログ -->
+<div class="card">
+  <h2>4. ログ</h2>
+  <div class="row">
+    <button class="small" onclick="clearLog()">クリア</button>
+    <button class="small" onclick="copyLog()">📋 コピー</button>
+  </div>
+  <div id="log" class="log"></div>
+</div>
+
+<div class="sticky-bottom">
+  <button onclick="location.href='field-survey.html'" class="small">← 現地調査</button>
+  <button onclick="location.reload()" class="small warn">🔄 リロード</button>
+</div>
+
+<script>
+'use strict';
+
+// ============ ログ ============
+const logEl = ()=>document.getElementById('log');
+function log(msg, kind='info'){
+  const t = new Date().toISOString().substring(11,19);
+  const prefix = {info:'ℹ️',ok:'✅',warn:'⚠️',err:'❌'}[kind] || '·';
+  const line = `[${t}] ${prefix} ${msg}`;
+  logEl().textContent += line + '\n';
+  logEl().scrollTop = logEl().scrollHeight;
+  console.log(line);
+}
+function clearLog(){ logEl().textContent = ''; }
+function copyLog(){
+  navigator.clipboard.writeText(logEl().textContent).then(()=>alert('コピーしました'));
+}
+
+// ============ Supabase接続 ============
+let sb = null;
+const LS_KEYS_URL = ['supabase_url','sb_url','SUPABASE_URL'];
+const LS_KEYS_KEY = ['supabase_anon_key','sb_key','SUPABASE_ANON_KEY','supabase_key'];
+
+function detectConn(){
+  let url=null, key=null;
+  for(const k of LS_KEYS_URL){ const v=localStorage.getItem(k); if(v){url=v; log(`URL検出: localStorage['${k}']`); break;} }
+  for(const k of LS_KEYS_KEY){ const v=localStorage.getItem(k); if(v){key=v; log(`Key検出: localStorage['${k}'] (${v.substring(0,12)}...)`); break;} }
+  if(url) document.getElementById('sbUrl').value = url;
+  if(key) document.getElementById('sbKey').value = key;
+  return {url,key};
+}
+
+function initSupabase(url,key){
+  if(!url || !key){ log('URL/Keyが未設定','warn'); return false; }
+  try{
+    sb = supabase.createClient(url, key, {
+      auth:{persistSession:true, storageKey:'supabase.auth.token'}
+    });
+    log('Supabase client 初期化OK','ok');
+    return true;
+  }catch(e){
+    log('Supabase初期化失敗: '+e.message,'err');
+    return false;
+  }
+}
+
+function saveConn(){
+  const url = document.getElementById('sbUrl').value.trim();
+  const key = document.getElementById('sbKey').value.trim();
+  if(!url || !key){ alert('URLとKeyを入力してください'); return; }
+  localStorage.setItem('supabase_url', url);
+  localStorage.setItem('supabase_anon_key', key);
+  localStorage.setItem('sb_url', url);
+  localStorage.setItem('sb_key', key);
+  log('接続情報を保存','ok');
+  initSupabase(url,key);
+  runDiagnostics();
+}
+
+function revealKey(){
+  const el = document.getElementById('sbKey');
+  el.type = el.type==='password' ? 'text' : 'password';
+}
+
+// ============ IndexedDB スキャン ============
+let photoRecords = []; // {dbName, storeName, key, blob, meta}
+
+async function listAllDatabases(){
+  if(typeof indexedDB.databases === 'function'){
+    try{ return (await indexedDB.databases()).map(d=>d.name).filter(Boolean); }catch(e){}
+  }
+  // fallback: 既知の候補名
+  return ['survey_photos_db','survey_photos','field_survey_photos','photos_db'];
+}
+
+function openDB(name){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(name);
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+    req.onblocked = ()=>reject(new Error('blocked'));
+  });
+}
+
+function getAllFromStore(db, storeName){
+  return new Promise((resolve, reject)=>{
+    try{
+      const tx = db.transaction(storeName,'readonly');
+      const store = tx.objectStore(storeName);
+      const keysReq = store.getAllKeys();
+      const valsReq = store.getAll();
+      let keys=null, vals=null;
+      keysReq.onsuccess = ()=>{ keys=keysReq.result; if(vals!==null) resolve({keys,vals}); };
+      valsReq.onsuccess = ()=>{ vals=valsReq.result; if(keys!==null) resolve({keys,vals}); };
+      keysReq.onerror = ()=>reject(keysReq.error);
+      valsReq.onerror = ()=>reject(valsReq.error);
+    }catch(e){ reject(e); }
+  });
+}
+
+function findBlobIn(val){
+  // Blob / File 直接
+  if(val instanceof Blob) return {blob:val, meta:val};
+  // オブジェクトの中を再帰探索
+  if(val && typeof val==='object'){
+    for(const k of Object.keys(val)){
+      if(val[k] instanceof Blob) return {blob:val[k], meta:val, blobKey:k};
+    }
+    for(const k of Object.keys(val)){
+      const found = findBlobIn(val[k]);
+      if(found) return {blob:found.blob, meta:val, blobKey:k+'.'+(found.blobKey||'')};
+    }
+  }
+  return null;
+}
+
+async function scanAllDBs(){
+  photoRecords = [];
+  document.getElementById('photoGrid').innerHTML = '<div style="color:var(--muted)">スキャン中...</div>';
+  const dbNames = await listAllDatabases();
+  log(`検出DB: [${dbNames.join(', ')}]`);
+  for(const name of dbNames){
+    let db;
+    try{ db = await openDB(name); }catch(e){ log(`DB "${name}" 開けず: ${e.message}`,'warn'); continue; }
+    const stores = Array.from(db.objectStoreNames);
+    log(`DB "${name}" のstore: [${stores.join(', ')}]`);
+    for(const storeName of stores){
+      try{
+        const {keys, vals} = await getAllFromStore(db, storeName);
+        log(`  ${storeName}: ${vals.length}件`);
+        vals.forEach((v,i)=>{
+          const found = findBlobIn(v);
+          if(found){
+            photoRecords.push({
+              dbName:name, storeName, key:keys[i], 
+              blob:found.blob, meta:found.meta, blobKey:found.blobKey,
+              status:'pending', errorMsg:null
+            });
+          } else if(v && typeof v==='object'){
+            // Blobが無くてもメタ情報として保持（デバッグ用）
+            log(`    [${keys[i]}] Blob無し. keys=${Object.keys(v).join(',')}`,'warn');
+          }
+        });
+      }catch(e){ log(`  store "${storeName}" 読込失敗: ${e.message}`,'err'); }
+    }
+    db.close();
+  }
+  log(`合計 ${photoRecords.length} 件のBlobを検出`, photoRecords.length? 'ok':'warn');
+  renderPhotoGrid();
+  document.getElementById('photoCountBadge').textContent = photoRecords.length;
+}
+
+// ============ 表示 ============
+function renderPhotoGrid(){
+  const grid = document.getElementById('photoGrid');
+  if(photoRecords.length===0){
+    grid.innerHTML = '<div style="color:var(--muted);grid-column:1/-1">写真が見つかりませんでした。DBスキャン結果はログを確認してください。</div>';
+    return;
+  }
+  grid.innerHTML = '';
+  photoRecords.forEach((rec, idx)=>{
+    const url = URL.createObjectURL(rec.blob);
+    const metaStr = summarizeMeta(rec.meta, rec.blobKey);
+    const sizeKB = Math.round(rec.blob.size/1024);
+    const statusBadge = rec.status==='ok'?'<span class="badge ok">送信済</span>' :
+                        rec.status==='err'?'<span class="badge err">失敗</span>' :
+                        '<span class="badge">未送信</span>';
+    const div = document.createElement('div');
+    div.className = 'photo-item';
+    div.innerHTML = `
+      <img src="${url}" alt="photo ${idx}" loading="lazy">
+      <div class="photo-meta">
+        ${statusBadge} ${sizeKB}KB<br>
+        <b>${escapeHTML(String(rec.key))}</b><br>
+        ${escapeHTML(metaStr)}
+        ${rec.errorMsg?`<br><span style="color:var(--err)">${escapeHTML(rec.errorMsg)}</span>`:''}
+      </div>
+      <div class="photo-actions">
+        <button class="small" onclick="downloadOne(${idx})">💾</button>
+        <button class="small ok" onclick="retryOne(${idx})">☁️</button>
+        <button class="small" onclick="openFull(${idx})">🔍</button>
+      </div>
+    `;
+    grid.appendChild(div);
+  });
+}
+
+function summarizeMeta(meta, blobKey){
+  if(!meta || meta instanceof Blob) return '';
+  const parts = [];
+  ['land_number','case_id','key','photo_key','ts','timestamp','created_at'].forEach(k=>{
+    if(meta[k]!==undefined && !(meta[k] instanceof Blob)) parts.push(`${k}=${String(meta[k]).substring(0,30)}`);
+  });
+  if(blobKey) parts.push(`blob@${blobKey}`);
+  return parts.join(' / ');
+}
+
+function escapeHTML(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ============ 個別操作 ============
+function downloadOne(idx){
+  const rec = photoRecords[idx];
+  const url = URL.createObjectURL(rec.blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filenameFor(rec);
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+
+function openFull(idx){
+  const rec = photoRecords[idx];
+  const url = URL.createObjectURL(rec.blob);
+  window.open(url, '_blank');
+}
+
+function filenameFor(rec){
+  const meta = rec.meta || {};
+  const ln = meta.land_number || meta.case_id || 'unknown';
+  const k = meta.key || meta.photo_key || String(rec.key).replace(/[^\w-]/g,'_');
+  const ext = (rec.blob.type||'image/jpeg').split('/')[1] || 'jpg';
+  return `${ln}_${k}.${ext}`;
+}
+
+// ============ アップロード ============
+async function retryOne(idx){
+  if(!sb){ alert('Supabase未接続'); return; }
+  const rec = photoRecords[idx];
+  rec.status = 'uploading';
+  renderPhotoGrid();
+  const path = uploadPathFor(rec);
+  log(`upload試行: ${path} (${Math.round(rec.blob.size/1024)}KB)`);
+  try{
+    const {data, error} = await sb.storage.from('survey-photos').upload(path, rec.blob, {
+      contentType: rec.blob.type || 'image/jpeg',
+      upsert: true
+    });
+    if(error) throw error;
+    const {data:urlData} = sb.storage.from('survey-photos').getPublicUrl(path);
+    log(`  → OK ${urlData.publicUrl}`,'ok');
+    rec.status='ok';
+    rec.errorMsg=null;
+    rec.publicUrl = urlData.publicUrl;
+    // field_survey_status への反映は元のfield-survey.htmlに任せる（ここでは救出のみ）
+  }catch(e){
+    rec.status='err';
+    rec.errorMsg = e.message || String(e);
+    log(`  → 失敗: ${rec.errorMsg}`,'err');
+    if(e.statusCode) log(`     statusCode=${e.statusCode}`,'err');
+  }
+  renderPhotoGrid();
+}
+
+function uploadPathFor(rec){
+  const meta = rec.meta || {};
+  const ln = meta.land_number || meta.case_id || 'unknown';
+  const k = meta.key || meta.photo_key || String(rec.key).replace(/[^\w-]/g,'_');
+  const ts = Date.now();
+  return `${ln}/${k}_${ts}.jpg`;
+}
+
+async function retryAllUploads(){
+  if(!sb){ alert('Supabase未接続'); return; }
+  if(!confirm(`${photoRecords.length}件を再アップロードします。よろしいですか？`)) return;
+  let ok=0, ng=0;
+  for(let i=0;i<photoRecords.length;i++){
+    if(photoRecords[i].status==='ok') continue;
+    await retryOne(i);
+    if(photoRecords[i].status==='ok') ok++; else ng++;
+    await new Promise(r=>setTimeout(r,200));
+  }
+  alert(`完了: 成功 ${ok} / 失敗 ${ng}`);
+}
+
+// ============ ZIP ============
+async function downloadZip(){
+  if(photoRecords.length===0){ alert('写真がありません'); return; }
+  log(`ZIP作成開始: ${photoRecords.length}件`);
+  const zip = new JSZip();
+  const manifest = [];
+  for(const rec of photoRecords){
+    const name = filenameFor(rec);
+    zip.file(name, rec.blob);
+    manifest.push({
+      file: name,
+      key: String(rec.key),
+      dbName: rec.dbName,
+      storeName: rec.storeName,
+      size: rec.blob.size,
+      type: rec.blob.type,
+      meta: sanitizeForJson(rec.meta)
+    });
+  }
+  zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+  const blob = await zip.generateAsync({type:'blob'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().substring(0,16).replace(/[:T]/g,'-');
+  a.href = url; a.download = `survey-photos-rescue-${stamp}.zip`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  log(`ZIP完成: ${Math.round(blob.size/1024)}KB`,'ok');
+  setTimeout(()=>URL.revokeObjectURL(url), 5000);
+}
+
+function sanitizeForJson(o){
+  if(!o || o instanceof Blob) return null;
+  const out = {};
+  for(const k of Object.keys(o)){
+    const v = o[k];
+    if(v instanceof Blob) continue;
+    if(typeof v==='object') continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+// ============ 診断 ============
+async function runDiagnostics(){
+  const panel = document.getElementById('diagPanel');
+  panel.innerHTML = '';
+  const rows = [];
+  
+  rows.push(['Origin', location.origin]);
+  rows.push(['User Agent', navigator.userAgent.substring(0,60)]);
+  rows.push(['オンライン', navigator.onLine?'✅':'❌']);
+  
+  if(navigator.storage && navigator.storage.estimate){
+    try{
+      const est = await navigator.storage.estimate();
+      const usedMB = Math.round(est.usage/1024/1024);
+      const quotaMB = Math.round(est.quota/1024/1024);
+      rows.push(['ストレージ', `${usedMB}MB / ${quotaMB}MB`]);
+    }catch(e){}
+  }
+  
+  if(sb){
+    try{
+      const {data:{session}} = await sb.auth.getSession();
+      if(session){
+        rows.push(['認証', `✅ ${session.user.email || session.user.id}`]);
+        const expiresAt = new Date(session.expires_at*1000);
+        const remaining = Math.round((expiresAt-Date.now())/1000/60);
+        rows.push(['セッション残', `${remaining}分`]);
+        if(remaining<0){ rows.push(['⚠️ 警告', 'セッション期限切れ']); }
+      }else{
+        rows.push(['認証', '❌ セッション無し']);
+      }
+    }catch(e){ rows.push(['認証エラー', e.message]); }
+    
+    // Storage bucket 疎通
+    try{
+      const {data, error} = await sb.storage.from('survey-photos').list('', {limit:1});
+      if(error) rows.push(['bucket疎通', '❌ '+error.message]);
+      else rows.push(['bucket疎通', `✅ list OK (${data.length}件)`]);
+    }catch(e){ rows.push(['bucket疎通', '❌ '+e.message]); }
+  }else{
+    rows.push(['Supabase', '❌ 未初期化']);
+  }
+  
+  panel.innerHTML = rows.map(([k,v])=>
+    `<div class="stat-line"><span>${escapeHTML(k)}</span><span>${escapeHTML(String(v))}</span></div>`
+  ).join('');
+}
+
+async function testUpload(){
+  if(!sb){ alert('Supabase未接続'); return; }
+  const testBlob = new Blob([new Uint8Array([0xFF,0xD8,0xFF,0xE0])], {type:'image/jpeg'});
+  const path = `_diagnostic/test_${Date.now()}.jpg`;
+  log(`疎通テスト: ${path}`);
+  try{
+    const {data,error} = await sb.storage.from('survey-photos').upload(path, testBlob);
+    if(error) throw error;
+    log(`疎通テスト成功: ${data.path}`,'ok');
+    // クリーンアップ
+    await sb.storage.from('survey-photos').remove([path]);
+    log(`テストファイル削除OK`,'ok');
+    alert('疎通OK。既存の同期失敗は認証か個別Blobの問題の可能性。');
+  }catch(e){
+    log(`疎通テスト失敗: ${e.message}`,'err');
+    if(e.statusCode) log(`  statusCode=${e.statusCode}`,'err');
+    alert('疎通失敗: '+e.message);
+  }
+}
+
+async function refreshAuth(){
+  if(!sb){ alert('Supabase未接続'); return; }
+  const email = prompt('メールアドレス:');
+  if(!email) return;
+  const password = prompt('パスワード:');
+  if(!password) return;
+  try{
+    const {data,error} = await sb.auth.signInWithPassword({email, password});
+    if(error) throw error;
+    log(`ログイン成功: ${data.user.email}`,'ok');
+    runDiagnostics();
+  }catch(e){
+    log(`ログイン失敗: ${e.message}`,'err');
+    alert('失敗: '+e.message);
+  }
+}
+
+// ============ 起動 ============
+window.addEventListener('DOMContentLoaded', async ()=>{
+  log('起動');
+  const {url,key} = detectConn();
+  if(url && key){
+    initSupabase(url, key);
+  }else{
+    log('接続情報未検出。手動入力してください','warn');
+  }
+  await scanAllDBs();
+  await runDiagnostics();
+});
+</script>
+
+</body>
+</html>
