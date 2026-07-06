@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: photo-rescue v20260707a / field-survey.html の IndexedDB に溜まった未同期写真を救出・再アップロード・診断するための独立ツール。同一origin(github.io/solar-land-mgr)配下に置くこと -->
+<!-- BUILD: photo-rescue v20260707b / 修正: indexedDB.databases()が空を返してもフォールバック候補名でも必ず探索。DB名の手動追加ボタン追加。存在しないDBを新規作成してしまうバグ回避。前:v20260707a -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -41,7 +41,7 @@
 </head>
 <body>
 
-<h1>📸 写真救出＆診断ツール <span style="font-size:11px;color:var(--muted)">v20260707a</span></h1>
+<h1>📸 写真救出＆診断ツール <span style="font-size:11px;color:var(--muted)">v20260707b</span></h1>
 
 <!-- 1. 診断パネル -->
 <div class="card">
@@ -75,6 +75,7 @@
   <h2>3. IndexedDB内の写真 <span class="badge" id="photoCountBadge">-</span></h2>
   <div class="row">
     <button class="small" onclick="scanAllDBs()">🔄 再スキャン</button>
+    <button class="small warn" onclick="addManualDB()">➕ DB名手動追加</button>
     <button class="small ok" onclick="downloadZip()">📦 全件ZIP保存</button>
     <button class="small" onclick="retryAllUploads()">☁️ 全件再アップロード</button>
   </div>
@@ -164,12 +165,59 @@ function revealKey(){
 // ============ IndexedDB スキャン ============
 let photoRecords = []; // {dbName, storeName, key, blob, meta}
 
+// 既知の候補名（field-survey.htmlで使われうる全パターン）
+const CANDIDATE_DB_NAMES = [
+  'survey_photos_db','survey_photos','field_survey_photos','photos_db',
+  'field-survey-photos','fieldSurveyPhotos','SurveyPhotosDB','surveyPhotos',
+  'grid_land_photos','glm_photos','photo_db','photo_queue','pending_photos'
+];
+// 手動指定用（画面から追加可能）
+window.manualDBNames = [];
+
 async function listAllDatabases(){
+  const names = new Set();
   if(typeof indexedDB.databases === 'function'){
-    try{ return (await indexedDB.databases()).map(d=>d.name).filter(Boolean); }catch(e){}
+    try{
+      const dbs = await indexedDB.databases();
+      dbs.map(d=>d.name).filter(Boolean).forEach(n=>names.add(n));
+      log(`indexedDB.databases() → ${dbs.length}件`);
+    }catch(e){ log(`indexedDB.databases() エラー: ${e.message}`,'warn'); }
+  } else {
+    log('indexedDB.databases() 未対応ブラウザ','warn');
   }
-  // fallback: 既知の候補名
-  return ['survey_photos_db','survey_photos','field_survey_photos','photos_db'];
+  // 必ず候補名も追加（API が空を返した場合の保険）
+  CANDIDATE_DB_NAMES.forEach(n=>names.add(n));
+  window.manualDBNames.forEach(n=>names.add(n));
+  return Array.from(names);
+}
+
+// version付きで既存DBだけを開く（新規作成しない）
+function openExistingDB(name){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(name);
+    let wasUpgrade = false;
+    req.onupgradeneeded = (e)=>{
+      // version 0 → 1 の暗黙アップグレード = 新規作成された空DB
+      if(e.oldVersion === 0){
+        wasUpgrade = true;
+      }
+    };
+    req.onsuccess = ()=>{
+      const db = req.result;
+      const empty = db.objectStoreNames.length === 0;
+      if(wasUpgrade && empty){
+        // 新規空DBを作ってしまったので削除
+        db.close();
+        const del = indexedDB.deleteDatabase(name);
+        del.onsuccess = ()=>resolve(null); // 存在しなかった
+        del.onerror = ()=>resolve(null);
+      } else {
+        resolve(db);
+      }
+    };
+    req.onerror = ()=>reject(req.error);
+    req.onblocked = ()=>reject(new Error('blocked'));
+  });
 }
 
 function openDB(name){
@@ -217,12 +265,15 @@ async function scanAllDBs(){
   photoRecords = [];
   document.getElementById('photoGrid').innerHTML = '<div style="color:var(--muted)">スキャン中...</div>';
   const dbNames = await listAllDatabases();
-  log(`検出DB: [${dbNames.join(', ')}]`);
+  log(`試行DB候補: ${dbNames.length}件 [${dbNames.slice(0,5).join(', ')}${dbNames.length>5?'...':''}]`);
+  let foundCount = 0;
   for(const name of dbNames){
     let db;
-    try{ db = await openDB(name); }catch(e){ log(`DB "${name}" 開けず: ${e.message}`,'warn'); continue; }
+    try{ db = await openExistingDB(name); }catch(e){ log(`DB "${name}" 開けず: ${e.message}`,'warn'); continue; }
+    if(!db){ continue; /* 存在しなかった */ }
+    foundCount++;
     const stores = Array.from(db.objectStoreNames);
-    log(`DB "${name}" のstore: [${stores.join(', ')}]`);
+    log(`✓ DB "${name}" 発見！ store: [${stores.join(', ')}]`,'ok');
     for(const storeName of stores){
       try{
         const {keys, vals} = await getAllFromStore(db, storeName);
@@ -244,9 +295,25 @@ async function scanAllDBs(){
     }
     db.close();
   }
-  log(`合計 ${photoRecords.length} 件のBlobを検出`, photoRecords.length? 'ok':'warn');
+  log(`── スキャン完了：実在DB ${foundCount}件、Blob合計 ${photoRecords.length}件 ──`, photoRecords.length? 'ok':'warn');
+  if(foundCount===0){
+    log('⚠️ 実在DBがゼロです。以下をご確認ください：','warn');
+    log('  1. field-survey.htmlを最初に開いたブラウザは今と同じですか？（Safari vs Chrome）','warn');
+    log('  2. iOS「設定→Safari→履歴とWebサイトデータを消去」を実行していませんか？','warn');
+    log('  3. プライベートブラウズで開いていませんでしたか？','warn');
+    log('  4. field-survey.htmlのDB名が既知の候補と異なる可能性 → 手動入力してください','warn');
+  }
   renderPhotoGrid();
   document.getElementById('photoCountBadge').textContent = photoRecords.length;
+}
+
+// 手動DB名追加
+function addManualDB(){
+  const name = prompt('IndexedDB名を入力（field-survey.htmlのソースで indexedDB.open("...") の部分）:');
+  if(!name) return;
+  window.manualDBNames.push(name.trim());
+  log(`手動追加: "${name}"`);
+  scanAllDBs();
 }
 
 // ============ 表示 ============
