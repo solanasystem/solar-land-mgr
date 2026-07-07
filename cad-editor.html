@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260707y / ズームボタン削除+全UI角ばりシャープ化(CADらしい見た目に)。前:v20260707x -->
+<!-- BUILD: cad-editor v20260707A / カラーパレット・質感をDraftSight完全再現(純黒背景+グレーパネル+シアン選択色)。前:v20260707z -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -39,18 +39,21 @@
 
 <style>
   :root {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --surface2: #1c2333;
-    --border: #30363d;
-    --accent: #f0b429;
-    --green: #3fb950;
+    /* v20260707A: DraftSight風カラー */
+    --bg: #1a1a1a;             /* ワークスペース背景（純黒に近い暗色） */
+    --surface: #2b2b2b;        /* パネル・サイドバー背景（DraftSightグレー） */
+    --surface2: #363636;       /* ボタン背景・ホバー */
+    --border: #454545;         /* 境界線（暗いグレー） */
+    --accent: #00b4f0;         /* シアン水色（DraftSight選択色） */
+    --accent-dim: #007ba3;     /* シアン暗め */
+    --green: #6cbf3e;          /* CADで使うグリーン */
     --blue: #58a6ff;
-    --red: #f85149;
-    --text: #e6edf3;
-    --text-muted: #8b949e;
-    --font-main: 'Zen Kaku Gothic New', sans-serif;
-    --font-mono: 'Share Tech Mono', monospace;
+    --red: #ff5555;
+    --text: #dcdcdc;           /* CADの標準テキスト色 */
+    --text-muted: #8a8a8a;
+    --header-bg: #333333;      /* ヘッダー背景 */
+    --font-main: 'Segoe UI', 'Meiryo UI', 'Zen Kaku Gothic New', sans-serif;
+    --font-mono: 'Consolas', 'Share Tech Mono', monospace;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -185,59 +188,58 @@
     outline-offset: 1px;
   }
 
-  /* ===== 左サイドバー (v20260707x: 56px → 260px に拡張、プロパティ・下絵操作を収納) ===== */
+  /* ===== 左サイドバー (v20260707z: 260px → 132px に半減、要素サイズも縮小) ===== */
   .toolbar {
-    width: 260px;
+    width: 132px;
     background: var(--surface);
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    padding: 8px 10px;
-    gap: 8px;
+    padding: 4px 5px;
+    gap: 4px;
     overflow-y: auto;
     flex-shrink: 0;
   }
   .tool-group {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding-bottom: 8px;
+    gap: 2px;
+    padding-bottom: 4px;
     border-bottom: 1px solid var(--border);
   }
   .tool-group:last-child { border-bottom: none; }
   .tool-group-label {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--text-muted);
     text-align: left;
-    letter-spacing: 0.8px;
-    margin-bottom: 3px;
-    padding: 2px 4px;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+    padding: 1px 3px;
     background: var(--surface2);
-    border-radius: 3px;
-    font-weight: 700;
+    font-weight: 600;
     text-transform: uppercase;
   }
   /* v20260707x: ボタンを横並びに */
   .tool-buttons-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 2px;
   }
   .tool-btn {
     background: var(--surface2);
     border: 1px solid var(--border);
     color: var(--text);
-    height: 34px;
-    min-width: 34px;
+    height: 28px;
+    min-width: 28px;
     flex: 1 1 auto;
-    border-radius: 4px;
     cursor: pointer;
-    font-size: 15px;
+    font-size: 13px;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all .1s;
+    transition: background 0.05s;
     position: relative;
+    padding: 0;
   }
   .tool-btn:hover { background: #2a3244; border-color: var(--accent); }
   .tool-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
@@ -303,7 +305,7 @@
 
   /* ===== 右レイヤーパネル ===== */
   .layer-panel {
-    width: 240px;
+    width: 140px;
     background: var(--surface);
     border-left: 1px solid var(--border);
     display: flex;
@@ -312,47 +314,51 @@
     overflow-y: auto;
   }
   .layer-panel-header {
-    padding: 10px 14px;
+    padding: 5px 8px;
     border-bottom: 1px solid var(--border);
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 700;
     color: var(--accent);
     display: flex;
     align-items: center;
-    gap: 6px;
-    letter-spacing: 0.5px;
+    gap: 4px;
+    letter-spacing: 0.4px;
+    background: var(--surface2);
+    text-transform: uppercase;
   }
   .layer-group {
-    padding: 8px 12px;
+    padding: 4px 6px;
     border-bottom: 1px solid var(--border);
   }
   .layer-group-title {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.8px;
-    margin-bottom: 6px;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+    padding: 1px 3px;
+    background: var(--surface2);
+    font-weight: 600;
   }
   .layer-item {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 5px 4px;
+    gap: 4px;
+    padding: 2px 3px;
     cursor: pointer;
-    font-size: 12px;
-    border-radius: 4px;
-    transition: background .1s;
+    font-size: 10px;
+    transition: background .05s;
   }
   .layer-item:hover { background: var(--surface2); }
   .layer-item input[type=checkbox] {
     accent-color: var(--accent);
-    width: 14px; height: 14px;
+    width: 11px; height: 11px;
     cursor: pointer;
   }
   .layer-item-label { flex: 1; }
   .layer-item-count {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 9px;
     color: var(--text-muted);
   }
 
@@ -368,10 +374,9 @@
   .layer-mgr-row {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 6px;
-    border-radius: 3px;
-    font-size: 11px;
+    gap: 3px;
+    padding: 2px 3px;
+    font-size: 10px;
     cursor: pointer;
     border: 1px solid transparent;
   }
@@ -379,20 +384,19 @@
     background: var(--surface2);
   }
   .layer-mgr-row.current {
-    background: rgba(240, 180, 41, 0.15);
+    background: rgba(240, 180, 41, 0.13);
     border-color: var(--accent);
   }
   .layer-mgr-vis {
     cursor: pointer;
-    width: 14px;
-    height: 14px;
+    width: 11px;
+    height: 11px;
     accent-color: var(--accent);
   }
   .layer-mgr-color {
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     border: 1px solid var(--border);
-    border-radius: 2px;
     cursor: pointer;
     flex-shrink: 0;
   }
@@ -402,9 +406,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 10px;
   }
   .layer-mgr-current {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--accent);
     font-weight: 700;
   }
@@ -413,10 +418,9 @@
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 12px;
-    padding: 2px 4px;
+    font-size: 10px;
+    padding: 1px 3px;
     line-height: 1;
-    border-radius: 2px;
   }
   .layer-mgr-btn:hover {
     color: var(--red);
@@ -675,34 +679,41 @@
   .ocp-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 6px;
-    font-size: 11px;
+    gap: 4px;
+    margin-bottom: 4px;
+    font-size: 10px;
     color: var(--text);
+    flex-wrap: wrap;
   }
   .ocp-row:last-child { margin-bottom: 0; }
   .ocp-label {
     color: var(--text-muted);
-    min-width: 40px;
+    min-width: 22px;
+    font-size: 9px;
   }
   .ocp-slider {
     flex: 1;
     accent-color: var(--accent);
+    height: 4px;
   }
   .ocp-value {
     font-family: var(--font-mono);
     color: var(--accent);
-    min-width: 36px;
+    min-width: 26px;
+    font-size: 9px;
     text-align: right;
   }
   .ocp-check {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
     cursor: pointer;
+    font-size: 10px;
   }
   .ocp-check input {
     accent-color: var(--accent);
+    width: 11px;
+    height: 11px;
   }
 
   /* ===== v20260707d: 基準点モードバッジ ===== */
@@ -800,42 +811,46 @@
   .pp-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-bottom: 8px;
-    font-size: 11px;
+    gap: 4px;
+    margin-bottom: 4px;
+    font-size: 10px;
   }
   .pp-row:last-child { margin-bottom: 0; }
   .pp-label {
     color: var(--text-muted);
-    min-width: 32px;
-    font-size: 10px;
+    min-width: 22px;
+    font-size: 9px;
   }
   .pp-color-swatches {
     display: flex;
-    gap: 4px;
+    gap: 2px;
     flex-wrap: wrap;
   }
   .pp-swatch {
-    width: 20px;
-    height: 20px;
-    border-radius: 4px;
-    border: 2px solid transparent;
+    width: 13px;
+    height: 13px;
+    border: 1px solid transparent;
     cursor: pointer;
     padding: 0;
   }
   .pp-swatch.active {
     border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--bg);
+    outline: 1px solid var(--accent);
+    outline-offset: 1px;
   }
   .pp-weight, .pp-dash {
     background: var(--surface2);
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 3px 8px;
-    border-radius: 4px;
+    padding: 1px 4px;
     cursor: pointer;
-    font-size: 11px;
-    min-width: 32px;
+    font-size: 10px;
+    min-width: 22px;
+    height: 20px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   .pp-weight.active, .pp-dash.active {
     background: var(--accent);
@@ -868,15 +883,14 @@
     display: none !important;
   }
 
-  /* ===== v20260707s: 独自クラス .cad-grip で確実に装飾（MutationObserverから付与）=====
-     v20260707w: サイズを半分に縮小（12→6px, ホバー16→8px, 中間9→5px） */
+  /* ===== v20260707s → v20260707A: DraftSight風グリップポイント（シアン四角） ===== */
   .cad-grip {
     border-radius: 0 !important;
-    background: #3fb950 !important;
-    background-color: #3fb950 !important;
+    background: #00b4f0 !important;          /* シアン */
+    background-color: #00b4f0 !important;
     background-image: none !important;
     border: 1px solid #ffffff !important;
-    box-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
+    box-shadow: none !important;
     width: 6px !important;
     height: 6px !important;
     margin-left: -3px !important;
@@ -884,16 +898,14 @@
   }
   .cad-grip:hover,
   .cad-grip.hover {
-    background: #f0b429 !important;
-    background-color: #f0b429 !important;
+    background: #00d4ff !important;
+    background-color: #00d4ff !important;
     width: 8px !important;
     height: 8px !important;
     margin-left: -4px !important;
     margin-top: -4px !important;
-    box-shadow: 0 0 4px rgba(240, 180, 41, 0.9);
     z-index: 2000 !important;
   }
-  /* 中間頂点マーカー（辺の中点）はやや小さめ半透明 */
   .cad-grip.middle {
     opacity: 0.55 !important;
     width: 5px !important;
@@ -901,7 +913,6 @@
     margin-left: -2.5px !important;
     margin-top: -2.5px !important;
   }
-  /* 内部のimgタグを完全に非表示（元アイコンを隠す） */
   .cad-grip img,
   .cad-grip svg {
     display: none !important;
@@ -1069,7 +1080,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260707y</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260707A</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -2919,9 +2930,10 @@ function selectShape(layer, addToExisting = false) {
     color: layer.options.color,
     dashArray: layer.options.dashArray
   };
-  // ハイライト：既存太さ+3
+  // v20260707A: DraftSight風シアンハイライト
   layer.setStyle({
-    weight: (layer.options.weight || 1) + 3,
+    color: '#00b4f0',                       // シアン
+    weight: (layer.options.weight || 1) + 2,
     opacity: 1
   });
   selectedShapes.push(layer);
