@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260707v / DraftSight風選択削除(単一/複数選択+Deleteキー+Shift追加+Shift範囲選択)。前:v20260707u -->
+<!-- BUILD: cad-editor v20260707x / UIを描画空間から左サイドバーへ退避+DraftSight風画層マネージャ実装(下絵/基準点/ポリゴン/寸法/ハッチング/デフォルト)。前:v20260707w -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -118,15 +118,15 @@
     overflow: hidden;
   }
 
-  /* ===== 左ツールバー ===== */
+  /* ===== 左サイドバー (v20260707x: 56px → 260px に拡張、プロパティ・下絵操作を収納) ===== */
   .toolbar {
-    width: 56px;
+    width: 260px;
     background: var(--surface);
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    padding: 8px 4px;
-    gap: 6px;
+    padding: 8px 10px;
+    gap: 8px;
     overflow-y: auto;
     flex-shrink: 0;
   }
@@ -134,26 +134,38 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding-bottom: 6px;
+    padding-bottom: 8px;
     border-bottom: 1px solid var(--border);
   }
   .tool-group:last-child { border-bottom: none; }
   .tool-group-label {
-    font-size: 9px;
+    font-size: 10px;
     color: var(--text-muted);
-    text-align: center;
-    letter-spacing: 0.5px;
-    margin-bottom: 2px;
+    text-align: left;
+    letter-spacing: 0.8px;
+    margin-bottom: 3px;
+    padding: 2px 4px;
+    background: var(--surface2);
+    border-radius: 3px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  /* v20260707x: ボタンを横並びに */
+  .tool-buttons-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
   }
   .tool-btn {
     background: var(--surface2);
     border: 1px solid var(--border);
     color: var(--text);
-    height: 40px;
-    width: 100%;
-    border-radius: 6px;
+    height: 34px;
+    min-width: 34px;
+    flex: 1 1 auto;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 16px;
+    font-size: 15px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -275,6 +287,73 @@
     font-family: var(--font-mono);
     font-size: 10px;
     color: var(--text-muted);
+  }
+
+  /* ===== v20260707x: 画層マネージャ ===== */
+  .layer-manager-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 2px;
+  }
+  .layer-mgr-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .layer-mgr-row:hover {
+    background: var(--surface2);
+  }
+  .layer-mgr-row.current {
+    background: rgba(240, 180, 41, 0.15);
+    border-color: var(--accent);
+  }
+  .layer-mgr-vis {
+    cursor: pointer;
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent);
+  }
+  .layer-mgr-color {
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .layer-mgr-name {
+    flex: 1;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .layer-mgr-current {
+    font-size: 10px;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .layer-mgr-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+    line-height: 1;
+    border-radius: 2px;
+  }
+  .layer-mgr-btn:hover {
+    color: var(--red);
+    background: var(--surface2);
   }
 
   /* ===== ステータスバー ===== */
@@ -722,37 +801,38 @@
     display: none !important;
   }
 
-  /* ===== v20260707s: 独自クラス .cad-grip で確実に装飾（MutationObserverから付与）===== */
+  /* ===== v20260707s: 独自クラス .cad-grip で確実に装飾（MutationObserverから付与）=====
+     v20260707w: サイズを半分に縮小（12→6px, ホバー16→8px, 中間9→5px） */
   .cad-grip {
     border-radius: 0 !important;
     background: #3fb950 !important;
     background-color: #3fb950 !important;
     background-image: none !important;
-    border: 1.5px solid #ffffff !important;
-    box-shadow: 0 0 3px rgba(0, 0, 0, 0.7);
-    width: 12px !important;
-    height: 12px !important;
-    margin-left: -6px !important;
-    margin-top: -6px !important;
+    border: 1px solid #ffffff !important;
+    box-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
+    width: 6px !important;
+    height: 6px !important;
+    margin-left: -3px !important;
+    margin-top: -3px !important;
   }
   .cad-grip:hover,
   .cad-grip.hover {
     background: #f0b429 !important;
     background-color: #f0b429 !important;
-    width: 16px !important;
-    height: 16px !important;
-    margin-left: -8px !important;
-    margin-top: -8px !important;
-    box-shadow: 0 0 6px rgba(240, 180, 41, 0.9);
+    width: 8px !important;
+    height: 8px !important;
+    margin-left: -4px !important;
+    margin-top: -4px !important;
+    box-shadow: 0 0 4px rgba(240, 180, 41, 0.9);
     z-index: 2000 !important;
   }
   /* 中間頂点マーカー（辺の中点）はやや小さめ半透明 */
   .cad-grip.middle {
     opacity: 0.55 !important;
-    width: 9px !important;
-    height: 9px !important;
-    margin-left: -4.5px !important;
-    margin-top: -4.5px !important;
+    width: 5px !important;
+    height: 5px !important;
+    margin-left: -2.5px !important;
+    margin-top: -2.5px !important;
   }
   /* 内部のimgタグを完全に非表示（元アイコンを隠す） */
   .cad-grip img,
@@ -922,7 +1002,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;border-radius:3px;">BUILD: v20260707v</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;border-radius:3px;">BUILD: v20260707x</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -934,81 +1014,45 @@
 <!-- ===== メインコンテナ ===== -->
 <div class="main-container">
 
-  <!-- ===== 左ツールバー（Step 2 は全てスタブ） ===== -->
+  <!-- ===== 左サイドバー (v20260707x) : ツール + プロパティ + 下絵操作 ===== -->
   <div class="toolbar">
     <div class="tool-group">
       <div class="tool-group-label">下絵</div>
-      <button class="tool-btn" id="btnUpload" title="下絵アップロード" onclick="openUploadDialog()">📥</button>
-      <button class="tool-btn" id="btnControlPoints" title="基準点モード" onclick="toggleControlPointMode()">🎯</button>
-      <button class="tool-btn" id="btnApplyTransform" title="基準点から変換を計算して下絵をスナップ" onclick="applyTransformFromControlPoints()">⚙️</button>
-      <button class="tool-btn" id="btnSaveTransform" title="変形状態を保存" onclick="saveOverlayTransform()">💾</button>
+      <div class="tool-buttons-row">
+        <button class="tool-btn" id="btnUpload" title="下絵アップロード" onclick="openUploadDialog()">📥</button>
+        <button class="tool-btn" id="btnControlPoints" title="基準点モード" onclick="toggleControlPointMode()">🎯</button>
+        <button class="tool-btn" id="btnApplyTransform" title="基準点から変換を計算して下絵をスナップ" onclick="applyTransformFromControlPoints()">⚙️</button>
+        <button class="tool-btn" id="btnSaveTransform" title="変形状態を保存" onclick="saveOverlayTransform()">💾</button>
+      </div>
     </div>
     <div class="tool-group">
       <div class="tool-group-label">作成</div>
-      <button class="tool-btn" id="btnDrawLine" title="線分/ポリライン(クリック連続、ダブルクリックで終了)" onclick="startDraw('Line')">／</button>
-      <button class="tool-btn" id="btnDrawPolygon" title="ポリゴン(クリック連続、ダブルクリックで終了)" onclick="startDraw('Polygon')">⬡</button>
-      <button class="tool-btn" id="btnDrawCircle" title="円" onclick="startDraw('Circle')">◯</button>
-      <button class="tool-btn" id="btnDrawRect" title="矩形" onclick="startDraw('Rectangle')">▭</button>
-      <button class="tool-btn" id="btnDrawArc3" title="円弧(3点方式: 始点→通過点→終点)" onclick="startArcDraw('3point')">⌒</button>
-      <button class="tool-btn" id="btnDrawArcC" title="円弧(中心方式: 中心→半径→開始角→終了角)" onclick="startArcDraw('center')">◜</button>
+      <div class="tool-buttons-row">
+        <button class="tool-btn" id="btnDrawLine" title="線分/ポリライン(クリック連続、ダブルクリックで終了)" onclick="startDraw('Line')">／</button>
+        <button class="tool-btn" id="btnDrawPolygon" title="ポリゴン(クリック連続、ダブルクリックで終了)" onclick="startDraw('Polygon')">⬡</button>
+        <button class="tool-btn" id="btnDrawCircle" title="円" onclick="startDraw('Circle')">◯</button>
+        <button class="tool-btn" id="btnDrawRect" title="矩形" onclick="startDraw('Rectangle')">▭</button>
+        <button class="tool-btn" id="btnDrawArc3" title="円弧(3点方式: 始点→通過点→終点)" onclick="startArcDraw('3point')">⌒</button>
+        <button class="tool-btn" id="btnDrawArcC" title="円弧(中心方式: 中心→半径→開始角→終了角)" onclick="startArcDraw('center')">◜</button>
+      </div>
     </div>
     <div class="tool-group">
       <div class="tool-group-label">修正</div>
-      <button class="tool-btn" id="btnEdit" title="編集モード（頂点ドラッグ）" onclick="toggleEditMode()">✎</button>
-      <button class="tool-btn" id="btnRemove" title="削除モード（図形クリックで削除）" onclick="toggleRemoveMode()">🗑</button>
+      <div class="tool-buttons-row">
+        <button class="tool-btn" id="btnEdit" title="編集モード（頂点ドラッグ）" onclick="toggleEditMode()">✎</button>
+        <button class="tool-btn" id="btnRemove" title="削除モード（図形クリックで削除）" onclick="toggleRemoveMode()">🗑</button>
+      </div>
     </div>
     <div class="tool-group">
       <div class="tool-group-label">測定</div>
-      <button class="tool-btn" id="btnMeasure" title="距離/面積測定" onclick="toggleMeasureMode()">📏</button>
-    </div>
-  </div>
-
-  <!-- ===== 中央地図エリア ===== -->
-  <div class="map-area">
-    <div id="map"></div>
-
-    <!-- v20260707k: DraftSight風クロスヘアカーソル (描画モード中のみ表示) -->
-    <div id="crosshairOverlay">
-      <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;">
-        <line id="chGuideline" class="ch-guideline" x1="0" y1="0" x2="0" y2="0"></line>
-      </svg>
-      <div class="ch-vline" id="chVLine"></div>
-      <div class="ch-hline" id="chHLine"></div>
-      <div class="ch-center" id="chCenter"></div>
-      <div class="ch-label ch-label-distance" id="chLabelDistance" style="display:none;"></div>
-      <div class="ch-label ch-label-angle" id="chLabelAngle" style="display:none;"></div>
-    </div>
-
-    <!-- タイル切替 -->
-    <div class="tile-switcher">
-      <button class="tile-btn active" data-tile="std" onclick="switchTile('std')">地形図</button>
-      <button class="tile-btn" data-tile="photo_gsi" onclick="switchTile('photo_gsi')">GSI衛星</button>
-      <button class="tile-btn" data-tile="photo_esri" onclick="switchTile('photo_esri')">Esri衛星</button>
-    </div>
-
-    <!-- v20260707d: 下絵操作パネル -->
-    <div id="overlayControlPanel" class="overlay-control-panel" style="display:none;">
-      <div class="ocp-row">
-        <span class="ocp-label">透明度</span>
-        <input type="range" min="0" max="100" value="70" id="overlayOpacitySlider" class="ocp-slider" oninput="onOpacityChange(this.value)">
-        <span class="ocp-value" id="overlayOpacityValue">70%</span>
-      </div>
-      <div class="ocp-row">
-        <span class="ocp-label">変形</span>
-        <button class="pp-weight active" id="btnModeDistort" onclick="setOverlayMode('distort')" title="4隅を独立に動かす（自由変形）">自由</button>
-        <button class="pp-weight" id="btnModeScale" onclick="setOverlayMode('scale')" title="拡大縮小（縦横比維持）">拡縮</button>
-        <button class="pp-weight" id="btnModeRotate" onclick="setOverlayMode('rotate')" title="回転のみ">回転</button>
-        <button class="pp-weight" id="btnModeTranslate" onclick="setOverlayMode('translate')" title="ドラッグで平行移動">移動</button>
-      </div>
-      <div class="ocp-row">
-        <span class="ocp-label">🔒</span>
-        <label class="ocp-check"><input type="checkbox" id="overlayLockCheckbox" onchange="onLockChange(this.checked)"> 変形をロック</label>
+      <div class="tool-buttons-row">
+        <button class="tool-btn" id="btnMeasure" title="距離/面積測定" onclick="toggleMeasureMode()">📏</button>
       </div>
     </div>
 
-    <!-- v20260707f: プロパティパネル (描画時のスタイル) -->
-    <div id="propertiesPanel" class="properties-panel">
-      <div class="pp-title">🎨 プロパティ</div>
+    <!-- v20260707x: プロパティパネル (以前は地図上に浮遊) -->
+    <div class="tool-group">
+      <div class="tool-group-label">プロパティ</div>
       <div class="pp-row">
         <span class="pp-label">色</span>
         <div class="pp-color-swatches">
@@ -1043,6 +1087,54 @@
       </div>
     </div>
 
+    <!-- v20260707x: 下絵操作 (以前は地図上に浮遊) -->
+    <div class="tool-group" id="overlayControlSection" style="display:none;">
+      <div class="tool-group-label">下絵操作</div>
+      <div class="ocp-row">
+        <span class="ocp-label">透明度</span>
+        <input type="range" min="0" max="100" value="70" id="overlayOpacitySlider" class="ocp-slider" oninput="onOpacityChange(this.value)">
+        <span class="ocp-value" id="overlayOpacityValue">70%</span>
+      </div>
+      <div class="ocp-row">
+        <span class="ocp-label">変形</span>
+        <div class="tool-buttons-row" style="width:100%">
+          <button class="pp-weight active" id="btnModeDistort" onclick="setOverlayMode('distort')" title="4隅を独立に動かす（自由変形）">自由</button>
+          <button class="pp-weight" id="btnModeScale" onclick="setOverlayMode('scale')" title="拡大縮小（縦横比維持）">拡縮</button>
+          <button class="pp-weight" id="btnModeRotate" onclick="setOverlayMode('rotate')" title="回転のみ">回転</button>
+          <button class="pp-weight" id="btnModeTranslate" onclick="setOverlayMode('translate')" title="ドラッグで平行移動">移動</button>
+        </div>
+      </div>
+      <div class="ocp-row">
+        <label class="ocp-check"><input type="checkbox" id="overlayLockCheckbox" onchange="onLockChange(this.checked)"> 🔒 変形をロック</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 中央地図エリア ===== -->
+  <div class="map-area">
+    <div id="map"></div>
+
+    <!-- v20260707k: DraftSight風クロスヘアカーソル (描画モード中のみ表示) -->
+    <div id="crosshairOverlay">
+      <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;">
+        <line id="chGuideline" class="ch-guideline" x1="0" y1="0" x2="0" y2="0"></line>
+      </svg>
+      <div class="ch-vline" id="chVLine"></div>
+      <div class="ch-hline" id="chHLine"></div>
+      <div class="ch-center" id="chCenter"></div>
+      <div class="ch-label ch-label-distance" id="chLabelDistance" style="display:none;"></div>
+      <div class="ch-label ch-label-angle" id="chLabelAngle" style="display:none;"></div>
+    </div>
+
+    <!-- タイル切替 -->
+    <div class="tile-switcher">
+      <button class="tile-btn active" data-tile="std" onclick="switchTile('std')">地形図</button>
+      <button class="tile-btn" data-tile="photo_gsi" onclick="switchTile('photo_gsi')">GSI衛星</button>
+      <button class="tile-btn" data-tile="photo_esri" onclick="switchTile('photo_esri')">Esri衛星</button>
+    </div>
+
+    <!-- v20260707x: 下絵操作パネル・プロパティパネルは左サイドバーに移動済（浮遊UI廃止） -->
+
     <!-- v20260707d: 基準点モード状態表示 -->
     <div id="cpModeBadge" class="cp-mode-badge" style="display:none;">
       🎯 基準点モード
@@ -1061,6 +1153,17 @@
   <!-- ===== 右レイヤーパネル ===== -->
   <div class="layer-panel">
     <div class="layer-panel-header">🗂 レイヤー</div>
+
+    <!-- v20260707x: 画層マネージャ (DraftSight風) -->
+    <div class="layer-group">
+      <div class="layer-group-title" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>📋 画層マネージャ</span>
+        <button onclick="addNewLayer()" style="background:var(--accent);color:#000;border:none;border-radius:3px;width:20px;height:20px;font-size:14px;font-weight:700;cursor:pointer;line-height:1;padding:0;" title="新規画層を追加">＋</button>
+      </div>
+      <div id="layerManagerBody" class="layer-manager-body">
+        <!-- 動的に生成 -->
+      </div>
+    </div>
 
     <div class="layer-group">
       <div class="layer-group-title">下絵オーバーレイ</div>
@@ -1909,18 +2012,179 @@ function _placeAsTemporaryOverlay(ov) {
 }
 
 /* ========================================================================
-   v20260707d: 下絵操作パネル
+   v20260707x: 画層マネージャ (DraftSight風)
+   
+   - localStorage で永続化
+   - 初期画層: 下絵/基準点/ポリゴン/寸法/ハッチング/デフォルト
+   - 各画層に visible/color/current 属性
+   - 新規描画は current 画層に配属 (shape.properties.layer_id)
+   - 画層をON/OFFすると、その画層に属する shape の表示切替
    ======================================================================== */
+
+const LAYERS_STORAGE_KEY = 'cad_editor_layers_v1';
+
+const DEFAULT_LAYERS = [
+  { id: 'default',   name: 'デフォルト',   color: '#e6edf3', visible: true, current: true },
+  { id: 'polygon',   name: 'ポリゴン',     color: '#58a6ff', visible: true, current: false },
+  { id: 'dimension', name: '寸法',         color: '#f0b429', visible: true, current: false },
+  { id: 'hatching',  name: 'ハッチング',   color: '#3fb950', visible: true, current: false },
+  { id: 'sitemap',   name: '下絵',         color: '#a371f7', visible: true, current: false },
+  { id: 'cp',        name: '基準点',       color: '#f85149', visible: true, current: false }
+];
+
+let cadLayers = [];  // 現在の画層リスト
+
+function loadLayers() {
+  try {
+    const stored = localStorage.getItem(LAYERS_STORAGE_KEY);
+    if (stored) {
+      cadLayers = JSON.parse(stored);
+      // カレントが1つも無い場合はデフォルトを設定
+      if (!cadLayers.some(l => l.current)) {
+        cadLayers[0].current = true;
+      }
+    } else {
+      cadLayers = JSON.parse(JSON.stringify(DEFAULT_LAYERS));
+    }
+  } catch (e) {
+    console.error('[loadLayers]', e);
+    cadLayers = JSON.parse(JSON.stringify(DEFAULT_LAYERS));
+  }
+}
+
+function saveLayers() {
+  try {
+    localStorage.setItem(LAYERS_STORAGE_KEY, JSON.stringify(cadLayers));
+  } catch (e) {
+    console.error('[saveLayers]', e);
+  }
+}
+
+function getCurrentLayerId() {
+  const cur = cadLayers.find(l => l.current);
+  return cur ? cur.id : 'default';
+}
+
+function getLayerById(id) {
+  return cadLayers.find(l => l.id === id);
+}
+
+function renderLayerManager() {
+  const body = document.getElementById('layerManagerBody');
+  if (!body) return;
+  body.innerHTML = '';
+  cadLayers.forEach(layer => {
+    const row = document.createElement('div');
+    row.className = 'layer-mgr-row' + (layer.current ? ' current' : '');
+    row.onclick = (e) => {
+      // 名前部分クリックでカレント切替、他ボタンは stopPropagation
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.classList.contains('layer-mgr-color')) return;
+      setCurrentLayer(layer.id);
+    };
+    row.innerHTML = `
+      <input type="checkbox" class="layer-mgr-vis" ${layer.visible ? 'checked' : ''} onclick="event.stopPropagation();toggleLayerVisibility('${layer.id}', this.checked)" title="表示/非表示">
+      <span class="layer-mgr-color" style="background:${layer.color}" onclick="event.stopPropagation();changeLayerColor('${layer.id}')" title="色を変更"></span>
+      <span class="layer-mgr-name" title="${layer.name}">${layer.name}</span>
+      ${layer.current ? '<span class="layer-mgr-current">★</span>' : ''}
+      ${layer.id !== 'default' ? `<button class="layer-mgr-btn" onclick="event.stopPropagation();deleteLayer('${layer.id}')" title="削除">✕</button>` : ''}
+    `;
+    body.appendChild(row);
+  });
+}
+
+function setCurrentLayer(layerId) {
+  cadLayers.forEach(l => l.current = (l.id === layerId));
+  saveLayers();
+  renderLayerManager();
+  const layer = getLayerById(layerId);
+  if (layer) {
+    // カレント画層の色を drawStyle に反映（新規描画がこの色で始まる）
+    setDrawColor(layer.color);
+    showToast('カレント画層: ' + layer.name, 'info', 1500);
+  }
+}
+
+function toggleLayerVisibility(layerId, visible) {
+  const layer = getLayerById(layerId);
+  if (!layer) return;
+  layer.visible = visible;
+  saveLayers();
+  // shapes 表示を更新
+  applyLayerVisibility();
+}
+
+function changeLayerColor(layerId) {
+  const layer = getLayerById(layerId);
+  if (!layer) return;
+  // シンプルに次の色に循環（TODO: カラーピッカー）
+  const palette = ['#e6edf3', '#000000', '#f85149', '#58a6ff', '#3fb950', '#f0b429', '#a371f7', '#ff8c42', '#00d4ff'];
+  const idx = palette.indexOf(layer.color);
+  const nextIdx = idx === -1 ? 0 : (idx + 1) % palette.length;
+  layer.color = palette[nextIdx];
+  saveLayers();
+  renderLayerManager();
+}
+
+function addNewLayer() {
+  const name = prompt('新規画層名を入力（例: 補助線）:');
+  if (!name) return;
+  const id = 'layer_' + Date.now();
+  cadLayers.push({
+    id, name,
+    color: '#e6edf3',
+    visible: true,
+    current: false
+  });
+  saveLayers();
+  renderLayerManager();
+  showToast('画層追加: ' + name, 'success', 1500);
+}
+
+function deleteLayer(layerId) {
+  if (layerId === 'default') return;
+  const layer = getLayerById(layerId);
+  if (!layer) return;
+  if (!confirm(`画層「${layer.name}」を削除しますか？\n※ 所属する図形はデフォルト画層に移動します`)) return;
+
+  const wasCurrent = layer.current;
+  cadLayers = cadLayers.filter(l => l.id !== layerId);
+  if (wasCurrent) {
+    // デフォルトをカレントに
+    const def = getLayerById('default');
+    if (def) def.current = true;
+  }
+  saveLayers();
+  renderLayerManager();
+  // 該当shapeをdefaultに移動（DB更新はスキップ、表示のみ）
+  showToast(`画層「${layer.name}」を削除`, 'info', 1500);
+  applyLayerVisibility();
+}
+
+/* 画層のON/OFFに応じてshapesの表示を切替 */
+function applyLayerVisibility() {
+  if (!shapesGroup) return;
+  shapesGroup.eachLayer(layer => {
+    const shData = layer._shapeData;
+    const layerId = shData?.properties?.layer_id || 'default';
+    const cadLayer = getLayerById(layerId);
+    const visible = cadLayer ? cadLayer.visible : true;
+    // Leaflet レイヤーの表示切替
+    if (layer._path) {
+      layer._path.style.display = visible ? '' : 'none';
+    }
+  });
+}
 function showOverlayControlPanel(ov) {
-  const panel = document.getElementById('overlayControlPanel');
-  panel.style.display = 'block';
+  const panel = document.getElementById('overlayControlSection');
+  if (panel) panel.style.display = 'flex';
   document.getElementById('overlayOpacitySlider').value = Math.round((ov.opacity ?? 0.7) * 100);
   document.getElementById('overlayOpacityValue').textContent = Math.round((ov.opacity ?? 0.7) * 100) + '%';
   document.getElementById('overlayLockCheckbox').checked = !!ov.locked;
 }
 
 function hideOverlayControlPanel() {
-  document.getElementById('overlayControlPanel').style.display = 'none';
+  const panel = document.getElementById('overlayControlSection');
+  if (panel) panel.style.display = 'none';
 }
 
 function onOpacityChange(val) {
@@ -3360,6 +3624,7 @@ async function _saveArcAsLayer(pts, arcMeta) {
       color: drawStyle.color,
       weight: drawStyle.weight,
       dashArray: drawStyle.dashArray || null,
+      layer_id: getCurrentLayerId(),  // v20260707x
       ...arcMeta
     },
     area_m2: null,
@@ -3415,6 +3680,7 @@ async function onShapeCreated(e) {
       weight: drawStyle.weight,
       dashArray: drawStyle.dashArray || null,
       fillPattern: drawStyle.fillPattern || 'none',  // v20260707i
+      layer_id: getCurrentLayerId(),  // v20260707x: 画層ID
       radius_m: shape === 'Circle' ? layer.getRadius() : null
     },
     area_m2: info.area_m2 ?? null,
@@ -3554,6 +3820,8 @@ async function loadShapes() {
     shapesGroup.clearLayers();
     (data || []).forEach(sh => renderShapeOnMap(sh));
     updateShapesCount();
+    // v20260707x: 画層visibility適用
+    setTimeout(applyLayerVisibility, 100);
   } catch (e) {
     console.error('[loadShapes]', e);
     document.getElementById('shapesCount').textContent = 'ERR';
@@ -3723,6 +3991,9 @@ window.addEventListener('DOMContentLoaded', () => {
   initCrosshair();
   // v20260707s: 頂点マーカーに独自クラスを付与（Leaflet-Geoman のクラス名依存を回避）
   initVertexMarkerObserver();
+  // v20260707x: 画層マネージャ初期化
+  loadLayers();
+  renderLayerManager();
   // v20260707g: 描画中のキーボードショートカット
   document.addEventListener('keydown', (e) => {
     // フォーム入力中は無視
