@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260707f / Track B Phase B-1 描画基本 / Leaflet-Geoman + 線/ポリライン/円/矩形 + プロパティ + 測定 + shapes保存 / 前:v20260707e -->
+<!-- BUILD: cad-editor v20260707g / 描画終了方法を強化(✓完了ボタン+Enterキー+Escキー取消)。ダブルクリック終了がLine/Polygonで機能しない問題への対応。前:v20260707f -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -824,7 +824,8 @@
     <!-- v20260707f: 描画モード状態表示 -->
     <div id="drawModeBadge" class="cp-mode-badge" style="display:none;background:var(--blue);box-shadow:0 4px 12px rgba(88,166,255,0.4);">
       <span id="drawModeLabel">描画中</span>
-      <button onclick="stopDraw()" class="cp-close-btn">✕</button>
+      <button onclick="finishCurrentDraw()" class="cp-close-btn" style="background:var(--green);color:#fff;font-weight:bold;" title="この図形の描画を確定 (Enter)">✓ 完了</button>
+      <button onclick="stopDraw()" class="cp-close-btn" title="取消 (Esc)">✕</button>
     </div>
   </div>
 
@@ -2173,7 +2174,9 @@ function startDraw(shape) {
   try {
     map.pm.enableDraw(shape, {
       snappable: true,
+      // v20260707g: dblclick が Line/Polygon で効かない場合の対策として、✓ボタン/Enterキーを併用
       finishOn: shape === 'Line' || shape === 'Polygon' ? 'dblclick' : undefined,
+      continueDrawing: false,  // v20260707g: 1つ描いたら自動で描画モード解除
       templineStyle: { color: drawStyle.color, weight: drawStyle.weight, dashArray: drawStyle.dashArray || null },
       hintlineStyle: { color: drawStyle.color, weight: Math.max(1, drawStyle.weight - 1), dashArray: '5,5' }
     });
@@ -2185,14 +2188,42 @@ function startDraw(shape) {
     // 描画バッジ表示
     document.getElementById('drawModeBadge').style.display = 'flex';
     document.getElementById('drawModeLabel').textContent = {
-      Line: '📏 線を描画中（ダブルクリックで終了）',
-      Polygon: '⬡ ポリゴンを描画中（ダブルクリックで終了）',
-      Circle: '◯ 円を描画中',
-      Rectangle: '▭ 矩形を描画中'
+      Line: '📏 線を描画中',
+      Polygon: '⬡ ポリゴンを描画中',
+      Circle: '◯ 円を描画中（ドラッグ）',
+      Rectangle: '▭ 矩形を描画中（対角ドラッグ）'
     }[shape];
+    // 完了ボタンは Line/Polygon の時だけ有効（円/矩形はドラッグ完結）
+    const btnFinish = document.querySelector('#drawModeBadge button[onclick*="finishCurrentDraw"]');
+    if (btnFinish) {
+      btnFinish.style.display = (shape === 'Line' || shape === 'Polygon') ? 'flex' : 'none';
+    }
   } catch (e) {
     console.error('[startDraw]', e);
     showToast('描画開始失敗: ' + e.message, 'error');
+  }
+}
+
+/* v20260707g: 現在の描画を確定（✓完了ボタン、Enterキーから呼ばれる） */
+function finishCurrentDraw() {
+  if (!map || !map.pm || !currentDrawMode) return;
+  try {
+    // Leaflet-Geoman の内部 Draw インスタンスから直接 finish を呼ぶ
+    const drawer = map.pm.Draw?.[currentDrawMode];
+    if (drawer && typeof drawer._finishShape === 'function') {
+      drawer._finishShape();
+      return;
+    }
+    // フォールバック: finishShape (公開API)
+    if (drawer && typeof drawer.finishShape === 'function') {
+      drawer.finishShape();
+      return;
+    }
+    // それも無ければ Draw 全体を無効化して現状の頂点で保存されるか試す
+    showToast('描画確定APIが見つかりません。最終頂点でダブルクリックしてください', 'error');
+  } catch (e) {
+    console.error('[finishCurrentDraw]', e);
+    showToast('描画確定失敗: ' + e.message, 'error');
   }
 }
 
@@ -2590,6 +2621,20 @@ function goBack() {
    ======================================================================== */
 window.addEventListener('DOMContentLoaded', () => {
   initMap();
+  // v20260707g: 描画中のキーボードショートカット
+  document.addEventListener('keydown', (e) => {
+    // フォーム入力中は無視
+    const tag = (e.target?.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+    if (!currentDrawMode) return;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      finishCurrentDraw();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      stopDraw();
+    }
+  });
   // 認証は common-auth.js が非同期で解決するのを待つ
   const tryInit = async () => {
     if (window.__auth && window.__auth.sb) {
