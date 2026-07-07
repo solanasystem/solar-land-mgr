@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: photo-gallery v20260707b / 修正: field_survey_status に land_number カラムがない実態に合わせ、cases/land_info と in-memory JOIN してから表示。案件番号(case_no)とエリアも表示。前:v20260707a -->
+<!-- BUILD: photo-gallery v20260707c / 修正: land_info の地番カラムは chiban（land_number は存在しない）。混合selectで失敗していたのを単独selectに変更。前:v20260707b -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -279,30 +279,31 @@ async function loadData(){
     });
     const caseMap = new Map(cases.map(c => [c.id, c]));
     
-    // ③ land_info から land_number を全取得（列がなければスキップ）
+    // ③ land_info から chiban（地番）を全取得
     toast('land_info 取得中...');
     let landMap = new Map();
     try {
       const lands = await _fetchAllPaged(async (from, to)=>{
-        return await sb.from('land_info').select('case_id, land_number, chiban').range(from, to);
+        return await sb.from('land_info').select('case_id, chiban').range(from, to);
       });
       lands.forEach(l => {
-        const num = l.land_number || l.chiban;
-        if(num) landMap.set(l.case_id, num);
+        if(l.chiban) landMap.set(l.case_id, l.chiban);
       });
     } catch(e) {
-      console.log('land_info の land_number/chiban カラム取得に失敗（スキップ）:', e.message);
+      console.log('land_info.chiban 取得失敗（スキップ）:', e.message);
     }
     
     // ④ クライアント側でマージ
     allRecords = surveys.map(rec => {
       const cs = caseMap.get(rec.case_id);
+      const chiban = landMap.get(rec.case_id);
       return {
         ...rec,
         case_no: cs?.case_no || null,
         area_name: cs?.area_name || null,
         case_status: cs?.status || null,
-        land_number: landMap.get(rec.case_id) || null
+        chiban: chiban || null,
+        land_number: chiban || null // 表示用（既存の land_number 参照コードとの互換）
       };
     });
     
