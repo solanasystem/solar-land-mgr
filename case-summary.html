@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-summary v20260519s / デバッグ用DRAGログ削除(本番クリーンアップ) -->
+<!-- BUILD: case-summary v20260707a / Supabase接続フォールバック復元(v20260516z再挿入) / localStorage空でも初回設定フォーム不要 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -1767,6 +1767,18 @@ function getSupabaseConfig() {
       key = v; break;
     }
   }
+  /* v20260707a: common-auth.js と同じハードコード値をフォールバック（v20260516z 再挿入）
+     これにより初回設定フォーム不要、main.html等と同じSupabase接続を共有。
+     v20260519 系の書き換えで消失していたのを復元。 */
+  const DEFAULT_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+  const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+  if (!url) url = DEFAULT_URL;
+  if (!key) key = DEFAULT_KEY;
+  /* 次回も同じ値を使えるよう localStorage に保存（main.html 等の認証連携） */
+  try {
+    if (!localStorage.getItem('SUPABASE_URL')) localStorage.setItem('SUPABASE_URL', url);
+    if (!localStorage.getItem('SUPABASE_ANON_KEY')) localStorage.setItem('SUPABASE_ANON_KEY', key);
+  } catch (e) { /* localStorage 利用不可環境は無視 */ }
   return { url, key };
 }
 
