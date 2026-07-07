@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260707c / Track A Step 3 下絵アップロードUI実装 / Supabase Storage cad-overlays + overlays INSERT + 地図仮配置 / 前:v20260707b -->
+<!-- BUILD: cad-editor v20260707d / Track A Step 4 基準点指定UI / DistortableImage + 段階的重ね合わせ + 基準点1クリック確定 / 前:v20260707c -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -19,6 +19,10 @@
 <link rel="stylesheet" href="mobile-responsive.css?v=20260707a">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- v20260707d: 下絵の変形（ドラッグ・回転・拡縮）用 -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet-distortableimage@0.21.9/dist/leaflet.distortableimage.css">
+<script src="https://unpkg.com/leaflet-distortableimage@0.21.9/dist/vendor.js"></script>
+<script src="https://unpkg.com/leaflet-distortableimage@0.21.9/dist/leaflet.distortableimage.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- v20260707c: PDF下絵レンダリング用 -->
@@ -505,6 +509,123 @@
   .overlay-image {
     opacity: 0.7;
   }
+
+  /* ===== v20260707d: 下絵操作パネル ===== */
+  .overlay-control-panel {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    z-index: 500;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    min-width: 220px;
+  }
+  .ocp-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: var(--text);
+  }
+  .ocp-row:last-child { margin-bottom: 0; }
+  .ocp-label {
+    color: var(--text-muted);
+    min-width: 40px;
+  }
+  .ocp-slider {
+    flex: 1;
+    accent-color: var(--accent);
+  }
+  .ocp-value {
+    font-family: var(--font-mono);
+    color: var(--accent);
+    min-width: 36px;
+    text-align: right;
+  }
+  .ocp-check {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+  }
+  .ocp-check input {
+    accent-color: var(--accent);
+  }
+
+  /* ===== v20260707d: 基準点モードバッジ ===== */
+  .cp-mode-badge {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--accent);
+    color: #000;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 700;
+    z-index: 501;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 4px 12px rgba(240,180,41,0.4);
+  }
+  .cp-mode-badge #cpCount {
+    font-family: var(--font-mono);
+    background: rgba(0,0,0,0.15);
+    padding: 2px 6px;
+    border-radius: 10px;
+  }
+  .cp-close-btn {
+    background: rgba(0,0,0,0.2);
+    border: none;
+    color: #000;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .cp-close-btn:hover { background: rgba(0,0,0,0.35); }
+
+  /* 基準点マーカー */
+  .cp-marker {
+    background: var(--red);
+    color: #fff;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+  }
+
+  /* ステータスバー用の基準点情報 */
+  .status-cp {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .status-cp.zero { color: var(--text-muted); font-weight: normal; }
+
+  /* 基準点モード時、地図クロスヘア */
+  #map.cp-mode-active {
+    cursor: crosshair !important;
+  }
+  #map.cp-mode-active .leaflet-interactive {
+    cursor: crosshair !important;
+  }
 </style>
 </head>
 <body>
@@ -536,7 +657,8 @@
     <div class="tool-group">
       <div class="tool-group-label">下絵</div>
       <button class="tool-btn" id="btnUpload" title="下絵アップロード" onclick="openUploadDialog()">📥</button>
-      <button class="tool-btn stub" title="基準点設定（Step 4）" disabled>🎯</button>
+      <button class="tool-btn" id="btnControlPoints" title="基準点モード" onclick="toggleControlPointMode()">🎯</button>
+      <button class="tool-btn" id="btnSaveTransform" title="変形状態を保存" onclick="saveOverlayTransform()">💾</button>
     </div>
     <div class="tool-group">
       <div class="tool-group-label">作成</div>
@@ -565,6 +687,26 @@
       <button class="tile-btn active" data-tile="std" onclick="switchTile('std')">地形図</button>
       <button class="tile-btn" data-tile="photo_gsi" onclick="switchTile('photo_gsi')">GSI衛星</button>
       <button class="tile-btn" data-tile="photo_esri" onclick="switchTile('photo_esri')">Esri衛星</button>
+    </div>
+
+    <!-- v20260707d: 下絵操作パネル -->
+    <div id="overlayControlPanel" class="overlay-control-panel" style="display:none;">
+      <div class="ocp-row">
+        <span class="ocp-label">透明度</span>
+        <input type="range" min="0" max="100" value="70" id="overlayOpacitySlider" class="ocp-slider" oninput="onOpacityChange(this.value)">
+        <span class="ocp-value" id="overlayOpacityValue">70%</span>
+      </div>
+      <div class="ocp-row">
+        <span class="ocp-label">🔒</span>
+        <label class="ocp-check"><input type="checkbox" id="overlayLockCheckbox" onchange="onLockChange(this.checked)"> 変形をロック</label>
+      </div>
+    </div>
+
+    <!-- v20260707d: 基準点モード状態表示 -->
+    <div id="cpModeBadge" class="cp-mode-badge" style="display:none;">
+      🎯 基準点モード
+      <span id="cpCount">0/3</span>
+      <button onclick="toggleControlPointMode()" class="cp-close-btn">✕</button>
     </div>
   </div>
 
@@ -631,6 +773,11 @@
   <div class="status-item">
     <span class="status-label">Supabase:</span>
     <span class="status-value status-conn" id="statusConn">確認中...</span>
+  </div>
+  <div class="status-sep">|</div>
+  <div class="status-item">
+    <span class="status-label">基準点:</span>
+    <span class="status-value status-cp zero" id="statusControlPoints">0/3</span>
   </div>
   <div class="status-sep">|</div>
   <div class="status-item">
@@ -941,8 +1088,15 @@ async function handleFileSelect(fileList) {
     await uploadOverlayFile(file);
     showToast('下絵をアップロードしました', 'success');
     closeUploadDialog();
-    // オーバーレイを再読込
+    // オーバーレイを再読込（状態リセット）
     overlaysGroup.clearLayers();
+    controlPoints = [];
+    controlPointMarkers = [];
+    currentOverlay = null;
+    currentOverlayLayer = null;
+    if (controlPointMode) toggleControlPointMode(); // モードを解除
+    updateControlPointStatus();
+    hideOverlayControlPanel();
     await loadOverlays();
   } catch (err) {
     console.error('[upload]', err);
@@ -1298,13 +1452,305 @@ function placeOverlayOnMap(ov) {
 
 function _placeAsTemporaryOverlay(ov) {
   const url = ov.source_url;
+  const w = ov.source_width_px || 1000;
+  const h = ov.source_height_px || 1000;
+  const aspect = h / w;
+
+  // 変形パラメータの復元
+  const tp = ov.transform_params || {};
+  let corners;
+  if (tp.corners && Array.isArray(tp.corners) && tp.corners.length === 4) {
+    // 保存済みの4隅座標を使用
+    corners = tp.corners.map(c => L.latLng(c[0], c[1]));
+  } else {
+    // 初期配置: 地図中央にアスペクト比を保って
+    const bounds = map.getBounds();
+    const center = bounds.getCenter();
+    const mapW = Math.abs(bounds.getEast() - bounds.getWest());
+    const targetW = mapW * 0.6;
+    const targetH = targetW * aspect;
+    corners = [
+      L.latLng(center.lat + targetH / 2, center.lng - targetW / 2), // TL
+      L.latLng(center.lat + targetH / 2, center.lng + targetW / 2), // TR
+      L.latLng(center.lat - targetH / 2, center.lng - targetW / 2), // BL
+      L.latLng(center.lat - targetH / 2, center.lng + targetW / 2)  // BR
+    ];
+  }
+
+  // Leaflet.DistortableImage で変形可能な画像として配置
+  const opacity = ov.opacity ?? 0.7;
+  const img = L.distortableImageOverlay(url, {
+    corners: corners,
+    editable: true,
+    mode: 'distort',
+    fullResolutionSrc: url,
+    suppressToolbar: true // 独自UIを使うため
+  });
+  overlaysGroup.addLayer(img);
+
+  // 透明度適用（DistortableImage の setOpacity）
+  setTimeout(() => {
+    try { img.setOpacity(opacity); } catch (e) { console.warn('setOpacity failed', e); }
+  }, 200);
+
+  // 現在のオーバーレイとして記録
+  currentOverlay = ov;
+  currentOverlayLayer = img;
+
+  // 操作パネル表示
+  showOverlayControlPanel(ov);
+
+  // 既存の基準点を復元
+  if (Array.isArray(ov.control_points) && ov.control_points.length > 0) {
+    controlPoints = ov.control_points.map(cp => ({ ...cp }));
+    renderControlPointMarkers();
+    updateControlPointStatus();
+  }
+}
+
+/* ========================================================================
+   v20260707d: 下絵操作パネル
+   ======================================================================== */
+function showOverlayControlPanel(ov) {
+  const panel = document.getElementById('overlayControlPanel');
+  panel.style.display = 'block';
+  document.getElementById('overlayOpacitySlider').value = Math.round((ov.opacity ?? 0.7) * 100);
+  document.getElementById('overlayOpacityValue').textContent = Math.round((ov.opacity ?? 0.7) * 100) + '%';
+  document.getElementById('overlayLockCheckbox').checked = !!ov.locked;
+}
+
+function hideOverlayControlPanel() {
+  document.getElementById('overlayControlPanel').style.display = 'none';
+}
+
+function onOpacityChange(val) {
+  const v = Number(val) / 100;
+  document.getElementById('overlayOpacityValue').textContent = Math.round(Number(val)) + '%';
+  if (currentOverlayLayer && currentOverlayLayer.setOpacity) {
+    try { currentOverlayLayer.setOpacity(v); } catch (e) {}
+  }
+  if (currentOverlay) currentOverlay.opacity = v;
+}
+
+function onLockChange(checked) {
+  if (currentOverlay) currentOverlay.locked = checked;
+  if (currentOverlayLayer) {
+    try {
+      if (checked) currentOverlayLayer.editing?.disable?.();
+      else currentOverlayLayer.editing?.enable?.();
+    } catch (e) { console.warn('lock toggle failed', e); }
+  }
+}
+
+/* ========================================================================
+   v20260707d: 基準点モード
+   ======================================================================== */
+let controlPointMode = false;
+let controlPoints = [];        // [{src_x, src_y, lat, lng, label}]
+let controlPointMarkers = [];  // Leafletマーカー
+let currentOverlay = null;     // 現在の下絵レコード（DBオブジェクト）
+let currentOverlayLayer = null; // Leaflet.DistortableImage レイヤー
+
+function toggleControlPointMode() {
+  if (!currentOverlay || !currentOverlayLayer) {
+    showToast('先に下絵をアップロードしてください', 'error');
+    return;
+  }
+  controlPointMode = !controlPointMode;
+  const badge = document.getElementById('cpModeBadge');
+  const btn = document.getElementById('btnControlPoints');
+  const mapEl = document.getElementById('map');
+
+  if (controlPointMode) {
+    badge.style.display = 'flex';
+    btn.classList.add('active');
+    mapEl.classList.add('cp-mode-active');
+    // DistortableImage 編集を一時無効化（基準点クリックと競合するため）
+    try { currentOverlayLayer.editing?.disable?.(); } catch (e) {}
+    // 地図クリックで基準点追加
+    map.on('click', onMapClickForControlPoint);
+    showToast('基準点モード: 重なった状態で目印をクリックしてください', 'info');
+  } else {
+    badge.style.display = 'none';
+    btn.classList.remove('active');
+    mapEl.classList.remove('cp-mode-active');
+    map.off('click', onMapClickForControlPoint);
+    // ロック中でなければ編集復活
+    if (currentOverlay && !currentOverlay.locked) {
+      try { currentOverlayLayer.editing?.enable?.(); } catch (e) {}
+    }
+  }
+}
+
+/* 地図クリック時: 基準点ペアを1クリックで確定
+   - 地図座標: e.latlng（クリック位置）
+   - 画像座標: 現在の DistortableImage の4隅から逆算 */
+function onMapClickForControlPoint(e) {
+  if (!controlPointMode || !currentOverlayLayer) return;
+  if (controlPoints.length >= 3) {
+    showToast('基準点は3点まで（不要な点は右クリックで削除）', 'error');
+    return;
+  }
+
+  const latlng = e.latlng;
+  // 画像座標に逆変換
+  const srcXY = mapPointToImagePixel(latlng, currentOverlayLayer, currentOverlay);
+  if (!srcXY) {
+    showToast('画像座標への逆変換に失敗しました', 'error');
+    return;
+  }
+
+  const label = 'P' + (controlPoints.length + 1);
+  controlPoints.push({
+    src_x: srcXY.x,
+    src_y: srcXY.y,
+    lat: latlng.lat,
+    lng: latlng.lng,
+    label: label
+  });
+  renderControlPointMarkers();
+  updateControlPointStatus();
+  showToast(label + ' を追加しました', 'success', 1500);
+}
+
+/* DistortableImage の現在の4隅から、地図上のクリック点(latlng)を画像ピクセル座標に逆算
+   4隅は topLeft, topRight, bottomLeft, bottomRight の順で入っている想定
+   単純化のため双線形補間（perspective ではなく bilinear）で近似 */
+function mapPointToImagePixel(latlng, layer, ov) {
+  if (!layer || !ov) return null;
+  const corners = layer.getCorners ? layer.getCorners() : null;
+  if (!corners || corners.length !== 4) return null;
+  // corners: [TL, TR, BL, BR]（DistortableImage の順序）
+  const tl = corners[0], tr = corners[1], bl = corners[2], br = corners[3];
+  const W = ov.source_width_px || 1000;
+  const H = ov.source_height_px || 1000;
+
+  // 4隅から双線形逆変換で (u,v) を求める（0<=u,v<=1）
+  const uv = bilinearInverse(latlng, tl, tr, bl, br);
+  if (!uv) return null;
+  return { x: uv.u * W, y: uv.v * H };
+}
+
+/* 双線形逆変換: 4隅 tl, tr, bl, br の中の点 P について
+   P = (1-u)(1-v)*TL + u(1-v)*TR + (1-u)v*BL + uv*BR
+   これを (u,v) について解く（数値解法） */
+function bilinearInverse(P, tl, tr, bl, br) {
+  // ニュートン法で解く
+  const px = P.lng, py = P.lat;
+  let u = 0.5, v = 0.5;
+  for (let iter = 0; iter < 20; iter++) {
+    const x = (1-u)*(1-v)*tl.lng + u*(1-v)*tr.lng + (1-u)*v*bl.lng + u*v*br.lng;
+    const y = (1-u)*(1-v)*tl.lat + u*(1-v)*tr.lat + (1-u)*v*bl.lat + u*v*br.lat;
+    const dxdu = -(1-v)*tl.lng + (1-v)*tr.lng - v*bl.lng + v*br.lng;
+    const dxdv = -(1-u)*tl.lng - u*tr.lng + (1-u)*bl.lng + u*br.lng;
+    const dydu = -(1-v)*tl.lat + (1-v)*tr.lat - v*bl.lat + v*br.lat;
+    const dydv = -(1-u)*tl.lat - u*tr.lat + (1-u)*bl.lat + u*br.lat;
+    const det = dxdu*dydv - dxdv*dydu;
+    if (Math.abs(det) < 1e-15) break;
+    const fx = x - px, fy = y - py;
+    const du = ( dydv*fx - dxdv*fy) / det;
+    const dv = (-dydu*fx + dxdu*fy) / det;
+    u -= du; v -= dv;
+    if (Math.abs(du) < 1e-10 && Math.abs(dv) < 1e-10) break;
+  }
+  // 0-1 の範囲でクランプ
+  u = Math.max(0, Math.min(1, u));
+  v = Math.max(0, Math.min(1, v));
+  return { u, v };
+}
+
+function renderControlPointMarkers() {
+  // 既存マーカーを削除
+  controlPointMarkers.forEach(m => overlaysGroup.removeLayer(m));
+  controlPointMarkers = [];
+  // 新規描画
+  controlPoints.forEach((cp) => {
+    const icon = L.divIcon({
+      className: 'cp-marker-wrapper',
+      html: `<div class="cp-marker">${cp.label || 'P'}</div>`,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+    const marker = L.marker([cp.lat, cp.lng], { icon, draggable: false });
+    marker.on('contextmenu', () => removeControlPoint(cp.label));
+    marker.bindTooltip(`${cp.label} 右クリックで削除`, { direction: 'top' });
+    overlaysGroup.addLayer(marker);
+    controlPointMarkers.push(marker);
+  });
+}
+
+function removeControlPoint(label) {
+  controlPoints = controlPoints.filter(cp => cp.label !== label);
+  // ラベルを P1, P2, ... に振り直し
+  controlPoints.forEach((cp, i) => { cp.label = 'P' + (i + 1); });
+  renderControlPointMarkers();
+  updateControlPointStatus();
+  showToast(label + ' を削除', 'info', 1500);
+}
+
+function updateControlPointStatus() {
+  const n = controlPoints.length;
+  const el = document.getElementById('statusControlPoints');
+  el.textContent = n + '/3';
+  el.classList.toggle('zero', n === 0);
+  const cnt = document.getElementById('cpCount');
+  if (cnt) cnt.textContent = n + '/3';
+}
+
+/* ========================================================================
+   v20260707d: 変形状態と基準点を overlays テーブルに保存
+   ======================================================================== */
+async function saveOverlayTransform() {
+  if (!currentOverlay) {
+    showToast('保存する下絵がありません', 'error');
+    return;
+  }
+  if (!currentOverlayLayer || !currentOverlayLayer.getCorners) {
+    showToast('下絵レイヤーが取得できません', 'error');
+    return;
+  }
+  try {
+    const corners = currentOverlayLayer.getCorners();
+    const transform_params = {
+      corners: corners.map(c => [c.lat, c.lng]),  // 4隅座標を保存
+      saved_at: new Date().toISOString()
+    };
+    // bbox 計算
+    const lats = corners.map(c => c.lat);
+    const lngs = corners.map(c => c.lng);
+    const bbox = {
+      bbox_north: Math.max(...lats),
+      bbox_south: Math.min(...lats),
+      bbox_east: Math.max(...lngs),
+      bbox_west: Math.min(...lngs)
+    };
+    const updates = {
+      control_points: controlPoints,
+      transform_type: controlPoints.length >= 3 ? 'affine' : 'similarity',
+      transform_params: transform_params,
+      opacity: currentOverlay.opacity,
+      locked: currentOverlay.locked,
+      ...bbox
+    };
+    const { error } = await sb.from('overlays')
+      .update(updates)
+      .eq('id', currentOverlay.id);
+    if (error) throw error;
+    showToast('保存しました（基準点 ' + controlPoints.length + '点）', 'success');
+  } catch (e) {
+    console.error('[saveOverlayTransform]', e);
+    showToast('保存失敗: ' + e.message, 'error');
+  }
+}
+
+function _placeAsTemporaryOverlayOLD(ov) {
+  const url = ov.source_url;
   const bounds = map.getBounds();
   const center = bounds.getCenter();
   const w = ov.source_width_px || 1000;
   const h = ov.source_height_px || 1000;
   const aspect = h / w;
 
-  // 地図の表示範囲の60%くらいを使う
   const mapW = Math.abs(bounds.getEast() - bounds.getWest());
   const mapH = Math.abs(bounds.getNorth() - bounds.getSouth());
   const targetW = mapW * 0.6;
