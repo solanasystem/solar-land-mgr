@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: field-survey v20260707a / 判定モーダルに「📷 画像確認」ボタン追加。main.htmlのopenSurveyPhotos関数と分類別写真表示モーダル(surveyPhotosModal)を同梱、CSSは#surveyPhotosModal配下にスコープして既存.photo-grid等と衝突回避。case_idはcurrentSurveyCaseIdを利用。前:v20260704j -->
 <!-- BUILD: field-survey v20260704j / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。+ 判定モーダルに「戻る」ボタン追加(誤操作対策)+電柱マーカーをタップで削除可能に。前:v20260703d -->
 <!-- v20260703b: GPS疑似テストマーカーを目立つ赤パルス+🧪絵文字のDivIconに変更。 -->
 <!-- v20260703a: CAD区画・現在地セクションを右パネル最上部に移動。 -->
@@ -673,7 +674,48 @@
     -webkit-tap-highlight-color:transparent;
   }
   .survey-back-btn:active { transform:scale(0.97); }
+  .survey-photocheck-btn {
+    padding:18px 20px; border:none; border-radius:14px; font-size:15px; font-weight:700;
+    background:rgba(147,197,253,0.18); color:#93c5fd; cursor:pointer; flex-shrink:0;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .survey-photocheck-btn:active { transform:scale(0.97); }
   .survey-hint { font-size:11px; color:var(--text-muted,#9aa4b2); text-align:center; margin-top:8px; }
+
+  /* 画像確認モーダル（main.html互換・#surveyPhotosModal配下にスコープ） */
+  #surveyPhotosModal{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;z-index:6000;padding:12px;}
+  #surveyPhotosModal.open{display:flex;}
+  #surveyPhotosModal .pr-modal{background:var(--surface,#1a1d24);border:1px solid var(--border,#30363d);border-radius:12px;width:100%;max-width:920px;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;}
+  #surveyPhotosModal .pr-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border,#30363d);background:var(--surface2,#22262e);flex-wrap:wrap;gap:8px;}
+  #surveyPhotosModal .pr-title{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:700;color:var(--text,#fff);flex-wrap:wrap;}
+  #surveyPhotosModal .pr-meta{font-size:11px;color:var(--text-muted,#9aa4b2);font-family:var(--font-mono,monospace);}
+  #surveyPhotosModal .pr-close{background:none;border:none;color:var(--text-muted,#9aa4b2);font-size:26px;cursor:pointer;line-height:1;padding:0 4px;}
+  #surveyPhotosModal .pr-close:hover{color:#fff;}
+  #surveyPhotosModal .pr-body{padding:18px;overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch;}
+  #surveyPhotosModal .pr-category{margin-bottom:22px;}
+  #surveyPhotosModal .pr-category:last-child{margin-bottom:0;}
+  #surveyPhotosModal .pr-category-title{font-size:12px;font-weight:700;color:var(--text-muted,#9aa4b2);letter-spacing:.05em;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border,#30363d);}
+  #surveyPhotosModal .pr-grid{display:grid;gap:10px;}
+  #surveyPhotosModal .pr-grid-2{grid-template-columns:1fr 1fr;}
+  #surveyPhotosModal .pr-grid-3{grid-template-columns:1fr 1fr 1fr;}
+  #surveyPhotosModal .pr-grid-4{grid-template-columns:1fr 1fr 1fr 1fr;}
+  #surveyPhotosModal .pr-cell{position:relative;aspect-ratio:4/3;background:var(--bg,#12141a);border:1px solid var(--border,#30363d);border-radius:6px;overflow:hidden;}
+  #surveyPhotosModal .pr-cell a{display:block;width:100%;height:100%;}
+  #surveyPhotosModal .pr-cell img{width:100%;height:100%;object-fit:cover;cursor:zoom-in;transition:transform .2s;}
+  #surveyPhotosModal .pr-cell img:hover{transform:scale(1.03);}
+  #surveyPhotosModal .pr-cell .pr-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-muted,#9aa4b2);font-size:11px;gap:4px;}
+  #surveyPhotosModal .pr-cell-label{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(to top,rgba(0,0,0,.78),transparent);color:#fff;font-size:10px;padding:14px 6px 4px;text-align:center;font-weight:600;}
+  #surveyPhotosModal .pr-empty-state{text-align:center;padding:40px 20px;color:var(--text-muted,#9aa4b2);}
+  #surveyPhotosModal .pr-empty-state-icon{font-size:48px;margin-bottom:12px;opacity:.5;}
+  #surveyPhotosModal .pr-empty-state-text{font-size:14px;margin-bottom:8px;}
+  #surveyPhotosModal .pr-loading{text-align:center;padding:40px;color:var(--text-muted,#9aa4b2);font-size:13px;}
+  #surveyPhotosModal .pr-comment-box{background:var(--bg,#12141a);border:1px solid var(--border,#30363d);border-radius:6px;padding:12px;font-size:13px;color:var(--text,#fff);white-space:pre-wrap;line-height:1.6;}
+  @media (max-width: 640px){
+    #surveyPhotosModal{padding:0;}
+    #surveyPhotosModal .pr-modal{max-width:100%;max-height:100vh;border-radius:0;height:100vh;}
+    #surveyPhotosModal .pr-grid-4{grid-template-columns:1fr 1fr;}
+    #surveyPhotosModal .pr-grid-3{grid-template-columns:1fr 1fr 1fr;}
+  }
 
   /* 電柱記録ボタン（地図右下・常設） */
   .pole-fab {
@@ -1223,6 +1265,7 @@
 
     <div class="survey-actions">
       <button type="button" class="survey-back-btn" onclick="resetSurveyModal()">&#8635; リセット</button>
+      <button type="button" class="survey-photocheck-btn" id="surveyPhotoCheckBtn" onclick="openSurveyPhotosFromModal()" title="保存済み画像を分類表示">&#128248; 画像確認</button>
       <button class="survey-done-btn" id="surveyDoneBtn" onclick="saveSurvey()" disabled>判定を選んでください</button>
     </div>
     <div class="survey-hint" id="surveyHint">写真は端末に即保存され、電波がある場所で自動アップロードされます</div>
@@ -3460,6 +3503,106 @@ function onSurveyPhoto(input, previewId){
   reader.readAsDataURL(file);
 }
 
+/* ===== 画像確認モーダル v20260707a（main.html互換） ===== */
+function openSurveyPhotosFromModal(){
+  // 現在の判定モーダルで扱っている案件のcase_idを利用
+  if(!currentSurveyCaseId){
+    alert('この地番は案件マスターに未リンクのため画像確認できません。');
+    return;
+  }
+  openSurveyPhotos(currentSurveyCaseId);
+}
+
+async function openSurveyPhotos(caseId){
+  const modal = document.getElementById('surveyPhotosModal');
+  const body  = document.getElementById('surveyPhotosBody');
+  const title = document.getElementById('surveyPhotosTitle');
+  if(!modal || !body || !title) return;
+  body.innerHTML = '<div class="pr-loading">読み込み中...</div>';
+  title.innerHTML = '';
+  modal.classList.add('open');
+  try{
+    const [caseRes, surveyRes] = await Promise.all([
+      db.from('cases').select('case_no,display_case_no,parent_case_no,branch_no,kubun').eq('id',caseId).single(),
+      db.from('field_survey_status').select('*').eq('case_id',caseId).maybeSingle()
+    ]);
+    const c = caseRes.data;
+    const s = surveyRes.data;
+    if(!c){
+      body.innerHTML = '<div class="pr-empty-state"><div class="pr-empty-state-icon">&#9888;&#65039;</div><div class="pr-empty-state-text">案件情報が取得できませんでした</div></div>';
+      return;
+    }
+    // タイトル構築
+    const _bt=(c.parent_case_no||c.case_no||'\u2014');
+    const caseNoText=_bt+(c.parent_case_no?('\uff08\u679d'+(c.branch_no||'')+'\uff09'):'');
+    const kubunHtml = c.kubun ? '<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:500;background:rgba(240,180,41,.15);color:#f0b429;border:1px solid rgba(240,180,41,.3)">'+c.kubun+'</span>' : '';
+    const dateText  = s?.confirmed_at ? ('\u64ae\u5f71\u65e5\u6642: '+ new Date(s.confirmed_at).toLocaleString('ja-JP')) : '';
+    title.innerHTML = '<span style="font-family:var(--font-mono,monospace)">'+caseNoText+'</span>'+kubunHtml+'<span class="pr-meta">'+dateText+'</span>';
+    // 写真未保存
+    if(!s){
+      body.innerHTML = '<div class="pr-empty-state"><div class="pr-empty-state-icon">&#128247;</div><div class="pr-empty-state-text">現地調査がまだ実施されていません</div></div>';
+      return;
+    }
+    const isSolar = (c.kubun||'').indexOf('\u592a\u967d\u5149')>=0;
+    const cell = function(url,label){
+      return url
+        ? '<div class="pr-cell"><a href="'+url+'" target="_blank" rel="noopener"><img src="'+url+'" alt="'+label+'"></a><div class="pr-cell-label">'+label+'</div></div>'
+        : '<div class="pr-cell"><div class="pr-empty"><span style="font-size:24px;opacity:.4">&#128247;</span><span>\u672a\u64ae\u5f71</span></div><div class="pr-cell-label">'+label+'</div></div>';
+    };
+    let html = '';
+    // 接道
+    html += '<div class="pr-category">'
+      + '<div class="pr-category-title">&#128665; \u63a5\u9053\uff082\u30ab\u30c3\u30c8\uff09</div>'
+      + '<div class="pr-grid pr-grid-2">'
+      + cell(s.photo_road1,'\u63a5\u9053 \u2460')
+      + cell(s.photo_road2,'\u63a5\u9053 \u2461')
+      + '</div></div>';
+    // 土地状況
+    html += '<div class="pr-category">'
+      + '<div class="pr-category-title">\uD83C\uDFD4 \u571f\u5730\u72b6\u6cc1\uff084\u30ab\u30c3\u30c8\uff09</div>'
+      + '<div class="pr-grid pr-grid-4">'
+      + cell(s.photo_land1,'\u571f\u5730 \u2460')
+      + cell(s.photo_land2,'\u571f\u5730 \u2461')
+      + cell(s.photo_land3,'\u571f\u5730 \u2462')
+      + cell(s.photo_land4,'\u571f\u5730 \u2463')
+      + '</div></div>';
+    // 電柱
+    html += '<div class="pr-category">'
+      + '<div class="pr-category-title">&#9889; \u96fb\u67f1\uff083\u30ab\u30c3\u30c8\uff09</div>'
+      + '<div class="pr-grid pr-grid-3">'
+      + cell(s.photo_pole1,'\u96fb\u67f1 \u2460')
+      + cell(s.photo_pole2,'\u96fb\u67f1 \u2461')
+      + cell(s.photo_pole3,'\u96fb\u67f1 \u2462')
+      + '</div></div>';
+    // 太陽軌道
+    if(isSolar){
+      html += '<div class="pr-category">'
+        + '<div class="pr-category-title">&#9728;&#65039; \u592a\u967d\u8ecc\u9053</div>'
+        + '<div class="pr-grid pr-grid-3">'
+        + cell(s.photo_shadow_am,'\u671d\u306e\u8ecc\u9053')
+        + cell(s.photo_shadow_noon,'\u5357\u4e2d\u6642')
+        + cell(s.photo_shadow_pm,'\u5915\u306e\u8ecc\u9053')
+        + '</div></div>';
+    }
+    // コメント
+    if(s.comment){
+      html += '<div class="pr-category">'
+        + '<div class="pr-category-title">&#128172; \u73fe\u5730\u78ba\u8a8d\u30b3\u30e1\u30f3\u30c8</div>'
+        + '<div class="pr-comment-box">'+String(s.comment).replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>'
+        + '</div>';
+    }
+    body.innerHTML = html;
+  }catch(err){
+    console.error('[openSurveyPhotos]', err);
+    body.innerHTML = '<div class="pr-empty-state"><div class="pr-empty-state-icon">&#9888;&#65039;</div><div class="pr-empty-state-text">\u8aad\u307f\u8fbc\u307f\u306b\u5931\u6557\u3057\u307e\u3057\u305f</div><div style="font-size:12px;margin-top:4px">'+(err.message||'')+'</div></div>';
+  }
+}
+
+function closeSurveyPhotos(){
+  const modal = document.getElementById('surveyPhotosModal');
+  if(modal) modal.classList.remove('open');
+}
+
 async function saveSurvey(){
   if(!currentJudgment){ showToast('判定を選んでください','error'); return; }
   var land=currentSurveyLand, cid=currentSurveyCaseId;
@@ -4819,5 +4962,15 @@ function jumpToChiban(lat, lng, label) {
   applyUrlParams();
 })();
 </script>
+<!-- 画像確認モーダル v20260707a（main.html互換） -->
+<div id="surveyPhotosModal" onclick="if(event.target===this)closeSurveyPhotos()">
+  <div class="pr-modal">
+    <div class="pr-header">
+      <div class="pr-title" id="surveyPhotosTitle"></div>
+      <button class="pr-close" onclick="closeSurveyPhotos()" aria-label="閉じる">&times;</button>
+    </div>
+    <div class="pr-body" id="surveyPhotosBody"></div>
+  </div>
+</div>
 </body>
 </html>
