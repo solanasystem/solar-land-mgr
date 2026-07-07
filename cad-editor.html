@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260707e / Track A Step 5-6 変換エンジン+自動スナップ / 2点相似・3点以上アフィン自動選択・残差表示 / 前:v20260707d -->
+<!-- BUILD: cad-editor v20260707f / Track B Phase B-1 描画基本 / Leaflet-Geoman + 線/ポリライン/円/矩形 + プロパティ + 測定 + shapes保存 / 前:v20260707e -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -24,6 +24,9 @@
 <script src="https://unpkg.com/leaflet-distortableimage@0.21.9/dist/vendor.js"></script>
 <script src="https://unpkg.com/leaflet-distortableimage@0.21.9/dist/leaflet.distortableimage.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
+<!-- v20260707f: Leaflet-Geoman (描画ライブラリ) -->
+<link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.14.1/dist/leaflet-geoman.css">
+<script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.14.1/dist/leaflet-geoman.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- v20260707c: PDF下絵レンダリング用 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -626,6 +629,86 @@
   #map.cp-mode-active .leaflet-interactive {
     cursor: crosshair !important;
   }
+
+  /* ===== v20260707f: プロパティパネル ===== */
+  .properties-panel {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    z-index: 499;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    min-width: 220px;
+    margin-top: 100px; /* 下絵操作パネルの下に */
+  }
+  .pp-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+  }
+  .pp-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-size: 11px;
+  }
+  .pp-row:last-child { margin-bottom: 0; }
+  .pp-label {
+    color: var(--text-muted);
+    min-width: 32px;
+    font-size: 10px;
+  }
+  .pp-color-swatches {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .pp-swatch {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+  }
+  .pp-swatch.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--bg);
+  }
+  .pp-weight, .pp-dash {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    min-width: 32px;
+  }
+  .pp-weight.active, .pp-dash.active {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+  .pp-weight:hover, .pp-dash:hover {
+    border-color: var(--accent);
+  }
+
+  /* ===== Leaflet-Geoman カスタム: shapes 描画中の視認性 ===== */
+  .leaflet-pm-tooltip {
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--accent) !important;
+    font-family: var(--font-main) !important;
+    font-size: 11px !important;
+  }
 </style>
 </head>
 <body>
@@ -663,19 +746,19 @@
     </div>
     <div class="tool-group">
       <div class="tool-group-label">作成</div>
-      <button class="tool-btn stub" title="線分（Track B）" disabled>／</button>
-      <button class="tool-btn stub" title="ポリライン（Track B）" disabled>⟋</button>
-      <button class="tool-btn stub" title="円（Track B）" disabled>◯</button>
-      <button class="tool-btn stub" title="矩形（Track B）" disabled>▭</button>
+      <button class="tool-btn" id="btnDrawLine" title="線分/ポリライン(クリック連続、ダブルクリックで終了)" onclick="startDraw('Line')">／</button>
+      <button class="tool-btn" id="btnDrawPolygon" title="ポリゴン(クリック連続、ダブルクリックで終了)" onclick="startDraw('Polygon')">⬡</button>
+      <button class="tool-btn" id="btnDrawCircle" title="円" onclick="startDraw('Circle')">◯</button>
+      <button class="tool-btn" id="btnDrawRect" title="矩形" onclick="startDraw('Rectangle')">▭</button>
     </div>
     <div class="tool-group">
       <div class="tool-group-label">修正</div>
-      <button class="tool-btn stub" title="移動（Track B）" disabled>↔</button>
-      <button class="tool-btn stub" title="削除（Track B）" disabled>🗑</button>
+      <button class="tool-btn" id="btnEdit" title="編集モード（頂点ドラッグ）" onclick="toggleEditMode()">✎</button>
+      <button class="tool-btn" id="btnRemove" title="削除モード（図形クリックで削除）" onclick="toggleRemoveMode()">🗑</button>
     </div>
     <div class="tool-group">
       <div class="tool-group-label">測定</div>
-      <button class="tool-btn stub" title="測定（Track B）" disabled>📏</button>
+      <button class="tool-btn" id="btnMeasure" title="距離/面積測定" onclick="toggleMeasureMode()">📏</button>
     </div>
   </div>
 
@@ -703,11 +786,45 @@
       </div>
     </div>
 
+    <!-- v20260707f: プロパティパネル (描画時のスタイル) -->
+    <div id="propertiesPanel" class="properties-panel">
+      <div class="pp-title">🎨 プロパティ</div>
+      <div class="pp-row">
+        <span class="pp-label">色</span>
+        <div class="pp-color-swatches">
+          <button class="pp-swatch active" style="background:#000000" data-color="#000000" onclick="setDrawColor('#000000')" title="黒"></button>
+          <button class="pp-swatch" style="background:#f85149" data-color="#f85149" onclick="setDrawColor('#f85149')" title="赤"></button>
+          <button class="pp-swatch" style="background:#58a6ff" data-color="#58a6ff" onclick="setDrawColor('#58a6ff')" title="青"></button>
+          <button class="pp-swatch" style="background:#3fb950" data-color="#3fb950" onclick="setDrawColor('#3fb950')" title="緑"></button>
+          <button class="pp-swatch" style="background:#f0b429" data-color="#f0b429" onclick="setDrawColor('#f0b429')" title="黄"></button>
+          <button class="pp-swatch" style="background:#a371f7" data-color="#a371f7" onclick="setDrawColor('#a371f7')" title="紫"></button>
+        </div>
+      </div>
+      <div class="pp-row">
+        <span class="pp-label">太さ</span>
+        <button class="pp-weight active" data-weight="1" onclick="setDrawWeight(1)">細</button>
+        <button class="pp-weight" data-weight="2" onclick="setDrawWeight(2)">中</button>
+        <button class="pp-weight" data-weight="4" onclick="setDrawWeight(4)">太</button>
+      </div>
+      <div class="pp-row">
+        <span class="pp-label">線種</span>
+        <button class="pp-dash active" data-dash="" onclick="setDrawDash('')" title="実線">━</button>
+        <button class="pp-dash" data-dash="8,6" onclick="setDrawDash('8,6')" title="破線">┅</button>
+        <button class="pp-dash" data-dash="12,4,2,4" onclick="setDrawDash('12,4,2,4')" title="一点鎖線">┉</button>
+      </div>
+    </div>
+
     <!-- v20260707d: 基準点モード状態表示 -->
     <div id="cpModeBadge" class="cp-mode-badge" style="display:none;">
       🎯 基準点モード
       <span id="cpCount">0/3</span>
       <button onclick="toggleControlPointMode()" class="cp-close-btn">✕</button>
+    </div>
+
+    <!-- v20260707f: 描画モード状態表示 -->
+    <div id="drawModeBadge" class="cp-mode-badge" style="display:none;background:var(--blue);box-shadow:0 4px 12px rgba(88,166,255,0.4);">
+      <span id="drawModeLabel">描画中</span>
+      <button onclick="stopDraw()" class="cp-close-btn">✕</button>
     </div>
   </div>
 
@@ -732,9 +849,9 @@
     <div class="layer-group">
       <div class="layer-group-title">描画</div>
       <label class="layer-item">
-        <input type="checkbox" id="layerShapes" checked disabled>
-        <span class="layer-item-label">図形（Track B）</span>
-        <span class="layer-item-count">-</span>
+        <input type="checkbox" id="layerShapes" checked onchange="toggleShapesLayer(this.checked)">
+        <span class="layer-item-label">図形</span>
+        <span class="layer-item-count" id="shapesCount">-</span>
       </label>
     </div>
 
@@ -784,6 +901,11 @@
   <div class="status-item">
     <span class="status-label">残差:</span>
     <span class="status-value" id="statusResidual" style="font-family:var(--font-mono);">-</span>
+  </div>
+  <div class="status-sep">|</div>
+  <div class="status-item">
+    <span class="status-label">直近測定:</span>
+    <span class="status-value" id="statusMeasure" style="font-family:var(--font-mono);">-</span>
   </div>
   <div class="status-sep">|</div>
   <div class="status-item">
@@ -1262,6 +1384,7 @@ let currentTile = 'std';
 let tileLayers = {};
 let overlaysGroup = null;      // overlays テーブル用（Step 3で実装）
 let villaOverlaysGroup = null; // 既存 villa_overlays 表示用
+let shapesGroup = null;        // v20260707f: shapes テーブル用
 let sb = null;                 // Supabase クライアント
 
 /* ===== v20260707b: 案件識別 ===== */
@@ -1314,6 +1437,21 @@ function initMap() {
   // レイヤーグループ準備
   overlaysGroup = L.layerGroup().addTo(map);
   villaOverlaysGroup = L.layerGroup().addTo(map);
+  shapesGroup = L.featureGroup().addTo(map);  // v20260707f: shapesはfeatureGroupで一括操作可能に
+
+  // v20260707f: Leaflet-Geoman のツールバーは非表示（独自ツールバーを使う）
+  if (map.pm) {
+    map.pm.setGlobalOptions({
+      layerGroup: shapesGroup,
+      snappable: true,
+      snapDistance: 20,
+      allowSelfIntersection: false,
+      finishOn: 'dblclick'
+    });
+    // 描画完了・編集・削除イベント
+    map.on('pm:create', onShapeCreated);
+    map.on('pm:remove', onShapeRemoved);
+  }
 
   // ステータス連動
   map.on('mousemove', (e) => {
@@ -1968,6 +2106,374 @@ function updateResidualStatus(mean, max) {
 let currentTransformInfo = null; // 直近の変換情報（保存時に使用）
 
 /* ========================================================================
+   v20260707f: Track B Phase B-1 描画エンジン
+   ======================================================================== */
+
+// 現在のスタイル設定
+let drawStyle = {
+  color: '#000000',
+  weight: 1,
+  dashArray: ''  // 空文字=実線、'8,6'=破線、'12,4,2,4'=一点鎖線
+};
+
+// 現在描画中のモード（'Line', 'Polygon', 'Circle', 'Rectangle', null）
+let currentDrawMode = null;
+
+// 削除モード、編集モード、測定モード
+let removeMode = false;
+let editMode = false;
+let measureMode = false;
+
+/* ---------- スタイル設定UI ---------- */
+function setDrawColor(color) {
+  drawStyle.color = color;
+  document.querySelectorAll('.pp-swatch').forEach(el => {
+    el.classList.toggle('active', el.dataset.color === color);
+  });
+  updateGeomanStyle();
+}
+function setDrawWeight(weight) {
+  drawStyle.weight = Number(weight);
+  document.querySelectorAll('.pp-weight').forEach(el => {
+    el.classList.toggle('active', Number(el.dataset.weight) === Number(weight));
+  });
+  updateGeomanStyle();
+}
+function setDrawDash(dash) {
+  drawStyle.dashArray = dash;
+  document.querySelectorAll('.pp-dash').forEach(el => {
+    el.classList.toggle('active', el.dataset.dash === dash);
+  });
+  updateGeomanStyle();
+}
+
+function updateGeomanStyle() {
+  if (!map || !map.pm) return;
+  map.pm.setPathOptions({
+    color: drawStyle.color,
+    weight: drawStyle.weight,
+    dashArray: drawStyle.dashArray || null,
+    opacity: 1,
+    fillColor: drawStyle.color,
+    fillOpacity: 0.15
+  });
+}
+
+/* ---------- 描画モード開始 ---------- */
+function startDraw(shape) {
+  if (!currentOverlay && !confirm('下絵をアップロードせずに描画しますか？')) return;
+  if (!map || !map.pm) {
+    showToast('描画ライブラリ未ロード', 'error');
+    return;
+  }
+  // 他モード解除
+  stopAllModes();
+
+  updateGeomanStyle();
+  try {
+    map.pm.enableDraw(shape, {
+      snappable: true,
+      finishOn: shape === 'Line' || shape === 'Polygon' ? 'dblclick' : undefined,
+      templineStyle: { color: drawStyle.color, weight: drawStyle.weight, dashArray: drawStyle.dashArray || null },
+      hintlineStyle: { color: drawStyle.color, weight: Math.max(1, drawStyle.weight - 1), dashArray: '5,5' }
+    });
+    currentDrawMode = shape;
+    // ボタンハイライト
+    document.querySelectorAll('#btnDrawLine, #btnDrawPolygon, #btnDrawCircle, #btnDrawRect').forEach(b => b.classList.remove('active'));
+    const btnId = { Line: 'btnDrawLine', Polygon: 'btnDrawPolygon', Circle: 'btnDrawCircle', Rectangle: 'btnDrawRect' }[shape];
+    document.getElementById(btnId)?.classList.add('active');
+    // 描画バッジ表示
+    document.getElementById('drawModeBadge').style.display = 'flex';
+    document.getElementById('drawModeLabel').textContent = {
+      Line: '📏 線を描画中（ダブルクリックで終了）',
+      Polygon: '⬡ ポリゴンを描画中（ダブルクリックで終了）',
+      Circle: '◯ 円を描画中',
+      Rectangle: '▭ 矩形を描画中'
+    }[shape];
+  } catch (e) {
+    console.error('[startDraw]', e);
+    showToast('描画開始失敗: ' + e.message, 'error');
+  }
+}
+
+function stopDraw() {
+  if (!map || !map.pm) return;
+  try { map.pm.disableDraw(); } catch (e) {}
+  currentDrawMode = null;
+  document.querySelectorAll('#btnDrawLine, #btnDrawPolygon, #btnDrawCircle, #btnDrawRect').forEach(b => b.classList.remove('active'));
+  document.getElementById('drawModeBadge').style.display = 'none';
+}
+
+/* ---------- 削除モード ---------- */
+function toggleRemoveMode() {
+  if (!map || !map.pm) return;
+  stopAllModes(false, 'remove');
+  removeMode = !removeMode;
+  const btn = document.getElementById('btnRemove');
+  if (removeMode) {
+    map.pm.enableGlobalRemovalMode();
+    btn.classList.add('active');
+    showToast('削除モード: 図形をクリックして削除', 'info', 2000);
+  } else {
+    map.pm.disableGlobalRemovalMode();
+    btn.classList.remove('active');
+  }
+}
+
+/* ---------- 編集モード（頂点ドラッグ） ---------- */
+function toggleEditMode() {
+  if (!map || !map.pm) return;
+  stopAllModes(false, 'edit');
+  editMode = !editMode;
+  const btn = document.getElementById('btnEdit');
+  if (editMode) {
+    map.pm.enableGlobalEditMode();
+    btn.classList.add('active');
+    showToast('編集モード: 頂点をドラッグして変形、ダブルクリックで頂点追加', 'info', 3000);
+  } else {
+    map.pm.disableGlobalEditMode();
+    btn.classList.remove('active');
+  }
+}
+
+/* ---------- 測定モード（クリックした図形の測定値を表示） ---------- */
+function toggleMeasureMode() {
+  stopAllModes(false, 'measure');
+  measureMode = !measureMode;
+  const btn = document.getElementById('btnMeasure');
+  if (measureMode) {
+    btn.classList.add('active');
+    shapesGroup.eachLayer(layer => layer.on('click', onShapeClickForMeasure));
+    showToast('測定モード: 図形をクリックして測定', 'info', 2000);
+  } else {
+    btn.classList.remove('active');
+    shapesGroup.eachLayer(layer => layer.off('click', onShapeClickForMeasure));
+  }
+}
+function onShapeClickForMeasure(e) {
+  if (!measureMode) return;
+  const layer = e.target;
+  const info = computeMeasureInfo(layer);
+  updateMeasureStatus(info);
+  showToast(formatMeasureText(info), 'info', 4000);
+}
+
+function stopAllModes(keepCurrent = false, except = null) {
+  if (except !== 'draw') stopDraw();
+  if (except !== 'remove' && removeMode) toggleRemoveMode();
+  if (except !== 'edit' && editMode) toggleEditMode();
+  if (except !== 'measure' && measureMode) toggleMeasureMode();
+  if (except !== 'cp' && controlPointMode) toggleControlPointMode();
+}
+
+/* ---------- 描画完了イベント: DBに保存 ---------- */
+async function onShapeCreated(e) {
+  const layer = e.layer;
+  const shape = e.shape;  // 'Line', 'Polygon', 'Circle', 'Rectangle', 'Marker'
+  const info = computeMeasureInfo(layer);
+  const geomType = { Line: 'line', Polygon: 'polygon', Rectangle: 'polygon', Circle: 'polygon', Marker: 'point' }[shape] || 'polygon';
+
+  // GeoJSON化（円は近似ポリゴンに）
+  let geoJson;
+  if (shape === 'Circle') {
+    // Turf.js で正円を多角形化（64頂点）
+    const center = layer.getLatLng();
+    const radiusM = layer.getRadius();
+    const circlePoly = turf.circle([center.lng, center.lat], radiusM / 1000, { steps: 64, units: 'kilometers' });
+    geoJson = circlePoly.geometry;
+    layer._circleRadius = radiusM;  // メモ用
+  } else {
+    geoJson = layer.toGeoJSON().geometry;
+  }
+
+  // DB保存用ペイロード
+  const orgId = window.__auth?.profile?.organization_id;
+  const payload = {
+    organization_id: orgId,
+    case_id: currentCaseId,  // 小分類 case_no
+    geom_type: geomType,
+    geometry: geoJson,
+    properties: {
+      shape: shape,
+      color: drawStyle.color,
+      weight: drawStyle.weight,
+      dashArray: drawStyle.dashArray || null,
+      radius_m: shape === 'Circle' ? layer.getRadius() : null
+    },
+    area_m2: info.area_m2 ?? null,
+    length_m: info.length_m ?? null
+  };
+
+  try {
+    const { data, error } = await sb.from('shapes').insert(payload).select().single();
+    if (error) throw error;
+    layer._shapeId = data.id;
+    layer._shapeData = data;
+    updateShapesCount();
+    updateMeasureStatus(info);
+    showToast('保存: ' + formatMeasureText(info), 'success', 2500);
+  } catch (err) {
+    console.error('[onShapeCreated]', err);
+    showToast('保存失敗: ' + err.message, 'error');
+    shapesGroup.removeLayer(layer);
+  }
+
+  // 描画モード解除（連続描画したい場合は解除しない、UX判断）
+  stopDraw();
+
+  // 編集イベントを登録
+  layer.on('pm:edit', (ev) => onShapeEdited(ev, layer));
+}
+
+async function onShapeEdited(ev, layer) {
+  if (!layer._shapeId) return;
+  const info = computeMeasureInfo(layer);
+  const geoJson = layer.toGeoJSON().geometry;
+  try {
+    const { error } = await sb.from('shapes')
+      .update({
+        geometry: geoJson,
+        area_m2: info.area_m2 ?? null,
+        length_m: info.length_m ?? null
+      })
+      .eq('id', layer._shapeId);
+    if (error) throw error;
+    updateMeasureStatus(info);
+  } catch (err) {
+    console.error('[onShapeEdited]', err);
+    showToast('編集保存失敗: ' + err.message, 'error');
+  }
+}
+
+async function onShapeRemoved(e) {
+  const layer = e.layer;
+  if (!layer._shapeId) return;
+  try {
+    const { error } = await sb.from('shapes').delete().eq('id', layer._shapeId);
+    if (error) throw error;
+    updateShapesCount();
+    showToast('削除しました', 'info', 1500);
+  } catch (err) {
+    console.error('[onShapeRemoved]', err);
+    showToast('削除失敗: ' + err.message, 'error');
+  }
+}
+
+/* ---------- 測定計算（Turf.js） ---------- */
+function computeMeasureInfo(layer) {
+  try {
+    if (layer._circleRadius) {
+      // 円: 面積計算
+      const r = layer._circleRadius;
+      return {
+        kind: 'circle',
+        radius_m: r,
+        area_m2: Math.PI * r * r,
+        length_m: null
+      };
+    }
+    const gj = layer.toGeoJSON();
+    const t = gj.geometry.type;
+    if (t === 'Polygon' || t === 'MultiPolygon') {
+      return { kind: 'polygon', area_m2: turf.area(gj), length_m: null };
+    }
+    if (t === 'LineString' || t === 'MultiLineString') {
+      return { kind: 'line', area_m2: null, length_m: turf.length(gj, { units: 'kilometers' }) * 1000 };
+    }
+    if (t === 'Point') {
+      return { kind: 'point', area_m2: null, length_m: null };
+    }
+  } catch (e) {
+    console.warn('[computeMeasureInfo]', e);
+  }
+  return { kind: 'unknown', area_m2: null, length_m: null };
+}
+
+function formatMeasureText(info) {
+  if (info.area_m2 != null) {
+    const a = info.area_m2;
+    if (a >= 10000) return `面積 ${(a / 10000).toFixed(4)} ha (${a.toFixed(1)} m²)`;
+    return `面積 ${a.toFixed(2)} m²`;
+  }
+  if (info.length_m != null) {
+    const l = info.length_m;
+    if (l >= 1000) return `距離 ${(l / 1000).toFixed(3)} km`;
+    return `距離 ${l.toFixed(2)} m`;
+  }
+  return '-';
+}
+
+function updateMeasureStatus(info) {
+  const el = document.getElementById('statusMeasure');
+  if (!info || (info.area_m2 == null && info.length_m == null)) {
+    el.textContent = '-';
+    el.style.color = 'var(--text-muted)';
+    return;
+  }
+  el.textContent = formatMeasureText(info);
+  el.style.color = 'var(--text)';
+}
+
+/* ---------- shapes ロード ---------- */
+async function loadShapes() {
+  if (!sb || !currentCaseId) return;
+  const orgId = window.__auth?.profile?.organization_id;
+  if (!orgId) return;
+  try {
+    // 案件（小分類 case_no）に紐付いた全shapes
+    const { data, error } = await sb
+      .from('shapes')
+      .select('*')
+      .eq('organization_id', orgId)
+      .eq('case_id', currentCaseId)
+      .order('created_at');
+    if (error) throw error;
+    shapesGroup.clearLayers();
+    (data || []).forEach(sh => renderShapeOnMap(sh));
+    updateShapesCount();
+  } catch (e) {
+    console.error('[loadShapes]', e);
+    document.getElementById('shapesCount').textContent = 'ERR';
+  }
+}
+
+function renderShapeOnMap(sh) {
+  const props = sh.properties || {};
+  const style = {
+    color: props.color || '#000000',
+    weight: props.weight || 1,
+    dashArray: props.dashArray || null,
+    opacity: 1,
+    fillColor: props.color || '#000000',
+    fillOpacity: 0.15
+  };
+  let layer = null;
+  try {
+    layer = L.geoJSON(sh.geometry, { style }).getLayers()[0];
+    if (!layer) return;
+    layer._shapeId = sh.id;
+    layer._shapeData = sh;
+    if (props.radius_m) layer._circleRadius = props.radius_m;
+    layer.on('pm:edit', (ev) => onShapeEdited(ev, layer));
+    if (measureMode) layer.on('click', onShapeClickForMeasure);
+    shapesGroup.addLayer(layer);
+  } catch (e) {
+    console.warn('[renderShapeOnMap] failed', e, sh);
+  }
+}
+
+function updateShapesCount() {
+  const el = document.getElementById('shapesCount');
+  if (el) el.textContent = shapesGroup ? shapesGroup.getLayers().length : 0;
+}
+
+/* ---------- shapes レイヤー ON/OFF ---------- */
+function toggleShapesLayer(on) {
+  if (!map || !shapesGroup) return;
+  if (on) map.addLayer(shapesGroup); else map.removeLayer(shapesGroup);
+}
+
+/* ========================================================================
    v20260707d: 変形状態と基準点を overlays テーブルに保存
    ======================================================================== */
 async function saveOverlayTransform() {
@@ -2094,6 +2600,9 @@ window.addEventListener('DOMContentLoaded', () => {
           // 案件確定後にレイヤー読込
           loadVillaOverlays();
           loadOverlays();
+          loadShapes();   // v20260707f: 描画済shapesを復元
+          // 初期スタイル反映
+          updateGeomanStyle();
         }
         // 案件未確定なら showCaseSelector() が既にモーダル表示済
       }
