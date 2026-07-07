@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- BUILD: main v20260622g / ステータスバッジ(LETTER/LTR済)の最終発信日表示を改善：紫の補色=黄緑(#bef264)で太字大きめ・position:absoluteでバッジ右端内側に重ねるためバッジ幅は不変(min-width:92px維持)。 -->
-<!-- BUILD: main v20260707a / 土地情報マスターでもステータスクリック変更を可能に(statusBadge→statusBadgeInline)。前:v20260622d -->
+<!-- BUILD: main v20260707b / 3マスターの操作メニューに「🎨 CADで開く」追加(cad-editor.html?case_id=を別タブ)。前:v20260707a -->
 <!-- BUILD: main v20260622a / toki-ai.js,css の?v=打替（AI転記後の即時反映＝キャッシュバスター更新） -->
 <!-- v20260528a: ステータスバッジ(.status-badge)の帯を統一。min-width:92px + justify-content:center で全ステータス(NOT VISITED/LTR済/OK等)の帯長を揃える。文字数依存の不揃いを解消。全マスター(案件/地権者/土地情報/不動産会社)共通で適用 -->
 <html lang="ja">
@@ -1814,6 +1814,8 @@ function toggleActionMenu(event){
       const _reason=_isNG?'NG案件':'中部電力管外';
       html += `<button class="action-menu-item" style="color:#9ca3af" onclick="closeActionMenu();openCaseSummaryWarn('${_c4sum.case_no}','${_reason}')">📄 概要書 (${_reason})</button>`;
     }
+    // v20260707a: CADエディタで開く（全案件対応、案件番号を渡す）
+    html += `<button class="action-menu-item" style="color:#f59e0b;font-weight:600" onclick="closeActionMenu();openCadEditor('${_c4sum.case_no}')">🎨 CADで開く</button>`;
   }
   menu.innerHTML = html;
   // 表示してから位置計算（getBoundingClientRectのため一時的に表示）
@@ -1846,6 +1848,12 @@ function closeActionMenu(){
   _currentActionToggleBtn = null;
 }
 
+/* ===== v20260707a: CADエディタを別タブで開く（案件番号を引継ぎ） ===== */
+function openCadEditor(caseNo){
+  if(!caseNo){ alert('案件番号が指定されていません'); return; }
+  window.open('cad-editor.html?case_id=' + encodeURIComponent(caseNo), '_blank');
+}
+
 /* ===== 地権者マスター 操作ドロップダウンメニュー ===== */
 function toggleLandownerActionMenu(event){
   event.stopPropagation();
@@ -1854,8 +1862,13 @@ function toggleLandownerActionMenu(event){
   if(!menu) return;
   if(_currentActionToggleBtn === btn && menu.classList.contains('open')){ closeActionMenu(); return; }
   const caseId = btn.dataset.caseId;
+  const caseNo = btn.dataset.caseNo;
   let html = `<button class="action-menu-item landowner" onclick="closeActionMenu();openDetail('${caseId}','landowner')">📋 詳細を表示</button>`;
   html += `<button class="action-menu-item photo" onclick="closeActionMenu();openSurveyPhotos('${caseId}')">📷 画像確認</button>`;
+  if(caseNo){
+    html += `<div class="action-menu-divider"></div>`;
+    html += `<button class="action-menu-item" style="color:#f59e0b;font-weight:600" onclick="closeActionMenu();openCadEditor('${caseNo}')">🎨 CADで開く</button>`;
+  }
   menu.innerHTML = html;
   _positionActionMenu(btn, menu);
 }
@@ -1868,8 +1881,13 @@ function toggleLandActionMenu(event){
   if(!menu) return;
   if(_currentActionToggleBtn === btn && menu.classList.contains('open')){ closeActionMenu(); return; }
   const caseId = btn.dataset.caseId;
+  const caseNo = btn.dataset.caseNo;
   let html = `<button class="action-menu-item land" onclick="closeActionMenu();openDetail('${caseId}','land')">📋 詳細を表示</button>`;
   html += `<button class="action-menu-item photo" onclick="closeActionMenu();openSurveyPhotos('${caseId}')">📷 画像確認</button>`;
+  if(caseNo){
+    html += `<div class="action-menu-divider"></div>`;
+    html += `<button class="action-menu-item" style="color:#f59e0b;font-weight:600" onclick="closeActionMenu();openCadEditor('${caseNo}')">🎨 CADで開く</button>`;
+  }
   menu.innerHTML = html;
   _positionActionMenu(btn, menu);
 }
@@ -2418,7 +2436,7 @@ function renderLandowners(los){
     <div style="font-family:var(--font-mono);font-size:12px;color:var(--text);text-align:right">${lo.price?Number(lo.price).toLocaleString()+' 円':'—'}</div>
     <div style="font-size:13px;white-space:nowrap;text-align:center">${lo.tel?highlightText(lo.tel,q):'—'}</div>
     <div style="text-align:center">${statusBadgeInline(lo.case_id,lo.cases?.status,lo.cases?.last_letter_sent_at)}</div>
-    <div class="actions-cell"><button class="action-toggle" data-case-id="${lo.case_id}" onclick="toggleLandownerActionMenu(event)">操作 ▼</button></div>
+    <div class="actions-cell"><button class="action-toggle" data-case-id="${lo.case_id}" data-case-no="${_escHtml(lo.cases?.case_no||'')}" onclick="toggleLandownerActionMenu(event)">操作 ▼</button></div>
   </div>`;
   }).join('');
 }
@@ -2496,7 +2514,7 @@ function renderLands(lands){
       <div style="font-size:12px;overflow:hidden;text-align:center">${cpzHtml}</div>
       <div style="font-size:12px;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-align:center">${hazText?highlightText(hazText,q):'—'}</div>
       <div style="font-size:12px;text-align:center">${mapUrl?`<a href="${mapUrl}" target="_blank" style="color:var(--blue)">🔍</a>`:'—'}</div>
-      <div class="actions-cell"><button class="action-toggle" data-case-id="${land.case_id}" onclick="toggleLandActionMenu(event)">操作 ▼</button></div>
+      <div class="actions-cell"><button class="action-toggle" data-case-id="${land.case_id}" data-case-no="${_escHtml(land.cases?.case_no||'')}" onclick="toggleLandActionMenu(event)">操作 ▼</button></div>
     </div>`;
   }).join('');
 }

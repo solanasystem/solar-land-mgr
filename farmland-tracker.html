@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260703x / 街区ラベル(4桁)ズーム連動サイズ実装。z18で24px(現状維持)→ズームアウトで0.78^(18-z)縮小、下限0.34。CSS変数--blk-scaleをzoomendで更新、描画ロジック不変。前:v20260703v 街区ラベル帯表示・ドラッグ保存
+<!-- BUILD: farmland-tracker v20260707a / 地図右上に「🎨 CADで開く」フローティングコントロール追加(現在の地図中心・ズームを引継ぎ)。前:v20260703x -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -2306,7 +2306,27 @@ function updateBlockLabelScale(){
   if(s>1)s=1; if(s<0.34)s=0.34;
   document.documentElement.style.setProperty('--blk-scale', s.toFixed(3));
 }
-function initMap(){map=L.map('map',{zoomControl:false,maxZoom:18}).setView([36.5,138],5);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();onZoomChangeForDouro();updateBlockLabelScale();});updateBlockLabelScale();}
+function initMap(){map=L.map('map',{zoomControl:false,maxZoom:18}).setView([36.5,138],5);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();onZoomChangeForDouro();updateBlockLabelScale();});updateBlockLabelScale();_addCadEditorControl();}
+
+/* v20260707a: CADエディタを別タブで開くフローティングコントロール（地図中心座標を引継ぎ） */
+function _addCadEditorControl(){
+  var ctrl = L.control({ position: 'topright' });
+  ctrl.onAdd = function(){
+    var c = L.DomUtil.create('div', 'leaflet-bar');
+    c.style.cssText = 'background:#f0b429;color:#000;border:2px solid rgba(0,0,0,0.2);border-radius:6px;cursor:pointer;padding:6px 10px;font-size:12px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.35);user-select:none;';
+    c.title = '現在の地図中心の座標でCADエディタを開く（案件は開いた先で選択）';
+    c.innerHTML = '🎨 CADで開く';
+    L.DomEvent.disableClickPropagation(c);
+    c.onclick = function(){
+      var center = map.getCenter();
+      var zoom = map.getZoom();
+      var url = 'cad-editor.html?lat=' + center.lat.toFixed(6) + '&lng=' + center.lng.toFixed(6) + '&zoom=' + zoom;
+      window.open(url, '_blank');
+    };
+    return c;
+  };
+  ctrl.addTo(map);
+}
 // === NG\u4e00\u89a7\u3092\u8d77\u52d5\u6642\u306b\u53d6\u5f97 ===
 async function loadNgList(){
   try{
