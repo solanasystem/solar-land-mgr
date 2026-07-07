@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260707a / Track A Step 2 骨組み / 地図表示+認証+既存villa_overlays表示 / 描画・下絵アップロードは未実装(スタブ) -->
+<!-- BUILD: cad-editor v20260707c / Track A Step 3 下絵アップロードUI実装 / Supabase Storage cad-overlays + overlays INSERT + 地図仮配置 / 前:v20260707b -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -21,6 +21,14 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- v20260707c: PDF下絵レンダリング用 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  if (window.pdfjsLib) {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+</script>
 
 <style>
   :root {
@@ -288,6 +296,215 @@
     background: #0a0e14;
     font-family: var(--font-main);
   }
+
+  /* ===== 案件選択モーダル (v20260707b) ===== */
+  .case-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(4px);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .case-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    width: min(560px, 92vw);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  .case-modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .case-modal-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .case-modal-subtitle {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 3px;
+  }
+  .case-modal-search {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .case-modal-search input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: var(--font-main);
+    outline: none;
+    transition: border-color .1s;
+  }
+  .case-modal-search input:focus {
+    border-color: var(--accent);
+  }
+  .case-modal-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+  }
+  .case-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background .1s;
+    border: 1px solid transparent;
+  }
+  .case-list-item:hover {
+    background: var(--surface2);
+    border-color: var(--border);
+  }
+  .case-list-item-name {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .case-list-item-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+  .case-modal-empty {
+    text-align: center;
+    padding: 30px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+  .case-modal-footer {
+    padding: 10px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .case-modal-footer-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .case-modal-footer-btn:hover {
+    background: #2a3244;
+  }
+
+  /* ===== アップロードモーダル (v20260707c) ===== */
+  .upload-dropzone {
+    margin: 16px 20px;
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 30px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .1s;
+    background: var(--bg);
+  }
+  .upload-dropzone:hover {
+    border-color: var(--accent);
+    background: rgba(240,180,41,0.05);
+  }
+  .upload-dropzone.drag-over {
+    border-color: var(--accent);
+    background: rgba(240,180,41,0.1);
+  }
+  .upload-dropzone-icon {
+    font-size: 36px;
+    margin-bottom: 8px;
+    opacity: 0.6;
+  }
+  .upload-dropzone-text {
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .upload-dropzone-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .upload-progress {
+    padding: 12px 20px;
+  }
+  .upload-progress-bar {
+    height: 6px;
+    background: var(--bg);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+  .upload-progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width .3s;
+  }
+  .upload-progress-text {
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  /* ===== トースト ===== */
+  .toast-container {
+    position: fixed;
+    top: 60px;
+    right: 20px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--text);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    min-width: 240px;
+    max-width: 400px;
+    pointer-events: auto;
+    animation: toastSlide .2s ease-out;
+  }
+  .toast.success { border-left-color: var(--green); }
+  .toast.error { border-left-color: var(--red); }
+  .toast.info { border-left-color: var(--blue); }
+  @keyframes toastSlide {
+    from { transform: translateX(20px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  /* ===== 既存アップロードオーバーレイ表示 ===== */
+  .overlay-image {
+    opacity: 0.7;
+  }
 </style>
 </head>
 <body>
@@ -303,8 +520,10 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
+    <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
+    <button class="btn-back" id="btnSwitchCase" onclick="showCaseSelector()" style="display:none;">🔄 案件切替</button>
     <button class="btn-back" onclick="goBack()">← 戻る</button>
   </div>
 </header>
@@ -316,7 +535,7 @@
   <div class="toolbar">
     <div class="tool-group">
       <div class="tool-group-label">下絵</div>
-      <button class="tool-btn stub" title="下絵アップロード（Step 3）" disabled>📥</button>
+      <button class="tool-btn" id="btnUpload" title="下絵アップロード" onclick="openUploadDialog()">📥</button>
       <button class="tool-btn stub" title="基準点設定（Step 4）" disabled>🎯</button>
     </div>
     <div class="tool-group">
@@ -390,6 +609,11 @@
 <!-- ===== ステータスバー ===== -->
 <div class="status-bar">
   <div class="status-item">
+    <span class="status-label">案件:</span>
+    <span class="status-value" id="statusCase" style="color:var(--accent);font-weight:500;">-</span>
+  </div>
+  <div class="status-sep">|</div>
+  <div class="status-item">
     <span class="status-label">座標:</span>
     <span class="status-value" id="statusCoord">-</span>
   </div>
@@ -415,6 +639,61 @@
   </div>
 </div>
 
+<!-- ===== 案件選択モーダル (v20260707b) ===== -->
+<div id="caseModal" class="case-modal-backdrop" style="display:none;">
+  <div class="case-modal">
+    <div class="case-modal-header">
+      <div>
+        <div class="case-modal-title">📂 案件を選択</div>
+        <div class="case-modal-subtitle">CADエディタは案件（大分類）ごとに1つのオーバーレイと結び付きます</div>
+      </div>
+    </div>
+    <div class="case-modal-search">
+      <input type="text" id="caseSearchInput" placeholder="案件名で絞り込み..." autocomplete="off">
+    </div>
+    <div class="case-modal-list" id="caseModalList">
+      <div class="case-modal-empty">読み込み中...</div>
+    </div>
+    <div class="case-modal-footer">
+      <span id="caseCountLabel">-</span>
+      <button class="case-modal-footer-btn" onclick="goBack()">戻る</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 下絵アップロードモーダル (v20260707c) ===== -->
+<div id="uploadModal" class="case-modal-backdrop" style="display:none;">
+  <div class="case-modal">
+    <div class="case-modal-header">
+      <div>
+        <div class="case-modal-title">📥 下絵アップロード</div>
+        <div class="case-modal-subtitle" id="uploadSubtitle">対象案件：-</div>
+      </div>
+    </div>
+    <div id="uploadBody">
+      <div class="upload-dropzone" id="uploadDropzone" onclick="document.getElementById('uploadFileInput').click()">
+        <div class="upload-dropzone-icon">📄</div>
+        <div class="upload-dropzone-text">ファイルをクリックして選択、またはドラッグ&ドロップ</div>
+        <div class="upload-dropzone-hint">JPEG / PNG / WebP / PDF、最大 50MB</div>
+        <input type="file" id="uploadFileInput" accept="image/jpeg,image/png,image/webp,application/pdf" style="display:none;">
+      </div>
+      <div class="upload-progress" id="uploadProgressArea" style="display:none;">
+        <div class="upload-progress-text" id="uploadProgressText">準備中...</div>
+        <div class="upload-progress-bar">
+          <div class="upload-progress-bar-fill" id="uploadProgressBar"></div>
+        </div>
+      </div>
+    </div>
+    <div class="case-modal-footer">
+      <span style="font-size:11px;color:var(--text-muted);">1案件1下絵。既存下絵は自動的に置き換わります。</span>
+      <button class="case-modal-footer-btn" onclick="closeUploadDialog()" id="uploadCancelBtn">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== トーストコンテナ ===== -->
+<div class="toast-container" id="toastContainer"></div>
+
 <script>
 /* ==========================================================================
    cad-editor.html - Track A Step 2 骨組み
@@ -431,12 +710,405 @@
      - 描画機能 → Track B
    ========================================================================== */
 
+/* ========================================================================
+   v20260707b: case_id 判定＆案件選択モーダル
+   ======================================================================== */
+async function resolveCurrentCase() {
+  const params = new URLSearchParams(location.search);
+  const urlCaseId = params.get('case_id');
+
+  if (urlCaseId) {
+    // URL指定あり → cases から fetch
+    const { data, error } = await sb
+      .from('cases')
+      .select('id, case_no, project_name, area_name')
+      .eq('case_no', urlCaseId)
+      .maybeSingle();
+    if (error) {
+      console.error('[resolveCurrentCase]', error);
+      alert('案件の読込に失敗しました: ' + error.message);
+      showCaseSelector();
+      return false;
+    }
+    if (!data) {
+      alert('指定された案件が見つかりません: ' + urlCaseId);
+      showCaseSelector();
+      return false;
+    }
+    currentCase = data;
+    currentCaseId = data.case_no;
+    currentProjectName = data.project_name;
+    applyCaseUI();
+    return true;
+  } else {
+    // URL指定なし → 案件選択モーダル表示
+    showCaseSelector();
+    return false;
+  }
+}
+
+function applyCaseUI() {
+  // ヘッダーバッジ
+  const badge = document.getElementById('currentCaseBadge');
+  badge.style.display = 'inline-block';
+  badge.textContent = '📂 ' + (currentProjectName || '?')
+    + (currentCaseId !== currentProjectName ? ' (' + currentCaseId + ')' : '');
+  // 案件切替ボタン
+  document.getElementById('btnSwitchCase').style.display = 'inline-block';
+  // ステータス
+  document.getElementById('statusCase').textContent =
+    (currentProjectName || '?') + ' / ' + (currentCaseId || '?');
+}
+
+async function showCaseSelector() {
+  document.getElementById('caseModal').style.display = 'flex';
+  const listEl = document.getElementById('caseModalList');
+  const countEl = document.getElementById('caseCountLabel');
+
+  if (!sb) {
+    listEl.innerHTML = '<div class="case-modal-empty">Supabase接続待機中...</div>';
+    return;
+  }
+  if (!allCasesCache) {
+    listEl.innerHTML = '<div class="case-modal-empty">案件一覧を読込中...</div>';
+    try {
+      // メモリ #37: 1000件超対応の全件取得ページング
+      allCasesCache = await fetchAllProjects();
+    } catch (e) {
+      console.error('[showCaseSelector]', e);
+      listEl.innerHTML = '<div class="case-modal-empty">案件一覧取得エラー: ' + e.message + '</div>';
+      return;
+    }
+  }
+  renderCaseList('');
+  countEl.textContent = allCasesCache.length + '件';
+
+  // 検索欄
+  const input = document.getElementById('caseSearchInput');
+  input.value = '';
+  input.oninput = () => renderCaseList(input.value);
+  setTimeout(() => input.focus(), 100);
+}
+
+async function fetchAllProjects() {
+  // 大分類 project_name ごとにグルーピング（distinct + 件数）
+  // Supabase の max-rows=1000 対応で range ページング
+  const all = [];
+  let from = 0;
+  const step = 1000;
+  while (true) {
+    const { data, error } = await sb
+      .from('cases')
+      .select('project_name, case_no')
+      .order('project_name')
+      .range(from, from + step - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < step) break;
+    from += step;
+  }
+  // project_name ごとに集約
+  const map = new Map();
+  all.forEach(r => {
+    if (!r.project_name) return;
+    const cur = map.get(r.project_name) || { project_name: r.project_name, cases: [] };
+    cur.cases.push(r.case_no);
+    map.set(r.project_name, cur);
+  });
+  return Array.from(map.values())
+    .sort((a, b) => a.project_name.localeCompare(b.project_name, 'ja'));
+}
+
+function renderCaseList(filter) {
+  const listEl = document.getElementById('caseModalList');
+  const q = (filter || '').trim().toLowerCase();
+  const filtered = q
+    ? allCasesCache.filter(p => p.project_name.toLowerCase().includes(q))
+    : allCasesCache;
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = '<div class="case-modal-empty">該当なし</div>';
+    return;
+  }
+  const html = filtered.map(p => {
+    const n = p.cases.length;
+    // 大分類=小分類の1件のみなら case_no を case_id として使う
+    // 大分類が複数の case_no を持つ場合、先頭 case_no を代表として使う（Step 3以降で下絵は project_name 単位）
+    const repCaseNo = p.cases[0];
+    return `<div class="case-list-item" onclick="selectCase('${escapeHtmlAttr(repCaseNo)}')">
+      <div>
+        <div class="case-list-item-name">${escapeHtml(p.project_name)}</div>
+      </div>
+      <div class="case-list-item-meta">${n > 1 ? n + '件の地番' : repCaseNo}</div>
+    </div>`;
+  }).join('');
+  listEl.innerHTML = html;
+}
+
+function selectCase(caseNo) {
+  location.href = 'cad-editor.html?case_id=' + encodeURIComponent(caseNo);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+function escapeHtmlAttr(s) {
+  return escapeHtml(s).replace(/'/g, '&#39;');
+}
+
+/* ========================================================================
+   v20260707c: 下絵アップロード処理
+   ======================================================================== */
+
+/* トースト表示 */
+function showToast(message, kind = 'info', durationMs = 3000) {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = 'toast ' + kind;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.transition = 'opacity .3s';
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  }, durationMs);
+}
+
+/* project_name → slug（Storage パス用） */
+function projectNameToSlug(name) {
+  if (!name) return 'unknown';
+  // URLエンコード → 特殊文字を安全に、日本語は encodeURIComponent で処理
+  return encodeURIComponent(name).replace(/%/g, '_').substring(0, 100);
+}
+
+/* アップロードダイアログを開く */
+function openUploadDialog() {
+  if (!currentCaseId || !currentProjectName) {
+    showToast('案件が確定していません', 'error');
+    return;
+  }
+  document.getElementById('uploadSubtitle').textContent =
+    '対象案件：' + currentProjectName;
+  document.getElementById('uploadModal').style.display = 'flex';
+  document.getElementById('uploadDropzone').style.display = 'block';
+  document.getElementById('uploadProgressArea').style.display = 'none';
+  document.getElementById('uploadCancelBtn').textContent = 'キャンセル';
+  document.getElementById('uploadCancelBtn').disabled = false;
+  const fileInput = document.getElementById('uploadFileInput');
+  fileInput.value = '';
+  fileInput.onchange = (e) => handleFileSelect(e.target.files);
+
+  // ドラッグ&ドロップ
+  const dz = document.getElementById('uploadDropzone');
+  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add('drag-over'); };
+  dz.ondragleave = () => dz.classList.remove('drag-over');
+  dz.ondrop = (e) => {
+    e.preventDefault();
+    dz.classList.remove('drag-over');
+    handleFileSelect(e.dataTransfer.files);
+  };
+}
+
+function closeUploadDialog() {
+  document.getElementById('uploadModal').style.display = 'none';
+}
+
+/* ファイル選択されたらアップロード開始 */
+async function handleFileSelect(fileList) {
+  if (!fileList || fileList.length === 0) return;
+  const file = fileList[0];
+
+  // バリデーション
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+  if (!allowedTypes.includes(file.type)) {
+    showToast('対応形式: JPEG / PNG / WebP / PDF', 'error');
+    return;
+  }
+  const MAX = 50 * 1024 * 1024;
+  if (file.size > MAX) {
+    showToast('ファイルサイズが50MBを超えています', 'error');
+    return;
+  }
+
+  // 進捗UIへ切り替え
+  document.getElementById('uploadDropzone').style.display = 'none';
+  document.getElementById('uploadProgressArea').style.display = 'block';
+  document.getElementById('uploadCancelBtn').disabled = true;
+
+  try {
+    await uploadOverlayFile(file);
+    showToast('下絵をアップロードしました', 'success');
+    closeUploadDialog();
+    // オーバーレイを再読込
+    overlaysGroup.clearLayers();
+    await loadOverlays();
+  } catch (err) {
+    console.error('[upload]', err);
+    showToast('アップロード失敗: ' + err.message, 'error');
+    // ダイアログを元に戻す
+    document.getElementById('uploadDropzone').style.display = 'block';
+    document.getElementById('uploadProgressArea').style.display = 'none';
+    document.getElementById('uploadCancelBtn').disabled = false;
+  }
+}
+
+/* アップロード本体 */
+async function uploadOverlayFile(file) {
+  updateProgress('画像を準備中...', 5);
+
+  let uploadFile = file;
+  let mime = file.type;
+  let ext = { 'image/jpeg':'jpg', 'image/png':'png', 'image/webp':'webp', 'application/pdf':'pdf' }[mime];
+  let width_px = null, height_px = null;
+
+  // PDF は1ページ目を PNG に変換
+  if (mime === 'application/pdf') {
+    updateProgress('PDF を画像化しています...', 15);
+    const rendered = await pdfToImage(file);
+    uploadFile = rendered.blob;
+    mime = 'image/png';
+    ext = 'png';
+    width_px = rendered.width;
+    height_px = rendered.height;
+  } else {
+    // 画像サイズ取得
+    updateProgress('画像サイズを取得中...', 15);
+    const dims = await getImageDimensions(file);
+    width_px = dims.width;
+    height_px = dims.height;
+  }
+
+  // Supabase Storage にアップロード
+  updateProgress('Storage にアップロード中...', 40);
+
+  // organization_id / overlay_id / パス構築
+  const orgId = window.__auth?.profile?.organization_id;
+  if (!orgId) throw new Error('organization_id 取得失敗');
+  const overlayId = crypto.randomUUID();
+  const projectSlug = projectNameToSlug(currentProjectName);
+  const storagePath = `${orgId}/${projectSlug}/${overlayId}/original.${ext}`;
+
+  // 既存下絵があれば先に削除（1案件1下絵原則）
+  await deleteExistingOverlaysIfAny();
+
+  const { error: upErr } = await sb.storage
+    .from('cad-overlays')
+    .upload(storagePath, uploadFile, {
+      contentType: mime,
+      cacheControl: '31536000',
+      upsert: false
+    });
+  if (upErr) throw new Error('Storage: ' + upErr.message);
+
+  updateProgress('URL を取得中...', 70);
+
+  // 署名付きURL取得（非公開バケットのため）
+  const { data: signed, error: sigErr } = await sb.storage
+    .from('cad-overlays')
+    .createSignedUrl(storagePath, 60 * 60 * 24 * 365); // 1年
+  if (sigErr) throw new Error('Signed URL: ' + sigErr.message);
+  const publicishUrl = signed.signedUrl;
+
+  updateProgress('DB に記録中...', 85);
+
+  // overlays テーブルに INSERT
+  const { error: insErr } = await sb.from('overlays').insert({
+    id: overlayId,
+    organization_id: orgId,
+    case_id: currentProjectName,          // 大分類名 = project_name
+    name: currentProjectName + ' 下絵',
+    source_type: file.type === 'application/pdf' ? 'pdf' : 'image',
+    source_url: publicishUrl,
+    source_width_px: width_px,
+    source_height_px: height_px,
+    control_points: [],
+    transform_type: 'similarity',
+    transform_params: {},
+    opacity: 0.7,
+    locked: false,
+    visible: true
+  });
+  if (insErr) throw new Error('overlays INSERT: ' + insErr.message);
+
+  updateProgress('完了', 100);
+}
+
+/* 進捗表示 */
+function updateProgress(text, percent) {
+  document.getElementById('uploadProgressText').textContent = text;
+  document.getElementById('uploadProgressBar').style.width = percent + '%';
+}
+
+/* 既存下絵があれば削除（1案件1下絵原則、UNIQUE制約で守られているが冪等性のため） */
+async function deleteExistingOverlaysIfAny() {
+  const orgId = window.__auth?.profile?.organization_id;
+  if (!orgId || !currentProjectName) return;
+
+  const { data: existing } = await sb
+    .from('overlays')
+    .select('id, source_url')
+    .eq('organization_id', orgId)
+    .eq('case_id', currentProjectName);
+  if (!existing || existing.length === 0) return;
+
+  // DBから削除
+  await sb.from('overlays')
+    .delete()
+    .eq('organization_id', orgId)
+    .eq('case_id', currentProjectName);
+
+  // Storage 側は残っていても RLS で読めないだけ。運用に支障なし。
+  // 必要なら後で cleanup バッチで削除。
+}
+
+/* PDF → PNG 画像変換（1ページ目、pdf.js） */
+async function pdfToImage(file) {
+  if (!window.pdfjsLib) throw new Error('PDF.js 未ロード');
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const page = await pdf.getPage(1);
+  // 高解像度でレンダリング（scale=2 で約2倍精細）
+  const viewport = page.getViewport({ scale: 2.0 });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+  const ctx = canvas.getContext('2d');
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/png', 0.92));
+  return { blob, width: canvas.width, height: canvas.height };
+}
+
+/* 画像サイズ取得 */
+function getImageDimensions(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => {
+      reject(new Error('画像読込失敗'));
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  });
+}
+
 let map = null;
 let currentTile = 'std';
 let tileLayers = {};
 let overlaysGroup = null;      // overlays テーブル用（Step 3で実装）
 let villaOverlaysGroup = null; // 既存 villa_overlays 表示用
 let sb = null;                 // Supabase クライアント
+
+/* ===== v20260707b: 案件識別 ===== */
+let currentCaseId = null;      // URL ?case_id=XXX or 選択されたcase_no
+let currentCase = null;        // cases テーブルの1レコード
+let currentProjectName = null; // 大分類名（例：「びわこの森」）
+let allCasesCache = null;      // 案件選択モーダル用の distinct project_name キャッシュ
 
 /* ========================================================================
    タイル定義（field-survey.html と統一）
@@ -576,22 +1248,81 @@ async function loadVillaOverlays() {
 }
 
 /* ========================================================================
-   overlays テーブル読み込み（Step 3以降で書き込みUI追加）
+   overlays テーブル読み込み + 地図に仮配置（v20260707c）
+   Step 3では基準点変換なし、地図中央に画像を単純に載せるだけ
+   Step 4-6で基準点による正確な合わせ込みを実装
    ======================================================================== */
 async function loadOverlays() {
-  if (!sb) return;
+  if (!sb || !currentProjectName) return;
   try {
     const { data, error } = await sb
       .from('overlays')
-      .select('id, name, visible')
+      .select('id, name, visible, source_type, source_url, source_width_px, source_height_px, opacity, transform_type, transform_params, control_points')
+      .eq('case_id', currentProjectName)
       .eq('visible', true);
     if (error) throw error;
+
     document.getElementById('overlaysCount').textContent = (data?.length ?? 0);
-    // Step 3で実際の描画処理を追加
+
+    if (!data || data.length === 0) return;
+
+    // 各下絵を地図に配置
+    data.forEach(ov => {
+      placeOverlayOnMap(ov);
+    });
   } catch (e) {
     console.error('[loadOverlays]', e);
     document.getElementById('overlaysCount').textContent = 'ERR';
   }
+}
+
+/* 下絵を地図に載せる（Step 3: 仮配置、Step 4-6: 基準点変換後の正確配置） */
+function placeOverlayOnMap(ov) {
+  if (!map || !overlaysGroup) return;
+  const url = ov.source_url;
+  if (!url) return;
+
+  const hasControlPoints = Array.isArray(ov.control_points) && ov.control_points.length >= 2;
+
+  if (hasControlPoints) {
+    // TODO: Step 4-6 で基準点変換を実装
+    // 暫定: 変換パラメータがあればそれを使う
+    console.log('[placeOverlayOnMap] 基準点あり、Step 4-6 で実装', ov);
+    // 一旦は仮配置と同じ動作
+    _placeAsTemporaryOverlay(ov);
+  } else {
+    // 仮配置: 画面中央に画像アスペクト比を保って配置
+    _placeAsTemporaryOverlay(ov);
+  }
+}
+
+function _placeAsTemporaryOverlay(ov) {
+  const url = ov.source_url;
+  const bounds = map.getBounds();
+  const center = bounds.getCenter();
+  const w = ov.source_width_px || 1000;
+  const h = ov.source_height_px || 1000;
+  const aspect = h / w;
+
+  // 地図の表示範囲の60%くらいを使う
+  const mapW = Math.abs(bounds.getEast() - bounds.getWest());
+  const mapH = Math.abs(bounds.getNorth() - bounds.getSouth());
+  const targetW = mapW * 0.6;
+  const targetH = targetW * aspect;
+
+  const imageBounds = [
+    [center.lat - targetH / 2, center.lng - targetW / 2],
+    [center.lat + targetH / 2, center.lng + targetW / 2]
+  ];
+
+  const overlay = L.imageOverlay(url, imageBounds, {
+    opacity: ov.opacity ?? 0.7,
+    interactive: false,
+    className: 'overlay-image',
+    alt: ov.name || 'CAD Overlay'
+  });
+  overlay._overlayId = ov.id;
+  overlaysGroup.addLayer(overlay);
 }
 
 /* ========================================================================
@@ -615,16 +1346,22 @@ function goBack() {
 }
 
 /* ========================================================================
-   起動シーケンス
+   起動シーケンス (v20260707b: case_id 必須化)
    ======================================================================== */
 window.addEventListener('DOMContentLoaded', () => {
   initMap();
   // 認証は common-auth.js が非同期で解決するのを待つ
-  const tryInit = () => {
+  const tryInit = async () => {
     if (window.__auth && window.__auth.sb) {
       if (initSupabase()) {
-        loadVillaOverlays();
-        loadOverlays();
+        // v20260707b: 先に案件を確定させる
+        const ok = await resolveCurrentCase();
+        if (ok) {
+          // 案件確定後にレイヤー読込
+          loadVillaOverlays();
+          loadOverlays();
+        }
+        // 案件未確定なら showCaseSelector() が既にモーダル表示済
       }
     } else {
       setTimeout(tryInit, 200);
