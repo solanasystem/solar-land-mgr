@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260707r / 頂点マーカーをDraftSight風緑四角(グリップポイント)に変更。前:v20260707q -->
+<!-- BUILD: cad-editor v20260707v / DraftSight風選択削除(単一/複数選択+Deleteキー+Shift追加+Shift範囲選択)。前:v20260707u -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -722,14 +722,69 @@
     display: none !important;
   }
 
+  /* ===== v20260707s: 独自クラス .cad-grip で確実に装飾（MutationObserverから付与）===== */
+  .cad-grip {
+    border-radius: 0 !important;
+    background: #3fb950 !important;
+    background-color: #3fb950 !important;
+    background-image: none !important;
+    border: 1.5px solid #ffffff !important;
+    box-shadow: 0 0 3px rgba(0, 0, 0, 0.7);
+    width: 12px !important;
+    height: 12px !important;
+    margin-left: -6px !important;
+    margin-top: -6px !important;
+  }
+  .cad-grip:hover,
+  .cad-grip.hover {
+    background: #f0b429 !important;
+    background-color: #f0b429 !important;
+    width: 16px !important;
+    height: 16px !important;
+    margin-left: -8px !important;
+    margin-top: -8px !important;
+    box-shadow: 0 0 6px rgba(240, 180, 41, 0.9);
+    z-index: 2000 !important;
+  }
+  /* 中間頂点マーカー（辺の中点）はやや小さめ半透明 */
+  .cad-grip.middle {
+    opacity: 0.55 !important;
+    width: 9px !important;
+    height: 9px !important;
+    margin-left: -4.5px !important;
+    margin-top: -4.5px !important;
+  }
+  /* 内部のimgタグを完全に非表示（元アイコンを隠す） */
+  .cad-grip img,
+  .cad-grip svg {
+    display: none !important;
+  }
+
   /* ===== v20260707k: DraftSight風カーソル ===== */
+  /* v20260707t: 矢印カーソルを表示（cursor:none をやめる） */
   body.drawing-mode #map,
   body.drawing-mode .leaflet-container {
-    cursor: none !important;
+    cursor: default !important;
   }
-  /* v20260707n: Leaflet-Geoman ヒントテキストのみ非表示、内部マーカーは触らない */
+  /* v20260707n: Leaflet-Geoman ヒントテキストのみ非表示 */
   body.drawing-mode .leaflet-tooltip {
     display: none !important;
+  }
+
+  /* v20260707t: 緑と赤の十字線は廃止（DraftSightは矢印カーソル+小さな四角のみ） */
+  #crosshairOverlay .ch-vline,
+  #crosshairOverlay .ch-hline {
+    display: none !important;
+  }
+  #crosshairOverlay .ch-center {
+    /* マウス位置の小さな白い正方形の枠（DraftSightのクロスヘア表現） */
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border: 1.5px solid #ffffff;
+    background: transparent;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
   }
 
   /* ===== v20260707r: 頂点マーカーをDraftSight風の緑四角(グリップポイント)に変更 =====
@@ -787,53 +842,36 @@
   #crosshairOverlay.active {
     display: block;
   }
-  #crosshairOverlay .ch-vline {
-    /* v20260707p: マウス位置の局所十字（DraftSight風）、画面全体の十字ではない */
-    position: absolute;
-    width: 1.5px;
-    height: 40px;
-    background: #3fb950;  /* Y軸: 緑 */
-    box-shadow: 0 0 3px rgba(63,185,80,0.7);
-    transform: translate(-50%, -50%);
-  }
+  #crosshairOverlay .ch-vline,
   #crosshairOverlay .ch-hline {
-    position: absolute;
-    height: 1.5px;
-    width: 40px;
-    background: #f85149;  /* X軸: 赤 */
-    box-shadow: 0 0 3px rgba(248,81,73,0.7);
-    transform: translate(-50%, -50%);
-  }
-  #crosshairOverlay .ch-center {
-    position: absolute;
-    width: 10px;
-    height: 10px;
-    border: 1.5px solid #fff;
-    background: transparent;
-    transform: translate(-50%, -50%);
-    box-shadow: 0 0 3px rgba(0,0,0,0.7);
+    /* v20260707t: 廃止済み。上部で display:none 指定済み */
+    display: none;
   }
   #crosshairOverlay .ch-label {
     position: absolute;
-    background: rgba(0, 0, 0, 0.85);
-    color: #fff;
-    padding: 3px 8px;
+    background: rgba(30, 40, 60, 0.92);
+    color: #ffffff;
+    padding: 2px 7px;
     font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 700;
-    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 2px;
     white-space: nowrap;
-    border: 1px solid var(--accent);
-    transform: translate(12px, -50%);
+    border: 1px solid #58a6ff;
   }
-  #crosshairOverlay .ch-label-distance {
-    color: #58a6ff;
-    border-color: #58a6ff;
-  }
+  /* v20260707u: 角度ラベル - カーソルの右上（DraftSight実装通り） */
   #crosshairOverlay .ch-label-angle {
-    color: #f0b429;
-    border-color: #f0b429;
-    transform: translate(12px, 12px);
+    color: #ffffff;
+    background: rgba(30, 40, 60, 0.92);
+    border-color: #58a6ff;
+    transform: translate(14px, -160%);
+  }
+  /* 距離ラベル - カーソルの右下 */
+  #crosshairOverlay .ch-label-distance {
+    color: #ffffff;
+    background: rgba(88, 166, 255, 0.85);
+    border-color: #58a6ff;
+    transform: translate(14px, 40%);
   }
   #crosshairOverlay .ch-guideline {
     position: absolute;
@@ -884,7 +922,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;border-radius:3px;">BUILD: v20260707r</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;border-radius:3px;">BUILD: v20260707v</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -1659,10 +1697,12 @@ function initMap() {
   });
   // v20260707l: 地図空白クリックで選択解除
   map.on('click', () => {
-    if (selectedShape && !currentDrawMode && !arcMode && !removeMode && !editMode && !controlPointMode && !measureMode) {
-      deselectShape();
+    if (selectedShapes.length > 0 && !currentDrawMode && !arcMode && !removeMode && !editMode && !controlPointMode && !measureMode) {
+      clearSelection();
     }
   });
+  // v20260707v: Shift+ドラッグで範囲選択
+  _initRangeSelect();
   document.getElementById('statusZoom').textContent = map.getZoom().toFixed(2);
 }
 
@@ -2424,27 +2464,148 @@ function setDrawFill(fill) {
 }
 
 /* ========================================================================
-   v20260707l: 図形選択機能
+   v20260707v: Shift+左ドラッグで範囲選択（ラバーバンド）
+   ドラッグした範囲内の shape を全て選択
+   Shiftキー押下時のみ動作（通常ドラッグは地図パン）
    ======================================================================== */
-let selectedShape = null;   // 現在選択中の shape レイヤー
-let _selectPrevStyle = null; // 選択解除時に戻すためのオリジナルスタイル
+function _initRangeSelect() {
+  const mapEl = map.getContainer();
+  let boxDiv = null;
+  let startPt = null;
+  let startLL = null;
+  let dragging = false;
 
-function selectShape(layer) {
-  if (selectedShape === layer) return;
-  if (selectedShape) deselectShape();
-  selectedShape = layer;
-  // 元のスタイルを保存
-  _selectPrevStyle = {
+  const canRangeSelect = () => {
+    return !currentDrawMode && !arcMode && !removeMode && !editMode && !controlPointMode && !measureMode;
+  };
+
+  const onMouseDown = (e) => {
+    if (!canRangeSelect()) return;
+    if (!e.shiftKey) return;  // Shift+ドラッグのみ
+    // マウス左ボタンのみ
+    if (e.button !== 0) return;
+    // 地図パンを無効化
+    map.dragging.disable();
+    map.boxZoom.disable();
+    dragging = true;
+    const rect = mapEl.getBoundingClientRect();
+    startPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    startLL = map.containerPointToLatLng([startPt.x, startPt.y]);
+    boxDiv = document.createElement('div');
+    boxDiv.style.cssText = `
+      position: absolute;
+      border: 1.5px dashed #58a6ff;
+      background: rgba(88, 166, 255, 0.12);
+      pointer-events: none;
+      z-index: 950;
+      left: ${startPt.x}px;
+      top: ${startPt.y}px;
+      width: 0;
+      height: 0;
+    `;
+    mapEl.appendChild(boxDiv);
+    e.preventDefault();
+  };
+
+  const onMouseMove = (e) => {
+    if (!dragging || !boxDiv) return;
+    const rect = mapEl.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const x = Math.min(startPt.x, cx);
+    const y = Math.min(startPt.y, cy);
+    const w = Math.abs(cx - startPt.x);
+    const h = Math.abs(cy - startPt.y);
+    boxDiv.style.left = x + 'px';
+    boxDiv.style.top = y + 'px';
+    boxDiv.style.width = w + 'px';
+    boxDiv.style.height = h + 'px';
+  };
+
+  const onMouseUp = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    map.dragging.enable();
+    map.boxZoom.enable();
+    if (!boxDiv) return;
+    const rect = mapEl.getBoundingClientRect();
+    const endPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const endLL = map.containerPointToLatLng([endPt.x, endPt.y]);
+    boxDiv.remove();
+    boxDiv = null;
+
+    // ドラッグが小さすぎる場合は無視（誤クリック）
+    const dx = Math.abs(endPt.x - startPt.x);
+    const dy = Math.abs(endPt.y - startPt.y);
+    if (dx < 5 && dy < 5) return;
+
+    // 選択矩形の LatLngBounds
+    const selectBounds = L.latLngBounds([startLL, endLL]);
+    if (!e.shiftKey) clearSelection();  // Shift 押しっぱなしなら追加、離してれば置換
+
+    let count = 0;
+    shapesGroup.eachLayer(layer => {
+      let hit = false;
+      try {
+        if (layer.getBounds) {
+          const lb = layer.getBounds();
+          if (lb.isValid() && selectBounds.intersects(lb)) hit = true;
+        } else if (layer.getLatLng) {
+          if (selectBounds.contains(layer.getLatLng())) hit = true;
+        }
+      } catch (_e) {}
+      if (hit && !selectedShapes.includes(layer)) {
+        selectShape(layer, true);
+        count++;
+      }
+    });
+    if (count === 0) {
+      showToast('範囲内に図形なし', 'info', 1500);
+    }
+  };
+
+  mapEl.addEventListener('mousedown', onMouseDown);
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup', onMouseUp);
+}
+
+/* ========================================================================
+   v20260707v: 図形選択機能（複数選択対応）
+   ======================================================================== */
+let selectedShapes = [];   // 現在選択中の shape レイヤー配列
+// 後方互換用のアクセサ
+Object.defineProperty(window, 'selectedShape', {
+  get() { return selectedShapes.length > 0 ? selectedShapes[0] : null; }
+});
+
+function selectShape(layer, addToExisting = false) {
+  if (!addToExisting) clearSelection();
+  if (selectedShapes.includes(layer)) return;
+
+  // 元スタイルを保存
+  layer._preSelectStyle = {
     weight: layer.options.weight,
     color: layer.options.color,
     dashArray: layer.options.dashArray
   };
-  // ハイライト：既存太さ+3、色そのまま、実線でハイライト枠
+  // ハイライト：既存太さ+3
   layer.setStyle({
     weight: (layer.options.weight || 1) + 3,
     opacity: 1
   });
-  // プロパティパネルに現在のスタイルを反映
+  selectedShapes.push(layer);
+
+  // プロパティパネルに1つ目の shape のスタイルを反映
+  if (selectedShapes.length === 1) {
+    _reflectShapeStyleToPanel(layer);
+  }
+  showToast(
+    `${selectedShapes.length}件選択 / Deleteで削除, Shift+クリックで追加`,
+    'info', 2000
+  );
+}
+
+function _reflectShapeStyleToPanel(layer) {
   const props = layer._shapeData?.properties || {};
   if (props.color) {
     drawStyle.color = props.color;
@@ -2468,69 +2629,91 @@ function selectShape(layer) {
   document.querySelectorAll('.pp-dash[data-fill]').forEach(el => {
     el.classList.toggle('active', el.dataset.fill === fill);
   });
-  showToast('図形を選択（プロパティを変更→自動保存、Escで解除）', 'info', 2500);
 }
 
-function deselectShape() {
-  if (!selectedShape) return;
-  try {
-    if (_selectPrevStyle) {
-      selectedShape.setStyle({
-        weight: _selectPrevStyle.weight,
-        color: _selectPrevStyle.color,
-        dashArray: _selectPrevStyle.dashArray
-      });
-    }
-  } catch (e) {}
-  selectedShape = null;
-  _selectPrevStyle = null;
+function clearSelection() {
+  selectedShapes.forEach(layer => {
+    try {
+      if (layer._preSelectStyle) {
+        layer.setStyle({
+          weight: layer._preSelectStyle.weight,
+          color: layer._preSelectStyle.color,
+          dashArray: layer._preSelectStyle.dashArray
+        });
+      }
+    } catch (e) {}
+    delete layer._preSelectStyle;
+  });
+  selectedShapes = [];
 }
+
+// 後方互換
+function deselectShape() { clearSelection(); }
 
 async function applyStyleToSelectedShape() {
-  if (!selectedShape || !sb) return;
-  const layer = selectedShape;
+  if (selectedShapes.length === 0 || !sb) return;
   const newColor = drawStyle.color;
   const newWeight = drawStyle.weight;
   const newDash = drawStyle.dashArray || null;
   const newFill = drawStyle.fillPattern || 'none';
 
-  // レイヤー style 更新（選択中なので weight は +3 のまま）
-  layer.setStyle({
-    color: newColor,
-    weight: newWeight + 3,
-    dashArray: newDash,
-    fillColor: newColor,
-    fillOpacity: (newFill && newFill !== 'none') ? 1 : 0.15
-  });
-  // 元スタイル（選択解除時に戻す用）を新しい値で更新
-  _selectPrevStyle = { weight: newWeight, color: newColor, dashArray: newDash };
-  // ハッチング再適用
-  if (newFill && newFill !== 'none') {
-    applyFillPatternToLayer(layer, newFill, newColor);
-  } else if (layer._path) {
-    layer._path.setAttribute('fill', newColor);
-    layer._path.setAttribute('fill-opacity', '0.15');
-  }
-
-  // DB保存
-  const shapeData = layer._shapeData;
-  if (shapeData) {
-    const newProps = {
-      ...(shapeData.properties || {}),
+  for (const layer of selectedShapes) {
+    layer.setStyle({
       color: newColor,
-      weight: newWeight,
+      weight: newWeight + 3,
       dashArray: newDash,
-      fillPattern: newFill
-    };
-    try {
-      const { error } = await sb.from('shapes').update({ properties: newProps }).eq('id', shapeData.id);
-      if (error) throw error;
-      shapeData.properties = newProps;
-    } catch (e) {
-      console.error('[applyStyleToSelectedShape]', e);
-      showToast('プロパティ保存失敗: ' + e.message, 'error');
+      fillColor: newColor,
+      fillOpacity: (newFill && newFill !== 'none') ? 1 : 0.15
+    });
+    layer._preSelectStyle = { weight: newWeight, color: newColor, dashArray: newDash };
+    if (newFill && newFill !== 'none') {
+      applyFillPatternToLayer(layer, newFill, newColor);
+    } else if (layer._path) {
+      layer._path.setAttribute('fill', newColor);
+      layer._path.setAttribute('fill-opacity', '0.15');
+    }
+
+    const shapeData = layer._shapeData;
+    if (shapeData) {
+      const newProps = {
+        ...(shapeData.properties || {}),
+        color: newColor,
+        weight: newWeight,
+        dashArray: newDash,
+        fillPattern: newFill
+      };
+      try {
+        const { error } = await sb.from('shapes').update({ properties: newProps }).eq('id', shapeData.id);
+        if (error) throw error;
+        shapeData.properties = newProps;
+      } catch (e) {
+        console.error('[applyStyleToSelectedShape]', e);
+      }
     }
   }
+}
+
+/* v20260707v: 選択中の shape 群を一括削除 (Delete キーから呼ばれる) */
+async function deleteSelectedShapes() {
+  if (selectedShapes.length === 0) return;
+  const toDelete = [...selectedShapes];
+  selectedShapes = [];  // clearSelection の setStyle 復元をスキップ（どうせ消えるので）
+  let deleted = 0;
+  for (const layer of toDelete) {
+    if (layer._shapeId) {
+      try {
+        const { error } = await sb.from('shapes').delete().eq('id', layer._shapeId);
+        if (error) throw error;
+      } catch (e) {
+        console.error('[deleteSelectedShapes]', e);
+        continue;
+      }
+    }
+    shapesGroup.removeLayer(layer);
+    deleted++;
+  }
+  updateShapesCount();
+  showToast(`${deleted}件削除しました`, 'success', 2000);
 }
 
 /* shape のクリック処理（デフォルト = 他モード無効時）で選択 */
@@ -2539,7 +2722,9 @@ function onShapeClickForSelect(e) {
   if (measureMode) return onShapeClickForMeasure(e);
   if (currentDrawMode || removeMode || editMode || controlPointMode || arcMode) return;
   L.DomEvent.stopPropagation(e);
-  selectShape(e.target);
+  // v20260707v: Shift+クリックで追加選択
+  const addToExisting = e.originalEvent && e.originalEvent.shiftKey;
+  selectShape(e.target, addToExisting);
 }
 
 /* SVGパターンIDを取得（色ごとにIDを分けるためにインスタンスを動的生成） */
@@ -2896,6 +3081,65 @@ function _formatDistance(m) {
   if (m >= 1000) return (m / 1000).toFixed(3) + ' km';
   if (m >= 1) return m.toFixed(2) + ' m';
   return (m * 100).toFixed(1) + ' cm';
+}
+
+/* ========================================================================
+   v20260707s: MutationObserver で Leaflet-Geoman の描画マーカーに .cad-grip 付与
+   Leaflet-Geoman のクラス名に依存せず、DraftSight風の緑四角に置き換える
+   ======================================================================== */
+function initVertexMarkerObserver() {
+  const mapEl = document.getElementById('map');
+  if (!mapEl) return;
+
+  const isDrawingMarker = (node) => {
+    if (!node.classList) return false;
+    // Leaflet-Geoman の各種マーカー名を全網羅
+    return (
+      node.classList.contains('leaflet-pm-vertex-marker') ||
+      node.classList.contains('leaflet-pm-hint-marker') ||
+      node.classList.contains('leaflet-pm-marker') ||
+      node.classList.contains('marker-icon-middle') ||
+      // v2.x で使われる他の可能性
+      (node.className && typeof node.className === 'string' &&
+        /leaflet-pm-|marker-icon-middle/.test(node.className))
+    );
+  };
+
+  const applyCadGrip = (node) => {
+    if (!node.classList) return;
+    node.classList.add('cad-grip');
+    if (node.classList.contains('marker-icon-middle')) {
+      node.classList.add('middle');
+    }
+  };
+
+  // 既存要素の走査（初期状態でマーカーがあれば適用）
+  mapEl.querySelectorAll('.leaflet-pm-vertex-marker, .leaflet-pm-hint-marker, .leaflet-pm-marker, .marker-icon-middle').forEach(applyCadGrip);
+
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach(m => {
+      m.addedNodes.forEach(node => {
+        if (node.nodeType !== 1) return; // Element のみ
+        if (isDrawingMarker(node)) {
+          applyCadGrip(node);
+        }
+        // 子孫にも適用
+        if (node.querySelectorAll) {
+          node.querySelectorAll('.leaflet-pm-vertex-marker, .leaflet-pm-hint-marker, .leaflet-pm-marker, .marker-icon-middle').forEach(applyCadGrip);
+        }
+      });
+      // class 属性の変更も監視（マーカーが再クラス付けされる場合）
+      if (m.type === 'attributes' && m.attributeName === 'class' && isDrawingMarker(m.target)) {
+        applyCadGrip(m.target);
+      }
+    });
+  });
+  observer.observe(mapEl, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class']
+  });
 }
 
 /* ========================================================================
@@ -3477,15 +3721,23 @@ window.addEventListener('DOMContentLoaded', () => {
   initMap();
   // v20260707k: クロスヘアオーバーレイ初期化
   initCrosshair();
+  // v20260707s: 頂点マーカーに独自クラスを付与（Leaflet-Geoman のクラス名依存を回避）
+  initVertexMarkerObserver();
   // v20260707g: 描画中のキーボードショートカット
   document.addEventListener('keydown', (e) => {
     // フォーム入力中は無視
     const tag = (e.target?.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-    // v20260707l: 選択解除
-    if (e.key === 'Escape' && selectedShape && !currentDrawMode) {
+    // v20260707v: Delete / Backspace で選択中を一括削除
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedShapes.length > 0 && !currentDrawMode) {
       e.preventDefault();
-      deselectShape();
+      deleteSelectedShapes();
+      return;
+    }
+    // v20260707l: 選択解除
+    if (e.key === 'Escape' && selectedShapes.length > 0 && !currentDrawMode) {
+      e.preventDefault();
+      clearSelection();
       return;
     }
     if (!currentDrawMode) return;
