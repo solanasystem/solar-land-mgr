@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260707n / v20260707mの描画妨害バグを修正(Leaflet-Geoman内部マーカーへの干渉を除去)。前:v20260707m -->
+<!-- BUILD: cad-editor v20260707r / 頂点マーカーをDraftSight風緑四角(グリップポイント)に変更。前:v20260707q -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -727,10 +727,47 @@
   body.drawing-mode .leaflet-container {
     cursor: none !important;
   }
-  /* v20260707n: Leaflet-Geoman ヒントテキストのみ非表示、内部マーカーは触らない
-     （v20260707m で内部マーカーまで非表示にしたため描画が壊れていた） */
+  /* v20260707n: Leaflet-Geoman ヒントテキストのみ非表示、内部マーカーは触らない */
   body.drawing-mode .leaflet-tooltip {
     display: none !important;
+  }
+
+  /* ===== v20260707r: 頂点マーカーをDraftSight風の緑四角(グリップポイント)に変更 =====
+     Leaflet-Geoman デフォルトの青丸→CAD標準の緑四角 */
+  .leaflet-pm-vertex-marker,
+  .leaflet-pm-hint-marker,
+  .marker-icon.leaflet-marker-draggable {
+    border-radius: 0 !important;
+    background-color: #3fb950 !important;  /* CAD標準の緑 */
+    background-image: none !important;
+    border: 1.5px solid #ffffff !important;
+    box-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
+    width: 12px !important;
+    height: 12px !important;
+    margin-left: -6px !important;
+    margin-top: -6px !important;
+  }
+  /* 中間頂点マーカー（辺の中点、クリックで新規頂点追加）は半透明 */
+  .marker-icon-middle {
+    border-radius: 0 !important;
+    background-color: #3fb950 !important;
+    background-image: none !important;
+    border: 1px solid #ffffff !important;
+    opacity: 0.55 !important;
+    width: 9px !important;
+    height: 9px !important;
+    margin-left: -4.5px !important;
+    margin-top: -4.5px !important;
+  }
+  /* マーカーのホバー時：始点閉じ判定を分かりやすく */
+  .leaflet-pm-vertex-marker:hover,
+  .leaflet-pm-hint-marker:hover {
+    background-color: #f0b429 !important;  /* ホバー時は黄色 */
+    width: 16px !important;
+    height: 16px !important;
+    margin-left: -8px !important;
+    margin-top: -8px !important;
+    box-shadow: 0 0 6px rgba(240, 180, 41, 0.8);
   }
 
   #crosshairOverlay {
@@ -740,34 +777,41 @@
     z-index: 900;
     display: none;
   }
-  /* v20260707m: JSから display:flex を明示的に付与するので body.drawing-mode 依存を軽減 */
+  /* v20260707o: 子孫全てに pointer-events: none を強制。
+     これがないと、縦線・横線などが地図上のマーカークリックを吸収してしまう */
+  #crosshairOverlay,
+  #crosshairOverlay * {
+    pointer-events: none !important;
+  }
+  /* v20260707m: JSから display:block を明示的に付与するので body.drawing-mode 依存を軽減 */
   #crosshairOverlay.active {
     display: block;
   }
   #crosshairOverlay .ch-vline {
+    /* v20260707p: マウス位置の局所十字（DraftSight風）、画面全体の十字ではない */
     position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 1px;
+    width: 1.5px;
+    height: 40px;
     background: #3fb950;  /* Y軸: 緑 */
-    box-shadow: 0 0 4px rgba(63,185,80,0.6);
+    box-shadow: 0 0 3px rgba(63,185,80,0.7);
+    transform: translate(-50%, -50%);
   }
   #crosshairOverlay .ch-hline {
     position: absolute;
-    left: 0;
-    right: 0;
-    height: 1px;
+    height: 1.5px;
+    width: 40px;
     background: #f85149;  /* X軸: 赤 */
-    box-shadow: 0 0 4px rgba(248,81,73,0.6);
+    box-shadow: 0 0 3px rgba(248,81,73,0.7);
+    transform: translate(-50%, -50%);
   }
   #crosshairOverlay .ch-center {
     position: absolute;
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     border: 1.5px solid #fff;
     background: transparent;
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 4px rgba(0,0,0,0.6);
+    box-shadow: 0 0 3px rgba(0,0,0,0.7);
   }
   #crosshairOverlay .ch-label {
     position: absolute;
@@ -840,7 +884,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;border-radius:3px;">BUILD: v20260707n</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;border-radius:3px;">BUILD: v20260707r</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -1592,8 +1636,12 @@ function initMap() {
     map.pm.setGlobalOptions({
       layerGroup: shapesGroup,
       snappable: true,
-      snapDistance: 20,
-      allowSelfIntersection: false,
+      snapDistance: 60,        // v20260707q: 20→60px、始点/頂点への吸着を強化
+      snapMiddle: true,        // v20260707q: セグメント中点にもスナップ
+      snapVertex: true,        // v20260707q: 頂点スナップ
+      snapSegment: true,       // v20260707q: セグメントスナップ
+      allowSelfIntersection: true,  // v20260707q: 自己交差ポリゴン許可（囲む描画に必要）
+      requireSnapToFinish: false,   // スナップ必須にはしない（クリック終了も可）
       finishOn: 'dblclick'
     });
     // 描画完了・編集・削除イベント
@@ -2570,6 +2618,10 @@ function startDraw(shape) {
   try {
     map.pm.enableDraw(shape, {
       snappable: true,
+      snapDistance: 60,        // v20260707q: 大きく
+      snapMiddle: true,
+      snapVertex: true,
+      snapSegment: true,
       // v20260707g: dblclick が Line/Polygon で効かない場合の対策として、✓ボタン/Enterキーを併用
       finishOn: shape === 'Line' || shape === 'Polygon' ? 'dblclick' : undefined,
       continueDrawing: false,  // v20260707g: 1つ描いたら自動で描画モード解除
@@ -2743,8 +2795,13 @@ function updateCrosshair() {
   const sx = _lastMouseScreen.x;
   const sy = _lastMouseScreen.y;
 
-  document.getElementById('chVLine').style.left = sx + 'px';
-  document.getElementById('chHLine').style.top = sy + 'px';
+  // v20260707p: 縦線・横線をマウス位置に集約（transform:translate(-50%,-50%) で自動中央合わせ）
+  const vline = document.getElementById('chVLine');
+  vline.style.left = sx + 'px';
+  vline.style.top = sy + 'px';
+  const hline = document.getElementById('chHLine');
+  hline.style.left = sx + 'px';
+  hline.style.top = sy + 'px';
   const center = document.getElementById('chCenter');
   center.style.left = sx + 'px';
   center.style.top = sy + 'px';
