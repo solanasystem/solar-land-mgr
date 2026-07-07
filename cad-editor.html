@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260707d / Track A Step 4 基準点指定UI / DistortableImage + 段階的重ね合わせ + 基準点1クリック確定 / 前:v20260707c -->
+<!-- BUILD: cad-editor v20260707e / Track A Step 5-6 変換エンジン+自動スナップ / 2点相似・3点以上アフィン自動選択・残差表示 / 前:v20260707d -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -658,6 +658,7 @@
       <div class="tool-group-label">下絵</div>
       <button class="tool-btn" id="btnUpload" title="下絵アップロード" onclick="openUploadDialog()">📥</button>
       <button class="tool-btn" id="btnControlPoints" title="基準点モード" onclick="toggleControlPointMode()">🎯</button>
+      <button class="tool-btn" id="btnApplyTransform" title="基準点から変換を計算して下絵をスナップ" onclick="applyTransformFromControlPoints()">⚙️</button>
       <button class="tool-btn" id="btnSaveTransform" title="変形状態を保存" onclick="saveOverlayTransform()">💾</button>
     </div>
     <div class="tool-group">
@@ -778,6 +779,11 @@
   <div class="status-item">
     <span class="status-label">基準点:</span>
     <span class="status-value status-cp zero" id="statusControlPoints">0/3</span>
+  </div>
+  <div class="status-sep">|</div>
+  <div class="status-item">
+    <span class="status-label">残差:</span>
+    <span class="status-value" id="statusResidual" style="font-family:var(--font-mono);">-</span>
   </div>
   <div class="status-sep">|</div>
   <div class="status-item">
@@ -1506,6 +1512,10 @@ function _placeAsTemporaryOverlay(ov) {
     renderControlPointMarkers();
     updateControlPointStatus();
   }
+  // v20260707e: 保存済み残差の復元
+  if (ov.residual_mean_m != null && ov.residual_max_m != null) {
+    updateResidualStatus(ov.residual_mean_m, ov.residual_max_m);
+  }
 }
 
 /* ========================================================================
@@ -1698,6 +1708,266 @@ function updateControlPointStatus() {
 }
 
 /* ========================================================================
+   v20260707e: 変換エンジン
+   
+   概念:
+     - 基準点は「画像座標(src_x, src_y) ↔ 地図座標(lat, lng)」のペア
+     - 「画像座標系」から「地図座標系」への変換を、基準点から推定する
+     - 2点: 相似変換（Umeyama法、4自由度: 平行移動+回転+等倍スケール）
+     - 3点: アフィン変換の厳密解（6自由度: 平行移動+回転+X/Y独立スケール+せん断）
+     - 4点以上: アフィン変換の最小二乗解
+   
+   注意:
+     - 緯度経度は球面座標だが、局所範囲（数km以内）では平面近似で十分
+     - X軸(経度)は cos(lat) で補正して等方性を保つ
+   ======================================================================== */
+
+/* 相似変換の推定（Umeyama, 1991 の2D版）
+   srcPts, dstPts: [[x,y], [x,y], ...] （2点以上）
+   戻り値: {s, theta, tx, ty} — dst = s * R(theta) * src + t */
+function estimateSimilarity(srcPts, dstPts) {
+  const n = srcPts.length;
+  if (n < 2) return null;
+
+  // 重心
+  let sx = 0, sy = 0, dx = 0, dy = 0;
+  for (let i = 0; i < n; i++) {
+    sx += srcPts[i][0]; sy += srcPts[i][1];
+    dx += dstPts[i][0]; dy += dstPts[i][1];
+  }
+  sx /= n; sy /= n; dx /= n; dy /= n;
+
+  // 中心化
+  let sxx = 0, syy = 0, num = 0, den = 0;
+  for (let i = 0; i < n; i++) {
+    const sxi = srcPts[i][0] - sx;
+    const syi = srcPts[i][1] - sy;
+    const dxi = dstPts[i][0] - dx;
+    const dyi = dstPts[i][1] - dy;
+    sxx += sxi * sxi;
+    syy += syi * syi;
+    num += sxi * dyi - syi * dxi;   // ∑(src × dst)
+    den += sxi * dxi + syi * dyi;   // ∑(src · dst)
+  }
+
+  const varSrc = sxx + syy;
+  if (varSrc < 1e-20) return null;
+
+  // 回転角
+  const theta = Math.atan2(num, den);
+  const cos = Math.cos(theta), sin = Math.sin(theta);
+  // スケール
+  const s = Math.sqrt(den * den + num * num) / varSrc;
+  // 平行移動
+  const tx = dx - s * (cos * sx - sin * sy);
+  const ty = dy - s * (sin * sx + cos * sy);
+
+  return { s, theta, tx, ty };
+}
+
+/* 相似変換で src(x,y) を dst(x,y) に */
+function applySimilarity(t, x, y) {
+  const c = Math.cos(t.theta), s = Math.sin(t.theta);
+  return [t.s * (c * x - s * y) + t.tx, t.s * (s * x + c * y) + t.ty];
+}
+
+/* アフィン変換の推定
+   dst = A * src + b、A = [[a, b],[c, d]], t=[e,f]
+   → dst_x = a*sx + b*sy + e
+     dst_y = c*sx + d*sy + f
+   n=3 で厳密解、n>3 で最小二乗
+   戻り値: {a, b, c, d, e, f}  or null */
+function estimateAffine(srcPts, dstPts) {
+  const n = srcPts.length;
+  if (n < 3) return null;
+
+  // 正規方程式: (X^T X) * p = X^T y
+  // X の各行: [sx, sy, 1, 0, 0, 0] for dst_x, [0, 0, 0, sx, sy, 1] for dst_y
+  // p = [a, b, e, c, d, f]
+  // 6x6 の対称行列 M = X^T X、6要素 v = X^T y
+  const M = Array.from({length: 6}, () => new Array(6).fill(0));
+  const v = new Array(6).fill(0);
+
+  for (let i = 0; i < n; i++) {
+    const [sx, sy] = srcPts[i];
+    const [dx, dy] = dstPts[i];
+    // 行1: [sx, sy, 1, 0, 0, 0] * p = dx
+    // 行2: [0, 0, 0, sx, sy, 1] * p = dy
+    const r1 = [sx, sy, 1, 0, 0, 0];
+    const r2 = [0, 0, 0, sx, sy, 1];
+    for (let j = 0; j < 6; j++) {
+      v[j] += r1[j] * dx + r2[j] * dy;
+      for (let k = 0; k < 6; k++) {
+        M[j][k] += r1[j] * r1[k] + r2[j] * r2[k];
+      }
+    }
+  }
+  const p = solveLinearSystem(M, v);
+  if (!p) return null;
+  return { a: p[0], b: p[1], e: p[2], c: p[3], d: p[4], f: p[5] };
+}
+
+function applyAffine(t, x, y) {
+  return [t.a * x + t.b * y + t.e, t.c * x + t.d * y + t.f];
+}
+
+/* ガウス消去法（部分ピボット選択）で n×n の連立方程式を解く */
+function solveLinearSystem(M, v) {
+  const n = M.length;
+  // 拡大係数行列
+  const A = M.map((row, i) => [...row, v[i]]);
+
+  for (let i = 0; i < n; i++) {
+    // ピボット選択
+    let maxRow = i, maxVal = Math.abs(A[i][i]);
+    for (let k = i + 1; k < n; k++) {
+      if (Math.abs(A[k][i]) > maxVal) { maxVal = Math.abs(A[k][i]); maxRow = k; }
+    }
+    if (maxVal < 1e-15) return null;
+    if (maxRow !== i) [A[i], A[maxRow]] = [A[maxRow], A[i]];
+
+    // 前進消去
+    for (let k = i + 1; k < n; k++) {
+      const factor = A[k][i] / A[i][i];
+      for (let j = i; j <= n; j++) A[k][j] -= factor * A[i][j];
+    }
+  }
+  // 後退代入
+  const x = new Array(n).fill(0);
+  for (let i = n - 1; i >= 0; i--) {
+    let s = A[i][n];
+    for (let j = i + 1; j < n; j++) s -= A[i][j] * x[j];
+    x[i] = s / A[i][i];
+  }
+  return x;
+}
+
+/* ========================================================================
+   緯度経度⇔メートル換算（局所平面近似）
+   基準緯度で cos 補正。範囲が数km以内なら精度は問題ない。
+   ======================================================================== */
+function latLngToMeter(lat, lng, refLat) {
+  // 経度1度 ≈ 111320 * cos(lat) メートル、緯度1度 ≈ 110540 メートル
+  const mPerLng = 111320 * Math.cos(refLat * Math.PI / 180);
+  const mPerLat = 110540;
+  return { x: lng * mPerLng, y: lat * mPerLat };
+}
+function meterToLatLng(x, y, refLat) {
+  const mPerLng = 111320 * Math.cos(refLat * Math.PI / 180);
+  const mPerLat = 110540;
+  return { lat: y / mPerLat, lng: x / mPerLng };
+}
+
+/* ========================================================================
+   基準点から変換を計算して DistortableImage の4隅を更新
+   ======================================================================== */
+function applyTransformFromControlPoints() {
+  if (!currentOverlay || !currentOverlayLayer) {
+    showToast('先に下絵をアップロードしてください', 'error');
+    return;
+  }
+  if (controlPoints.length < 2) {
+    showToast('基準点を最低2点打ってください', 'error');
+    return;
+  }
+
+  const W = currentOverlay.source_width_px;
+  const H = currentOverlay.source_height_px;
+  if (!W || !H) {
+    showToast('下絵サイズ不明', 'error');
+    return;
+  }
+
+  // 基準緯度（重心）でメートル化
+  const refLat = controlPoints.reduce((s, cp) => s + cp.lat, 0) / controlPoints.length;
+
+  // src: 画像座標(px)、dst: 地図座標をメートル化した平面座標
+  const srcPts = controlPoints.map(cp => [cp.src_x, cp.src_y]);
+  const dstPts = controlPoints.map(cp => {
+    const m = latLngToMeter(cp.lat, cp.lng, refLat);
+    return [m.x, m.y];
+  });
+
+  // 変換方式を自動選択
+  const useAffine = controlPoints.length >= 3;
+  const transform = useAffine
+    ? estimateAffine(srcPts, dstPts)
+    : estimateSimilarity(srcPts, dstPts);
+
+  if (!transform) {
+    showToast('変換計算に失敗（基準点が同一直線上や重複していないか確認）', 'error');
+    return;
+  }
+
+  // 画像4隅を変換
+  const cornersSrc = [
+    [0, 0],       // TL
+    [W, 0],       // TR
+    [0, H],       // BL
+    [W, H]        // BR
+  ];
+  const cornersLL = cornersSrc.map(([x, y]) => {
+    const [mx, my] = useAffine ? applyAffine(transform, x, y) : applySimilarity(transform, x, y);
+    const ll = meterToLatLng(mx, my, refLat);
+    return L.latLng(ll.lat, ll.lng);
+  });
+
+  // DistortableImage の4隅を更新
+  try {
+    currentOverlayLayer.setCorners(cornersLL);
+  } catch (e) {
+    // API 互換のため直接プロパティ更新も試す
+    try {
+      currentOverlayLayer._corners = cornersLL;
+      currentOverlayLayer._reset?.();
+    } catch (e2) {
+      console.error('setCorners fallback failed', e2);
+      showToast('画像更新失敗: ' + e.message, 'error');
+      return;
+    }
+  }
+
+  // 残差計算（メートル）
+  const residuals = controlPoints.map((cp, i) => {
+    const [mx, my] = useAffine
+      ? applyAffine(transform, cp.src_x, cp.src_y)
+      : applySimilarity(transform, cp.src_x, cp.src_y);
+    const target = latLngToMeter(cp.lat, cp.lng, refLat);
+    const dx = mx - target.x, dy = my - target.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  });
+  const mean = residuals.reduce((s, r) => s + r, 0) / residuals.length;
+  const max = Math.max(...residuals);
+
+  // 表示
+  updateResidualStatus(mean, max);
+
+  // 現在の変換パラメータを保持（保存時に使用）
+  currentTransformInfo = {
+    type: useAffine ? 'affine' : 'similarity',
+    params: transform,
+    refLat: refLat,
+    residual_mean_m: mean,
+    residual_max_m: max
+  };
+
+  const modeLabel = useAffine ? 'アフィン変換 (3点厳密' + (controlPoints.length > 3 ? '/最小二乗' : '') + ')' : '相似変換 (2点)';
+  showToast(`${modeLabel} 適用: 平均残差 ${mean.toFixed(2)}m / 最大 ${max.toFixed(2)}m`, 'success', 4000);
+}
+
+function updateResidualStatus(mean, max) {
+  const el = document.getElementById('statusResidual');
+  if (mean == null) { el.textContent = '-'; el.style.color = 'var(--text-muted)'; return; }
+  el.textContent = `平均${mean.toFixed(2)}m / 最大${max.toFixed(2)}m`;
+  // 品質色分け（20cm以下: 緑、1m以下: 黄、超過: 赤）
+  if (max < 0.2)      el.style.color = 'var(--green)';
+  else if (max < 1.0) el.style.color = 'var(--accent)';
+  else                el.style.color = 'var(--red)';
+}
+
+let currentTransformInfo = null; // 直近の変換情報（保存時に使用）
+
+/* ========================================================================
    v20260707d: 変形状態と基準点を overlays テーブルに保存
    ======================================================================== */
 async function saveOverlayTransform() {
@@ -1712,9 +1982,16 @@ async function saveOverlayTransform() {
   try {
     const corners = currentOverlayLayer.getCorners();
     const transform_params = {
-      corners: corners.map(c => [c.lat, c.lng]),  // 4隅座標を保存
+      corners: corners.map(c => [c.lat, c.lng]),  // 4隅座標を保存（復元の第一手段）
       saved_at: new Date().toISOString()
     };
+    // v20260707e: 変換情報も保存（applyTransformFromControlPoints が実行済なら）
+    if (currentTransformInfo) {
+      transform_params.transform_type = currentTransformInfo.type;
+      transform_params.transform_params = currentTransformInfo.params;
+      transform_params.ref_lat = currentTransformInfo.refLat;
+    }
+
     // bbox 計算
     const lats = corners.map(c => c.lat);
     const lngs = corners.map(c => c.lng);
@@ -1724,19 +2001,30 @@ async function saveOverlayTransform() {
       bbox_east: Math.max(...lngs),
       bbox_west: Math.min(...lngs)
     };
+
+    // 残差
+    const residual_mean_m = currentTransformInfo?.residual_mean_m ?? null;
+    const residual_max_m = currentTransformInfo?.residual_max_m ?? null;
+
     const updates = {
       control_points: controlPoints,
-      transform_type: controlPoints.length >= 3 ? 'affine' : 'similarity',
+      transform_type: currentTransformInfo?.type || (controlPoints.length >= 3 ? 'affine' : 'similarity'),
       transform_params: transform_params,
       opacity: currentOverlay.opacity,
       locked: currentOverlay.locked,
+      residual_mean_m: residual_mean_m,
+      residual_max_m: residual_max_m,
       ...bbox
     };
     const { error } = await sb.from('overlays')
       .update(updates)
       .eq('id', currentOverlay.id);
     if (error) throw error;
-    showToast('保存しました（基準点 ' + controlPoints.length + '点）', 'success');
+
+    const residualSuffix = residual_mean_m != null
+      ? ` / 残差 ${residual_mean_m.toFixed(2)}m`
+      : '';
+    showToast(`保存しました（基準点 ${controlPoints.length}点${residualSuffix}）`, 'success');
   } catch (e) {
     console.error('[saveOverlayTransform]', e);
     showToast('保存失敗: ' + e.message, 'error');
