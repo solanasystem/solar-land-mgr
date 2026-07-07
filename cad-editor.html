@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260707g / 描画終了方法を強化(✓完了ボタン+Enterキー+Escキー取消)。ダブルクリック終了がLine/Polygonで機能しない問題への対応。前:v20260707f -->
+<!-- BUILD: cad-editor v20260707h / 下絵変形モード切替UI追加(distort/scale/rotate/translate)。4隅ハンドルが回転しか効かない問題への対応。前:v20260707g -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -779,6 +779,13 @@
         <span class="ocp-label">透明度</span>
         <input type="range" min="0" max="100" value="70" id="overlayOpacitySlider" class="ocp-slider" oninput="onOpacityChange(this.value)">
         <span class="ocp-value" id="overlayOpacityValue">70%</span>
+      </div>
+      <div class="ocp-row">
+        <span class="ocp-label">変形</span>
+        <button class="pp-weight active" id="btnModeDistort" onclick="setOverlayMode('distort')" title="4隅を独立に動かす（自由変形）">自由</button>
+        <button class="pp-weight" id="btnModeScale" onclick="setOverlayMode('scale')" title="拡大縮小（縦横比維持）">拡縮</button>
+        <button class="pp-weight" id="btnModeRotate" onclick="setOverlayMode('rotate')" title="回転のみ">回転</button>
+        <button class="pp-weight" id="btnModeTranslate" onclick="setOverlayMode('translate')" title="ドラッグで平行移動">移動</button>
       </div>
       <div class="ocp-row">
         <span class="ocp-label">🔒</span>
@@ -1627,15 +1634,25 @@ function _placeAsTemporaryOverlay(ov) {
   const img = L.distortableImageOverlay(url, {
     corners: corners,
     editable: true,
-    mode: 'distort',
+    mode: 'distort',           // 初期モード：4隅独立
     fullResolutionSrc: url,
-    suppressToolbar: true // 独自UIを使うため
+    suppressToolbar: false,    // v20260707h: ネイティブツールバー表示（右クリックでモード切替可能）
+    actions: [                 // v20260707h: 使うアクションのみ制限
+      L.DragAction, L.DistortAction, L.ScaleAction, L.RotateAction, L.OpacityAction
+    ]
   });
   overlaysGroup.addLayer(img);
 
-  // 透明度適用（DistortableImage の setOpacity）
+  // 透明度適用 & 初期モード適用
   setTimeout(() => {
     try { img.setOpacity(opacity); } catch (e) { console.warn('setOpacity failed', e); }
+    // v20260707h: 初期モードを 'distort' に明示的に設定
+    try {
+      if (img.editing) {
+        if (typeof img.editing.setMode === 'function') img.editing.setMode('distort');
+        else img.editing._mode = 'distort';
+      }
+    } catch (e) { console.warn('initial mode set failed', e); }
   }, 200);
 
   // 現在のオーバーレイとして記録
@@ -1688,6 +1705,50 @@ function onLockChange(checked) {
       if (checked) currentOverlayLayer.editing?.disable?.();
       else currentOverlayLayer.editing?.enable?.();
     } catch (e) { console.warn('lock toggle failed', e); }
+  }
+}
+
+/* v20260707h: 下絵の変形モード切替 */
+function setOverlayMode(mode) {
+  if (!currentOverlayLayer) {
+    showToast('先に下絵をアップロードしてください', 'error');
+    return;
+  }
+  // ボタンのハイライト
+  const buttons = { distort: 'btnModeDistort', scale: 'btnModeScale', rotate: 'btnModeRotate', translate: 'btnModeTranslate' };
+  Object.entries(buttons).forEach(([m, id]) => {
+    document.getElementById(id)?.classList.toggle('active', m === mode);
+  });
+
+  // DistortableImage のモード変更
+  // Leaflet.DistortableImage v0.21 では editing.mode に文字列を代入して _mode() を呼ぶ
+  try {
+    const editing = currentOverlayLayer.editing;
+    if (!editing) throw new Error('editing プロパティなし');
+
+    // モードを設定する複数のAPIを試す
+    if (typeof editing.setMode === 'function') {
+      editing.setMode(mode);
+    } else if (typeof editing._modeToggle === 'function') {
+      // モードは 'distort', 'rotate', 'translate', 'scale' で、_modeToggle で切替可能
+      editing._mode = mode;
+      // ハンドルを再描画するため一度 disable→enable
+      editing.disable();
+      setTimeout(() => editing.enable(), 50);
+    } else {
+      // フォールバック: 内部プロパティを直接書き換え
+      editing._mode = mode;
+      if (typeof editing._removeToolbar === 'function') editing._removeToolbar();
+      editing.disable();
+      setTimeout(() => {
+        editing.enable();
+        if (typeof editing._addToolbar === 'function') editing._addToolbar();
+      }, 50);
+    }
+    showToast('変形モード: ' + { distort: '自由（4隅独立）', scale: '拡縮', rotate: '回転', translate: '移動' }[mode], 'info', 1500);
+  } catch (e) {
+    console.error('[setOverlayMode]', e);
+    showToast('モード切替失敗: ' + e.message, 'error');
   }
 }
 
