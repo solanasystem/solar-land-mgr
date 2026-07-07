@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260707h / 下絵変形モード切替UI追加(distort/scale/rotate/translate)。4隅ハンドルが回転しか効かない問題への対応。前:v20260707g -->
+<!-- BUILD: cad-editor v20260707i / 円弧(3点・中心)+ハッチング機能追加。前:v20260707h -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -713,6 +713,32 @@
 </head>
 <body>
 
+<!-- v20260707i: ハッチング用 SVG パターン定義（グローバル） -->
+<svg width="0" height="0" style="position:absolute;pointer-events:none;">
+  <defs>
+    <!-- 斜線パターン -->
+    <pattern id="hatch-diag" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="8" stroke="currentColor" stroke-width="1"/>
+    </pattern>
+    <!-- 格子パターン -->
+    <pattern id="hatch-cross" patternUnits="userSpaceOnUse" width="10" height="10">
+      <path d="M 0 0 L 0 10 M 0 0 L 10 0" stroke="currentColor" stroke-width="1" fill="none"/>
+    </pattern>
+    <!-- ドットパターン -->
+    <pattern id="hatch-dots" patternUnits="userSpaceOnUse" width="8" height="8">
+      <circle cx="4" cy="4" r="1.2" fill="currentColor"/>
+    </pattern>
+    <!-- 水平線 -->
+    <pattern id="hatch-hori" patternUnits="userSpaceOnUse" width="8" height="8">
+      <line x1="0" y1="0" x2="8" y2="0" stroke="currentColor" stroke-width="1"/>
+    </pattern>
+    <!-- 垂直線 -->
+    <pattern id="hatch-vert" patternUnits="userSpaceOnUse" width="8" height="8">
+      <line x1="0" y1="0" x2="0" y2="8" stroke="currentColor" stroke-width="1"/>
+    </pattern>
+  </defs>
+</svg>
+
 <!-- ===== ヘッダー ===== -->
 <header class="header">
   <div class="header-left">
@@ -750,6 +776,8 @@
       <button class="tool-btn" id="btnDrawPolygon" title="ポリゴン(クリック連続、ダブルクリックで終了)" onclick="startDraw('Polygon')">⬡</button>
       <button class="tool-btn" id="btnDrawCircle" title="円" onclick="startDraw('Circle')">◯</button>
       <button class="tool-btn" id="btnDrawRect" title="矩形" onclick="startDraw('Rectangle')">▭</button>
+      <button class="tool-btn" id="btnDrawArc3" title="円弧(3点方式: 始点→通過点→終点)" onclick="startArcDraw('3point')">⌒</button>
+      <button class="tool-btn" id="btnDrawArcC" title="円弧(中心方式: 中心→半径→開始角→終了角)" onclick="startArcDraw('center')">◜</button>
     </div>
     <div class="tool-group">
       <div class="tool-group-label">修正</div>
@@ -818,6 +846,15 @@
         <button class="pp-dash active" data-dash="" onclick="setDrawDash('')" title="実線">━</button>
         <button class="pp-dash" data-dash="8,6" onclick="setDrawDash('8,6')" title="破線">┅</button>
         <button class="pp-dash" data-dash="12,4,2,4" onclick="setDrawDash('12,4,2,4')" title="一点鎖線">┉</button>
+      </div>
+      <div class="pp-row">
+        <span class="pp-label">塗り</span>
+        <button class="pp-dash active" data-fill="none" onclick="setDrawFill('none')" title="塗りなし">✕</button>
+        <button class="pp-dash" data-fill="diag" onclick="setDrawFill('diag')" title="斜線">╱</button>
+        <button class="pp-dash" data-fill="cross" onclick="setDrawFill('cross')" title="格子">╳</button>
+        <button class="pp-dash" data-fill="dots" onclick="setDrawFill('dots')" title="ドット">••</button>
+        <button class="pp-dash" data-fill="hori" onclick="setDrawFill('hori')" title="水平線">═</button>
+        <button class="pp-dash" data-fill="vert" onclick="setDrawFill('vert')" title="垂直線">‖</button>
       </div>
     </div>
 
@@ -2175,7 +2212,8 @@ let currentTransformInfo = null; // 直近の変換情報（保存時に使用�
 let drawStyle = {
   color: '#000000',
   weight: 1,
-  dashArray: ''  // 空文字=実線、'8,6'=破線、'12,4,2,4'=一点鎖線
+  dashArray: '',  // 空文字=実線、'8,6'=破線、'12,4,2,4'=一点鎖線
+  fillPattern: 'none'  // v20260707i: none/diag/cross/dots/hori/vert
 };
 
 // 現在描画中のモード（'Line', 'Polygon', 'Circle', 'Rectangle', null）
@@ -2185,6 +2223,11 @@ let currentDrawMode = null;
 let removeMode = false;
 let editMode = false;
 let measureMode = false;
+
+// v20260707i: 円弧描画用状態
+let arcMode = null;         // '3point', 'center', null
+let arcClickPoints = [];    // クリック位置のlatLng配列
+let arcTempLayer = null;    // プレビュー用一時レイヤー
 
 /* ---------- スタイル設定UI ---------- */
 function setDrawColor(color) {
@@ -2196,29 +2239,79 @@ function setDrawColor(color) {
 }
 function setDrawWeight(weight) {
   drawStyle.weight = Number(weight);
-  document.querySelectorAll('.pp-weight').forEach(el => {
+  document.querySelectorAll('.pp-weight[data-weight]').forEach(el => {
     el.classList.toggle('active', Number(el.dataset.weight) === Number(weight));
   });
   updateGeomanStyle();
 }
 function setDrawDash(dash) {
   drawStyle.dashArray = dash;
-  document.querySelectorAll('.pp-dash').forEach(el => {
+  document.querySelectorAll('.pp-dash[data-dash]').forEach(el => {
     el.classList.toggle('active', el.dataset.dash === dash);
   });
   updateGeomanStyle();
 }
 
+/* v20260707i: 塗り（ハッチング）パターン設定 */
+function setDrawFill(fill) {
+  drawStyle.fillPattern = fill;
+  document.querySelectorAll('.pp-dash[data-fill]').forEach(el => {
+    el.classList.toggle('active', el.dataset.fill === fill);
+  });
+  updateGeomanStyle();
+}
+
+/* SVGパターンIDを取得（色ごとにIDを分けるためにインスタンスを動的生成） */
+function getHatchFillUrl(pattern, color) {
+  if (!pattern || pattern === 'none') return null;
+  // 動的にパターンインスタンスを作る（色付き）
+  const patternId = `hatch-${pattern}-${color.replace('#','')}`;
+  let defs = document.querySelector('svg defs');
+  if (!defs) return null;
+  if (!document.getElementById(patternId)) {
+    const src = document.getElementById('hatch-' + pattern);
+    if (!src) return null;
+    const clone = src.cloneNode(true);
+    clone.id = patternId;
+    // currentColor の代わりに具体的な色を設定
+    clone.querySelectorAll('*').forEach(el => {
+      if (el.hasAttribute('stroke') && el.getAttribute('stroke') === 'currentColor') el.setAttribute('stroke', color);
+      if (el.hasAttribute('fill') && el.getAttribute('fill') === 'currentColor') el.setAttribute('fill', color);
+    });
+    defs.appendChild(clone);
+  }
+  return `url(#${patternId})`;
+}
+
 function updateGeomanStyle() {
   if (!map || !map.pm) return;
+  const fillUrl = getHatchFillUrl(drawStyle.fillPattern, drawStyle.color);
   map.pm.setPathOptions({
     color: drawStyle.color,
     weight: drawStyle.weight,
     dashArray: drawStyle.dashArray || null,
     opacity: 1,
-    fillColor: drawStyle.color,
-    fillOpacity: 0.15
+    fillColor: fillUrl ? undefined : drawStyle.color,
+    fillOpacity: fillUrl ? 1 : 0.15,
+    fill: fillUrl ? fillUrl : undefined
   });
+}
+
+/* 描画完了レイヤーへハッチング適用（SVG path の fill 属性を直書き） */
+function applyFillPatternToLayer(layer, fillPattern, color) {
+  if (!fillPattern || fillPattern === 'none') return;
+  const fillUrl = getHatchFillUrl(fillPattern, color);
+  if (!fillUrl) return;
+  // renderer によって _path または _renderer._container が異なる
+  const setFill = (el) => {
+    if (!el) return;
+    el.setAttribute('fill', fillUrl);
+    el.setAttribute('fill-opacity', '1');
+  };
+  if (layer._path) setFill(layer._path);
+  if (layer.getLayers) {
+    layer.getLayers().forEach(sub => sub._path && setFill(sub._path));
+  }
 }
 
 /* ---------- 描画モード開始 ---------- */
@@ -2352,10 +2445,231 @@ function onShapeClickForMeasure(e) {
 
 function stopAllModes(keepCurrent = false, except = null) {
   if (except !== 'draw') stopDraw();
+  if (except !== 'arc') stopArcDraw();
   if (except !== 'remove' && removeMode) toggleRemoveMode();
   if (except !== 'edit' && editMode) toggleEditMode();
   if (except !== 'measure' && measureMode) toggleMeasureMode();
   if (except !== 'cp' && controlPointMode) toggleControlPointMode();
+}
+
+/* ========================================================================
+   v20260707i: 円弧描画（独自実装、Leaflet-Geoman に Arc がないため）
+   
+   3点方式: 始点→通過点→終点、3点から円の中心・半径を計算して円弧
+   中心方式: 中心→半径ポイント→開始角→終了角
+   
+   結果は Polyline (LineString) として保存（多点で近似）
+   properties.arc に描画情報を保存し、復元時に再描画可能
+   ======================================================================== */
+function startArcDraw(mode) {
+  if (!currentOverlay && !confirm('下絵をアップロードせずに描画しますか？')) return;
+  stopAllModes();
+  arcMode = mode;  // '3point' or 'center'
+  arcClickPoints = [];
+  currentDrawMode = 'Arc';
+
+  // ボタンハイライト
+  document.querySelectorAll('#btnDrawLine, #btnDrawPolygon, #btnDrawCircle, #btnDrawRect, #btnDrawArc3, #btnDrawArcC').forEach(b => b.classList.remove('active'));
+  const btnId = mode === '3point' ? 'btnDrawArc3' : 'btnDrawArcC';
+  document.getElementById(btnId)?.classList.add('active');
+
+  // 描画バッジ
+  document.getElementById('drawModeBadge').style.display = 'flex';
+  document.getElementById('drawModeLabel').textContent = mode === '3point'
+    ? '⌒ 円弧(3点): ①始点をクリック'
+    : '◜ 円弧(中心): ①中心をクリック';
+
+  // 完了ボタンは円弧では不要（クリック数で自動確定）
+  const btnFinish = document.querySelector('#drawModeBadge button[onclick*="finishCurrentDraw"]');
+  if (btnFinish) btnFinish.style.display = 'none';
+
+  // クリックハンドラ登録
+  map.getContainer().style.cursor = 'crosshair';
+  map.on('click', onArcMapClick);
+}
+
+function stopArcDraw() {
+  if (arcTempLayer) { shapesGroup.removeLayer(arcTempLayer); arcTempLayer = null; }
+  arcMode = null;
+  arcClickPoints = [];
+  if (currentDrawMode === 'Arc') currentDrawMode = null;
+  map.off('click', onArcMapClick);
+  map.getContainer().style.cursor = '';
+  document.querySelectorAll('#btnDrawArc3, #btnDrawArcC').forEach(b => b.classList.remove('active'));
+  if (document.getElementById('drawModeBadge')) document.getElementById('drawModeBadge').style.display = 'none';
+}
+
+function onArcMapClick(e) {
+  if (!arcMode) return;
+  arcClickPoints.push(e.latlng);
+  const labelEl = document.getElementById('drawModeLabel');
+
+  // プレビュー用一時レイヤー削除
+  if (arcTempLayer) { shapesGroup.removeLayer(arcTempLayer); arcTempLayer = null; }
+
+  if (arcMode === '3point') {
+    if (arcClickPoints.length === 1) {
+      labelEl.textContent = '⌒ 円弧(3点): ②通過点をクリック';
+      _drawTempMarker(e.latlng);
+    } else if (arcClickPoints.length === 2) {
+      labelEl.textContent = '⌒ 円弧(3点): ③終点をクリック';
+      _drawTempMarker(e.latlng);
+    } else if (arcClickPoints.length === 3) {
+      _finalizeArc3point();
+      stopArcDraw();
+    }
+  } else if (arcMode === 'center') {
+    if (arcClickPoints.length === 1) {
+      labelEl.textContent = '◜ 円弧(中心): ②半径・開始位置をクリック';
+      _drawTempMarker(e.latlng);
+    } else if (arcClickPoints.length === 2) {
+      labelEl.textContent = '◜ 円弧(中心): ③終了位置をクリック';
+      _drawTempMarker(e.latlng);
+    } else if (arcClickPoints.length === 3) {
+      _finalizeArcCenter();
+      stopArcDraw();
+    }
+  }
+}
+
+function _drawTempMarker(latlng) {
+  const marker = L.circleMarker(latlng, {
+    radius: 4, color: drawStyle.color, fillColor: drawStyle.color, fillOpacity: 1, weight: 1
+  });
+  shapesGroup.addLayer(marker);
+  // 3秒後に自動削除
+  setTimeout(() => shapesGroup.removeLayer(marker), 3000);
+}
+
+/* 3点方式: 3点を通る円を計算 */
+function _finalizeArc3point() {
+  const [p1, p2, p3] = arcClickPoints;
+  // メートル座標系に変換して計算
+  const refLat = (p1.lat + p2.lat + p3.lat) / 3;
+  const toM = (ll) => latLngToMeter(ll.lat, ll.lng, refLat);
+  const fromM = (xy) => meterToLatLng(xy.x, xy.y, refLat);
+  const m1 = toM(p1), m2 = toM(p2), m3 = toM(p3);
+
+  // 3点を通る円の中心と半径（外心計算）
+  const center = _circumcenter(m1, m2, m3);
+  if (!center) { showToast('3点が同一直線上にあります', 'error'); return; }
+  const r = Math.hypot(m1.x - center.x, m1.y - center.y);
+  // 始点・終点の角度
+  const a1 = Math.atan2(m1.y - center.y, m1.x - center.x);
+  const a3 = Math.atan2(m3.y - center.y, m3.x - center.x);
+  const a2 = Math.atan2(m2.y - center.y, m2.x - center.x);
+  // p1→p2→p3 の順に回る向きを決定
+  const arc = _makeArcPoints(center, r, a1, a3, a2, refLat, fromM);
+  _saveArcAsLayer(arc, {
+    arc: { type: '3point', p1: [p1.lat, p1.lng], p2: [p2.lat, p2.lng], p3: [p3.lat, p3.lng], radius_m: r }
+  });
+}
+
+function _finalizeArcCenter() {
+  const [center, edgeStart, edgeEnd] = arcClickPoints;
+  const refLat = center.lat;
+  const toM = (ll) => latLngToMeter(ll.lat, ll.lng, refLat);
+  const fromM = (xy) => meterToLatLng(xy.x, xy.y, refLat);
+  const c = toM(center), s = toM(edgeStart), e = toM(edgeEnd);
+  const r = Math.hypot(s.x - c.x, s.y - c.y);
+  const a1 = Math.atan2(s.y - c.y, s.x - c.x);
+  const a2 = Math.atan2(e.y - c.y, e.x - c.x);
+  // p1(始点)→p2(終点) は反時計回りに描く（正の方向）。中間の指定がないので短い方の円弧
+  // 差が π を超える場合は逆回り
+  const arc = _makeArcPoints(c, r, a1, a2, null, refLat, fromM);
+  _saveArcAsLayer(arc, {
+    arc: { type: 'center', center: [center.lat, center.lng], start: [edgeStart.lat, edgeStart.lng], end: [edgeEnd.lat, edgeEnd.lng], radius_m: r }
+  });
+}
+
+/* 3点の外心（メートル座標） */
+function _circumcenter(a, b, c) {
+  const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+  if (Math.abs(d) < 1e-9) return null;
+  const ux = ((a.x * a.x + a.y * a.y) * (b.y - c.y) + (b.x * b.x + b.y * b.y) * (c.y - a.y) + (c.x * c.x + c.y * c.y) * (a.y - b.y)) / d;
+  const uy = ((a.x * a.x + a.y * a.y) * (c.x - b.x) + (b.x * b.x + b.y * b.y) * (a.x - c.x) + (c.x * c.x + c.y * c.y) * (b.x - a.x)) / d;
+  return { x: ux, y: uy };
+}
+
+/* 円弧の点列生成
+   viaAngle が指定されていれば、その方向に沿って a1→a3 の弧を、そうでなければ最短の弧 */
+function _makeArcPoints(center, r, a1, a3, viaAngle, refLat, fromM) {
+  const STEPS = 64;
+  // a1 → a3 の回転方向を決定
+  let da = a3 - a1;
+  // -π < da <= π に正規化
+  while (da > Math.PI) da -= 2 * Math.PI;
+  while (da <= -Math.PI) da += 2 * Math.PI;
+
+  // 通過点があれば、方向を決定
+  if (viaAngle != null) {
+    let d2 = viaAngle - a1;
+    while (d2 > Math.PI) d2 -= 2 * Math.PI;
+    while (d2 <= -Math.PI) d2 += 2 * Math.PI;
+    // 通過点が始点と同じ方向側なら、その方向を採用
+    if ((da > 0 && d2 < 0) || (da < 0 && d2 > 0)) {
+      // 通過点は逆回りにある → 大きい弧を取る
+      da = da > 0 ? da - 2 * Math.PI : da + 2 * Math.PI;
+    }
+  }
+
+  const pts = [];
+  for (let i = 0; i <= STEPS; i++) {
+    const t = i / STEPS;
+    const a = a1 + da * t;
+    const x = center.x + r * Math.cos(a);
+    const y = center.y + r * Math.sin(a);
+    const ll = fromM({ x, y });
+    pts.push([ll.lat, ll.lng]);
+  }
+  return pts;
+}
+
+/* 円弧点列を Polyline レイヤーとして保存 */
+async function _saveArcAsLayer(pts, arcMeta) {
+  const style = {
+    color: drawStyle.color,
+    weight: drawStyle.weight,
+    dashArray: drawStyle.dashArray || null,
+    opacity: 1,
+    fill: false
+  };
+  const line = L.polyline(pts, style);
+  shapesGroup.addLayer(line);
+
+  // DB保存
+  const orgId = window.__auth?.profile?.organization_id;
+  const geoJson = line.toGeoJSON().geometry;
+  const info = computeMeasureInfo(line);
+  const payload = {
+    organization_id: orgId,
+    case_id: currentCaseId,
+    geom_type: 'line',  // 円弧は多点線として保存
+    geometry: geoJson,
+    properties: {
+      shape: 'Arc',
+      color: drawStyle.color,
+      weight: drawStyle.weight,
+      dashArray: drawStyle.dashArray || null,
+      ...arcMeta
+    },
+    area_m2: null,
+    length_m: info.length_m ?? null
+  };
+  try {
+    const { data, error } = await sb.from('shapes').insert(payload).select().single();
+    if (error) throw error;
+    line._shapeId = data.id;
+    line._shapeData = data;
+    updateShapesCount();
+    updateMeasureStatus(info);
+    line.on('pm:edit', (ev) => onShapeEdited(ev, line));
+    showToast('円弧を保存: ' + formatMeasureText(info), 'success', 2500);
+  } catch (err) {
+    console.error('[saveArc]', err);
+    showToast('円弧保存失敗: ' + err.message, 'error');
+    shapesGroup.removeLayer(line);
+  }
 }
 
 /* ---------- 描画完了イベント: DBに保存 ---------- */
@@ -2390,6 +2704,7 @@ async function onShapeCreated(e) {
       color: drawStyle.color,
       weight: drawStyle.weight,
       dashArray: drawStyle.dashArray || null,
+      fillPattern: drawStyle.fillPattern || 'none',  // v20260707i
       radius_m: shape === 'Circle' ? layer.getRadius() : null
     },
     area_m2: info.area_m2 ?? null,
@@ -2401,6 +2716,10 @@ async function onShapeCreated(e) {
     if (error) throw error;
     layer._shapeId = data.id;
     layer._shapeData = data;
+    // v20260707i: ハッチング適用
+    if (drawStyle.fillPattern && drawStyle.fillPattern !== 'none') {
+      setTimeout(() => applyFillPatternToLayer(layer, drawStyle.fillPattern, drawStyle.color), 50);
+    }
     updateShapesCount();
     updateMeasureStatus(info);
     showToast('保存: ' + formatMeasureText(info), 'success', 2500);
@@ -2549,6 +2868,10 @@ function renderShapeOnMap(sh) {
     layer.on('pm:edit', (ev) => onShapeEdited(ev, layer));
     if (measureMode) layer.on('click', onShapeClickForMeasure);
     shapesGroup.addLayer(layer);
+    // v20260707i: ハッチング復元
+    if (props.fillPattern && props.fillPattern !== 'none') {
+      setTimeout(() => applyFillPatternToLayer(layer, props.fillPattern, props.color || '#000'), 50);
+    }
   } catch (e) {
     console.warn('[renderShapeOnMap] failed', e, sh);
   }
