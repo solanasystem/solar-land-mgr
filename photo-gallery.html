@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: photo-gallery v20260707a / PC向け 現地写真閲覧ページ。field_survey_status全件から写真URLを取得、地番選択でモーダル同等表示、右クリック保存＋一括ZIP対応 -->
+<!-- BUILD: photo-gallery v20260707b / 修正: field_survey_status に land_number カラムがない実態に合わせ、cases/land_info と in-memory JOIN してから表示。案件番号(case_no)とエリアも表示。前:v20260707a -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -263,23 +263,64 @@ async function signOut(){
 async function loadData(){
   document.getElementById('landList').innerHTML = '<div class="center-state">📥 読み込み中...</div>';
   try{
-    // field_survey_statusから、写真URLが1つでもあるレコードを全取得（1000件超対応）
-    const rows = await _fetchAllPaged(async (from, to)=>{
+    // ① field_survey_statusから、写真URLが1つでもあるレコードを全取得
+    toast('field_survey_status 取得中...');
+    const surveys = await _fetchAllPaged(async (from, to)=>{
       return await sb.from('field_survey_status')
         .select('*')
         .or('photo_road1.not.is.null,photo_road2.not.is.null,photo_land1.not.is.null,photo_land2.not.is.null,photo_land3.not.is.null,photo_land4.not.is.null')
-        .order('land_number', {ascending:true})
         .range(from, to);
     });
-    allRecords = rows;
-    document.getElementById('totalCount').textContent = rows.length + ' 件';
-    document.getElementById('totalInSidebar').textContent = rows.length;
-    toast(`${rows.length}件の写真付き案件を取得`);
+    
+    // ② cases から case_no と area_name を全取得（1000件超対応）
+    toast('cases 取得中...');
+    const cases = await _fetchAllPaged(async (from, to)=>{
+      return await sb.from('cases').select('id, case_no, area_name, status').range(from, to);
+    });
+    const caseMap = new Map(cases.map(c => [c.id, c]));
+    
+    // ③ land_info から land_number を全取得（列がなければスキップ）
+    toast('land_info 取得中...');
+    let landMap = new Map();
+    try {
+      const lands = await _fetchAllPaged(async (from, to)=>{
+        return await sb.from('land_info').select('case_id, land_number, chiban').range(from, to);
+      });
+      lands.forEach(l => {
+        const num = l.land_number || l.chiban;
+        if(num) landMap.set(l.case_id, num);
+      });
+    } catch(e) {
+      console.log('land_info の land_number/chiban カラム取得に失敗（スキップ）:', e.message);
+    }
+    
+    // ④ クライアント側でマージ
+    allRecords = surveys.map(rec => {
+      const cs = caseMap.get(rec.case_id);
+      return {
+        ...rec,
+        case_no: cs?.case_no || null,
+        area_name: cs?.area_name || null,
+        case_status: cs?.status || null,
+        land_number: landMap.get(rec.case_id) || null
+      };
+    });
+    
+    // ⑤ 地番 or 案件番号で自然順ソート
+    allRecords.sort((a, b) => {
+      const ka = String(a.land_number || a.case_no || '');
+      const kb = String(b.land_number || b.case_no || '');
+      return ka.localeCompare(kb, 'ja', {numeric:true});
+    });
+    
+    document.getElementById('totalCount').textContent = allRecords.length + ' 件';
+    document.getElementById('totalInSidebar').textContent = allRecords.length;
+    toast(`${allRecords.length}件の写真付き案件を取得（cases:${cases.length}, land_info:${landMap.size}）`);
     applyFilter();
     document.getElementById('dlAllBtn').disabled = false;
   }catch(e){
     toast('データ取得失敗: '+e.message, 'err');
-    document.getElementById('landList').innerHTML = `<div class="center-state">❌ ${escapeHTML(e.message)}</div>`;
+    document.getElementById('landList').innerHTML = `<div class="center-state" style="padding:20px;color:var(--err)">❌ ${escapeHTML(e.message)}</div>`;
   }
 }
 
@@ -403,6 +444,7 @@ function renderDetail(){
       <div>
         <span class="detail-title">地番 ${escapeHTML(rec.land_number || rec.case_no || '')}</span>
         <span class="judgment-tag ${kind}">${tagLabel}</span>
+        ${rec.case_no ? `<div style="font-size:11px;color:var(--muted);margin-top:4px">案件番号: ${escapeHTML(rec.case_no)}${rec.area_name?` / ${escapeHTML(rec.area_name)}`:''}</div>` : ''}
       </div>
       <div>
         <button class="ok small" onclick="downloadOneLand()">📦 この地番の全写真ZIP</button>
@@ -502,11 +544,13 @@ function saveBlob(blob, filename){
 // ============ CSV ============
 function exportCSV(){
   if(filteredRecords.length===0){ toast('対象なし', 'err'); return; }
-  const header = ['地番','判定','コメント','接道1','接道2','敷地内1','敷地内2','敷地内3','敷地内4'];
+  const header = ['地番','案件番号','エリア','判定','コメント','接道1','接道2','敷地内1','敷地内2','敷地内3','敷地内4'];
   const rows = [header];
   filteredRecords.forEach(rec=>{
     rows.push([
-      rec.land_number || rec.case_no || '',
+      rec.land_number || '',
+      rec.case_no || '',
+      rec.area_name || '',
       rec.judgment || '',
       rec.comment || '',
       rec.photo_road1 || '',
