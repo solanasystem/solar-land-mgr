@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260708A / .map-area 開始タグ欠落によるDOM構造破壊を修復(地図下半分が空白/レイヤーパネル位置ズレの根治)。前:v20260707H -->
+<!-- BUILD: cad-editor v20260708C / 下絵ベクター化機能追加(Zhang-Suen細線化＋グラフトレース＋Douglas-Peucker＋逆双線形変換で全自動Polyline生成→ポリゴン画層)。前:v20260708B -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -991,6 +991,146 @@
     border-color: var(--accent);
   }
 
+  /* ===== v20260708B: 線抽出モーダル ===== */
+  .line-extract-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 3500;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .line-extract-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    width: 640px;
+    max-width: 92vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    color: var(--text);
+    font-family: var(--font-main);
+  }
+  .line-extract-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--surface2);
+  }
+  .line-extract-title { font-size: 13px; font-weight: 600; color: var(--accent); }
+  .line-extract-body {
+    padding: 14px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .line-extract-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .line-extract-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 68px;
+  }
+  .line-extract-preview-wrap {
+    position: relative;
+    background: #0a0e14;
+    border: 1px solid var(--border);
+    width: 100%;
+    height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .line-extract-preview-wrap canvas {
+    max-width: 100%;
+    max-height: 100%;
+  }
+  .line-extract-preview-loader {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    background: rgba(0,0,0,0.7);
+    color: var(--accent);
+    font-size: 10px;
+    padding: 2px 8px;
+    font-family: var(--font-mono);
+    display: none;
+  }
+  .line-extract-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .line-extract-swatch {
+    width: 20px;
+    height: 20px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    padding: 0;
+  }
+  .line-extract-swatch.active {
+    border: 2px solid var(--accent);
+    outline: 1px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .line-extract-footer {
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    background: var(--surface2);
+  }
+  .line-extract-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 14px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: var(--font-main);
+  }
+  .line-extract-btn:hover { border-color: var(--accent); }
+  .line-extract-btn.primary {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .line-extract-btn.danger {
+    color: #f66;
+    border-color: #a44;
+  }
+  .line-extract-info {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+  .line-extract-threshold-input {
+    width: 200px;
+  }
+  .line-extract-threshold-value {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent);
+    min-width: 30px;
+  }
+  .line-extract-color-input {
+    width: 32px;
+    height: 22px;
+    border: 1px solid var(--border);
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+  }
+
   /* ===== Leaflet-Geoman カスタム: shapes 描画中の視認性 ===== */
   .leaflet-pm-tooltip {
     background: var(--surface) !important;
@@ -1225,7 +1365,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260708A</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260708C</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -1376,6 +1516,16 @@
       </div>
     </div>
     <div class="ribbon-group-label">下絵操作</div>
+  </div>
+
+  <!-- v20260708B: 線抽出グループ（下絵ロード後のみ表示） -->
+  <div class="ribbon-group" id="lineExtractSection" style="display:none;">
+    <div class="ribbon-group-content">
+      <button class="ribbon-btn" id="btnLineExtract" onclick="openLineExtractDialog()" title="下絵から地番線だけを抽出（元解像度Canvas処理）">
+        <div class="ribbon-btn-icon">🎨</div><div class="ribbon-btn-label">線抽出</div>
+      </button>
+    </div>
+    <div class="ribbon-group-label">線抽出</div>
   </div>
 
   <div class="ribbon-group">
@@ -1567,6 +1717,72 @@
     <div class="case-modal-footer">
       <span style="font-size:11px;color:var(--text-muted);">1案件1下絵。既存下絵は自動的に置き換わります。</span>
       <button class="case-modal-footer-btn" onclick="closeUploadDialog()" id="uploadCancelBtn">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== v20260708B: 線抽出モーダル ===== -->
+<div id="lineExtractModal" class="line-extract-modal">
+  <div class="line-extract-panel">
+    <div class="line-extract-header">
+      <div>
+        <div class="line-extract-title">🎨 下絵から地番線を抽出</div>
+        <div class="line-extract-info" id="lineExtractSourceInfo">元解像度: -</div>
+      </div>
+      <button class="line-extract-btn" onclick="closeLineExtractDialog()">✕</button>
+    </div>
+    <div class="line-extract-body">
+      <div class="line-extract-row">
+        <span class="line-extract-label">しきい値</span>
+        <input type="range" min="0" max="255" value="140" id="lineExtractThreshold" class="line-extract-threshold-input" oninput="onLineExtractThresholdChange(this.value)">
+        <span class="line-extract-threshold-value" id="lineExtractThresholdValue">140</span>
+        <span class="line-extract-info">明度がこの値以下のピクセルを線として抽出</span>
+      </div>
+      <div class="line-extract-row">
+        <span class="line-extract-label">線色</span>
+        <div class="line-extract-swatches" id="lineExtractSwatches">
+          <button class="line-extract-swatch" data-color="#000000" style="background:#000000" onclick="setLineExtractColor('#000000')"></button>
+          <button class="line-extract-swatch" data-color="#ffffff" style="background:#ffffff" onclick="setLineExtractColor('#ffffff')"></button>
+          <button class="line-extract-swatch active" data-color="#ff0000" style="background:#ff0000" onclick="setLineExtractColor('#ff0000')"></button>
+          <button class="line-extract-swatch" data-color="#ff8000" style="background:#ff8000" onclick="setLineExtractColor('#ff8000')"></button>
+          <button class="line-extract-swatch" data-color="#ffe600" style="background:#ffe600" onclick="setLineExtractColor('#ffe600')"></button>
+          <button class="line-extract-swatch" data-color="#00c853" style="background:#00c853" onclick="setLineExtractColor('#00c853')"></button>
+          <button class="line-extract-swatch" data-color="#00b4f0" style="background:#00b4f0" onclick="setLineExtractColor('#00b4f0')"></button>
+          <button class="line-extract-swatch" data-color="#2962ff" style="background:#2962ff" onclick="setLineExtractColor('#2962ff')"></button>
+          <button class="line-extract-swatch" data-color="#aa00ff" style="background:#aa00ff" onclick="setLineExtractColor('#aa00ff')"></button>
+          <button class="line-extract-swatch" data-color="#ff00aa" style="background:#ff00aa" onclick="setLineExtractColor('#ff00aa')"></button>
+        </div>
+        <input type="color" id="lineExtractColorInput" value="#ff0000" class="line-extract-color-input" onchange="setLineExtractColor(this.value)" title="任意色">
+      </div>
+      <div class="line-extract-row" style="flex-direction:column;align-items:stretch;gap:4px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span class="line-extract-label">プレビュー</span>
+          <span class="line-extract-info" id="lineExtractPreviewInfo">縮小版（適用時は元解像度で処理）</span>
+        </div>
+        <div class="line-extract-preview-wrap">
+          <div class="line-extract-preview-loader" id="lineExtractPreviewLoader">処理中...</div>
+          <canvas id="lineExtractPreviewCanvas" width="600" height="200"></canvas>
+        </div>
+      </div>
+
+      <!-- v20260708C: ベクター化進捗表示 -->
+      <div class="line-extract-row" id="vectorizeProgressRow" style="flex-direction:column;align-items:stretch;gap:4px;display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span class="line-extract-label" style="color:var(--accent);">ベクター化</span>
+          <span class="line-extract-info" id="vectorizeProgressText">-</span>
+        </div>
+        <div style="width:100%;height:6px;background:#0a0e14;border:1px solid var(--border);">
+          <div id="vectorizeProgressBar" style="height:100%;background:var(--accent);width:0%;transition:width 0.2s;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="line-extract-footer">
+      <button class="line-extract-btn danger" onclick="restoreOriginalOverlay()">← 元画像に戻す</button>
+      <div style="display:flex;gap:8px;">
+        <button class="line-extract-btn" onclick="closeLineExtractDialog()">キャンセル</button>
+        <button class="line-extract-btn" onclick="applyLineExtract()" title="ラスター画像として線抽出を適用">元解像度で適用（ラスター）</button>
+        <button class="line-extract-btn primary" onclick="vectorizeOverlay()" title="Zhang-Suen細線化＋グラフトレースで全自動ベクター化。ポリゴン画層にPolyline群として追加">🔀 ベクター化してポリゴン画層へ</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1827,6 +2043,7 @@ async function handleFileSelect(fileList) {
     controlPointMarkers = [];
     currentOverlay = null;
     currentOverlayLayer = null;
+    originalOverlayUrl = null;  // v20260708B: 線抽出用の元画像URLもクリア
     if (controlPointMode) toggleControlPointMode(); // モードを解除
     updateControlPointStatus();
     hideOverlayControlPanel();
@@ -2449,6 +2666,9 @@ function applyLayerVisibility() {
 function showOverlayControlPanel(ov) {
   const panel = document.getElementById('overlayControlSection');
   if (panel) panel.style.display = 'flex';
+  // v20260708B: 線抽出セクションも表示
+  const lineExtractSection = document.getElementById('lineExtractSection');
+  if (lineExtractSection) lineExtractSection.style.display = 'flex';
   document.getElementById('overlayOpacitySlider').value = Math.round((ov.opacity ?? 0.7) * 100);
   document.getElementById('overlayOpacityValue').textContent = Math.round((ov.opacity ?? 0.7) * 100) + '%';
   document.getElementById('overlayLockCheckbox').checked = !!ov.locked;
@@ -2457,6 +2677,9 @@ function showOverlayControlPanel(ov) {
 function hideOverlayControlPanel() {
   const panel = document.getElementById('overlayControlSection');
   if (panel) panel.style.display = 'none';
+  // v20260708B: 線抽出セクションも非表示
+  const lineExtractSection = document.getElementById('lineExtractSection');
+  if (lineExtractSection) lineExtractSection.style.display = 'none';
 }
 
 function onOpacityChange(val) {
@@ -2519,6 +2742,646 @@ function setOverlayMode(mode) {
   } catch (e) {
     console.error('[setOverlayMode]', e);
     showToast('モード切替失敗: ' + e.message, 'error');
+  }
+}
+
+/* ========================================================================
+   v20260708B: 下絵からの地番線抽出機能
+   ------------------------------------------------------------------------
+   - 元画像URLを natural resolution (Zoom19相当) で Canvas に読み込み
+   - しきい値以下の暗いピクセル = 線色に置換
+   - それ以上 = 完全透明化 (alpha=0)
+   - 結果を toDataURL() で currentOverlayLayer._image.src に反映
+   - originalOverlayUrl を保持しておくことで何度でも再抽出・復元可能
+   ======================================================================== */
+let originalOverlayUrl = null;       // 元画像URL (初回に保存)
+let lineExtractPreviewTimer = null;  // プレビュー debounce
+let lineExtractInFlightSeq = 0;      // 最新プレビューだけ反映
+
+function openLineExtractDialog() {
+  if (!currentOverlay || !currentOverlayLayer) {
+    showToast('先に下絵をアップロードしてください', 'error');
+    return;
+  }
+  if (!originalOverlayUrl) {
+    originalOverlayUrl = currentOverlay.url;
+  }
+  const modal = document.getElementById('lineExtractModal');
+  modal.style.display = 'flex';
+  // 元画像の解像度情報を表示
+  const info = document.getElementById('lineExtractSourceInfo');
+  const probeImg = new Image();
+  probeImg.crossOrigin = 'anonymous';
+  probeImg.onload = () => {
+    info.textContent = `元解像度: ${probeImg.naturalWidth} × ${probeImg.naturalHeight} px`;
+  };
+  probeImg.onerror = () => { info.textContent = '元解像度: (取得失敗)'; };
+  probeImg.src = originalOverlayUrl;
+  updateLineExtractPreview();
+}
+
+function closeLineExtractDialog() {
+  document.getElementById('lineExtractModal').style.display = 'none';
+}
+
+function onLineExtractThresholdChange(val) {
+  document.getElementById('lineExtractThresholdValue').textContent = val;
+  // debounce 150ms
+  if (lineExtractPreviewTimer) clearTimeout(lineExtractPreviewTimer);
+  lineExtractPreviewTimer = setTimeout(updateLineExtractPreview, 150);
+}
+
+function setLineExtractColor(color) {
+  document.getElementById('lineExtractColorInput').value = color;
+  document.querySelectorAll('.line-extract-swatch').forEach(sw => {
+    sw.classList.toggle('active', sw.dataset.color && sw.dataset.color.toLowerCase() === color.toLowerCase());
+  });
+  updateLineExtractPreview();
+}
+
+/**
+ * 画像URLから線抽出処理してDataURLを返すコア関数
+ * @param {string} sourceUrl 元画像URL
+ * @param {number} threshold 0-255 明度しきい値
+ * @param {string} hexColor 線の置換色 (#rrggbb)
+ * @param {number|null} maxSize プレビュー用の縮小サイズ制限 (null=元解像度)
+ */
+async function extractLinesToDataURL(sourceUrl, threshold, hexColor, maxSize = null) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      let w = img.naturalWidth;
+      let h = img.naturalHeight;
+      if (maxSize && Math.max(w, h) > maxSize) {
+        const scale = maxSize / Math.max(w, h);
+        w = Math.max(1, Math.round(w * scale));
+        h = Math.max(1, Math.round(h * scale));
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+
+      try {
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const data = imgData.data;
+        const r = parseInt(hexColor.slice(1, 3), 16);
+        const g = parseInt(hexColor.slice(3, 5), 16);
+        const b = parseInt(hexColor.slice(5, 7), 16);
+
+        for (let i = 0; i < data.length; i += 4) {
+          // 単純輝度 = (R+G+B)/3。既に半透明画像の場合は alpha も考慮
+          const alpha = data[i + 3];
+          if (alpha < 20) { data[i + 3] = 0; continue; }
+          const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          if (brightness < threshold) {
+            data[i]     = r;
+            data[i + 1] = g;
+            data[i + 2] = b;
+            data[i + 3] = 255;
+          } else {
+            data[i + 3] = 0;
+          }
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+        resolve({ dataUrl: canvas.toDataURL('image/png'), width: w, height: h });
+      } catch (e) {
+        reject(new Error('Canvas読取失敗（CORS問題の可能性）: ' + e.message));
+      }
+    };
+    img.onerror = () => reject(new Error('画像読込失敗: ' + sourceUrl));
+    img.src = sourceUrl;
+  });
+}
+
+async function updateLineExtractPreview() {
+  if (!originalOverlayUrl) return;
+  const threshold = parseInt(document.getElementById('lineExtractThreshold').value);
+  const color = document.getElementById('lineExtractColorInput').value;
+  const previewCanvas = document.getElementById('lineExtractPreviewCanvas');
+  const loader = document.getElementById('lineExtractPreviewLoader');
+  const seq = ++lineExtractInFlightSeq;
+  loader.style.display = 'block';
+
+  try {
+    // プレビューは最大 600px に縮小して高速化
+    const result = await extractLinesToDataURL(originalOverlayUrl, threshold, color, 600);
+    if (seq !== lineExtractInFlightSeq) return; // 古い結果は破棄
+    const img = new Image();
+    img.onload = () => {
+      if (seq !== lineExtractInFlightSeq) return;
+      const ctx = previewCanvas.getContext('2d');
+      // 市松模様の背景（透明を可視化）
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+      const tile = 10;
+      for (let y = 0; y < previewCanvas.height; y += tile) {
+        for (let x = 0; x < previewCanvas.width; x += tile) {
+          if (((x / tile) + (y / tile)) % 2 === 0) {
+            ctx.fillStyle = '#242424';
+            ctx.fillRect(x, y, tile, tile);
+          }
+        }
+      }
+      // 抽出結果をフィット描画
+      const cw = previewCanvas.width;
+      const ch = previewCanvas.height;
+      const scale = Math.min(cw / img.width, ch / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      ctx.drawImage(img, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
+      loader.style.display = 'none';
+    };
+    img.src = result.dataUrl;
+  } catch (e) {
+    console.warn('preview failed', e);
+    loader.textContent = 'プレビュー失敗: ' + e.message;
+  }
+}
+
+async function applyLineExtract() {
+  if (!originalOverlayUrl || !currentOverlayLayer) {
+    showToast('下絵が読み込まれていません', 'error');
+    return;
+  }
+  const threshold = parseInt(document.getElementById('lineExtractThreshold').value);
+  const color = document.getElementById('lineExtractColorInput').value;
+
+  showToast('元解像度で処理中...', 'info', 4000);
+  try {
+    const result = await extractLinesToDataURL(originalOverlayUrl, threshold, color, null);
+    // DistortableImage 内部の img 要素の src を差し替え
+    // 内部構造: currentOverlayLayer._image が <img> DOM
+    if (currentOverlayLayer._image) {
+      currentOverlayLayer._image.src = result.dataUrl;
+    } else if (typeof currentOverlayLayer.setUrl === 'function') {
+      currentOverlayLayer.setUrl(result.dataUrl);
+    } else {
+      throw new Error('overlay の画像差し替えAPIが見つかりません');
+    }
+    closeLineExtractDialog();
+    showToast(`線抽出を適用しました（${result.width}×${result.height}px）`, 'success');
+  } catch (e) {
+    console.error('[applyLineExtract]', e);
+    showToast('線抽出失敗: ' + e.message, 'error');
+  }
+}
+
+function restoreOriginalOverlay() {
+  if (!originalOverlayUrl || !currentOverlayLayer) {
+    showToast('元画像URLが未取得です', 'error');
+    return;
+  }
+  try {
+    if (currentOverlayLayer._image) {
+      currentOverlayLayer._image.src = originalOverlayUrl;
+    } else if (typeof currentOverlayLayer.setUrl === 'function') {
+      currentOverlayLayer.setUrl(originalOverlayUrl);
+    }
+    closeLineExtractDialog();
+    showToast('元画像に戻しました', 'success');
+  } catch (e) {
+    showToast('復元失敗: ' + e.message, 'error');
+  }
+}
+
+/* ========================================================================
+   v20260708C: 下絵の全自動ベクター化
+   ------------------------------------------------------------------------
+   処理パイプライン:
+     1. 元画像 → 二値マスク (Uint8Array, 1=線 0=背景)
+     2. Zhang-Suen 細線化 (1px幅の骨格化)
+     3. グラフトレース (端点/分岐点をノードとして線分を追跡)
+     4. Douglas-Peucker (頂点削減、ε=2px)
+     5. 画像座標 → 地図座標 (逆双線形補間、既存 mapPointToImagePixel の逆)
+     6. L.polyline を生成して shapesGroup に追加 (画層ID='polygon')
+
+   性能考慮: 内部処理は最大 1500px に縮小 (元解像度が数千px の場合の細線化が
+   数十秒かかるのを防ぐ)。座標変換だけは元画像サイズを基準にする。
+   ======================================================================== */
+
+const VECTORIZE_MAX_DIM = 1500;    // 内部処理の最大辺サイズ
+const VECTORIZE_EPSILON = 2.0;     // Douglas-Peucker 許容誤差 (px)
+const VECTORIZE_MIN_SEG_LEN = 8;   // 最小セグメント長 (px) 未満はノイズとして除去
+
+function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function _updateVectorizeProgress(text, percent) {
+  const row = document.getElementById('vectorizeProgressRow');
+  const bar = document.getElementById('vectorizeProgressBar');
+  const txt = document.getElementById('vectorizeProgressText');
+  if (row) row.style.display = 'flex';
+  if (bar) bar.style.width = percent + '%';
+  if (txt) txt.textContent = text;
+}
+function _hideVectorizeProgress() {
+  const row = document.getElementById('vectorizeProgressRow');
+  if (row) row.style.display = 'none';
+}
+
+/**
+ * 元画像URLから二値マスクを生成
+ * @returns {Promise<{mask: Uint8Array, width: number, height: number, sourceW: number, sourceH: number}>}
+ */
+async function buildBinaryMask(sourceUrl, threshold, maxDim) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const sourceW = img.naturalWidth;
+      const sourceH = img.naturalHeight;
+      let w = sourceW, h = sourceH;
+      if (Math.max(w, h) > maxDim) {
+        const s = maxDim / Math.max(w, h);
+        w = Math.max(1, Math.round(w * s));
+        h = Math.max(1, Math.round(h * s));
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      try {
+        const data = ctx.getImageData(0, 0, w, h).data;
+        const mask = new Uint8Array(w * h);
+        for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+          if (data[i + 3] < 20) { mask[j] = 0; continue; }
+          const b = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          mask[j] = b < threshold ? 1 : 0;
+        }
+        resolve({ mask, width: w, height: h, sourceW, sourceH });
+      } catch (e) {
+        reject(new Error('Canvas読取失敗（CORS問題の可能性）: ' + e.message));
+      }
+    };
+    img.onerror = () => reject(new Error('画像読込失敗'));
+    img.src = sourceUrl;
+  });
+}
+
+/**
+ * Zhang-Suen 細線化アルゴリズム
+ * 二値マスクをその場で1ピクセル幅の骨格に変換
+ * @returns {number} 反復回数
+ */
+function zhangSuenThinning(mask, w, h) {
+  let changed = true;
+  let iterations = 0;
+  const maxIter = 50;
+
+  while (changed && iterations < maxIter) {
+    changed = false;
+    iterations++;
+
+    for (let subIter = 0; subIter < 2; subIter++) {
+      const toDelete = [];
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const idx = y * w + x;
+          if (mask[idx] !== 1) continue;
+
+          const p2 = mask[(y - 1) * w + x];
+          const p3 = mask[(y - 1) * w + (x + 1)];
+          const p4 = mask[y * w + (x + 1)];
+          const p5 = mask[(y + 1) * w + (x + 1)];
+          const p6 = mask[(y + 1) * w + x];
+          const p7 = mask[(y + 1) * w + (x - 1)];
+          const p8 = mask[y * w + (x - 1)];
+          const p9 = mask[(y - 1) * w + (x - 1)];
+
+          const B = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
+          if (B < 2 || B > 6) continue;
+
+          // A: 時計回りに P2→P3→...→P9→P2 で 0→1 遷移数
+          let A = 0;
+          if (p2 === 0 && p3 === 1) A++;
+          if (p3 === 0 && p4 === 1) A++;
+          if (p4 === 0 && p5 === 1) A++;
+          if (p5 === 0 && p6 === 1) A++;
+          if (p6 === 0 && p7 === 1) A++;
+          if (p7 === 0 && p8 === 1) A++;
+          if (p8 === 0 && p9 === 1) A++;
+          if (p9 === 0 && p2 === 1) A++;
+          if (A !== 1) continue;
+
+          if (subIter === 0) {
+            if (p2 * p4 * p6 !== 0) continue;
+            if (p4 * p6 * p8 !== 0) continue;
+          } else {
+            if (p2 * p4 * p8 !== 0) continue;
+            if (p2 * p6 * p8 !== 0) continue;
+          }
+          toDelete.push(idx);
+        }
+      }
+      if (toDelete.length > 0) {
+        changed = true;
+        for (let i = 0; i < toDelete.length; i++) mask[toDelete[i]] = 0;
+      }
+    }
+  }
+  return iterations;
+}
+
+/**
+ * 細線化マスクから連結成分の座標列（=線分）を抽出
+ * - 各ピクセルの8近傍数を数え、端点(1)/中間(2)/分岐点(≥3)を分類
+ * - 端点および分岐点をノードとしてグラフ化
+ * - 各エッジ（ノード→ノードの線分）を座標配列として出力
+ * - 閉ループ（ノードなし）も別途追跡
+ * @returns {Array<Array<{x:number,y:number}>>}
+ */
+function traceLineSegments(mask, w, h) {
+  const degree = new Uint8Array(w * h);
+  const isLine = new Uint8Array(w * h);
+
+  // Crossing Number (CN) で分岐/端点を判定
+  //   CN=1: 端点, CN=2: 通過点, CN≥3: 真の分岐点
+  //   8近傍を時計回り (P2〜P9→P2) に辿り、値の遷移数の半分
+  // 単純な8近傍カウントだと十字の中心近くの通過点が誤って分岐扱いになる
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const idx = y * w + x;
+      if (mask[idx] !== 1) continue;
+      isLine[idx] = 1;
+      const q2 = mask[(y - 1) * w + x];
+      const q3 = mask[(y - 1) * w + (x + 1)];
+      const q4 = mask[y * w + (x + 1)];
+      const q5 = mask[(y + 1) * w + (x + 1)];
+      const q6 = mask[(y + 1) * w + x];
+      const q7 = mask[(y + 1) * w + (x - 1)];
+      const q8 = mask[y * w + (x - 1)];
+      const q9 = mask[(y - 1) * w + (x - 1)];
+      let trans = 0;
+      if (q2 !== q3) trans++;
+      if (q3 !== q4) trans++;
+      if (q4 !== q5) trans++;
+      if (q5 !== q6) trans++;
+      if (q6 !== q7) trans++;
+      if (q7 !== q8) trans++;
+      if (q8 !== q9) trans++;
+      if (q9 !== q2) trans++;
+      degree[idx] = trans >> 1; // /2
+    }
+  }
+
+  const isNode = (idx) => degree[idx] === 1 || degree[idx] >= 3;
+  const edgeVisited = new Uint8Array(w * h); // 中間ピクセルの訪問記録
+  const segments = [];
+
+  // 4連結（上下左右）を優先し、斜めは後回し。
+  // 8連結のみだと通過点から斜めに「近道」して真の分岐点を素通りしてしまう。
+  const NBR_ORDER = [
+    [ 0, -1], // 上
+    [ 0,  1], // 下
+    [-1,  0], // 左
+    [ 1,  0], // 右
+    [-1, -1], // 左上
+    [ 1, -1], // 右上
+    [-1,  1], // 左下
+    [ 1,  1], // 右下
+  ];
+
+  // ノードから外へ向かって追跡
+  for (let idx = 0; idx < w * h; idx++) {
+    if (!isNode(idx) || !isLine[idx]) continue;
+    const sx = idx % w, sy = Math.floor(idx / w);
+    for (let ni = 0; ni < NBR_ORDER.length; ni++) {
+      const dx = NBR_ORDER[ni][0], dy = NBR_ORDER[ni][1];
+      const startX = sx + dx, startY = sy + dy;
+      if (startX < 0 || startX >= w || startY < 0 || startY >= h) continue;
+      const startIdx = startY * w + startX;
+      if (!isLine[startIdx]) continue;
+      if (edgeVisited[startIdx]) continue;
+      if (isNode(startIdx)) {
+        // ノード同士が隣接: 直接接続の短いエッジ
+        if (idx < startIdx) {
+          segments.push([{ x: sx, y: sy }, { x: startX, y: startY }]);
+        }
+        continue;
+      }
+      // 中間ピクセルから開始 → 次のノードまで追跡
+      const seg = [{ x: sx, y: sy }];
+      let cx = startX, cy = startY;
+      let prevIdx = idx;
+      while (true) {
+        const cidx = cy * w + cx;
+        seg.push({ x: cx, y: cy });
+        edgeVisited[cidx] = 1;
+        if (isNode(cidx)) break;
+        let nextX = -1, nextY = -1;
+        for (let nj = 0; nj < NBR_ORDER.length; nj++) {
+          const ddx = NBR_ORDER[nj][0], ddy = NBR_ORDER[nj][1];
+          const nx = cx + ddx, ny = cy + ddy;
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          const nidx = ny * w + nx;
+          if (nidx === prevIdx) continue;
+          if (!isLine[nidx]) continue;
+          if (!isNode(nidx) && edgeVisited[nidx]) continue;
+          nextX = nx; nextY = ny;
+          break;
+        }
+        if (nextX === -1) break;
+        prevIdx = cidx;
+        cx = nextX; cy = nextY;
+      }
+      if (seg.length >= 2) segments.push(seg);
+    }
+  }
+
+  // 閉ループ（すべての点がdegree=2）を追跡
+  for (let idx = 0; idx < w * h; idx++) {
+    if (!isLine[idx] || edgeVisited[idx] || degree[idx] !== 2) continue;
+    const seg = [];
+    let cx = idx % w, cy = Math.floor(idx / w);
+    let prevIdx = -1;
+    const startIdx = idx;
+    while (true) {
+      const cidx = cy * w + cx;
+      if (cidx === startIdx && seg.length > 2) {
+        seg.push({ x: cx, y: cy });
+        break;
+      }
+      if (edgeVisited[cidx] && cidx !== startIdx) break;
+      seg.push({ x: cx, y: cy });
+      edgeVisited[cidx] = 1;
+      let nextX = -1, nextY = -1;
+      for (let nj = 0; nj < NBR_ORDER.length; nj++) {
+        const ddx = NBR_ORDER[nj][0], ddy = NBR_ORDER[nj][1];
+        const nx = cx + ddx, ny = cy + ddy;
+        if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+        const nidx = ny * w + nx;
+        if (nidx === prevIdx) continue;
+        if (!isLine[nidx]) continue;
+        if (edgeVisited[nidx] && nidx !== startIdx) continue;
+        nextX = nx; nextY = ny;
+        break;
+      }
+      if (nextX === -1) break;
+      prevIdx = cidx;
+      cx = nextX; cy = nextY;
+    }
+    if (seg.length >= 3) segments.push(seg);
+  }
+
+  return segments;
+}
+
+/**
+ * Douglas-Peucker: ポリラインの頂点削減
+ */
+function douglasPeucker(points, epsilon) {
+  if (points.length < 3) return points.slice();
+  const stack = [[0, points.length - 1]];
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+
+  while (stack.length > 0) {
+    const [first, last] = stack.pop();
+    let maxDist = 0, maxIdx = -1;
+    const a = points[first], b = points[last];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const norm = Math.hypot(dx, dy) || 1;
+    for (let i = first + 1; i < last; i++) {
+      const p = points[i];
+      const d = Math.abs(dy * p.x - dx * p.y + b.x * a.y - b.y * a.x) / norm;
+      if (d > maxDist) { maxDist = d; maxIdx = i; }
+    }
+    if (maxDist > epsilon && maxIdx !== -1) {
+      keep[maxIdx] = 1;
+      stack.push([first, maxIdx]);
+      stack.push([maxIdx, last]);
+    }
+  }
+  const result = [];
+  for (let i = 0; i < points.length; i++) if (keep[i]) result.push(points[i]);
+  return result;
+}
+
+/**
+ * 画像ピクセル座標 → 地図LatLng (逆双線形補間)
+ * currentOverlayLayer の 4隅corner を使う。既存 mapPointToImagePixel の完全な逆演算。
+ */
+function imagePixelToLatLng(pxX, pxY, layer, imgW, imgH) {
+  const corners = layer.getCorners();
+  const tl = corners[0], tr = corners[1], bl = corners[2], br = corners[3];
+  const u = pxX / imgW;
+  const v = pxY / imgH;
+  const lng = (1 - u) * (1 - v) * tl.lng + u * (1 - v) * tr.lng + (1 - u) * v * bl.lng + u * v * br.lng;
+  const lat = (1 - u) * (1 - v) * tl.lat + u * (1 - v) * tr.lat + (1 - u) * v * bl.lat + u * v * br.lat;
+  return L.latLng(lat, lng);
+}
+
+/**
+ * セグメント群からPolylineを生成して「ポリゴン」画層に追加
+ */
+function createPolylinesFromSegments(segments, maskW, maskH, layer) {
+  const targetLayerId = 'polygon';
+  const cadLayer = getLayerById(targetLayerId);
+  const color = cadLayer?.color || '#58a6ff';
+  const created = [];
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    // ノイズ除去: 極端に短いセグメントは捨てる（マスク座標での画素距離）
+    let totalLen = 0;
+    for (let k = 1; k < seg.length; k++) {
+      totalLen += Math.hypot(seg[k].x - seg[k - 1].x, seg[k].y - seg[k - 1].y);
+    }
+    if (totalLen < VECTORIZE_MIN_SEG_LEN) continue;
+
+    const simplified = douglasPeucker(seg, VECTORIZE_EPSILON);
+    if (simplified.length < 2) continue;
+
+    // 画像座標→地図座標 (マスクは maskW×maskH。座標変換は 0..1 の正規化で行うので
+    // 元画像サイズに関係なくマスクサイズをそのまま使ってOK)
+    const latlngs = simplified.map(p => imagePixelToLatLng(p.x, p.y, layer, maskW, maskH));
+
+    const line = L.polyline(latlngs, {
+      color: color,
+      weight: 2,
+      opacity: 1.0,
+      interactive: true
+    });
+    line._shapeData = {
+      properties: {
+        shape: 'Line',
+        color: color,
+        weight: 2,
+        dashArray: null,
+        layer_id: targetLayerId,
+        auto_generated: true,
+        source: 'vectorize_overlay'
+      }
+    };
+    shapesGroup.addLayer(line);
+    if (typeof onShapeClickForSelect === 'function') {
+      line.on('click', onShapeClickForSelect);
+    }
+    created.push(line);
+  }
+  return created;
+}
+
+/**
+ * メイン: 下絵の全自動ベクター化
+ */
+async function vectorizeOverlay() {
+  if (!currentOverlay || !currentOverlayLayer) {
+    showToast('先に下絵をアップロードしてください', 'error');
+    return;
+  }
+  if (!originalOverlayUrl) originalOverlayUrl = currentOverlay.url;
+
+  const threshold = parseInt(document.getElementById('lineExtractThreshold').value);
+  const t0 = performance.now();
+
+  try {
+    _updateVectorizeProgress('元画像を読み込み中...', 5);
+    await _sleep(30);
+
+    // Step 1: 二値マスク生成
+    _updateVectorizeProgress('二値化中...', 15);
+    await _sleep(30);
+    const { mask, width, height, sourceW, sourceH } = await buildBinaryMask(originalOverlayUrl, threshold, VECTORIZE_MAX_DIM);
+    console.log(`[vectorize] mask: ${width}×${height} (src: ${sourceW}×${sourceH})`);
+
+    // Step 2: 細線化
+    _updateVectorizeProgress(`細線化中... (${width}×${height})`, 30);
+    await _sleep(30);
+    const iters = zhangSuenThinning(mask, width, height);
+    console.log(`[vectorize] Zhang-Suen iterations: ${iters}`);
+
+    // Step 3: グラフトレース
+    _updateVectorizeProgress('線分をトレース中...', 65);
+    await _sleep(30);
+    const segments = traceLineSegments(mask, width, height);
+    console.log(`[vectorize] raw segments: ${segments.length}`);
+
+    // Step 4-6: Polyline化して画層に追加
+    _updateVectorizeProgress('Polyline化＋地図に配置中...', 85);
+    await _sleep(30);
+    const created = createPolylinesFromSegments(segments, width, height, currentOverlayLayer);
+
+    // 画層カウント更新
+    if (typeof updateShapesCount === 'function') updateShapesCount();
+    if (typeof applyLayerVisibility === 'function') applyLayerVisibility();
+
+    const t1 = performance.now();
+    const elapsed = ((t1 - t0) / 1000).toFixed(1);
+    _updateVectorizeProgress(`完了: ${created.length}本のPolylineを生成（${elapsed}秒）`, 100);
+    await _sleep(1500);
+    _hideVectorizeProgress();
+    closeLineExtractDialog();
+    showToast(`ベクター化完了: ${created.length}本のPolylineを「ポリゴン」画層に追加（${elapsed}秒）`, 'success', 5000);
+  } catch (e) {
+    console.error('[vectorizeOverlay]', e);
+    _hideVectorizeProgress();
+    showToast('ベクター化失敗: ' + e.message, 'error', 5000);
   }
 }
 
