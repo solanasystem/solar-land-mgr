@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260707E / タイル切替UIをコンパクト化(小さく詰めたシャープなスタイル)。前:v20260707D -->
+<!-- BUILD: cad-editor v20260707H / 平行寸法線機能追加(起点→終点→オフセット位置の3クリック)。前:v20260707G -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -188,7 +188,136 @@
     outline-offset: 1px;
   }
 
-  /* ===== 左サイドバー (v20260707B: 132 → 180px、要素配置を整える) ===== */
+  /* ===== v20260707G: DraftSight風リボンUI ===== */
+  .ribbon-tabs {
+    display: flex;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 8px;
+    gap: 0;
+    flex-shrink: 0;
+  }
+  .ribbon-tab {
+    background: transparent;
+    border: none;
+    border-right: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 3px 14px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: var(--font-main);
+    height: 22px;
+  }
+  .ribbon-tab.active {
+    background: var(--bg);
+    color: var(--accent);
+    font-weight: 600;
+    position: relative;
+    top: 1px;
+  }
+  .ribbon-tab.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .ribbon-tab:hover:not(.disabled):not(.active) {
+    color: var(--text);
+    background: var(--surface2);
+  }
+
+  .ribbon-bar {
+    display: flex;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 3px 4px;
+    gap: 0;
+    overflow-x: auto;
+    min-height: 74px;
+    flex-shrink: 0;
+  }
+  .ribbon-group {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    border-right: 1px solid var(--border);
+    padding: 2px 4px 0;
+    min-width: 50px;
+    flex-shrink: 0;
+  }
+  .ribbon-group:last-child { border-right: none; }
+  .ribbon-group-wide {
+    min-width: 220px;
+  }
+  .ribbon-group-content {
+    flex: 1;
+    display: flex;
+    gap: 2px;
+    align-items: flex-start;
+    padding: 2px;
+  }
+  .ribbon-group-vertical {
+    flex-direction: column;
+    gap: 2px;
+    align-items: stretch;
+  }
+  .ribbon-group-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    padding: 2px 3px 1px;
+    text-align: center;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    border-top: 1px solid var(--border);
+  }
+  .ribbon-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 3px 5px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 9px;
+    min-width: 40px;
+    line-height: 1.2;
+    transition: none;
+  }
+  .ribbon-btn-icon {
+    font-size: 18px;
+    line-height: 1;
+    margin-bottom: 3px;
+  }
+  .ribbon-btn-label {
+    font-size: 9px;
+    color: var(--text-muted);
+  }
+  .ribbon-btn:hover {
+    background: var(--surface2);
+    border-color: var(--accent);
+  }
+  .ribbon-btn.active {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
+  }
+  .ribbon-btn.active .ribbon-btn-label {
+    color: #000;
+  }
+  .ribbon-prop-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 2px;
+  }
+  .ribbon-prop-label {
+    color: var(--text-muted);
+    font-size: 10px;
+    min-width: 30px;
+  }
+
+  /* v20260707G: 旧サイドバー CSS は無効化 */
+  .toolbar { display: none !important; }
   .toolbar {
     width: 180px;
     background: var(--surface);
@@ -1096,7 +1225,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260707E</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260707H</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -1105,116 +1234,164 @@
   </div>
 </header>
 
-<!-- ===== メインコンテナ ===== -->
-<div class="main-container">
+<!-- ===== v20260707G: DraftSight/AutoCAD 風リボンバー ===== -->
+<div class="ribbon-tabs">
+  <button class="ribbon-tab active">ホーム</button>
+  <button class="ribbon-tab disabled" disabled>挿入</button>
+  <button class="ribbon-tab disabled" disabled>表示</button>
+  <button class="ribbon-tab disabled" disabled>出力</button>
+</div>
+<div class="ribbon-bar">
 
-  <!-- ===== 左サイドバー (v20260707x) : ツール + プロパティ + 下絵操作 ===== -->
-  <div class="toolbar">
-    <div class="tool-group">
-      <div class="tool-group-label">下絵</div>
-      <div class="tool-buttons-row">
-        <button class="tool-btn" id="btnUpload" title="下絵アップロード" onclick="openUploadDialog()">📥</button>
-        <button class="tool-btn" id="btnControlPoints" title="基準点モード" onclick="toggleControlPointMode()">🎯</button>
-        <button class="tool-btn" id="btnApplyTransform" title="基準点から変換を計算して下絵をスナップ" onclick="applyTransformFromControlPoints()">⚙️</button>
-        <button class="tool-btn" id="btnSaveTransform" title="変形状態を保存" onclick="saveOverlayTransform()">💾</button>
-      </div>
+  <div class="ribbon-group">
+    <div class="ribbon-group-content">
+      <button class="ribbon-btn" id="btnUpload" onclick="openUploadDialog()" title="下絵アップロード">
+        <div class="ribbon-btn-icon">📥</div><div class="ribbon-btn-label">下絵</div>
+      </button>
+      <button class="ribbon-btn" id="btnControlPoints" onclick="toggleControlPointMode()" title="基準点モード">
+        <div class="ribbon-btn-icon">🎯</div><div class="ribbon-btn-label">基準点</div>
+      </button>
+      <button class="ribbon-btn" id="btnApplyTransform" onclick="applyTransformFromControlPoints()" title="基準点から変換を計算">
+        <div class="ribbon-btn-icon">⚙️</div><div class="ribbon-btn-label">変換</div>
+      </button>
+      <button class="ribbon-btn" id="btnSaveTransform" onclick="saveOverlayTransform()" title="変形状態を保存">
+        <div class="ribbon-btn-icon">💾</div><div class="ribbon-btn-label">保存</div>
+      </button>
     </div>
-    <div class="tool-group">
-      <div class="tool-group-label">作成</div>
-      <div class="tool-buttons-row">
-        <button class="tool-btn" id="btnDrawLine" title="線分/ポリライン(クリック連続、ダブルクリックで終了)" onclick="startDraw('Line')">／</button>
-        <button class="tool-btn" id="btnDrawPolygon" title="ポリゴン(クリック連続、ダブルクリックで終了)" onclick="startDraw('Polygon')">⬡</button>
-        <button class="tool-btn" id="btnDrawCircle" title="円" onclick="startDraw('Circle')">◯</button>
-        <button class="tool-btn" id="btnDrawRect" title="矩形" onclick="startDraw('Rectangle')">▭</button>
-        <button class="tool-btn" id="btnDrawArc3" title="円弧(3点方式: 始点→通過点→終点)" onclick="startArcDraw('3point')">⌒</button>
-        <button class="tool-btn" id="btnDrawArcC" title="円弧(中心方式: 中心→半径→開始角→終了角)" onclick="startArcDraw('center')">◜</button>
-      </div>
-    </div>
-    <div class="tool-group">
-      <div class="tool-group-label">修正</div>
-      <div class="tool-buttons-row">
-        <button class="tool-btn" id="btnEdit" title="編集モード（頂点ドラッグ）" onclick="toggleEditMode()">✎</button>
-        <button class="tool-btn" id="btnMove" title="移動 (選択後: 基準点→目標点)" onclick="startMoveMode()">↔</button>
-        <button class="tool-btn" id="btnCopy" title="コピー (選択後: 基準点→目標点)" onclick="startCopyMode()">⧉</button>
-        <button class="tool-btn" id="btnRotate" title="回転 (選択後: 中心→参照点→目標点)" onclick="startRotateMode()">↻</button>
-        <button class="tool-btn" id="btnRemove" title="削除モード（図形クリックで削除）" onclick="toggleRemoveMode()">🗑</button>
-      </div>
-    </div>
-    <div class="tool-group">
-      <div class="tool-group-label">注釈</div>
-      <div class="tool-buttons-row">
-        <button class="tool-btn" id="btnText" title="テキスト（クリック位置に文字を配置）" onclick="startTextMode()">A</button>
-      </div>
-    </div>
-    <div class="tool-group">
-      <div class="tool-group-label">測定</div>
-      <div class="tool-buttons-row">
-        <button class="tool-btn" id="btnMeasure" title="距離/面積測定" onclick="toggleMeasureMode()">📏</button>
-      </div>
-    </div>
+    <div class="ribbon-group-label">下絵</div>
+  </div>
 
-    <!-- v20260707x: プロパティパネル (以前は地図上に浮遊) -->
-    <div class="tool-group">
-      <div class="tool-group-label">プロパティ</div>
-      <div class="pp-row">
-        <span class="pp-label">色</span>
-        <div class="pp-color-swatches">
-          <button class="pp-swatch active" style="background:#000000" data-color="#000000" onclick="setDrawColor('#000000')" title="黒"></button>
-          <button class="pp-swatch" style="background:#f85149" data-color="#f85149" onclick="setDrawColor('#f85149')" title="赤"></button>
-          <button class="pp-swatch" style="background:#58a6ff" data-color="#58a6ff" onclick="setDrawColor('#58a6ff')" title="青"></button>
-          <button class="pp-swatch" style="background:#3fb950" data-color="#3fb950" onclick="setDrawColor('#3fb950')" title="緑"></button>
-          <button class="pp-swatch" style="background:#f0b429" data-color="#f0b429" onclick="setDrawColor('#f0b429')" title="黄"></button>
-          <button class="pp-swatch" style="background:#a371f7" data-color="#a371f7" onclick="setDrawColor('#a371f7')" title="紫"></button>
-        </div>
+  <div class="ribbon-group">
+    <div class="ribbon-group-content">
+      <button class="ribbon-btn" id="btnDrawLine" onclick="startDraw('Line')" title="線分/ポリライン">
+        <div class="ribbon-btn-icon">／</div><div class="ribbon-btn-label">線分</div>
+      </button>
+      <button class="ribbon-btn" id="btnDrawPolygon" onclick="startDraw('Polygon')" title="ポリゴン">
+        <div class="ribbon-btn-icon">⬡</div><div class="ribbon-btn-label">ﾎﾟﾘｺﾞﾝ</div>
+      </button>
+      <button class="ribbon-btn" id="btnDrawCircle" onclick="startDraw('Circle')" title="円">
+        <div class="ribbon-btn-icon">◯</div><div class="ribbon-btn-label">円</div>
+      </button>
+      <button class="ribbon-btn" id="btnDrawRect" onclick="startDraw('Rectangle')" title="矩形">
+        <div class="ribbon-btn-icon">▭</div><div class="ribbon-btn-label">矩形</div>
+      </button>
+      <button class="ribbon-btn" id="btnDrawArc3" onclick="startArcDraw('3point')" title="円弧(3点)">
+        <div class="ribbon-btn-icon">⌒</div><div class="ribbon-btn-label">円弧3点</div>
+      </button>
+      <button class="ribbon-btn" id="btnDrawArcC" onclick="startArcDraw('center')" title="円弧(中心)">
+        <div class="ribbon-btn-icon">◜</div><div class="ribbon-btn-label">円弧中心</div>
+      </button>
+    </div>
+    <div class="ribbon-group-label">作成</div>
+  </div>
+
+  <div class="ribbon-group">
+    <div class="ribbon-group-content">
+      <button class="ribbon-btn" id="btnMove" onclick="startMoveMode()" title="移動">
+        <div class="ribbon-btn-icon">↔</div><div class="ribbon-btn-label">移動</div>
+      </button>
+      <button class="ribbon-btn" id="btnCopy" onclick="startCopyMode()" title="コピー">
+        <div class="ribbon-btn-icon">⧉</div><div class="ribbon-btn-label">ｺﾋﾟｰ</div>
+      </button>
+      <button class="ribbon-btn" id="btnRotate" onclick="startRotateMode()" title="回転">
+        <div class="ribbon-btn-icon">↻</div><div class="ribbon-btn-label">回転</div>
+      </button>
+      <button class="ribbon-btn" id="btnEdit" onclick="toggleEditMode()" title="頂点編集">
+        <div class="ribbon-btn-icon">✎</div><div class="ribbon-btn-label">編集</div>
+      </button>
+      <button class="ribbon-btn" id="btnRemove" onclick="toggleRemoveMode()" title="削除モード">
+        <div class="ribbon-btn-icon">🗑</div><div class="ribbon-btn-label">削除</div>
+      </button>
+    </div>
+    <div class="ribbon-group-label">修正</div>
+  </div>
+
+  <div class="ribbon-group">
+    <div class="ribbon-group-content">
+      <button class="ribbon-btn" id="btnText" onclick="startTextMode()" title="テキスト">
+        <div class="ribbon-btn-icon">A</div><div class="ribbon-btn-label">ﾃｷｽﾄ</div>
+      </button>
+      <button class="ribbon-btn" id="btnDimension" onclick="startDimensionMode()" title="平行寸法（起点→終点→オフセット位置）">
+        <div class="ribbon-btn-icon">⇤⇥</div><div class="ribbon-btn-label">寸法</div>
+      </button>
+    </div>
+    <div class="ribbon-group-label">注釈</div>
+  </div>
+
+  <!-- プロパティグループ -->
+  <div class="ribbon-group ribbon-group-wide">
+    <div class="ribbon-group-content ribbon-group-vertical">
+      <div class="ribbon-prop-row">
+        <span class="ribbon-prop-label">色</span>
+        <button class="pp-swatch active" style="background:#dcdcdc" data-color="#dcdcdc" onclick="setDrawColor('#dcdcdc')" title="白"></button>
+        <button class="pp-swatch" style="background:#ff5555" data-color="#ff5555" onclick="setDrawColor('#ff5555')" title="赤"></button>
+        <button class="pp-swatch" style="background:#00b4f0" data-color="#00b4f0" onclick="setDrawColor('#00b4f0')" title="ｼｱﾝ"></button>
+        <button class="pp-swatch" style="background:#6cbf3e" data-color="#6cbf3e" onclick="setDrawColor('#6cbf3e')" title="緑"></button>
+        <button class="pp-swatch" style="background:#f0b429" data-color="#f0b429" onclick="setDrawColor('#f0b429')" title="黄"></button>
+        <button class="pp-swatch" style="background:#a371f7" data-color="#a371f7" onclick="setDrawColor('#a371f7')" title="紫"></button>
       </div>
-      <div class="pp-row">
-        <span class="pp-label">太さ</span>
+      <div class="ribbon-prop-row">
+        <span class="ribbon-prop-label">太さ</span>
         <button class="pp-weight active" data-weight="1" onclick="setDrawWeight(1)">細</button>
         <button class="pp-weight" data-weight="2" onclick="setDrawWeight(2)">中</button>
         <button class="pp-weight" data-weight="4" onclick="setDrawWeight(4)">太</button>
-      </div>
-      <div class="pp-row">
-        <span class="pp-label">線種</span>
+        <span class="ribbon-prop-label" style="margin-left:8px;">線種</span>
         <button class="pp-dash active" data-dash="" onclick="setDrawDash('')" title="実線">━</button>
         <button class="pp-dash" data-dash="8,6" onclick="setDrawDash('8,6')" title="破線">┅</button>
         <button class="pp-dash" data-dash="12,4,2,4" onclick="setDrawDash('12,4,2,4')" title="一点鎖線">┉</button>
       </div>
-      <div class="pp-row">
-        <span class="pp-label">塗り</span>
-        <button class="pp-dash active" data-fill="none" onclick="setDrawFill('none')" title="塗りなし">✕</button>
+      <div class="ribbon-prop-row">
+        <span class="ribbon-prop-label">塗り</span>
+        <button class="pp-dash active" data-fill="none" onclick="setDrawFill('none')" title="なし">✕</button>
         <button class="pp-dash" data-fill="diag" onclick="setDrawFill('diag')" title="斜線">╱</button>
         <button class="pp-dash" data-fill="cross" onclick="setDrawFill('cross')" title="格子">╳</button>
         <button class="pp-dash" data-fill="dots" onclick="setDrawFill('dots')" title="ドット">••</button>
-        <button class="pp-dash" data-fill="hori" onclick="setDrawFill('hori')" title="水平線">═</button>
-        <button class="pp-dash" data-fill="vert" onclick="setDrawFill('vert')" title="垂直線">‖</button>
+        <button class="pp-dash" data-fill="hori" onclick="setDrawFill('hori')" title="水平">═</button>
+        <button class="pp-dash" data-fill="vert" onclick="setDrawFill('vert')" title="垂直">‖</button>
       </div>
     </div>
-
-    <!-- v20260707x: 下絵操作 (以前は地図上に浮遊) -->
-    <div class="tool-group" id="overlayControlSection" style="display:none;">
-      <div class="tool-group-label">下絵操作</div>
-      <div class="ocp-row">
-        <span class="ocp-label">透明度</span>
-        <input type="range" min="0" max="100" value="70" id="overlayOpacitySlider" class="ocp-slider" oninput="onOpacityChange(this.value)">
-        <span class="ocp-value" id="overlayOpacityValue">70%</span>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:3px;">
-        <span class="ocp-label">変形</span>
-        <div class="tool-buttons-row">
-          <button class="pp-weight active" id="btnModeDistort" onclick="setOverlayMode('distort')" title="4隅を独立に動かす（自由変形）">自由</button>
-          <button class="pp-weight" id="btnModeScale" onclick="setOverlayMode('scale')" title="拡大縮小（縦横比維持）">拡縮</button>
-          <button class="pp-weight" id="btnModeRotate" onclick="setOverlayMode('rotate')" title="回転のみ">回転</button>
-          <button class="pp-weight" id="btnModeTranslate" onclick="setOverlayMode('translate')" title="ドラッグで平行移動">移動</button>
-        </div>
-      </div>
-      <div class="ocp-row" style="margin-top:4px;">
-        <label class="ocp-check"><input type="checkbox" id="overlayLockCheckbox" onchange="onLockChange(this.checked)"> 🔒 変形をロック</label>
-      </div>
-    </div>
+    <div class="ribbon-group-label">プロパティ</div>
   </div>
 
-  <!-- ===== 中央地図エリア ===== -->
-  <div class="map-area">
+  <!-- 下絵操作グループ（下絵ロード後のみ表示） -->
+  <div class="ribbon-group ribbon-group-wide" id="overlayControlSection" style="display:none;">
+    <div class="ribbon-group-content ribbon-group-vertical">
+      <div class="ribbon-prop-row">
+        <span class="ribbon-prop-label">透明度</span>
+        <input type="range" min="0" max="100" value="70" id="overlayOpacitySlider" class="ocp-slider" style="width:80px" oninput="onOpacityChange(this.value)">
+        <span id="overlayOpacityValue" style="font-family:var(--font-mono);font-size:10px;color:var(--accent);min-width:30px;">70%</span>
+      </div>
+      <div class="ribbon-prop-row">
+        <span class="ribbon-prop-label">変形</span>
+        <button class="pp-weight active" id="btnModeDistort" onclick="setOverlayMode('distort')">自由</button>
+        <button class="pp-weight" id="btnModeScale" onclick="setOverlayMode('scale')">拡縮</button>
+        <button class="pp-weight" id="btnModeRotate" onclick="setOverlayMode('rotate')">回転</button>
+        <button class="pp-weight" id="btnModeTranslate" onclick="setOverlayMode('translate')">移動</button>
+      </div>
+      <div class="ribbon-prop-row">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:10px;color:var(--text);">
+          <input type="checkbox" id="overlayLockCheckbox" onchange="onLockChange(this.checked)" style="width:12px;height:12px;">
+          🔒 変形をロック
+        </label>
+      </div>
+    </div>
+    <div class="ribbon-group-label">下絵操作</div>
+  </div>
+
+  <div class="ribbon-group">
+    <div class="ribbon-group-content">
+      <button class="ribbon-btn" id="btnMeasure" onclick="toggleMeasureMode()" title="距離/面積測定">
+        <div class="ribbon-btn-icon">📏</div><div class="ribbon-btn-label">測定</div>
+      </button>
+    </div>
+    <div class="ribbon-group-label">測定</div>
+  </div>
+
+</div>
+
+<!-- ===== メインコンテナ ===== -->
+<div class="main-container">
+  <!-- ===== 中央地図エリア（左サイドバーは廃止、ここが最初）===== -->
     <div id="map"></div>
 
     <!-- v20260707k: DraftSight風クロスヘアカーソル (描画モード中のみ表示) -->
@@ -3271,30 +3448,54 @@ function _onDrawMouseMoveForClose(e) {
 function _onDrawClickForClose(e) {
   if (!currentDrawMode || (currentDrawMode !== 'Line' && currentDrawMode !== 'Polygon')) return;
   if (!_drawCloseNearby) return;
-  // 近接時 → 描画確定（始点を目標点として finishShape 呼び出し）
   e.stopPropagation();
   e.preventDefault();
+
   const firstPt = _getDrawFirstPoint();
   const drawer = map.pm.Draw[currentDrawMode];
-  if (firstPt && drawer) {
-    // 始点の座標をマウス位置にスナップさせて finishShape
-    try {
-      // Polygon: 始点を追加せずに終了
-      if (currentDrawMode === 'Polygon') {
-        // 現在の頂点をそのまま閉じる（多角形は自動的に閉じられる）
-        if (typeof drawer._finishShape === 'function') drawer._finishShape();
-        else if (typeof drawer.finishShape === 'function') drawer.finishShape();
-      } else {
-        // Line: 始点をもう一度追加してから確定 → 閉じた線に
-        if (typeof drawer._createVertex === 'function') {
-          drawer._createVertex({ latlng: firstPt });
-        }
-        if (typeof drawer._finishShape === 'function') drawer._finishShape();
-        else if (typeof drawer.finishShape === 'function') drawer.finishShape();
-      }
-    } catch (err) {
-      console.error('[autoclose]', err);
+  if (!firstPt || !drawer || !drawer._layer) return;
+
+  // v20260707F: マウスの現在位置を LatLng に変換
+  const rect = map.getContainer().getBoundingClientRect();
+  const containerX = e.clientX - rect.left;
+  const containerY = e.clientY - rect.top;
+  const mouseLL = map.containerPointToLatLng([containerX, containerY]);
+
+  try {
+    const layer = drawer._layer;
+    if (!layer || !layer._latlngs) {
+      // 頂点情報が取れない場合はそのまま終了
+      if (typeof drawer._finishShape === 'function') drawer._finishShape();
+      return false;
     }
+    // Polygon の場合は _latlngs[0] が頂点配列、Line の場合は _latlngs 自体
+    const isPolygonLayer = Array.isArray(layer._latlngs[0]);
+    const latlngs = isPolygonLayer ? layer._latlngs[0] : layer._latlngs;
+
+    // v20260707F: マウス位置を最後の頂点として追加（栗本さんが打とうとした点）
+    latlngs.push(L.latLng(mouseLL.lat, mouseLL.lng));
+
+    // Line モードの場合、閉じるためには始点をさらに追加
+    if (currentDrawMode === 'Line') {
+      latlngs.push(L.latLng(firstPt.lat, firstPt.lng));
+    }
+    // 再描画
+    if (typeof layer.setLatLngs === 'function') {
+      layer.setLatLngs(isPolygonLayer ? [latlngs] : latlngs);
+    }
+    // レンダリング反映を待ってから終了
+    setTimeout(() => {
+      try {
+        if (typeof drawer._finishShape === 'function') drawer._finishShape();
+        else if (typeof drawer.finishShape === 'function') drawer.finishShape();
+      } catch (err) { console.error('[autoclose finish]', err); }
+    }, 30);
+  } catch (err) {
+    console.error('[autoclose]', err);
+    // フォールバック: そのまま終了（少なくとも既存頂点で確定）
+    try {
+      if (typeof drawer._finishShape === 'function') drawer._finishShape();
+    } catch (e2) {}
   }
   return false;
 }
@@ -3454,11 +3655,21 @@ function startTextMode() {
   map.on('click', onModifyMapClick);
 }
 
+/* v20260707H: 平行寸法線モード */
+function startDimensionMode() {
+  stopAllModes(false, 'modify');
+  modifyMode = 'dimension';
+  modifyClicks = [];
+  document.getElementById('btnDimension')?.classList.add('active');
+  showToast('寸法: ①起点をクリック → ②終点 → ③寸法線位置', 'info', 3500);
+  map.on('click', onModifyMapClick);
+}
+
 function stopModifyMode() {
   modifyMode = null;
   modifyClicks = [];
   map.off('click', onModifyMapClick);
-  ['btnMove', 'btnCopy', 'btnRotate', 'btnText'].forEach(id => {
+  ['btnMove', 'btnCopy', 'btnRotate', 'btnText', 'btnDimension'].forEach(id => {
     document.getElementById(id)?.classList.remove('active');
   });
 }
@@ -3507,7 +3718,6 @@ async function onModifyMapClick(e) {
       showToast('回転: 目標方向をクリック', 'info', 2000);
     } else if (modifyClicks.length === 3) {
       const [center, ref, target] = modifyClicks;
-      // 経緯度をメートル座標に変換して角度計算
       const refLat = center.lat;
       const mPerLng = 111320 * Math.cos(refLat * Math.PI / 180);
       const mPerLat = 110540;
@@ -3519,6 +3729,17 @@ async function onModifyMapClick(e) {
       const angleTo   = Math.atan2(tgtY, tgtX);
       const angleRad  = angleTo - angleFrom;
       await rotateSelectedShapes(center, angleRad);
+      stopModifyMode();
+    }
+  } else if (modifyMode === 'dimension') {
+    // v20260707H: 平行寸法
+    if (modifyClicks.length === 1) {
+      showToast('寸法: ②終点をクリック', 'info', 2000);
+    } else if (modifyClicks.length === 2) {
+      showToast('寸法: ③寸法線位置をクリック', 'info', 2000);
+    } else if (modifyClicks.length === 3) {
+      const [p1, p2, offset] = modifyClicks;
+      await createDimension(p1, p2, offset);
       stopModifyMode();
     }
   }
@@ -3626,6 +3847,91 @@ async function createTextAnnotation(latlng, text) {
   } catch (e) {
     console.error('[createTextAnnotation]', e);
     showToast('テキスト保存失敗: ' + e.message, 'error');
+  }
+}
+
+/* ---------- v20260707H: 平行寸法線 ---------- */
+async function createDimension(p1, p2, offset) {
+  // 経緯度→メートル座標
+  const refLat = (p1.lat + p2.lat) / 2;
+  const mPerLng = 111320 * Math.cos(refLat * Math.PI / 180);
+  const mPerLat = 110540;
+  const p1m = { x: p1.lng * mPerLng, y: p1.lat * mPerLat };
+  const p2m = { x: p2.lng * mPerLng, y: p2.lat * mPerLat };
+  const offsetm = { x: offset.lng * mPerLng, y: offset.lat * mPerLat };
+
+  const dx = p2m.x - p1m.x;
+  const dy = p2m.y - p1m.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 0.001) {
+    showToast('起点と終点が同じ位置です', 'error');
+    return;
+  }
+  // 対象方向の単位ベクトル
+  const ux = dx / dist;
+  const uy = dy / dist;
+  // 対象方向に垂直な単位ベクトル（左法線）
+  const nx = -uy;
+  const ny = ux;
+
+  // オフセットベクトル（p1からoffset点まで）と法線の内積 = オフセット距離
+  const ox = offsetm.x - p1m.x;
+  const oy = offsetm.y - p1m.y;
+  const offsetLen = ox * nx + oy * ny;
+
+  // 補助線終点（寸法線位置に伸ばした点）
+  const q1m = { x: p1m.x + nx * offsetLen, y: p1m.y + ny * offsetLen };
+  const q2m = { x: p2m.x + nx * offsetLen, y: p2m.y + ny * offsetLen };
+  // メートル→経緯度
+  const toLL = (m) => [m.x / mPerLng, m.y / mPerLat];
+  const q1 = toLL(q1m);
+  const q2 = toLL(q2m);
+  const p1c = toLL(p1m);
+  const p2c = toLL(p2m);
+  // テキスト位置（寸法線の中央）
+  const textLat = (q1m.y + q2m.y) / 2 / mPerLat;
+  const textLng = (q1m.x + q2m.x) / 2 / mPerLng;
+
+  // MultiLineString: 補助線1、補助線2、寸法線本体
+  const dimensionGeom = {
+    type: 'MultiLineString',
+    coordinates: [
+      [p1c, q1],   // 補助線1 (起点→寸法線位置)
+      [p2c, q2],   // 補助線2 (終点→寸法線位置)
+      [q1, q2]     // 寸法線本体
+    ]
+  };
+
+  const distText = dist >= 1000 ? (dist / 1000).toFixed(3) + ' km' : dist.toFixed(2) + ' m';
+
+  const payload = {
+    organization_id: window.__auth?.profile?.organization_id,
+    case_id: currentCaseId,
+    geom_type: 'line',
+    geometry: dimensionGeom,
+    properties: {
+      shape: 'Dimension',
+      color: drawStyle.color,
+      weight: 1,
+      distance_m: dist,
+      text: distText,
+      text_lat: textLat,
+      text_lng: textLng,
+      layer_id: getCurrentLayerId()
+    },
+    area_m2: null,
+    length_m: dist
+  };
+
+  try {
+    const { data, error } = await sb.from('shapes').insert(payload).select().single();
+    if (error) throw error;
+    renderShapeOnMap(data);
+    updateShapesCount();
+    showToast(`寸法線: ${distText}`, 'success', 2500);
+  } catch (e) {
+    console.error('[createDimension]', e);
+    showToast('寸法線保存失敗: ' + e.message, 'error');
   }
 }
 
@@ -4345,6 +4651,54 @@ function renderShapeOnMap(sh) {
     marker._shapeData = sh;
     marker.on('click', onShapeClickForSelect);
     shapesGroup.addLayer(marker);
+    return;
+  }
+
+  // v20260707H: 平行寸法線
+  if (props.shape === 'Dimension' && sh.geometry?.type === 'MultiLineString') {
+    const color = props.color || '#dcdcdc';
+    // MultiLineString: 補助線1, 補助線2, 寸法線本体
+    const style = { color, weight: props.weight || 1, opacity: 1 };
+    const lineLayer = L.geoJSON(sh.geometry, { style });
+    lineLayer._shapeId = sh.id;
+    lineLayer._shapeData = sh;
+    // 寸法線の両端に矢印マーカー（三角形）
+    const coords = sh.geometry.coordinates;
+    if (coords.length === 3 && coords[2].length === 2) {
+      const [q1, q2] = coords[2];
+      // 矢印方向
+      const dxA = q2[0] - q1[0], dyA = q2[1] - q1[1];
+      const angleA = Math.atan2(dyA, dxA);
+      // 両端矢印を SVG divIcon で描画
+      const makeArrow = (lng, lat, angleRad, dir) => {
+        const rot = (angleRad * 180 / Math.PI) + (dir === 'end' ? 0 : 180);
+        const html = `<div style="width:12px;height:12px;transform:rotate(${rot}deg);color:${color};font-size:12px;line-height:12px;text-align:center;">▶</div>`;
+        return L.marker([lat, lng], {
+          icon: L.divIcon({ html, iconSize: [12, 12], iconAnchor: [6, 6], className: '' }),
+          interactive: false
+        });
+      };
+      shapesGroup.addLayer(makeArrow(q1[0], q1[1], angleA, 'start'));
+      shapesGroup.addLayer(makeArrow(q2[0], q2[1], angleA, 'end'));
+    }
+    lineLayer.eachLayer(l => l.on('click', onShapeClickForSelect));
+    shapesGroup.addLayer(lineLayer);
+    // 距離テキスト
+    if (props.text && props.text_lat && props.text_lng) {
+      const textMarker = L.marker([props.text_lat, props.text_lng], {
+        icon: L.divIcon({
+          html: `<div style="background:var(--bg);color:${color};padding:1px 5px;font-family:'Consolas',monospace;font-size:10px;white-space:nowrap;border:1px solid ${color};">${_escHtml(props.text)}</div>`,
+          iconSize: null,
+          iconAnchor: [0, 0],
+          className: ''
+        }),
+        interactive: true
+      });
+      textMarker._shapeId = sh.id;
+      textMarker._shapeData = sh;
+      textMarker.on('click', onShapeClickForSelect);
+      shapesGroup.addLayer(textMarker);
+    }
     return;
   }
 
