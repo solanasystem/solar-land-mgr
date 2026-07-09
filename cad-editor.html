@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260708G / 適応的しきい値モード追加(積分画像による局所平均比較で照明ムラ・アンチエイリアシング耐性)。前:v20260708F -->
+<!-- BUILD: cad-editor v20260708H / Shift+ドラッグ範囲選択がPolyline上から起動しない問題を修正(mousedownをcapture=true+stopPropagationで確実にshapeより先に受ける)。前:v20260708G -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1365,7 +1365,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260708G</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260708H</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -4072,6 +4072,9 @@ function _initRangeSelect() {
     if (!e.shiftKey) return;  // Shift+ドラッグのみ
     // マウス左ボタンのみ
     if (e.button !== 0) return;
+    // v20260708H: shape/Polyline上からでも範囲選択を起動できるように、伝播を止めて
+    // Leaflet側のshape.click/map.dragging/map.boxZoomを確実に抑制する
+    e.stopPropagation();
     // 地図パンを無効化
     map.dragging.disable();
     map.boxZoom.disable();
@@ -4152,7 +4155,8 @@ function _initRangeSelect() {
     }
   };
 
-  mapEl.addEventListener('mousedown', onMouseDown);
+  // v20260708H: capture=true で shape (SVG)より先に受け取る
+  mapEl.addEventListener('mousedown', onMouseDown, true);
   document.addEventListener('mousemove', onMouseMove);
   document.addEventListener('mouseup', onMouseUp);
 }
