@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- BUILD: main v20260622g / ステータスバッジ(LETTER/LTR済)の最終発信日表示を改善：紫の補色=黄緑(#bef264)で太字大きめ・position:absoluteでバッジ右端内側に重ねるためバッジ幅は不変(min-width:92px維持)。 -->
 <!-- BUILD: main v20260707b / 3マスターの操作メニューに「🎨 CADで開く」追加(cad-editor.html?case_id=を別タブ)。前:v20260707a -->
-<!-- BUILD: main v20260709f / 一括AI転記が全項目自動反映対応(表題部/甲区/乙区とも自動)。前:v20260709e -->
+<!-- BUILD: main v20260709g / 一括取込モーダルにドラッグ&ドロップ対応（フォルダも再帰的に読取）。前:v20260709f -->
 <!-- v20260528a: ステータスバッジ(.status-badge)の帯を統一。min-width:92px + justify-content:center で全ステータス(NOT VISITED/LTR済/OK等)の帯長を揃える。文字数依存の不揃いを解消。全マスター(案件/地権者/土地情報/不動産会社)共通で適用 -->
 <html lang="ja">
 <head>
@@ -1133,9 +1133,9 @@
     </div>
     <div class="modal-body">
       <div id="bulkPhase1" style="display:block;">
-        <div style="text-align:center;padding:40px 20px;border:2px dashed var(--border);border-radius:12px;background:var(--surface2);">
+        <div id="bulkDropZone" style="text-align:center;padding:40px 20px;border:2px dashed var(--border);border-radius:12px;background:var(--surface2);transition:all 0.2s;">
           <div style="font-size:48px;margin-bottom:16px;">📁</div>
-          <div style="font-size:14px;color:var(--text);margin-bottom:8px;font-weight:500;">登記簿・公図のフォルダを選択（PDF / JPEG / PNG / WebP）</div>
+          <div style="font-size:14px;color:var(--text);margin-bottom:8px;font-weight:500;">登記簿・公図のフォルダを選択 or <b style="color:var(--accent);">ドラッグ&ドロップ</b>（PDF / JPEG / PNG / WebP）</div>
           <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">ファイル名 + PDF内容から自動マッチング → 人間が目視確認 → 一括アップロード</div>
           <div style="font-size:11px;color:#f0b429;margin-bottom:20px;">⚠ 画像(JPEG等)はテキスト読取ができないため、ファイル名だけでマッチングします</div>
           <input type="file" id="bulkFolderInput" multiple accept="application/pdf,image/jpeg,image/png,image/webp" webkitdirectory style="display:none;" onchange="handleBulkFolderSelect(event)">
@@ -1143,6 +1143,9 @@
           <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
             <button class="btn btn-primary" onclick="document.getElementById('bulkFolderInput').click()">📁 フォルダを選択</button>
             <button class="btn btn-ghost" onclick="document.getElementById('bulkFilesInput').click()">📄 ファイルを複数選択</button>
+          </div>
+          <div id="bulkDropHint" style="font-size:10px;color:var(--text-muted);margin-top:16px;">
+            💡 ヒント: ファイルを直接この枠内にドラッグ&ドロップも可能です
           </div>
         </div>
       </div>
@@ -2860,6 +2863,83 @@ function openBulkImportModal(){
   document.getElementById('bulkFolderInput').value='';
   document.getElementById('bulkFilesInput').value='';
   document.getElementById('bulkImportModal').classList.add('open');
+  // v20260709g: ドラッグ&ドロップ初期化(初回のみ)
+  _setupBulkDragDrop();
+}
+
+// v20260709g: ドラッグ&ドロップハンドラー(重複バインドを避ける)
+let _bulkDragDropSetup=false;
+function _setupBulkDragDrop(){
+  if(_bulkDragDropSetup)return;
+  _bulkDragDropSetup=true;
+  const dz=document.getElementById('bulkDropZone');
+  if(!dz)return;
+  const hi=(on)=>{
+    dz.style.borderColor=on?'var(--accent)':'var(--border)';
+    dz.style.background=on?'rgba(88,166,255,0.08)':'var(--surface2)';
+  };
+  // ページ全体でファイルドラッグ中はデフォルト動作抑制(ブラウザがファイルを開くのを防ぐ)
+  ['dragenter','dragover','dragleave','drop'].forEach(ev=>{
+    dz.addEventListener(ev,e=>{e.preventDefault();e.stopPropagation();});
+  });
+  dz.addEventListener('dragenter',()=>hi(true));
+  dz.addEventListener('dragover',()=>hi(true));
+  dz.addEventListener('dragleave',(e)=>{
+    // ドロップゾーン外に完全に出た時だけハイライト解除
+    if(!dz.contains(e.relatedTarget))hi(false);
+  });
+  dz.addEventListener('drop',async(e)=>{
+    hi(false);
+    const items=e.dataTransfer.items;
+    const files=[];
+    // items から再帰的に取得（フォルダドロップも対応）
+    if(items && items.length){
+      const promises=[];
+      for(let i=0;i<items.length;i++){
+        const it=items[i];
+        if(it.kind!=='file')continue;
+        const entry=it.webkitGetAsEntry ? it.webkitGetAsEntry() : null;
+        if(entry){
+          promises.push(_bulkReadEntryRecursive(entry,files));
+        }else{
+          // フォールバック: 通常File
+          const f=it.getAsFile();
+          if(f)files.push(f);
+        }
+      }
+      await Promise.all(promises);
+    }else{
+      // フォールバック: DataTransfer.files
+      for(let i=0;i<e.dataTransfer.files.length;i++){
+        files.push(e.dataTransfer.files[i]);
+      }
+    }
+    if(!files.length){
+      showToast('ドロップされたファイルが検出できませんでした','error');return;
+    }
+    // 仮想的な event を作って既存のhandleBulkFolderSelectに渡す
+    const fakeEvent={target:{files:files}};
+    handleBulkFolderSelect(fakeEvent);
+  });
+}
+
+// 再帰的にフォルダ/ファイルを取得
+async function _bulkReadEntryRecursive(entry,accum){
+  return new Promise((resolve)=>{
+    if(entry.isFile){
+      entry.file(f=>{accum.push(f);resolve();},()=>resolve());
+    }else if(entry.isDirectory){
+      const reader=entry.createReader();
+      const readAll=()=>{
+        reader.readEntries(async(entries)=>{
+          if(!entries.length){resolve();return;}
+          await Promise.all(entries.map(e=>_bulkReadEntryRecursive(e,accum)));
+          readAll();  // 一度で全件返らないケースあり、繰り返し呼ぶ
+        },()=>resolve());
+      };
+      readAll();
+    }else{resolve();}
+  });
 }
 
 // ファイル名から市町村+町名+地番+種別を抽出
