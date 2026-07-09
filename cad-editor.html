@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260708E / currentOverlay.url → source_url 修正(フィールド名不整合による404を根治)。前:v20260708D -->
+<!-- BUILD: cad-editor v20260708G / 適応的しきい値モード追加(積分画像による局所平均比較で照明ムラ・アンチエイリアシング耐性)。前:v20260708F -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1365,7 +1365,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260708E</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260708G</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -1523,6 +1523,9 @@
     <div class="ribbon-group-content">
       <button class="ribbon-btn" id="btnLineExtract" onclick="openLineExtractDialog()" title="下絵から地番線だけを抽出（元解像度Canvas処理）">
         <div class="ribbon-btn-icon">🎨</div><div class="ribbon-btn-label">線抽出</div>
+      </button>
+      <button class="ribbon-btn" id="btnRestoreOverlay" onclick="restoreOriginalOverlayQuick()" title="線抽出/ラスター差替を解除して元の下絵画像に戻す">
+        <div class="ribbon-btn-icon">↩</div><div class="ribbon-btn-label">元画像</div>
       </button>
     </div>
     <div class="ribbon-group-label">線抽出</div>
@@ -1732,11 +1735,22 @@
       <button class="line-extract-btn" onclick="closeLineExtractDialog()">✕</button>
     </div>
     <div class="line-extract-body">
+      <!-- v20260708G: 抽出モード切替 -->
       <div class="line-extract-row">
-        <span class="line-extract-label">しきい値</span>
-        <input type="range" min="0" max="255" value="140" id="lineExtractThreshold" class="line-extract-threshold-input" oninput="onLineExtractThresholdChange(this.value)">
-        <span class="line-extract-threshold-value" id="lineExtractThresholdValue">140</span>
-        <span class="line-extract-info">明度がこの値以下のピクセルを線として抽出</span>
+        <span class="line-extract-label">モード</span>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
+          <input type="radio" name="lineExtractMode" value="simple" onchange="onLineExtractModeChange('simple')"> 単純しきい値
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
+          <input type="radio" name="lineExtractMode" value="adaptive" checked onchange="onLineExtractModeChange('adaptive')"> 適応的しきい値 <span style="color:var(--accent);">(推奨)</span>
+        </label>
+        <span class="line-extract-info" id="lineExtractModeHint">照明ムラや紙のシワに強い</span>
+      </div>
+      <div class="line-extract-row">
+        <span class="line-extract-label" id="lineExtractThresholdLabel">オフセットC</span>
+        <input type="range" min="0" max="50" value="10" id="lineExtractThreshold" class="line-extract-threshold-input" oninput="onLineExtractThresholdChange(this.value)">
+        <span class="line-extract-threshold-value" id="lineExtractThresholdValue">10</span>
+        <span class="line-extract-info" id="lineExtractThresholdHint">局所平均よりこの値以上暗いピクセルを線として抽出</span>
       </div>
       <div class="line-extract-row">
         <span class="line-extract-label">線色</span>
@@ -2793,6 +2807,37 @@ function onLineExtractThresholdChange(val) {
   lineExtractPreviewTimer = setTimeout(updateLineExtractPreview, 150);
 }
 
+// v20260708G: モード切替時、しきい値スライダーの範囲・ラベル・説明を更新
+function onLineExtractModeChange(mode) {
+  const slider = document.getElementById('lineExtractThreshold');
+  const label = document.getElementById('lineExtractThresholdLabel');
+  const hint = document.getElementById('lineExtractThresholdHint');
+  const modeHint = document.getElementById('lineExtractModeHint');
+  if (mode === 'adaptive') {
+    slider.min = 0;
+    slider.max = 50;
+    slider.value = 10;
+    label.textContent = 'オフセットC';
+    hint.textContent = '局所平均よりこの値以上暗いピクセルを線として抽出';
+    modeHint.textContent = '照明ムラや紙のシワに強い';
+  } else {
+    slider.min = 0;
+    slider.max = 255;
+    slider.value = 140;
+    label.textContent = 'しきい値';
+    hint.textContent = '明度がこの値以下のピクセルを線として抽出';
+    modeHint.textContent = '照明ムラのないスキャン画像向け';
+  }
+  document.getElementById('lineExtractThresholdValue').textContent = slider.value;
+  updateLineExtractPreview();
+}
+
+// 現在のモードを取得
+function _getLineExtractMode() {
+  const el = document.querySelector('input[name="lineExtractMode"]:checked');
+  return el ? el.value : 'adaptive';
+}
+
 function setLineExtractColor(color) {
   document.getElementById('lineExtractColorInput').value = color;
   document.querySelectorAll('.line-extract-swatch').forEach(sw => {
@@ -2808,7 +2853,7 @@ function setLineExtractColor(color) {
  * @param {string} hexColor 線の置換色 (#rrggbb)
  * @param {number|null} maxSize プレビュー用の縮小サイズ制限 (null=元解像度)
  */
-async function extractLinesToDataURL(sourceUrl, threshold, hexColor, maxSize = null) {
+async function extractLinesToDataURL(sourceUrl, threshold, hexColor, maxSize = null, mode = 'adaptive', blockSize = 31) {
   const loaded = await loadCanvasSafeImage(sourceUrl);
   let w = loaded.width, h = loaded.height;
   if (maxSize && Math.max(w, h) > maxSize) {
@@ -2829,17 +2874,33 @@ async function extractLinesToDataURL(sourceUrl, threshold, hexColor, maxSize = n
     const g = parseInt(hexColor.slice(3, 5), 16);
     const b = parseInt(hexColor.slice(5, 7), 16);
 
-    for (let i = 0; i < data.length; i += 4) {
-      const alpha = data[i + 3];
-      if (alpha < 20) { data[i + 3] = 0; continue; }
-      const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-      if (brightness < threshold) {
-        data[i]     = r;
-        data[i + 1] = g;
-        data[i + 2] = b;
-        data[i + 3] = 255;
-      } else {
-        data[i + 3] = 0;
+    if (mode === 'adaptive') {
+      // 適応的モード: 局所平均との比較でマスク生成 → 色置換
+      const gray = new Uint8Array(w * h);
+      for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+        gray[j] = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      }
+      const bs = Math.max(3, Math.min(101, blockSize | 1));
+      const mask = computeAdaptiveMask(gray, w, h, bs, threshold);
+      for (let j = 0, i = 0; j < mask.length; j++, i += 4) {
+        if (data[i + 3] < 20) { data[i + 3] = 0; continue; }
+        if (mask[j] === 1) {
+          data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255;
+        } else {
+          data[i + 3] = 0;
+        }
+      }
+    } else {
+      // 単純しきい値
+      for (let i = 0; i < data.length; i += 4) {
+        const alpha = data[i + 3];
+        if (alpha < 20) { data[i + 3] = 0; continue; }
+        const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+        if (brightness < threshold) {
+          data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255;
+        } else {
+          data[i + 3] = 0;
+        }
       }
     }
 
@@ -2854,6 +2915,7 @@ async function updateLineExtractPreview() {
   if (!originalOverlayUrl) return;
   const threshold = parseInt(document.getElementById('lineExtractThreshold').value);
   const color = document.getElementById('lineExtractColorInput').value;
+  const mode = _getLineExtractMode();
   const previewCanvas = document.getElementById('lineExtractPreviewCanvas');
   const loader = document.getElementById('lineExtractPreviewLoader');
   const seq = ++lineExtractInFlightSeq;
@@ -2861,7 +2923,7 @@ async function updateLineExtractPreview() {
 
   try {
     // プレビューは最大 600px に縮小して高速化
-    const result = await extractLinesToDataURL(originalOverlayUrl, threshold, color, 600);
+    const result = await extractLinesToDataURL(originalOverlayUrl, threshold, color, 600, mode);
     if (seq !== lineExtractInFlightSeq) return; // 古い結果は破棄
     const img = new Image();
     img.onload = () => {
@@ -2902,10 +2964,11 @@ async function applyLineExtract() {
   }
   const threshold = parseInt(document.getElementById('lineExtractThreshold').value);
   const color = document.getElementById('lineExtractColorInput').value;
+  const mode = _getLineExtractMode();
 
   showToast('元解像度で処理中...', 'info', 4000);
   try {
-    const result = await extractLinesToDataURL(originalOverlayUrl, threshold, color, null);
+    const result = await extractLinesToDataURL(originalOverlayUrl, threshold, color, null, mode);
     // DistortableImage 内部の img 要素の src を差し替え
     // 内部構造: currentOverlayLayer._image が <img> DOM
     if (currentOverlayLayer._image) {
@@ -2935,6 +2998,30 @@ function restoreOriginalOverlay() {
       currentOverlayLayer.setUrl(originalOverlayUrl);
     }
     closeLineExtractDialog();
+    showToast('元画像に戻しました', 'success');
+  } catch (e) {
+    showToast('復元失敗: ' + e.message, 'error');
+  }
+}
+
+// v20260708F: リボンからワンクリックで元画像に戻す（モーダル不要）
+function restoreOriginalOverlayQuick() {
+  if (!currentOverlay || !currentOverlayLayer) {
+    showToast('下絵が選択されていません', 'error');
+    return;
+  }
+  // originalOverlayUrl が未取得なら、DBの source_url がそもそもの元
+  const restoreUrl = originalOverlayUrl || currentOverlay.source_url;
+  if (!restoreUrl) {
+    showToast('復元先URLが取得できません', 'error');
+    return;
+  }
+  try {
+    if (currentOverlayLayer._image) {
+      currentOverlayLayer._image.src = restoreUrl;
+    } else if (typeof currentOverlayLayer.setUrl === 'function') {
+      currentOverlayLayer.setUrl(restoreUrl);
+    }
     showToast('元画像に戻しました', 'success');
   } catch (e) {
     showToast('復元失敗: ' + e.message, 'error');
@@ -3030,7 +3117,55 @@ function _hideVectorizeProgress() {
  * 元画像URLから二値マスクを生成
  * @returns {Promise<{mask: Uint8Array, width: number, height: number, sourceW: number, sourceH: number}>}
  */
-async function buildBinaryMask(sourceUrl, threshold, maxDim) {
+/**
+ * v20260708G: 適応的しきい値 (Adaptive Threshold)
+ * 積分画像を使い、各ピクセルの近傍 blockSize×blockSize の平均輝度を求め、
+ * その平均 - C より暗いピクセルを線 (mask=1) とする。
+ * 照明ムラ・写真のボケ・アンチエイリアシングに強い。
+ */
+function computeAdaptiveMask(gray, w, h, blockSize, C) {
+  // 積分画像 (Float64: 大画像でも安全)
+  const iw = w + 1;
+  const integral = new Float64Array(iw * (h + 1));
+  for (let y = 1; y <= h; y++) {
+    let row = 0;
+    const rowBase = y * iw;
+    const rowPrevBase = (y - 1) * iw;
+    const grayBase = (y - 1) * w;
+    for (let x = 1; x <= w; x++) {
+      row += gray[grayBase + (x - 1)];
+      integral[rowBase + x] = integral[rowPrevBase + x] + row;
+    }
+  }
+  const mask = new Uint8Array(w * h);
+  const half = blockSize >> 1;
+  for (let y = 0; y < h; y++) {
+    const y1 = Math.max(0, y - half);
+    const y2 = Math.min(h - 1, y + half);
+    for (let x = 0; x < w; x++) {
+      const x1 = Math.max(0, x - half);
+      const x2 = Math.min(w - 1, x + half);
+      const area = (y2 - y1 + 1) * (x2 - x1 + 1);
+      const sum = integral[(y2 + 1) * iw + (x2 + 1)]
+                - integral[y1 * iw + (x2 + 1)]
+                - integral[(y2 + 1) * iw + x1]
+                + integral[y1 * iw + x1];
+      const mean = sum / area;
+      mask[y * w + x] = gray[y * w + x] < mean - C ? 1 : 0;
+    }
+  }
+  return mask;
+}
+
+/**
+ * 元画像URLから二値マスクを生成 (単純 or 適応)
+ * @param {string} sourceUrl
+ * @param {number} threshold  simple:0-255 の絶対しきい値 / adaptive:0-50 のオフセットC
+ * @param {number} maxDim
+ * @param {'simple'|'adaptive'} mode
+ * @param {number} blockSize  adaptive時の近傍サイズ (奇数、デフォルト31)
+ */
+async function buildBinaryMask(sourceUrl, threshold, maxDim, mode = 'adaptive', blockSize = 31) {
   const loaded = await loadCanvasSafeImage(sourceUrl);
   const sourceW = loaded.width;
   const sourceH = loaded.height;
@@ -3047,11 +3182,27 @@ async function buildBinaryMask(sourceUrl, threshold, maxDim) {
   ctx.drawImage(loaded.drawable, 0, 0, w, h);
   try {
     const data = ctx.getImageData(0, 0, w, h).data;
-    const mask = new Uint8Array(w * h);
+    // 輝度画像化
+    const gray = new Uint8Array(w * h);
+    const alphaOk = new Uint8Array(w * h);
     for (let i = 0, j = 0; i < data.length; i += 4, j++) {
-      if (data[i + 3] < 20) { mask[j] = 0; continue; }
-      const b = (data[i] + data[i + 1] + data[i + 2]) / 3;
-      mask[j] = b < threshold ? 1 : 0;
+      gray[j] = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      alphaOk[j] = data[i + 3] >= 20 ? 1 : 0;
+    }
+    let mask;
+    if (mode === 'adaptive') {
+      // 適応的しきい値: 局所平均との差で判定
+      const bs = Math.max(3, Math.min(101, blockSize | 1)); // 奇数化・レンジ制限
+      mask = computeAdaptiveMask(gray, w, h, bs, threshold);
+      // alpha=0 領域は強制的に背景
+      for (let j = 0; j < mask.length; j++) if (!alphaOk[j]) mask[j] = 0;
+    } else {
+      // 単純しきい値
+      mask = new Uint8Array(w * h);
+      for (let j = 0; j < gray.length; j++) {
+        if (!alphaOk[j]) { mask[j] = 0; continue; }
+        mask[j] = gray[j] < threshold ? 1 : 0;
+      }
     }
     return { mask, width: w, height: h, sourceW, sourceH, loadMethod: loaded.method };
   } catch (e) {
@@ -3375,6 +3526,7 @@ async function vectorizeOverlay() {
   if (!originalOverlayUrl) originalOverlayUrl = currentOverlay.source_url;
 
   const threshold = parseInt(document.getElementById('lineExtractThreshold').value);
+  const mode = _getLineExtractMode();
   const t0 = performance.now();
 
   try {
@@ -3382,9 +3534,9 @@ async function vectorizeOverlay() {
     await _sleep(30);
 
     // Step 1: 二値マスク生成
-    _updateVectorizeProgress('二値化中...', 15);
+    _updateVectorizeProgress(`二値化中... (${mode === 'adaptive' ? '適応的' : '単純'})`, 15);
     await _sleep(30);
-    const { mask, width, height, sourceW, sourceH } = await buildBinaryMask(originalOverlayUrl, threshold, VECTORIZE_MAX_DIM);
+    const { mask, width, height, sourceW, sourceH } = await buildBinaryMask(originalOverlayUrl, threshold, VECTORIZE_MAX_DIM, mode);
     console.log(`[vectorize] mask: ${width}×${height} (src: ${sourceW}×${sourceH})`);
 
     // Step 2: 細線化
