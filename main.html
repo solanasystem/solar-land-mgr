@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- BUILD: main v20260622g / ステータスバッジ(LETTER/LTR済)の最終発信日表示を改善：紫の補色=黄緑(#bef264)で太字大きめ・position:absoluteでバッジ右端内側に重ねるためバッジ幅は不変(min-width:92px維持)。 -->
 <!-- BUILD: main v20260707b / 3マスターの操作メニューに「🎨 CADで開く」追加(cad-editor.html?case_id=を別タブ)。前:v20260707a -->
-<!-- BUILD: main v20260709h / 一括取込にAI地番自動マッチングモード追加（未紐付けアップロード→AI転記で自動紐付け）。前:v20260709g -->
+<!-- BUILD: main v20260709i / HEIC/HEIF 受入対応(heic2anyで自動JPEG変換)。iPhone撮影のHEICを直接ドロップ可能に。前:v20260709h -->
 <!-- v20260528a: ステータスバッジ(.status-badge)の帯を統一。min-width:92px + justify-content:center で全ステータス(NOT VISITED/LTR済/OK等)の帯長を揃える。文字数依存の不揃いを解消。全マスター(案件/地権者/土地情報/不動産会社)共通で適用 -->
 <html lang="ja">
 <head>
@@ -48,6 +48,7 @@
 <link rel="stylesheet" href="mobile-responsive.css?v=20260516zg">
 <link rel="stylesheet" href="toki-ai.css?v=20260709h">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="power-company-utils.js?v=20260516zg"></script>
@@ -1079,7 +1080,7 @@
     <div class="modal-header">
       <div>
         <div class="modal-title">📄 書類アップロード</div>
-        <div class="modal-subtitle">登記簿・公図（PDF / JPEG / PNG / WebP、20MB以下）</div>
+        <div class="modal-subtitle">登記簿・公図（PDF / JPEG / PNG / WebP / HEIC、20MB以下）</div>
       </div>
       <button class="modal-close" onclick="closeModal('uploadDocModal')">✕</button>
     </div>
@@ -1103,8 +1104,8 @@
         <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">複数地番がある場合はカンマで区切ってください</div>
       </div>
       <div class="form-group">
-        <label class="form-label">ファイル（PDF / JPEG / PNG / WebP）<span style="color:#ef4444">*</span></label>
-        <input class="form-input" type="file" id="docFile" accept="application/pdf,image/jpeg,image/png,image/webp" onchange="handleFileSelect()">
+        <label class="form-label">ファイル（PDF / JPEG / PNG / WebP / HEIC）<span style="color:#ef4444">*</span></label>
+        <input class="form-input" type="file" id="docFile" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" onchange="handleFileSelect()">
         <div id="fileInfo" style="font-size:12px;color:var(--text-muted);margin-top:6px;"></div>
       </div>
       <div id="uploadProgress" style="display:none;margin-top:16px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
@@ -1174,8 +1175,8 @@
           <div style="font-size:14px;color:var(--text);margin-bottom:8px;font-weight:500;">登記簿・公図のフォルダを選択 or <b style="color:var(--accent);">ドラッグ&ドロップ</b>（PDF / JPEG / PNG / WebP）</div>
           <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">ファイル名 + PDF内容から自動マッチング → 人間が目視確認 → 一括アップロード</div>
           <div style="font-size:11px;color:#f0b429;margin-bottom:20px;">⚠ 画像(JPEG等)はテキスト読取ができないため、ファイル名だけでマッチングします</div>
-          <input type="file" id="bulkFolderInput" multiple accept="application/pdf,image/jpeg,image/png,image/webp" webkitdirectory style="display:none;" onchange="handleBulkFolderSelect(event)">
-          <input type="file" id="bulkFilesInput" multiple accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none;" onchange="handleBulkFolderSelect(event)">
+          <input type="file" id="bulkFolderInput" multiple accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" webkitdirectory style="display:none;" onchange="handleBulkFolderSelect(event)">
+          <input type="file" id="bulkFilesInput" multiple accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" style="display:none;" onchange="handleBulkFolderSelect(event)">
           <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
             <button class="btn btn-primary" onclick="document.getElementById('bulkFolderInput').click()">📁 フォルダを選択</button>
             <button class="btn btn-ghost" onclick="document.getElementById('bulkFilesInput').click()">📄 ファイルを複数選択</button>
@@ -2747,12 +2748,13 @@ function handleFileSelect(){
   _selectedPdfFile=null;
   if(!file){infoEl.textContent='';execBtn.disabled=true;return;}
   // v20260709a: PDF/JPEG/PNG/WebP 対応
-  const ALLOWED_MIMES=['application/pdf','image/jpeg','image/png','image/webp'];
-  const ALLOWED_EXTS=['.pdf','.jpg','.jpeg','.png','.webp'];
+  // v20260709i: HEIC/HEIF 対応 (アップロード時に自動でJPEGに変換)
+  const ALLOWED_MIMES=['application/pdf','image/jpeg','image/png','image/webp','image/heic','image/heif'];
+  const ALLOWED_EXTS=['.pdf','.jpg','.jpeg','.png','.webp','.heic','.heif'];
   const isMimeOk=ALLOWED_MIMES.includes(file.type);
   const isExtOk=ALLOWED_EXTS.some(ext=>file.name.toLowerCase().endsWith(ext));
   if(!isMimeOk&&!isExtOk){
-    infoEl.innerHTML='<span style="color:#ef4444">⚠ PDF / JPEG / PNG / WebP のいずれかを選択してください</span>';
+    infoEl.innerHTML='<span style="color:#ef4444">⚠ PDF / JPEG / PNG / WebP / HEIC のいずれかを選択してください</span>';
     fileInput.value='';execBtn.disabled=true;return;
   }
   const MAX_SIZE=20*1024*1024;
@@ -2812,16 +2814,21 @@ async function uploadDocument(){
   if(!currentCaseId){showToast('案件IDが取得できません','error');return;}
   const docType=document.querySelector('input[name="docType"]:checked')?.value;
   const chiban=docType==='touki'?(document.getElementById('docChiban').value.trim()||null):null;
-  const originalFile=_selectedPdfFile;
+  let originalFile=_selectedPdfFile;
   const originalName=originalFile.name;
   const originalSize=originalFile.size;
   // v20260709a: PDF/画像の判定
   const isPdf=originalFile.type==='application/pdf'||originalName.toLowerCase().endsWith('.pdf');
-  const contentType=originalFile.type||(isPdf?'application/pdf':'application/octet-stream');
   document.getElementById('uploadExecBtn').disabled=true;
   document.getElementById('uploadCancelBtn').disabled=true;
   try{
-    _setUploadProgress(isPdf?'PDFを読み込み中...':'画像を読み込み中...',5,'');
+    // v20260709i: HEIC/HEIFはJPEGに変換
+    if(!isPdf && _bulkIsHeic(originalFile)){
+      _setUploadProgress('HEIC→JPEG 変換中...',15,'');
+      originalFile=await _bulkConvertHeicToJpeg(originalFile);
+    }
+    const contentType=originalFile.type||(isPdf?'application/pdf':'application/octet-stream');
+    _setUploadProgress(isPdf?'PDFを読み込み中...':'画像を読み込み中...',20,'');
     let uploadBlob=originalFile;
     let compressionApplied=false;
     let compressedSize=originalSize;
@@ -3168,7 +3175,24 @@ function _bulkIsPdf(file){
 function _bulkIsImage(file){
   const t=(file.type||'').toLowerCase();
   if(t==='image/jpeg'||t==='image/png'||t==='image/webp')return true;
-  return /\.(jpe?g|png|webp)$/i.test(file.name);
+  // v20260709i: HEIC/HEIF も対応 (アップロード時に自動でJPEGに変換)
+  if(t==='image/heic'||t==='image/heif')return true;
+  return /\.(jpe?g|png|webp|heic|heif)$/i.test(file.name);
+}
+// v20260709i: HEIC判定
+function _bulkIsHeic(file){
+  const t=(file.type||'').toLowerCase();
+  if(t==='image/heic'||t==='image/heif')return true;
+  return /\.(heic|heif)$/i.test(file.name);
+}
+// v20260709i: HEIC → JPEG 変換 (Blob返却)
+async function _bulkConvertHeicToJpeg(file){
+  if(typeof heic2any==='undefined')throw new Error('heic2anyライブラリ未読込');
+  const jpegBlob=await heic2any({blob:file,toType:'image/jpeg',quality:0.85});
+  const outBlob=Array.isArray(jpegBlob)?jpegBlob[0]:jpegBlob;
+  // 新しいファイル名 (拡張子を.jpgに変換)
+  const newName=file.name.replace(/\.(heic|heif)$/i,'.jpg');
+  return new File([outBlob],newName,{type:'image/jpeg',lastModified:file.lastModified||Date.now()});
 }
 
 // v20260709h: マッチング方式切替時のUI更新
@@ -3195,13 +3219,19 @@ async function _handleBulkAiMode(files){
   document.getElementById('bulkAnalyzeLabel').textContent='未紐付けでアップロード中...';
   document.getElementById('bulkAnalyzeDetail').textContent='';
   const uploadedDocIds=[];
-  let successUp=0,failUp=0;
+  let successUp=0,failUp=0,convertedHeic=0;
   for(let i=0;i<files.length;i++){
-    const file=files[i];
+    let file=files[i];
     document.getElementById('bulkAnalyzeLabel').textContent=`未紐付けでアップロード ${i+1}/${files.length}`;
     document.getElementById('bulkAnalyzeBar').style.width=`${Math.round((i+1)/files.length*40)}%`;
     document.getElementById('bulkAnalyzeDetail').textContent=file.name;
     try{
+      // v20260709i: HEIC/HEIF → JPEG 自動変換
+      if(_bulkIsHeic(file)){
+        document.getElementById('bulkAnalyzeDetail').textContent=`HEIC変換中... ${file.name}`;
+        file=await _bulkConvertHeicToJpeg(file);
+        convertedHeic++;
+      }
       const isPdf=_bulkIsPdf(file);
       const contentType=file.type||(isPdf?'application/pdf':'application/octet-stream');
       let uploadBlob=file;
@@ -3240,7 +3270,7 @@ async function _handleBulkAiMode(files){
       failUp++;
     }
   }
-  document.getElementById('bulkAnalyzeLabel').textContent=`アップロード完了: 成功${successUp} / 失敗${failUp} → AI転記へ`;
+  document.getElementById('bulkAnalyzeLabel').textContent=`アップロード完了: 成功${successUp} / 失敗${failUp}${convertedHeic>0?` / HEIC変換${convertedHeic}件`:''} → AI転記へ`;
   document.getElementById('bulkAnalyzeBar').style.width='40%';
   if(!uploadedDocIds.length){
     showToast('アップロードに失敗しました','error');
@@ -3414,7 +3444,18 @@ async function handleBulkFolderSelect(event){
     _bulkAnalysisResults=[];
     const total=validFiles.length;
     for(let i=0;i<total;i++){
-      const file=validFiles[i];
+      let file=validFiles[i];
+      // v20260709i: HEIC/HEIF は解析前に JPEG 変換
+      if(_bulkIsHeic(file)){
+        try{
+          document.getElementById('bulkAnalyzeLabel').textContent=`HEIC→JPEG変換中... ${i+1}/${total}`;
+          document.getElementById('bulkAnalyzeDetail').textContent=file.name;
+          file=await _bulkConvertHeicToJpeg(file);
+          validFiles[i]=file;
+        }catch(convertErr){
+          console.error('HEIC変換失敗:',file.name,convertErr);
+        }
+      }
       const isPdf=_bulkIsPdf(file);
       const kindIcon=isPdf?'📄':'🖼';
       document.getElementById('bulkAnalyzeLabel').textContent=`${isPdf?'PDF':'画像'}を解析中... ${i+1}/${total}`;
