@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260708J / 削除モード中でもShift+ドラッグ範囲選択可能に(canRangeSelectから!removeMode除外)+削除モード中は範囲選択と同時に一括削除+矩形色を赤で視覚化。前:v20260708I -->
+<!-- BUILD: cad-editor v20260708L / リボンに「範囲削除」専用ボタン追加(Shift不要でドラッグ→一括削除、rangeDeleteMode独立モード)。前:v20260708K -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1365,7 +1365,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260708J</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260708L</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -1439,8 +1439,11 @@
       <button class="ribbon-btn" id="btnEdit" onclick="toggleEditMode()" title="頂点編集">
         <div class="ribbon-btn-icon">✎</div><div class="ribbon-btn-label">編集</div>
       </button>
-      <button class="ribbon-btn" id="btnRemove" onclick="toggleRemoveMode()" title="削除モード">
+      <button class="ribbon-btn" id="btnRemove" onclick="toggleRemoveMode()" title="削除モード（1個ずつクリック削除）">
         <div class="ribbon-btn-icon">🗑</div><div class="ribbon-btn-label">削除</div>
+      </button>
+      <button class="ribbon-btn" id="btnRangeDelete" onclick="toggleRangeDeleteMode()" title="範囲削除モード（ドラッグで囲った範囲を一括削除。Shift不要）">
+        <div class="ribbon-btn-icon">📦</div><div class="ribbon-btn-label">範囲削除</div>
       </button>
     </div>
     <div class="ribbon-group-label">修正</div>
@@ -1787,6 +1790,48 @@
         </div>
         <div style="width:100%;height:6px;background:#0a0e14;border:1px solid var(--border);">
           <div id="vectorizeProgressBar" style="height:100%;background:var(--accent);width:0%;transition:width 0.2s;"></div>
+        </div>
+      </div>
+
+      <!-- v20260708K: 詳細設定 (折りたたみ) -->
+      <div class="line-extract-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;" onclick="toggleVectorizeAdvanced()">
+          <span class="line-extract-label" style="color:var(--accent);">▶ 詳細設定 (Phase 1.5)</span>
+          <span class="line-extract-info" id="vectorizeAdvancedHint">クリックで開く</span>
+        </div>
+        <div id="vectorizeAdvancedPanel" style="display:none;flex-direction:column;gap:8px;padding:8px;background:#0a0e14;border:1px solid var(--border);">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:11px;color:var(--text-muted);min-width:140px;">モルフォロジーOpen反復</span>
+            <input type="range" min="0" max="3" value="0" id="advMorphOpen" style="flex:1;" oninput="_updateAdvancedLabel('advMorphOpenVal', this.value + '回 ' + ['(OFF・推奨)','(細線消滅注意)','(強・細線消滅)','(超強・細線消滅)'][this.value])">
+            <span id="advMorphOpenVal" style="font-family:var(--font-mono);font-size:10px;color:var(--accent);min-width:130px;">0回 (OFF・推奨)</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:11px;color:var(--text-muted);min-width:140px;">最大連結成分除去</span>
+            <input type="range" min="0" max="5" value="1" id="advRemoveLargest" style="flex:1;" oninput="_updateAdvancedLabel('advRemoveLargestVal', this.value + '個')">
+            <span id="advRemoveLargestVal" style="font-family:var(--font-mono);font-size:10px;color:var(--accent);min-width:130px;">1個</span>
+            <span style="font-size:9px;color:var(--text-muted);">紙の四辺</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:11px;color:var(--text-muted);min-width:140px;">小面積成分除去 &lt;</span>
+            <input type="range" min="0" max="500" value="80" id="advRemoveSmall" style="flex:1;" oninput="_updateAdvancedLabel('advRemoveSmallVal', this.value + 'px')">
+            <span id="advRemoveSmallVal" style="font-family:var(--font-mono);font-size:10px;color:var(--accent);min-width:130px;">80px</span>
+            <span style="font-size:9px;color:var(--text-muted);">数字・ノイズ</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:11px;color:var(--text-muted);min-width:140px;">最小セグメント長</span>
+            <input type="range" min="4" max="100" value="20" id="advMinSegLen" style="flex:1;" oninput="_updateAdvancedLabel('advMinSegLenVal', this.value + 'px')">
+            <span id="advMinSegLenVal" style="font-family:var(--font-mono);font-size:10px;color:var(--accent);min-width:130px;">20px</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:11px;color:var(--text-muted);min-width:140px;">Douglas-Peucker ε</span>
+            <input type="range" min="1" max="15" step="0.5" value="5" id="advEpsilon" style="flex:1;" oninput="_updateAdvancedLabel('advEpsilonVal', this.value + 'px')">
+            <span id="advEpsilonVal" style="font-family:var(--font-mono);font-size:10px;color:var(--accent);min-width:130px;">5px</span>
+            <span style="font-size:9px;color:var(--text-muted);">直線化強度</span>
+          </div>
+          <div style="font-size:9px;color:var(--text-muted);line-height:1.4;">
+            💡 <b style="color:#f80;">モルフォロジーOpenは注意</b>: 1画素幅の細い線も消滅します。数字除去は「小面積成分除去」で行うのが安全です<br>
+            設定は<b style="color:var(--accent);">ベクター化ボタン</b>実行時のみ適用（ラスタープレビュー/適用には影響しません）
+          </div>
         </div>
       </div>
     </div>
@@ -2839,6 +2884,36 @@ function _getLineExtractMode() {
   return el ? el.value : 'adaptive';
 }
 
+// v20260708K: 詳細設定パラメータをUIから取得
+function _getVectorizeAdvancedParams() {
+  const g = (id, def) => {
+    const el = document.getElementById(id);
+    return el ? parseFloat(el.value) : def;
+  };
+  return {
+    morphOpenIter: Math.round(g('advMorphOpen', 0)),        // デフォルトOFF (細線保護)
+    removeLargestCount: Math.round(g('advRemoveLargest', 1)), // 紙の四辺
+    removeSmallMinArea: Math.round(g('advRemoveSmall', 80)),   // 数字塊
+    minSegLen: Math.round(g('advMinSegLen', 20)),
+    epsilon: g('advEpsilon', 5)
+  };
+}
+
+function toggleVectorizeAdvanced() {
+  const panel = document.getElementById('vectorizeAdvancedPanel');
+  const hint = document.getElementById('vectorizeAdvancedHint');
+  const label = panel.previousElementSibling.querySelector('.line-extract-label');
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'flex';
+  if (label) label.textContent = (isOpen ? '▶' : '▼') + ' 詳細設定 (Phase 1.5)';
+  if (hint) hint.textContent = isOpen ? 'クリックで開く' : 'クリックで閉じる';
+}
+
+function _updateAdvancedLabel(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
 function setLineExtractColor(color) {
   document.getElementById('lineExtractColorInput').value = color;
   document.querySelectorAll('.line-extract-swatch').forEach(sw => {
@@ -3078,6 +3153,169 @@ async function loadCanvasSafeImage(url) {
       );
     }
   }
+}
+
+/**
+ * v20260708K: Phase 1.5 前処理群 - モルフォロジー & 連結成分
+ * ------------------------------------------------------------------------
+ * 目的:
+ *   - モルフォロジーOpen: 数字ラベル・書込み・小さな塊を細線化前に除去
+ *   - 最大連結成分除去: 紙の四辺(1つの巨大な閉曲線)を自動検出・除去
+ * これらを buildBinaryMask のオプションとして組み込む
+ */
+
+// 4連結 Erosion (in-place)。iterations で反復回数指定
+function morphErode4(mask, w, h, iterations) {
+  const next = new Uint8Array(w * h);
+  for (let iter = 0; iter < iterations; iter++) {
+    next.fill(0);
+    for (let y = 1; y < h - 1; y++) {
+      const rowBase = y * w;
+      for (let x = 1; x < w - 1; x++) {
+        const idx = rowBase + x;
+        if (mask[idx] !== 1) continue;
+        // 4連結の全隣接が1なら残す
+        if (mask[idx - 1] === 1 && mask[idx + 1] === 1 &&
+            mask[idx - w] === 1 && mask[idx + w] === 1) {
+          next[idx] = 1;
+        }
+      }
+    }
+    mask.set(next);
+  }
+}
+
+// 4連結 Dilation (in-place)。iterations で反復回数指定
+function morphDilate4(mask, w, h, iterations) {
+  const next = new Uint8Array(w * h);
+  for (let iter = 0; iter < iterations; iter++) {
+    next.fill(0);
+    for (let y = 1; y < h - 1; y++) {
+      const rowBase = y * w;
+      for (let x = 1; x < w - 1; x++) {
+        const idx = rowBase + x;
+        if (mask[idx] === 1) {
+          next[idx] = 1;
+          next[idx - 1] = 1;
+          next[idx + 1] = 1;
+          next[idx - w] = 1;
+          next[idx + w] = 1;
+        }
+      }
+    }
+    mask.set(next);
+  }
+}
+
+// Open = Erosion → Dilation
+// - iterations=1: 1画素幅のノイズ除去 (最も軽い)
+// - iterations=2: 数字ラベル程度の塊を除去
+// - iterations=3: 太い文字や大きな塊も除去
+// 細い線 (1px幅) は Erosion で消えるので、これは細線化「前」の 二値マスクに適用する
+// ただし、細い線を残すため iterations は 1 が原則
+function morphOpen4(mask, w, h, iterations) {
+  if (iterations <= 0) return;
+  morphErode4(mask, w, h, iterations);
+  morphDilate4(mask, w, h, iterations);
+}
+
+/**
+ * 4連結連結成分ラベリング (Two-pass, Union-Find)
+ * @returns {label: Int32Array, areas: Object<label, area>, maxLabel: number}
+ */
+function labelConnectedComponents(mask, w, h) {
+  const label = new Int32Array(w * h);
+  const parent = [0]; // union-find の親配列
+  let nextLabel = 1;
+
+  const find = (i) => {
+    let root = i;
+    while (parent[root] !== root) root = parent[root];
+    // Path compression
+    let cur = i;
+    while (parent[cur] !== root) {
+      const nxt = parent[cur];
+      parent[cur] = root;
+      cur = nxt;
+    }
+    return root;
+  };
+  const union = (a, b) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb);
+  };
+
+  // First pass
+  for (let y = 0; y < h; y++) {
+    const rowBase = y * w;
+    for (let x = 0; x < w; x++) {
+      const idx = rowBase + x;
+      if (mask[idx] !== 1) continue;
+      const left = x > 0 ? label[idx - 1] : 0;
+      const up = y > 0 ? label[idx - w] : 0;
+      if (left === 0 && up === 0) {
+        label[idx] = nextLabel;
+        parent.push(nextLabel);
+        nextLabel++;
+      } else if (left !== 0 && up === 0) {
+        label[idx] = left;
+      } else if (left === 0 && up !== 0) {
+        label[idx] = up;
+      } else if (left === up) {
+        label[idx] = left;
+      } else {
+        label[idx] = Math.min(left, up);
+        union(left, up);
+      }
+    }
+  }
+
+  // Second pass: relabel & count areas
+  const areas = {};
+  for (let i = 0; i < w * h; i++) {
+    if (label[i] === 0) continue;
+    const root = find(label[i]);
+    label[i] = root;
+    areas[root] = (areas[root] || 0) + 1;
+  }
+  return { label, areas, maxLabel: nextLabel - 1 };
+}
+
+/**
+ * 面積が大きい方から removeCount 個の連結成分をマスクから除去
+ * 用途: 紙の四辺(1つの巨大な閉曲線)を自動除去
+ * @param {Uint8Array} mask - 二値マスク (in-place で書き換え)
+ * @returns {removedAreas: number[], remainingComponents: number}
+ */
+function removeLargestComponents(mask, w, h, removeCount) {
+  if (removeCount <= 0) return { removedAreas: [], remainingComponents: 0 };
+  const { label, areas } = labelConnectedComponents(mask, w, h);
+  const entries = Object.entries(areas).map(([lbl, area]) => ({ lbl: +lbl, area }));
+  entries.sort((a, b) => b.area - a.area);
+  const toRemove = new Set(entries.slice(0, removeCount).map(e => e.lbl));
+  const removedAreas = entries.slice(0, removeCount).map(e => e.area);
+  for (let i = 0; i < mask.length; i++) {
+    if (toRemove.has(label[i])) mask[i] = 0;
+  }
+  return { removedAreas, remainingComponents: entries.length - removeCount };
+}
+
+/**
+ * 面積が小さすぎる連結成分をマスクから除去 (ノイズ削減)
+ * @param {number} minArea - この画素数未満の成分を除去
+ */
+function removeSmallComponents(mask, w, h, minArea) {
+  if (minArea <= 1) return { removed: 0 };
+  const { label, areas } = labelConnectedComponents(mask, w, h);
+  const toRemove = new Set();
+  for (const [lbl, area] of Object.entries(areas)) {
+    if (area < minArea) toRemove.add(+lbl);
+  }
+  let removed = 0;
+  for (let i = 0; i < mask.length; i++) {
+    if (toRemove.has(label[i])) { mask[i] = 0; removed++; }
+  }
+  return { removed, removedComponents: toRemove.size };
 }
 
 /* ========================================================================
@@ -3468,7 +3706,7 @@ function imagePixelToLatLng(pxX, pxY, layer, imgW, imgH) {
 /**
  * セグメント群からPolylineを生成して「ポリゴン」画層に追加
  */
-function createPolylinesFromSegments(segments, maskW, maskH, layer) {
+function createPolylinesFromSegments(segments, maskW, maskH, layer, epsilon = VECTORIZE_EPSILON, minSegLen = VECTORIZE_MIN_SEG_LEN) {
   const targetLayerId = 'polygon';
   const cadLayer = getLayerById(targetLayerId);
   const color = cadLayer?.color || '#58a6ff';
@@ -3481,9 +3719,9 @@ function createPolylinesFromSegments(segments, maskW, maskH, layer) {
     for (let k = 1; k < seg.length; k++) {
       totalLen += Math.hypot(seg[k].x - seg[k - 1].x, seg[k].y - seg[k - 1].y);
     }
-    if (totalLen < VECTORIZE_MIN_SEG_LEN) continue;
+    if (totalLen < minSegLen) continue;
 
-    const simplified = douglasPeucker(seg, VECTORIZE_EPSILON);
+    const simplified = douglasPeucker(seg, epsilon);
     if (simplified.length < 2) continue;
 
     // 画像座標→地図座標 (マスクは maskW×maskH。座標変換は 0..1 の正規化で行うので
@@ -3518,6 +3756,7 @@ function createPolylinesFromSegments(segments, maskW, maskH, layer) {
 
 /**
  * メイン: 下絵の全自動ベクター化
+ * v20260708K: Phase 1.5 - 前処理 (モルフォロジー・最大成分除去) と可変パラメータ対応
  */
 async function vectorizeOverlay() {
   if (!currentOverlay || !currentOverlayLayer) {
@@ -3528,34 +3767,62 @@ async function vectorizeOverlay() {
 
   const threshold = parseInt(document.getElementById('lineExtractThreshold').value);
   const mode = _getLineExtractMode();
+  // v20260708K: 詳細設定パラメータ
+  const params = _getVectorizeAdvancedParams();
   const t0 = performance.now();
 
   try {
-    _updateVectorizeProgress('元画像を読み込み中...', 5);
+    _updateVectorizeProgress('元画像を読み込み中...', 3);
     await _sleep(30);
 
     // Step 1: 二値マスク生成
-    _updateVectorizeProgress(`二値化中... (${mode === 'adaptive' ? '適応的' : '単純'})`, 15);
+    _updateVectorizeProgress(`二値化中... (${mode === 'adaptive' ? '適応的' : '単純'})`, 10);
     await _sleep(30);
     const { mask, width, height, sourceW, sourceH } = await buildBinaryMask(originalOverlayUrl, threshold, VECTORIZE_MAX_DIM, mode);
     console.log(`[vectorize] mask: ${width}×${height} (src: ${sourceW}×${sourceH})`);
 
+    // Step 1.5a: モルフォロジー Open (数字・書込み・小塊除去)
+    if (params.morphOpenIter > 0) {
+      _updateVectorizeProgress(`モルフォロジーOpen ${params.morphOpenIter}回...`, 22);
+      await _sleep(30);
+      morphOpen4(mask, width, height, params.morphOpenIter);
+      let survivingPx = 0;
+      for (let i = 0; i < mask.length; i++) if (mask[i]) survivingPx++;
+      console.log(`[vectorize] after morphOpen iter=${params.morphOpenIter}: ${survivingPx} px remain`);
+    }
+
+    // Step 1.5b: 最大連結成分除去 (紙の四辺など)
+    if (params.removeLargestCount > 0) {
+      _updateVectorizeProgress(`最大連結成分×${params.removeLargestCount}を除去中...`, 32);
+      await _sleep(30);
+      const { removedAreas } = removeLargestComponents(mask, width, height, params.removeLargestCount);
+      console.log(`[vectorize] removed largest components: areas=[${removedAreas.join(',')}]`);
+    }
+
+    // Step 1.5c: 小面積成分除去 (散在ノイズ)
+    if (params.removeSmallMinArea > 1) {
+      _updateVectorizeProgress(`小面積成分(<${params.removeSmallMinArea}px)を除去中...`, 40);
+      await _sleep(30);
+      const { removed, removedComponents } = removeSmallComponents(mask, width, height, params.removeSmallMinArea);
+      console.log(`[vectorize] removed small components: ${removedComponents} comps / ${removed} px`);
+    }
+
     // Step 2: 細線化
-    _updateVectorizeProgress(`細線化中... (${width}×${height})`, 30);
+    _updateVectorizeProgress(`Zhang-Suen細線化... (${width}×${height})`, 50);
     await _sleep(30);
     const iters = zhangSuenThinning(mask, width, height);
     console.log(`[vectorize] Zhang-Suen iterations: ${iters}`);
 
     // Step 3: グラフトレース
-    _updateVectorizeProgress('線分をトレース中...', 65);
+    _updateVectorizeProgress('線分をトレース中...', 70);
     await _sleep(30);
     const segments = traceLineSegments(mask, width, height);
     console.log(`[vectorize] raw segments: ${segments.length}`);
 
-    // Step 4-6: Polyline化して画層に追加
-    _updateVectorizeProgress('Polyline化＋地図に配置中...', 85);
+    // Step 4-6: Polyline化して画層に追加 (可変ε・最小長)
+    _updateVectorizeProgress('Polyline化＋地図に配置中...', 88);
     await _sleep(30);
-    const created = createPolylinesFromSegments(segments, width, height, currentOverlayLayer);
+    const created = createPolylinesFromSegments(segments, width, height, currentOverlayLayer, params.epsilon, params.minSegLen);
 
     // 画層カウント更新
     if (typeof updateShapesCount === 'function') updateShapesCount();
@@ -4071,12 +4338,15 @@ function _initRangeSelect() {
 
   const onMouseDown = (e) => {
     if (!canRangeSelect()) return;
-    if (!e.shiftKey) return;  // Shift+ドラッグのみ
+    // v20260708L: Shift+ドラッグ or 範囲削除モードで発動
+    const triggerBy = e.shiftKey ? 'shift' : (rangeDeleteMode ? 'rangeDelete' : null);
+    if (!triggerBy) return;
     // マウス左ボタンのみ
     if (e.button !== 0) return;
     // v20260708H: shape/Polyline上からでも範囲選択を起動できるように、伝播を止めて
     // Leaflet側のshape.click/map.dragging/map.boxZoomを確実に抑制する
     e.stopPropagation();
+    e.preventDefault();
     // 地図パンを無効化
     map.dragging.disable();
     map.boxZoom.disable();
@@ -4085,9 +4355,10 @@ function _initRangeSelect() {
     startPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     startLL = map.containerPointToLatLng([startPt.x, startPt.y]);
     boxDiv = document.createElement('div');
-    // v20260708J: 削除モード時は赤矩形で「消える範囲」を視覚化
-    const boxColor = removeMode ? '#f66' : '#58a6ff';
-    const boxBg = removeMode ? 'rgba(255, 100, 100, 0.15)' : 'rgba(88, 166, 255, 0.12)';
+    // v20260708L: 削除系(removeMode/rangeDeleteMode)は赤矩形で「消える範囲」を視覚化
+    const isDeleteBox = removeMode || rangeDeleteMode;
+    const boxColor = isDeleteBox ? '#f66' : '#58a6ff';
+    const boxBg = isDeleteBox ? 'rgba(255, 100, 100, 0.15)' : 'rgba(88, 166, 255, 0.12)';
     boxDiv.style.cssText = `
       position: absolute;
       border: 1.5px dashed ${boxColor};
@@ -4100,7 +4371,6 @@ function _initRangeSelect() {
       height: 0;
     `;
     mapEl.appendChild(boxDiv);
-    e.preventDefault();
   };
 
   const onMouseMove = (e) => {
@@ -4159,8 +4429,8 @@ function _initRangeSelect() {
       showToast('範囲内に図形なし', 'info', 1500);
       return;
     }
-    // v20260708J: 削除モード中なら選択と同時に一括削除
-    if (removeMode) {
+    // v20260708L: 削除モード or 範囲削除モード中なら選択と同時に一括削除
+    if (removeMode || rangeDeleteMode) {
       const cnt = selectedShapes.length;
       deleteSelectedShapes();
       showToast(`範囲内 ${cnt}件を一括削除しました`, 'success', 2500);
@@ -4170,7 +4440,7 @@ function _initRangeSelect() {
   // v20260708H: capture=true で shape (SVG)より先に受け取る
   mapEl.addEventListener('mousedown', onMouseDown, true);
   document.addEventListener('mousemove', onMouseMove);
-  document.addEventListener('mouseup', onMouseUp);
+  document.addEventListener('mouseup', onMouseUp, true);
 }
 
 /* ========================================================================
@@ -4621,6 +4891,29 @@ function toggleRemoveMode() {
   }
 }
 
+/* ---------- v20260708L: 範囲削除モード（Shift不要でドラッグ→一括削除） ---------- */
+let rangeDeleteMode = false;
+
+function toggleRangeDeleteMode() {
+  stopAllModes(false, 'rangeDelete');
+  rangeDeleteMode = !rangeDeleteMode;
+  const btn = document.getElementById('btnRangeDelete');
+  const mapEl = document.getElementById('map');
+  if (rangeDeleteMode) {
+    btn.classList.add('active');
+    if (mapEl) mapEl.style.cursor = 'crosshair';
+    // Leaflet 側の boxZoom/dragging を明示的に無効化
+    if (map.dragging) map.dragging.disable();
+    if (map.boxZoom) map.boxZoom.disable();
+    showToast('範囲削除モード: ドラッグで囲んだ範囲を一括削除（Shift不要）', 'info', 3500);
+  } else {
+    btn.classList.remove('active');
+    if (mapEl) mapEl.style.cursor = '';
+    if (map.dragging) map.dragging.enable();
+    if (map.boxZoom) map.boxZoom.enable();
+  }
+}
+
 /* ---------- 編集モード（頂点ドラッグ） ---------- */
 function toggleEditMode() {
   if (!map || !map.pm) return;
@@ -4664,6 +4957,8 @@ function stopAllModes(keepCurrent = false, except = null) {
   if (except !== 'arc') stopArcDraw();
   if (except !== 'remove' && removeMode) toggleRemoveMode();
   if (except !== 'edit' && editMode) toggleEditMode();
+  // v20260708L: 範囲削除モードも解除対象
+  if (except !== 'rangeDelete' && rangeDeleteMode) toggleRangeDeleteMode();
   if (except !== 'measure' && measureMode) toggleMeasureMode();
   if (except !== 'cp' && controlPointMode) toggleControlPointMode();
   if (except !== 'modify' && modifyMode) stopModifyMode();
