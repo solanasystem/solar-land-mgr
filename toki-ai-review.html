@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<!-- BUILD: toki-ai-review v20260709A / 登記簿AI転記結果の目視レビュー（左:画像、右:AI結果を項目別にOK/修正/NG） -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登記簿AI転記レビュー</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1419;
+    --surface: #1a1f2b;
+    --surface2: #131822;
+    --border: #2a3040;
+    --text: #d1d5db;
+    --text-muted: #7a8595;
+    --accent: #58a6ff;
+    --green: #22c55e;
+    --red: #ef4444;
+    --amber: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Meiryo", sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+  }
+  /* ヘッダ */
+  .header {
+    padding: 10px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+  }
+  .header-title { font-size: 15px; font-weight: 600; color: var(--accent); }
+  .progress-bar-wrap { flex: 1; max-width: 400px; }
+  .progress-bar-outer {
+    height: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress-bar-inner { height: 100%; background: var(--green); transition: width 0.3s; }
+  .progress-text { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .filter-group { display: flex; gap: 6px; }
+  .filter-btn {
+    padding: 4px 10px;
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .filter-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+  /* メインエリア: 左画像 + 右AI結果 */
+  .main {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+  .image-panel {
+    flex: 1;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+  .image-toolbar {
+    padding: 6px 10px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 6px;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 10;
+  }
+  .image-viewport {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 20px;
+    cursor: grab;
+    position: relative;
+  }
+  .image-viewport.grabbing { cursor: grabbing; }
+  #docImage, #pdfCanvas {
+    max-width: none;
+    display: block;
+    transform-origin: top center;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .zoom-btn {
+    padding: 4px 10px;
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .file-info {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: monospace;
+  }
+
+  /* 右パネル: AI結果 */
+  .data-panel {
+    width: 45%;
+    min-width: 500px;
+    overflow-y: auto;
+    padding: 16px;
+    background: var(--bg);
+  }
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .field {
+    display: grid;
+    grid-template-columns: 90px 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 4px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .field:last-child { border-bottom: none; }
+  .field-label {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .field-value {
+    font-size: 13px;
+    color: var(--text);
+    word-break: break-all;
+    padding: 4px 8px;
+    background: var(--surface2);
+    border: 1px solid transparent;
+    min-height: 26px;
+  }
+  .field-value.empty {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .field-value.editable {
+    border-color: var(--accent);
+    outline: none;
+  }
+  .field-actions {
+    display: flex;
+    gap: 4px;
+  }
+  .field-btn {
+    padding: 3px 8px;
+    font-size: 10px;
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
+  }
+  .field-btn:hover { background: var(--surface); }
+  .field-btn.status-ok { background: var(--green); color: #000; border-color: var(--green); }
+  .field-btn.status-modified { background: var(--accent); color: #000; border-color: var(--accent); }
+  .field-btn.status-ng { background: var(--red); color: #fff; border-color: var(--red); }
+  .status-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    font-size: 9px;
+    font-family: monospace;
+    border-radius: 2px;
+    margin-left: 6px;
+  }
+  .status-badge.ok { background: var(--green); color: #000; }
+  .status-badge.modified { background: var(--accent); color: #000; }
+  .status-badge.ng { background: var(--red); color: #fff; }
+
+  .owner-card {
+    background: var(--surface2);
+    padding: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 8px;
+  }
+  .owner-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+
+  /* フッタ */
+  .footer {
+    padding: 12px 20px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+  .nav-btn {
+    padding: 8px 20px;
+    background: var(--accent);
+    color: #000;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .nav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .nav-btn.secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .nav-btn.primary-action { background: var(--green); color: #000; }
+
+  #ngNote {
+    width: 100%;
+    padding: 6px;
+    margin-top: 4px;
+    background: var(--surface2);
+    border: 1px solid var(--red);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 11px;
+    display: none;
+  }
+
+  .loading-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    font-size: 18px;
+    color: var(--accent);
+  }
+
+  .error-page {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--red);
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="header-title">📋 登記簿AI転記レビュー</div>
+      <div style="font-size:10px;color:var(--text-muted);">BUILD: v20260709A</div>
+    </div>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-outer"><div class="progress-bar-inner" id="progressBar" style="width:0%"></div></div>
+      <div class="progress-text" id="progressText">-</div>
+    </div>
+    <div class="filter-group">
+      <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">全て</button>
+      <button class="filter-btn" data-filter="unreviewed" onclick="setFilter('unreviewed')">未確認</button>
+      <button class="filter-btn" data-filter="ng" onclick="setFilter('ng')">NG</button>
+    </div>
+  </div>
+
+  <div class="main" id="mainArea">
+    <!-- 左: 登記簿画像 -->
+    <div class="image-panel">
+      <div class="image-toolbar">
+        <div class="file-info" id="fileInfo">-</div>
+        <div style="display:flex;gap:4px;">
+          <button class="zoom-btn" onclick="setZoom(1.25)">🔍+ 拡大</button>
+          <button class="zoom-btn" onclick="setZoom(0.8)">🔍- 縮小</button>
+          <button class="zoom-btn" onclick="resetZoom()">↺ 元</button>
+        </div>
+      </div>
+      <div class="image-viewport" id="imageViewport">
+        <img id="docImage" style="display:none;">
+        <canvas id="pdfCanvas" style="display:none;"></canvas>
+      </div>
+    </div>
+
+    <!-- 右: AI結果 -->
+    <div class="data-panel" id="dataPanel">
+      <div style="color:var(--text-muted);padding:20px;text-align:center;">読込中...</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <button class="nav-btn secondary" id="prevBtn" onclick="navigate(-1)">◀ 前へ</button>
+    <div style="display:flex;gap:12px;align-items:center;">
+      <span id="reviewStatus" style="font-size:11px;color:var(--text-muted);">-</span>
+      <button class="nav-btn primary-action" id="allOkBtn" onclick="markAllOk()">✓ 全て OK として次へ</button>
+      <button class="nav-btn secondary" onclick="markAsNgWithNote()" style="color:var(--red);border-color:var(--red);">✕ NGマークして次へ</button>
+    </div>
+    <button class="nav-btn" id="nextBtn" onclick="navigate(1)">次へ ▶</button>
+  </div>
+
+<script>
+// ===== Supabase =====
+const SUPABASE_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// PDF.js
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+// ===== 状態管理 =====
+let _allRecords = [];       // 全 batch_log レコード
+let _filteredIdx = [];      // フィルタ適用後の _allRecords のインデックス配列
+let _currentPos = 0;        // _filteredIdx 内の位置
+let _currentFilter = 'all';
+let _zoomLevel = 1.0;
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ===== 初期化 =====
+window.addEventListener('DOMContentLoaded', init);
+
+async function init() {
+  const params = new URLSearchParams(location.search);
+  const batchId = params.get('batch_id');
+  if (!batchId) {
+    document.getElementById('mainArea').innerHTML = `<div class="error-page">URL パラメータ <code>batch_id</code> が必要です。<br>例: <code>toki-ai-review.html?batch_id=xxxx</code></div>`;
+    return;
+  }
+  showLoading(true);
+  try {
+    const { data, error } = await db.from('toki_ai_batch_log')
+      .select('*')
+      .eq('batch_id', batchId)
+      .order('created_at');
+    if (error) throw error;
+    if (!data || !data.length) {
+      document.getElementById('mainArea').innerHTML = `<div class="error-page">該当バッチが見つかりません: ${escapeHtml(batchId)}</div>`;
+      return;
+    }
+    _allRecords = data;
+    applyFilter();
+    setupImageDrag();
+    if (_filteredIdx.length > 0) {
+      renderCurrent();
+    } else {
+      renderEmpty();
+    }
+  } catch (e) {
+    document.getElementById('mainArea').innerHTML = `<div class="error-page">読込エラー: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    showLoading(false);
+  }
+}
+
+function showLoading(on) {
+  let el = document.getElementById('loadingOverlay');
+  if (on) {
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'loadingOverlay';
+      el.className = 'loading-overlay';
+      el.textContent = '⏳ 読込中...';
+      document.body.appendChild(el);
+    }
+  } else if (el) {
+    el.remove();
+  }
+}
+
+// ===== フィルタ =====
+function setFilter(kind) {
+  _currentFilter = kind;
+  document.querySelectorAll('.filter-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.filter === kind);
+  });
+  applyFilter();
+  _currentPos = 0;
+  if (_filteredIdx.length > 0) renderCurrent();
+  else renderEmpty();
+}
+
+function applyFilter() {
+  _filteredIdx = [];
+  for (let i = 0; i < _allRecords.length; i++) {
+    const r = _allRecords[i];
+    if (_currentFilter === 'unreviewed' && r.reviewed) continue;
+    if (_currentFilter === 'ng') {
+      const flags = r.review_flags || {};
+      const hasNg = Object.values(flags).some(v => v === 'ng');
+      if (!hasNg && !(r.reviewed_note && r.reviewed_note.trim())) continue;
+    }
+    _filteredIdx.push(i);
+  }
+}
+
+function renderEmpty() {
+  document.getElementById('dataPanel').innerHTML = `<div style="color:var(--text-muted);padding:40px;text-align:center;">
+    該当するレコードがありません（フィルタ: ${_currentFilter}）
+  </div>`;
+  document.getElementById('docImage').style.display = 'none';
+  document.getElementById('pdfCanvas').style.display = 'none';
+  document.getElementById('progressText').textContent = '0 / 0';
+  document.getElementById('progressBar').style.width = '0%';
+  document.getElementById('fileInfo').textContent = '-';
+  document.getElementById('reviewStatus').textContent = '-';
+  document.getElementById('prevBtn').disabled = true;
+  document.getElementById('nextBtn').disabled = true;
+}
+
+// ===== 現在レコード表示 =====
+async function renderCurrent() {
+  const rec = _allRecords[_filteredIdx[_currentPos]];
+  if (!rec) { renderEmpty(); return; }
+  // 進捗
+  document.getElementById('progressText').textContent = `${_currentPos + 1} / ${_filteredIdx.length} (全${_allRecords.length}件中)`;
+  document.getElementById('progressBar').style.width = ((_currentPos + 1) / _filteredIdx.length * 100) + '%';
+  document.getElementById('fileInfo').textContent = `${rec.file_name || '(名前なし)'} — ${rec.status}`;
+  document.getElementById('reviewStatus').textContent = rec.reviewed ? '✅ 確認済' : '⏳ 未確認';
+  document.getElementById('prevBtn').disabled = _currentPos === 0;
+  document.getElementById('nextBtn').disabled = _currentPos === _filteredIdx.length - 1;
+  // 画像/PDF ロード
+  await loadDocumentImage(rec);
+  // AI結果表示
+  renderDataPanel(rec);
+}
+
+async function loadDocumentImage(rec) {
+  const imgEl = document.getElementById('docImage');
+  const canvasEl = document.getElementById('pdfCanvas');
+  imgEl.style.display = 'none';
+  canvasEl.style.display = 'none';
+  resetZoom();
+  if (!rec.document_id) {
+    imgEl.style.display = 'block';
+    imgEl.src = '';
+    return;
+  }
+  // case_documents から file_path を取得
+  try {
+    const { data: doc, error } = await db.from('case_documents')
+      .select('file_path, file_name').eq('id', rec.document_id).single();
+    if (error || !doc) throw error || new Error('書類が見つかりません');
+    const { data: urlData, error: uerr } = await db.storage.from('registry-docs')
+      .createSignedUrl(doc.file_path, 3600);
+    if (uerr || !urlData) throw uerr || new Error('URL生成失敗');
+    const fname = (doc.file_name || '').toLowerCase();
+    if (fname.endsWith('.pdf')) {
+      // PDF: pdf.js でレンダリング
+      const pdf = await pdfjsLib.getDocument({ url: urlData.signedUrl }).promise;
+      const page = await pdf.getPage(1);
+      const viewport = page.getViewport({ scale: 1.5 });
+      canvasEl.width = viewport.width;
+      canvasEl.height = viewport.height;
+      canvasEl.style.display = 'block';
+      const ctx = canvasEl.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+    } else {
+      // 画像
+      imgEl.style.display = 'block';
+      imgEl.src = urlData.signedUrl;
+    }
+  } catch (e) {
+    console.error('画像読込失敗:', e);
+    document.getElementById('imageViewport').innerHTML = `<div style="color:var(--red);padding:20px;">画像読込失敗: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// ===== 右パネル: AI結果 =====
+function renderDataPanel(rec) {
+  const parsed = rec.parsed_json || {};
+  const flags = rec.review_flags || {};
+  const areaUpdates = rec.area_updates || {};
+
+  let html = '';
+
+  // エラー
+  if (rec.status === 'error') {
+    html += `<div class="section" style="border-color:var(--red);">
+      <div class="section-title" style="color:var(--red);">❌ 転記失敗</div>
+      <div style="color:var(--red);font-family:monospace;font-size:12px;white-space:pre-wrap;">${escapeHtml(rec.error_message || '不明なエラー')}</div>
+    </div>`;
+  }
+
+  // 表題部
+  const hyo = parsed.hyodaibu || {};
+  html += `<div class="section">
+    <div class="section-title">
+      📐 表題部 → land_info
+      ${hyo.confidence !== undefined ? `<span class="status-badge" style="background:var(--surface2);color:var(--text-muted);">conf: ${(hyo.confidence*100).toFixed(0)}%</span>` : ''}
+    </div>
+    ${renderField('hyodaibu.shozai', '所在', hyo.shozai, flags)}
+    ${renderField('hyodaibu.chiban', '地番', hyo.chiban, flags)}
+    ${renderField('hyodaibu.chimoku', '地目', hyo.chimoku, flags)}
+    ${renderField('hyodaibu.chiseki_sqm', '地積㎡', hyo.chiseki_sqm, flags)}
+  </div>`;
+
+  // 甲区
+  const owners = parsed.kouku?.owners || [];
+  html += `<div class="section">
+    <div class="section-title">👥 甲区 → landowner_info (${owners.length}名)</div>`;
+  if (owners.length === 0) {
+    html += `<div style="color:var(--text-muted);font-size:12px;font-style:italic;">所有者情報なし</div>`;
+  } else {
+    owners.forEach((o, i) => {
+      html += `<div class="owner-card">
+        <div class="owner-card-title">所有者 ${i + 1}${i === 0 ? '（筆頭）' : ''} ${o.confidence !== undefined ? `<span class="status-badge" style="background:var(--surface2);color:var(--text-muted);">conf: ${(o.confidence*100).toFixed(0)}%</span>` : ''}</div>
+        ${renderField(`kouku.${i}.name`, '氏名', o.name, flags)}
+        ${renderField(`kouku.${i}.address`, '住所', o.address, flags)}
+        ${o.mochibun ? renderField(`kouku.${i}.mochibun`, '持分', o.mochibun, flags) : ''}
+      </div>`;
+    });
+  }
+  html += `</div>`;
+
+  // 乙区
+  const ots = parsed.otsuku || {};
+  html += `<div class="section">
+    <div class="section-title">📜 乙区 → 筆頭所有者 memo</div>`;
+  if (ots.empty || !ots.rights || ots.rights.length === 0) {
+    html += `<div style="color:var(--green);font-size:12px;">✅ 該当事項なし</div>`;
+  } else {
+    ots.rights.forEach((r, i) => {
+      const combined = `【${r.type || '権利'}】${r.details || ''}`;
+      html += renderField(`otsuku.${i}`, `権利 ${i + 1}`, combined, flags);
+    });
+  }
+  const otsukuAction = areaUpdates.otsuku?.action;
+  if (otsukuAction === 'skip_existing') {
+    html += `<div style="font-size:10px;color:var(--amber);margin-top:6px;">⚠ 筆頭所有者に既存memoがあったため乙区は転記されていません（既存優先）</div>`;
+  } else if (otsukuAction === 'set') {
+    html += `<div style="font-size:10px;color:var(--green);margin-top:6px;">✅ 筆頭所有者のmemoに転記済み</div>`;
+  }
+  html += `</div>`;
+
+  // NG メモ入力
+  html += `<textarea id="ngNote" placeholder="NGの理由（任意）">${escapeHtml(rec.reviewed_note || '')}</textarea>`;
+
+  // メタ情報
+  html += `<div style="font-size:10px;color:var(--text-muted);margin-top:16px;padding:8px;background:var(--surface);border:1px solid var(--border);">
+    <div>batch: ${escapeHtml(rec.batch_id)}</div>
+    <div>document: ${escapeHtml(rec.document_id || '-')}</div>
+    <div>cost: $${rec.cost_usd || '-'} / in ${rec.input_tokens || '-'} / out ${rec.output_tokens || '-'} tokens</div>
+    <div>created: ${rec.created_at || '-'}</div>
+  </div>`;
+
+  document.getElementById('dataPanel').innerHTML = html;
+}
+
+function renderField(fieldKey, label, value, flags) {
+  const status = flags[fieldKey] || 'pending';
+  const displayVal = (value == null || value === '') ? '(取得なし)' : String(value);
+  const isEmpty = value == null || value === '';
+  return `<div class="field" data-field="${fieldKey}">
+    <div class="field-label">${escapeHtml(label)}</div>
+    <div class="field-value ${isEmpty ? 'empty' : ''}" data-value="${escapeHtml(displayVal)}">${escapeHtml(displayVal)}${status !== 'pending' ? `<span class="status-badge ${status}">${status.toUpperCase()}</span>` : ''}</div>
+    <div class="field-actions">
+      <button class="field-btn ${status === 'modified' ? 'status-modified' : ''}" onclick="beginEdit('${fieldKey}')">✏</button>
+      <button class="field-btn ${status === 'ok' ? 'status-ok' : ''}" onclick="markField('${fieldKey}','ok')">OK</button>
+      <button class="field-btn ${status === 'ng' ? 'status-ng' : ''}" onclick="markField('${fieldKey}','ng')">NG</button>
+    </div>
+  </div>`;
+}
+
+// ===== 項目マーク =====
+async function markField(fieldKey, status) {
+  const rec = _allRecords[_filteredIdx[_currentPos]];
+  rec.review_flags = rec.review_flags || {};
+  rec.review_flags[fieldKey] = status;
+  // NG があれば ngNote を表示
+  const hasNg = Object.values(rec.review_flags).some(v => v === 'ng');
+  const nn = document.getElementById('ngNote');
+  if (nn) nn.style.display = hasNg ? 'block' : 'none';
+  // Supabase 側の review_flags を更新
+  try {
+    await db.from('toki_ai_batch_log')
+      .update({ review_flags: rec.review_flags })
+      .eq('id', rec.id);
+    renderDataPanel(rec);
+  } catch (e) {
+    alert('保存失敗: ' + e.message);
+  }
+}
+
+// ===== インライン編集 =====
+function beginEdit(fieldKey) {
+  const field = document.querySelector(`.field[data-field="${fieldKey}"] .field-value`);
+  if (!field) return;
+  const currentVal = field.dataset.value || '';
+  const isMultiline = fieldKey.startsWith('otsuku') || fieldKey.includes('address');
+  const input = document.createElement(isMultiline ? 'textarea' : 'input');
+  input.type = 'text';
+  input.value = currentVal === '(取得なし)' ? '' : currentVal;
+  input.className = 'field-value editable';
+  input.style.width = '100%';
+  if (isMultiline) { input.rows = 3; input.style.resize = 'vertical'; }
+  field.replaceWith(input);
+  input.focus();
+  input.select();
+  const commit = async () => {
+    const newVal = input.value.trim();
+    await commitFieldEdit(fieldKey, newVal);
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !isMultiline) { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { renderDataPanel(_allRecords[_filteredIdx[_currentPos]]); }
+  });
+}
+
+async function commitFieldEdit(fieldKey, newVal) {
+  const rec = _allRecords[_filteredIdx[_currentPos]];
+  const parsed = rec.parsed_json || {};
+  const areaUpdates = rec.area_updates || {};
+  // parsed_json 内の値も更新
+  applyFieldToParsed(parsed, fieldKey, newVal);
+  rec.parsed_json = parsed;
+  // 実DB (land_info, landowner_info) を更新
+  try {
+    await applyFieldToDb(fieldKey, newVal, rec, areaUpdates);
+    rec.review_flags = rec.review_flags || {};
+    rec.review_flags[fieldKey] = 'modified';
+    await db.from('toki_ai_batch_log')
+      .update({ parsed_json: rec.parsed_json, review_flags: rec.review_flags })
+      .eq('id', rec.id);
+    renderDataPanel(rec);
+  } catch (e) {
+    alert('保存失敗: ' + e.message);
+    renderDataPanel(rec);
+  }
+}
+
+function applyFieldToParsed(parsed, fieldKey, newVal) {
+  const parts = fieldKey.split('.');
+  if (parts[0] === 'hyodaibu') {
+    parsed.hyodaibu = parsed.hyodaibu || {};
+    const k = parts[1];
+    if (k === 'chiseki_sqm') {
+      const n = Number(String(newVal).replace(/[^\d.]/g, ''));
+      parsed.hyodaibu[k] = isNaN(n) ? null : n;
+    } else {
+      parsed.hyodaibu[k] = newVal || null;
+    }
+  } else if (parts[0] === 'kouku') {
+    parsed.kouku = parsed.kouku || {};
+    parsed.kouku.owners = parsed.kouku.owners || [];
+    const idx = parseInt(parts[1], 10);
+    parsed.kouku.owners[idx] = parsed.kouku.owners[idx] || {};
+    parsed.kouku.owners[idx][parts[2]] = newVal || null;
+  } else if (parts[0] === 'otsuku') {
+    // otsuku.i にセット (合体文字列を分解)
+    parsed.otsuku = parsed.otsuku || {};
+    parsed.otsuku.rights = parsed.otsuku.rights || [];
+    const idx = parseInt(parts[1], 10);
+    // 【type】details 形式で解釈
+    const m = newVal.match(/^【([^】]+)】\s*(.*)$/);
+    parsed.otsuku.rights[idx] = m
+      ? { type: m[1], details: m[2] }
+      : { type: '権利', details: newVal };
+  }
+}
+
+async function applyFieldToDb(fieldKey, newVal, rec, areaUpdates) {
+  const parts = fieldKey.split('.');
+  if (parts[0] === 'hyodaibu') {
+    // land_info の対応レコードを特定
+    const landInfoUpdates = areaUpdates.land_info || [];
+    const landId = landInfoUpdates[0]?.land_id;
+    if (!landId) {
+      // フォールバック: case_id から取得
+      const caseId = rec.case_id;
+      const { data: lands } = await db.from('land_info').select('id').eq('case_id', caseId).limit(1);
+      if (!lands || !lands.length) throw new Error('land_info レコードが見つかりません');
+      var effectiveLandId = lands[0].id;
+    } else {
+      var effectiveLandId = landId;
+    }
+    const k = parts[1];
+    const dbCol = k === 'shozai' ? 'location' : k === 'chiseki_sqm' ? 'area_sqm' : k;
+    const dbVal = k === 'chiseki_sqm'
+      ? (newVal ? Number(String(newVal).replace(/[^\d.]/g, '')) : null)
+      : (newVal || null);
+    const { error } = await db.from('land_info').update({ [dbCol]: dbVal }).eq('id', effectiveLandId);
+    if (error) throw error;
+  } else if (parts[0] === 'kouku') {
+    const idx = parseInt(parts[1], 10);
+    const field = parts[2];
+    const ownerUpdates = areaUpdates.landowners || [];
+    const landownerId = ownerUpdates[idx]?.landowner_id;
+    if (!landownerId) throw new Error('landowner_info レコードが見つかりません');
+    const dbCol = field === 'name' ? 'name' : field === 'address' ? 'address' : null;
+    if (!dbCol) return;  // mochibun等は DB非対象
+    const { error } = await db.from('landowner_info').update({ [dbCol]: newVal || null }).eq('id', landownerId);
+    if (error) throw error;
+  } else if (parts[0] === 'otsuku') {
+    // 全 rights を統合して memo に書き込む
+    const parsed = rec.parsed_json;
+    const memo = (parsed.otsuku?.rights || []).map(r => `【${r.type || '権利'}】${r.details || ''}`).join('\n');
+    const ownerUpdates = areaUpdates.landowners || [];
+    const primaryId = ownerUpdates[0]?.landowner_id;
+    if (!primaryId) throw new Error('筆頭所有者が見つかりません');
+    const { error } = await db.from('landowner_info').update({ memo: memo }).eq('id', primaryId);
+    if (error) throw error;
+  }
+}
+
+// ===== 一括OK / NG =====
+async function markAllOk() {
+  const rec = _allRecords[_filteredIdx[_currentPos]];
+  const parsed = rec.parsed_json || {};
+  const flags = {};
+  // 表題部
+  ['shozai','chiban','chimoku','chiseki_sqm'].forEach(k => {
+    if (parsed.hyodaibu?.[k] != null) flags[`hyodaibu.${k}`] = 'ok';
+  });
+  // 甲区
+  (parsed.kouku?.owners || []).forEach((o, i) => {
+    if (o.name) flags[`kouku.${i}.name`] = 'ok';
+    if (o.address) flags[`kouku.${i}.address`] = 'ok';
+  });
+  // 乙区
+  (parsed.otsuku?.rights || []).forEach((r, i) => {
+    flags[`otsuku.${i}`] = 'ok';
+  });
+  rec.review_flags = flags;
+  try {
+    await db.from('toki_ai_batch_log')
+      .update({ review_flags: flags, reviewed: true, reviewed_at: new Date().toISOString() })
+      .eq('id', rec.id);
+    rec.reviewed = true;
+    navigate(1);
+  } catch (e) {
+    alert('保存失敗: ' + e.message);
+  }
+}
+
+async function markAsNgWithNote() {
+  const rec = _allRecords[_filteredIdx[_currentPos]];
+  const note = document.getElementById('ngNote')?.value || '';
+  try {
+    await db.from('toki_ai_batch_log')
+      .update({ reviewed_note: note, reviewed: false })
+      .eq('id', rec.id);
+    rec.reviewed_note = note;
+    navigate(1);
+  } catch (e) {
+    alert('保存失敗: ' + e.message);
+  }
+}
+
+// ===== ナビゲーション =====
+function navigate(delta) {
+  const newPos = _currentPos + delta;
+  if (newPos < 0 || newPos >= _filteredIdx.length) return;
+  _currentPos = newPos;
+  renderCurrent();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowLeft') { e.preventDefault(); navigate(-1); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); navigate(1); }
+});
+
+// ===== ズーム / パン =====
+function setZoom(factor) {
+  _zoomLevel *= factor;
+  _zoomLevel = Math.max(0.2, Math.min(4.0, _zoomLevel));
+  applyZoom();
+}
+function resetZoom() {
+  _zoomLevel = 1.0;
+  applyZoom();
+}
+function applyZoom() {
+  const scale = `scale(${_zoomLevel})`;
+  document.getElementById('docImage').style.transform = scale;
+  document.getElementById('pdfCanvas').style.transform = scale;
+}
+
+function setupImageDrag() {
+  const vp = document.getElementById('imageViewport');
+  let isDown = false, startX = 0, startY = 0, scrollLeft = 0, scrollTop = 0;
+  vp.addEventListener('mousedown', e => {
+    isDown = true;
+    vp.classList.add('grabbing');
+    startX = e.pageX - vp.offsetLeft;
+    startY = e.pageY - vp.offsetTop;
+    scrollLeft = vp.scrollLeft;
+    scrollTop = vp.scrollTop;
+  });
+  vp.addEventListener('mouseup', () => { isDown = false; vp.classList.remove('grabbing'); });
+  vp.addEventListener('mouseleave', () => { isDown = false; vp.classList.remove('grabbing'); });
+  vp.addEventListener('mousemove', e => {
+    if (!isDown) return;
+    e.preventDefault();
+    const x = e.pageX - vp.offsetLeft;
+    const y = e.pageY - vp.offsetTop;
+    vp.scrollLeft = scrollLeft - (x - startX);
+    vp.scrollTop = scrollTop - (y - startY);
+  });
+}
+</script>
+</body>
+</html>
