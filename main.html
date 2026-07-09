@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- BUILD: main v20260622g / ステータスバッジ(LETTER/LTR済)の最終発信日表示を改善：紫の補色=黄緑(#bef264)で太字大きめ・position:absoluteでバッジ右端内側に重ねるためバッジ幅は不変(min-width:92px維持)。 -->
 <!-- BUILD: main v20260707b / 3マスターの操作メニューに「🎨 CADで開く」追加(cad-editor.html?case_id=を別タブ)。前:v20260707a -->
-<!-- BUILD: main v20260709a / 書類アップロードにJPEG/PNG/WebP直接受入対応（登記簿写真の中間生成物ゼロ登録、圧縮スキップ）。前:v20260622a -->
+<!-- BUILD: main v20260709b / 書類一括取込もJPEG/PNG/WebP対応（ファイル名マッチング）。前:v20260709a -->
 <!-- v20260528a: ステータスバッジ(.status-badge)の帯を統一。min-width:92px + justify-content:center で全ステータス(NOT VISITED/LTR済/OK等)の帯長を揃える。文字数依存の不揃いを解消。全マスター(案件/地権者/土地情報/不動産会社)共通で適用 -->
 <html lang="ja">
 <head>
@@ -1127,7 +1127,7 @@
     <div class="modal-header">
       <div>
         <div class="modal-title">📁 書類一括取込</div>
-        <div class="modal-subtitle" id="bulkImportSubtitle">登記簿・公図PDFを案件に自動振分（NG案件は除外）</div>
+        <div class="modal-subtitle" id="bulkImportSubtitle">登記簿・公図（PDF / JPEG / PNG / WebP）を案件に自動振分（NG案件は除外）</div>
       </div>
       <button class="modal-close" onclick="closeModal('bulkImportModal')">✕</button>
     </div>
@@ -1135,10 +1135,11 @@
       <div id="bulkPhase1" style="display:block;">
         <div style="text-align:center;padding:40px 20px;border:2px dashed var(--border);border-radius:12px;background:var(--surface2);">
           <div style="font-size:48px;margin-bottom:16px;">📁</div>
-          <div style="font-size:14px;color:var(--text);margin-bottom:8px;font-weight:500;">登記簿・公図PDFのフォルダを選択</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-bottom:20px;">ファイル名+PDF内容から自動マッチング → 人間が目視確認 → 一括アップロード</div>
-          <input type="file" id="bulkFolderInput" multiple accept="application/pdf" webkitdirectory style="display:none;" onchange="handleBulkFolderSelect(event)">
-          <input type="file" id="bulkFilesInput" multiple accept="application/pdf" style="display:none;" onchange="handleBulkFolderSelect(event)">
+          <div style="font-size:14px;color:var(--text);margin-bottom:8px;font-weight:500;">登記簿・公図のフォルダを選択（PDF / JPEG / PNG / WebP）</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">ファイル名 + PDF内容から自動マッチング → 人間が目視確認 → 一括アップロード</div>
+          <div style="font-size:11px;color:#f0b429;margin-bottom:20px;">⚠ 画像(JPEG等)はテキスト読取ができないため、ファイル名だけでマッチングします</div>
+          <input type="file" id="bulkFolderInput" multiple accept="application/pdf,image/jpeg,image/png,image/webp" webkitdirectory style="display:none;" onchange="handleBulkFolderSelect(event)">
+          <input type="file" id="bulkFilesInput" multiple accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none;" onchange="handleBulkFolderSelect(event)">
           <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
             <button class="btn btn-primary" onclick="document.getElementById('bulkFolderInput').click()">📁 フォルダを選択</button>
             <button class="btn btn-ghost" onclick="document.getElementById('bulkFilesInput').click()">📄 ファイルを複数選択</button>
@@ -3000,6 +3001,58 @@ async function _bulkAnalyzeOnePdf(file,docType){
   return{text,thumbDataUrl,cropDataUrl};
 }
 
+// v20260709a: 画像(JPEG/PNG/WebP)用の解析。PDFと同じ返却フォーマット
+// text=''（画像からテキスト抽出は行わない=ファイル名マッチングのみ）
+// thumbDataUrl=画像縮小、cropDataUrl=画像縮小（種別クロップは行わない）
+async function _bulkAnalyzeOneImage(file,docType){
+  const objectUrl=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((res,rej)=>{
+      const i=new Image();
+      i.onload=()=>res(i);
+      i.onerror=()=>rej(new Error('画像読込失敗: '+file.name));
+      i.src=objectUrl;
+    });
+    // サムネイル: 最大幅400px
+    const MAX_THUMB=400;
+    const scale=Math.min(1,MAX_THUMB/Math.max(img.naturalWidth,img.naturalHeight));
+    const tw=Math.max(1,Math.round(img.naturalWidth*scale));
+    const th=Math.max(1,Math.round(img.naturalHeight*scale));
+    const canvas=document.createElement('canvas');
+    canvas.width=tw;canvas.height=th;
+    const ctx=canvas.getContext('2d');
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,tw,th);
+    ctx.drawImage(img,0,0,tw,th);
+    const thumbDataUrl=canvas.toDataURL('image/jpeg',0.7);
+    // クロップ画像: 種別領域のクロップは PDF固定座標前提のため画像には適用しない。
+    // 代わりに、原寸に近い高解像度版を用意（最大幅1200px）
+    const MAX_CROP=1200;
+    const cropScale=Math.min(1,MAX_CROP/Math.max(img.naturalWidth,img.naturalHeight));
+    const cw=Math.max(1,Math.round(img.naturalWidth*cropScale));
+    const ch=Math.max(1,Math.round(img.naturalHeight*cropScale));
+    const cropCanvas=document.createElement('canvas');
+    cropCanvas.width=cw;cropCanvas.height=ch;
+    const cctx=cropCanvas.getContext('2d');
+    cctx.fillStyle='#fff';cctx.fillRect(0,0,cw,ch);
+    cctx.drawImage(img,0,0,cw,ch);
+    const cropDataUrl=cropCanvas.toDataURL('image/jpeg',0.9);
+    canvas.width=0;canvas.height=0;cropCanvas.width=0;cropCanvas.height=0;
+    return{text:'',thumbDataUrl,cropDataUrl};
+  }finally{
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+// v20260709a: ファイルがPDFか画像かを判定
+function _bulkIsPdf(file){
+  return file.type==='application/pdf'||file.name.toLowerCase().endsWith('.pdf');
+}
+function _bulkIsImage(file){
+  const t=(file.type||'').toLowerCase();
+  if(t==='image/jpeg'||t==='image/png'||t==='image/webp')return true;
+  return /\.(jpe?g|png|webp)$/i.test(file.name);
+}
+
 // マッチング判定（Tier1=地番込み完全一致, Tier2=町名一致, none=なし）
 function _bulkMatchFile(parsed,pdfTextParsed,candidates){
   // ファイル名の location（地番除去済み・市町村+町名）を正規化
@@ -3093,13 +3146,21 @@ function _locDispWithExtra(c){
 
 // フォルダ選択時のハンドラ
 async function handleBulkFolderSelect(event){
-  const files=Array.from(event.target.files||[]).filter(f=>f.type==='application/pdf'||f.name.toLowerCase().endsWith('.pdf'));
-  if(!files.length){showToast('PDFファイルが見つかりません','error');return;}
+  // v20260709a: PDF + 画像(JPEG/PNG/WebP)を受入
+  const allFiles=Array.from(event.target.files||[]);
+  const files=allFiles.filter(f=>_bulkIsPdf(f)||_bulkIsImage(f));
+  if(!files.length){showToast('PDF/JPEG/PNG/WebP ファイルが見つかりません','error');return;}
   // 20MB超のファイルは除外
   const validFiles=files.filter(f=>f.size<=20*1024*1024);
   const skippedCount=files.length-validFiles.length;
   if(skippedCount>0)showToast(`${skippedCount}件のファイルがサイズ超過(20MB)で除外されました`,'error');
   if(!validFiles.length)return;
+  // 画像とPDFの内訳をトースト表示
+  const pdfCount=validFiles.filter(_bulkIsPdf).length;
+  const imgCount=validFiles.filter(_bulkIsImage).length;
+  if(imgCount>0){
+    showToast(`📄 PDF ${pdfCount}件 / 🖼 画像 ${imgCount}件 を解析します（画像はファイル名マッチング）`,'info');
+  }
   // フェーズ2へ
   document.getElementById('bulkPhase1').style.display='none';
   document.getElementById('bulkPhase2').style.display='block';
@@ -3110,18 +3171,22 @@ async function handleBulkFolderSelect(event){
     document.getElementById('bulkAnalyzeBar').style.width='5%';
     document.getElementById('bulkAnalyzeDetail').textContent='';
     _bulkAllCandidates=await _bulkLoadCandidates();
-    // 各PDF解析
+    // 各ファイル解析
     _bulkAnalysisResults=[];
     const total=validFiles.length;
     for(let i=0;i<total;i++){
       const file=validFiles[i];
-      document.getElementById('bulkAnalyzeLabel').textContent=`PDFを解析中... ${i+1}/${total}`;
+      const isPdf=_bulkIsPdf(file);
+      const kindIcon=isPdf?'📄':'🖼';
+      document.getElementById('bulkAnalyzeLabel').textContent=`${isPdf?'PDF':'画像'}を解析中... ${i+1}/${total}`;
       document.getElementById('bulkAnalyzeBar').style.width=`${5+Math.round((i+1)/total*90)}%`;
-      document.getElementById('bulkAnalyzeDetail').textContent=file.name;
+      document.getElementById('bulkAnalyzeDetail').textContent=`${kindIcon} ${file.name}`;
       const fnp=_bulkParseFileName(file.name);
       let text='',thumbDataUrl=null,cropDataUrl=null,err=null;
       try{
-        const r=await _bulkAnalyzeOnePdf(file,fnp.docType);
+        const r=isPdf
+          ?await _bulkAnalyzeOnePdf(file,fnp.docType)
+          :await _bulkAnalyzeOneImage(file,fnp.docType);
         text=r.text;thumbDataUrl=r.thumbDataUrl;cropDataUrl=r.cropDataUrl;
       }catch(e){
         err=e.message||String(e);
@@ -3164,6 +3229,7 @@ async function handleBulkFolderSelect(event){
       _bulkAnalysisResults.push({
         file,fileName:file.name,fileNameParsed:fnp,pdfTextParsed:ptp,
         thumbDataUrl,cropDataUrl,match,
+        isPdf:isPdf,  // v20260709a: 種別フラグ（uploadOneBulkItem で圧縮判定に使用）
         ngMatch:ngMatch,  // NG案件マッチ情報
         skipped:!!ngMatch,  // NG案件マッチなら自動スキップ
         selected:match.type==='auto'&&!ngMatch,  // NG案件マッチがあれば選択しない
@@ -3609,25 +3675,31 @@ async function uploadOneBulkItem(idx){
     const originalFile=item.file;
     const originalSize=originalFile.size;
     const originalName=originalFile.name;
-    // PDF圧縮（既存の_compressPdfToImagePdf関数を再利用）
+    // v20260709a: 種別で分岐 - PDFは既存の圧縮、画像は直送
+    const isPdf=item.isPdf!==undefined?item.isPdf:_bulkIsPdf(originalFile);
+    const contentType=originalFile.type||(isPdf?'application/pdf':'application/octet-stream');
     let uploadBlob=originalFile;
     let compressionApplied=false;
     let compressedSize=originalSize;
-    try{
-      const compressed=await _compressPdfToImagePdf(originalFile);
-      if(compressed.size<originalSize){
-        uploadBlob=compressed;compressedSize=compressed.size;compressionApplied=true;
+    if(isPdf){
+      // PDF圧縮（既存の_compressPdfToImagePdf関数を再利用）
+      try{
+        const compressed=await _compressPdfToImagePdf(originalFile);
+        if(compressed.size<originalSize){
+          uploadBlob=compressed;compressedSize=compressed.size;compressionApplied=true;
+        }
+      }catch(compressErr){
+        console.error('圧縮エラー（原本でアップロード続行）:',compressErr);
+        compressionApplied=false;
       }
-    }catch(compressErr){
-      console.error('圧縮エラー（原本でアップロード続行）:',compressErr);
-      compressionApplied=false;
     }
+    // 画像(JPEG/PNG/WebP)は圧縮せず直接アップロード
     // Storage パス生成
     const timestamp=Date.now();
     const safeName=originalName.replace(/[^\w.\-]/g,'_');
     const storagePath=`${item.selectedCaseId}/${docType}/${timestamp}_${safeName}`;
-    // Supabase Storage アップロード
-    const{error:upErr}=await db.storage.from('registry-docs').upload(storagePath,uploadBlob,{contentType:'application/pdf',upsert:false});
+    // Supabase Storage アップロード (contentType を動的に)
+    const{error:upErr}=await db.storage.from('registry-docs').upload(storagePath,uploadBlob,{contentType:contentType,upsert:false});
     if(upErr)throw upErr;
     // DB登録
     const{error:dbErr}=await db.from('case_documents').insert({
@@ -3651,9 +3723,10 @@ async function uploadOneBulkItem(idx){
     item.uploaded=true;
     item.uploadedAt=new Date().toISOString();
     const ratio=compressionApplied?Math.round((1-compressedSize/originalSize)*100):0;
+    const kindMark=isPdf?'':'🖼 ';
     const msg=compressionApplied
-      ?`✓ ${originalName.slice(0,30)} (圧縮率 ${ratio}%)`
-      :`✓ ${originalName.slice(0,30)}`;
+      ?`✓ ${kindMark}${originalName.slice(0,30)} (圧縮率 ${ratio}%)`
+      :`✓ ${kindMark}${originalName.slice(0,30)}`;
     showToast(msg,'success');
     // UI全体を再描画（完了バナー・緑枠・進捗バー・最下部移動を反映）
     renderBulkPreview();
