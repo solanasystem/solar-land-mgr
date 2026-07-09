@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- BUILD: main v20260622g / ステータスバッジ(LETTER/LTR済)の最終発信日表示を改善：紫の補色=黄緑(#bef264)で太字大きめ・position:absoluteでバッジ右端内側に重ねるためバッジ幅は不変(min-width:92px維持)。 -->
 <!-- BUILD: main v20260707b / 3マスターの操作メニューに「🎨 CADで開く」追加(cad-editor.html?case_id=を別タブ)。前:v20260707a -->
-<!-- BUILD: main v20260622a / toki-ai.js,css の?v=打替（AI転記後の即時反映＝キャッシュバスター更新） -->
+<!-- BUILD: main v20260709a / 書類アップロードにJPEG/PNG/WebP直接受入対応（登記簿写真の中間生成物ゼロ登録、圧縮スキップ）。前:v20260622a -->
 <!-- v20260528a: ステータスバッジ(.status-badge)の帯を統一。min-width:92px + justify-content:center で全ステータス(NOT VISITED/LTR済/OK等)の帯長を揃える。文字数依存の不揃いを解消。全マスター(案件/地権者/土地情報/不動産会社)共通で適用 -->
 <html lang="ja">
 <head>
@@ -1079,7 +1079,7 @@
     <div class="modal-header">
       <div>
         <div class="modal-title">📄 書類アップロード</div>
-        <div class="modal-subtitle">登記簿・公図PDF（20MB以下）</div>
+        <div class="modal-subtitle">登記簿・公図（PDF / JPEG / PNG / WebP、20MB以下）</div>
       </div>
       <button class="modal-close" onclick="closeModal('uploadDocModal')">✕</button>
     </div>
@@ -1103,8 +1103,8 @@
         <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">複数地番がある場合はカンマで区切ってください</div>
       </div>
       <div class="form-group">
-        <label class="form-label">PDFファイル <span style="color:#ef4444">*</span></label>
-        <input class="form-input" type="file" id="docFile" accept="application/pdf" onchange="handleFileSelect()">
+        <label class="form-label">ファイル（PDF / JPEG / PNG / WebP）<span style="color:#ef4444">*</span></label>
+        <input class="form-input" type="file" id="docFile" accept="application/pdf,image/jpeg,image/png,image/webp" onchange="handleFileSelect()">
         <div id="fileInfo" style="font-size:12px;color:var(--text-muted);margin-top:6px;"></div>
       </div>
       <div id="uploadProgress" style="display:none;margin-top:16px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
@@ -1117,7 +1117,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('uploadDocModal')" id="uploadCancelBtn">キャンセル</button>
-      <button class="btn btn-primary" onclick="uploadDocument()" id="uploadExecBtn" disabled>圧縮してアップロード</button>
+      <button class="btn btn-primary" onclick="uploadDocument()" id="uploadExecBtn" disabled>アップロード</button>
     </div>
   </div>
 </div>
@@ -2693,8 +2693,13 @@ function handleFileSelect(){
   const file=fileInput.files?.[0];
   _selectedPdfFile=null;
   if(!file){infoEl.textContent='';execBtn.disabled=true;return;}
-  if(file.type!=='application/pdf'&&!file.name.toLowerCase().endsWith('.pdf')){
-    infoEl.innerHTML='<span style="color:#ef4444">⚠ PDFファイルを選択してください</span>';
+  // v20260709a: PDF/JPEG/PNG/WebP 対応
+  const ALLOWED_MIMES=['application/pdf','image/jpeg','image/png','image/webp'];
+  const ALLOWED_EXTS=['.pdf','.jpg','.jpeg','.png','.webp'];
+  const isMimeOk=ALLOWED_MIMES.includes(file.type);
+  const isExtOk=ALLOWED_EXTS.some(ext=>file.name.toLowerCase().endsWith(ext));
+  if(!isMimeOk&&!isExtOk){
+    infoEl.innerHTML='<span style="color:#ef4444">⚠ PDF / JPEG / PNG / WebP のいずれかを選択してください</span>';
     fileInput.value='';execBtn.disabled=true;return;
   }
   const MAX_SIZE=20*1024*1024;
@@ -2705,8 +2710,13 @@ function handleFileSelect(){
   }
   _selectedPdfFile=file;
   const sizeKB=(file.size/1024).toFixed(0);
-  infoEl.innerHTML=`✓ ${file.name} <span style="color:var(--text-muted)">(${sizeKB} KB)</span>`;
+  const isPdf=file.type==='application/pdf'||file.name.toLowerCase().endsWith('.pdf');
+  const typeIcon=isPdf?'📄':'🖼';
+  const typeLabel=isPdf?'PDF':(file.type.split('/')[1]||'画像').toUpperCase();
+  infoEl.innerHTML=`✓ ${typeIcon} ${file.name} <span style="color:var(--text-muted)">(${typeLabel}, ${sizeKB} KB)</span>`;
   execBtn.disabled=false;
+  // ボタン文言を動的に
+  document.getElementById('uploadExecBtn').textContent=isPdf?'圧縮してアップロード':'アップロード';
 }
 
 function _setUploadProgress(label,pct,detail){
@@ -2752,27 +2762,34 @@ async function uploadDocument(){
   const originalFile=_selectedPdfFile;
   const originalName=originalFile.name;
   const originalSize=originalFile.size;
+  // v20260709a: PDF/画像の判定
+  const isPdf=originalFile.type==='application/pdf'||originalName.toLowerCase().endsWith('.pdf');
+  const contentType=originalFile.type||(isPdf?'application/pdf':'application/octet-stream');
   document.getElementById('uploadExecBtn').disabled=true;
   document.getElementById('uploadCancelBtn').disabled=true;
   try{
-    _setUploadProgress('PDFを読み込み中...',5,'');
+    _setUploadProgress(isPdf?'PDFを読み込み中...':'画像を読み込み中...',5,'');
     let uploadBlob=originalFile;
     let compressionApplied=false;
     let compressedSize=originalSize;
-    try{
-      const compressed=await _compressPdfToImagePdf(originalFile);
-      if(compressed.size<originalSize){
-        uploadBlob=compressed;compressedSize=compressed.size;compressionApplied=true;
+    if(isPdf){
+      // 従来のPDF圧縮パイプライン
+      try{
+        const compressed=await _compressPdfToImagePdf(originalFile);
+        if(compressed.size<originalSize){
+          uploadBlob=compressed;compressedSize=compressed.size;compressionApplied=true;
+        }
+      }catch(compressErr){
+        console.error('圧縮エラー:',compressErr);
+        compressionApplied=false;
       }
-    }catch(compressErr){
-      console.error('圧縮エラー:',compressErr);
-      compressionApplied=false;
     }
+    // 画像(JPEG/PNG/WebP)は圧縮せず直接アップロード（既に十分小さい、劣化を避ける）
     _setUploadProgress('アップロード中...',90,'');
     const timestamp=Date.now();
     const safeName=originalName.replace(/[^\w.\-]/g,'_');
     const storagePath=`${currentCaseId}/${docType}/${timestamp}_${safeName}`;
-    const{error:upErr}=await db.storage.from('registry-docs').upload(storagePath,uploadBlob,{contentType:'application/pdf',upsert:false});
+    const{error:upErr}=await db.storage.from('registry-docs').upload(storagePath,uploadBlob,{contentType:contentType,upsert:false});
     if(upErr)throw upErr;
     _setUploadProgress('レコード登録中...',95,'');
     const{error:dbErr}=await db.from('case_documents').insert({
@@ -2789,7 +2806,7 @@ async function uploadDocument(){
     const ratio=compressionApplied?Math.round((1-compressedSize/originalSize)*100):0;
     const msg=compressionApplied
       ?`📄 アップロード完了！圧縮率 ${ratio}% (${Math.round(originalSize/1024)}→${Math.round(compressedSize/1024)}KB)`
-      :`📄 アップロード完了（圧縮スキップ）`;
+      :(isPdf?`📄 アップロード完了（圧縮スキップ）`:`🖼 画像アップロード完了 (${Math.round(originalSize/1024)}KB)`);
     showToast(msg,'success');
     setTimeout(()=>{
       closeModal('uploadDocModal');
