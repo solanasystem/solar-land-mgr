@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: toki-ai-review v20260709A / 登記簿AI転記結果の目視レビュー（左:画像、右:AI結果を項目別にOK/修正/NG） -->
+<!-- BUILD: toki-ai-review v20260709B / 未紐付け書類対応（フィルタ+手動紐付けUI追加）。前:v20260709A -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -288,6 +288,7 @@
     <div class="filter-group">
       <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">全て</button>
       <button class="filter-btn" data-filter="unreviewed" onclick="setFilter('unreviewed')">未確認</button>
+      <button class="filter-btn" data-filter="unmatched" onclick="setFilter('unmatched')">🔗 未紐付け</button>
       <button class="filter-btn" data-filter="ng" onclick="setFilter('ng')">NG</button>
     </div>
   </div>
@@ -415,6 +416,9 @@ function applyFilter() {
   for (let i = 0; i < _allRecords.length; i++) {
     const r = _allRecords[i];
     if (_currentFilter === 'unreviewed' && r.reviewed) continue;
+    if (_currentFilter === 'unmatched') {
+      if (r.status !== 'unmatched' && r.status !== 'ambiguous') continue;
+    }
     if (_currentFilter === 'ng') {
       const flags = r.review_flags || {};
       const hasNg = Object.values(flags).some(v => v === 'ng');
@@ -509,6 +513,37 @@ function renderDataPanel(rec) {
     html += `<div class="section" style="border-color:var(--red);">
       <div class="section-title" style="color:var(--red);">❌ 転記失敗</div>
       <div style="color:var(--red);font-family:monospace;font-size:12px;white-space:pre-wrap;">${escapeHtml(rec.error_message || '不明なエラー')}</div>
+    </div>`;
+  }
+
+  // v20260709h: 未紐付けの場合、手動紐付けUIを最上部に表示
+  if (rec.status === 'unmatched' || rec.status === 'ambiguous') {
+    const extractedChiban = areaUpdates.extracted_chiban || '(取得なし)';
+    const candidates = areaUpdates.candidates || [];
+    let candidateOptions = candidates.map(c => 
+      `<option value="${escapeHtml(c.id)}">${escapeHtml(c.case_no)} — ${escapeHtml((c.land_info_locations||[]).join(', '))}</option>`
+    ).join('');
+    html += `<div class="section" style="border-color:var(--amber);">
+      <div class="section-title" style="color:var(--amber);">🔗 未紐付け書類 - 手動紐付け</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
+        ${rec.status === 'ambiguous' ? '複数案件に該当（要選択）' : '該当案件なし'}<br>
+        AI抽出地番: <b style="color:var(--accent);">${escapeHtml(extractedChiban)}</b>
+      </div>
+      ${candidates.length > 0 ? `
+        <div style="margin-bottom:8px;">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">候補案件:</div>
+          <select id="manualLinkSelect" class="cmp-select" style="width:100%;">
+            <option value="">(選択してください)</option>
+            ${candidateOptions}
+          </select>
+        </div>
+      ` : `
+        <div style="margin-bottom:8px;">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">案件番号で検索して紐付け:</div>
+          <input type="text" id="manualLinkCaseNo" placeholder="例: 高島市-297" style="width:100%;padding:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:12px;">
+        </div>
+      `}
+      <button class="cmp-btn primary" onclick="manualLinkDocumentToCase()">🔗 この案件に紐付ける</button>
     </div>`;
   }
 
@@ -613,6 +648,49 @@ async function markField(fieldKey, status) {
 }
 
 // ===== インライン編集 =====
+// v20260709h: 未紐付け書類を手動で案件に紐付ける
+async function manualLinkDocumentToCase() {
+  const rec = _allRecords[_filteredIdx[_currentPos]];
+  if (!rec) return;
+  let targetCaseId = null;
+  const sel = document.getElementById('manualLinkSelect');
+  const inp = document.getElementById('manualLinkCaseNo');
+  if (sel && sel.value) {
+    targetCaseId = sel.value;
+  } else if (inp && inp.value.trim()) {
+    const caseNo = inp.value.trim();
+    try {
+      const { data, error } = await db.from('cases').select('id').eq('case_no', caseNo).maybeSingle();
+      if (error || !data) { alert(`案件番号「${caseNo}」が見つかりません`); return; }
+      targetCaseId = data.id;
+    } catch (e) { alert('検索失敗: ' + e.message); return; }
+  }
+  if (!targetCaseId) { alert('案件を選択または案件番号を入力してください'); return; }
+  if (!confirm('この案件に紐付けますか?\n\n※紐付け後は各項目のOK/修正ボタンで詳細反映してください')) return;
+  try {
+    if (rec.document_id) {
+      const { error: e1 } = await db.from('case_documents').update({ case_id: targetCaseId }).eq('id', rec.document_id);
+      if (e1) throw e1;
+    }
+    const newAreaUpdates = { ...(rec.area_updates || {}), match_status: 'manual_matched', manual_matched_case_id: targetCaseId };
+    const { error: e2 } = await db.from('toki_ai_batch_log').update({
+      case_id: targetCaseId,
+      status: 'success',
+      error_message: null,
+      area_updates: newAreaUpdates
+    }).eq('id', rec.id);
+    if (e2) throw e2;
+    rec.case_id = targetCaseId;
+    rec.status = 'success';
+    rec.area_updates = newAreaUpdates;
+    log('紐付け完了。詳細項目は個別に反映してください', 'ok');
+    renderCurrent();
+  } catch (e) {
+    console.error(e);
+    alert('紐付け失敗: ' + e.message);
+  }
+}
+
 function beginEdit(fieldKey) {
   const field = document.querySelector(`.field[data-field="${fieldKey}"] .field-value`);
   if (!field) return;

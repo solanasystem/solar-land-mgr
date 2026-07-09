@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- BUILD: main v20260622g / ステータスバッジ(LETTER/LTR済)の最終発信日表示を改善：紫の補色=黄緑(#bef264)で太字大きめ・position:absoluteでバッジ右端内側に重ねるためバッジ幅は不変(min-width:92px維持)。 -->
 <!-- BUILD: main v20260707b / 3マスターの操作メニューに「🎨 CADで開く」追加(cad-editor.html?case_id=を別タブ)。前:v20260707a -->
-<!-- BUILD: main v20260709g / 一括取込モーダルにドラッグ&ドロップ対応（フォルダも再帰的に読取）。前:v20260709f -->
+<!-- BUILD: main v20260709h / 一括取込にAI地番自動マッチングモード追加（未紐付けアップロード→AI転記で自動紐付け）。前:v20260709g -->
 <!-- v20260528a: ステータスバッジ(.status-badge)の帯を統一。min-width:92px + justify-content:center で全ステータス(NOT VISITED/LTR済/OK等)の帯長を揃える。文字数依存の不揃いを解消。全マスター(案件/地権者/土地情報/不動産会社)共通で適用 -->
 <html lang="ja">
 <head>
@@ -46,12 +46,12 @@
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="mobile-responsive.css?v=20260516zg">
-<link rel="stylesheet" href="toki-ai.css?v=20260709f">
+<link rel="stylesheet" href="toki-ai.css?v=20260709h">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="power-company-utils.js?v=20260516zg"></script>
-<script src="toki-ai.js?v=20260709f"defer></script>
+<script src="toki-ai.js?v=20260709h"defer></script>
 <style>
   :root {
     --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
@@ -1133,6 +1133,42 @@
     </div>
     <div class="modal-body">
       <div id="bulkPhase1" style="display:block;">
+        <!-- v20260709h: マッチング方式選択 -->
+        <div style="padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;">
+          <div style="font-size:12px;color:var(--text);font-weight:600;margin-bottom:8px;">📌 マッチング方式</div>
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:6px;cursor:pointer;font-size:12px;">
+            <input type="radio" name="bulkMatchMode" value="filename" checked onchange="_updateBulkMatchModeUI()">
+            <div>
+              <b>ファイル名マッチング</b>（従来）<br>
+              <span style="font-size:10px;color:var(--text-muted);">ファイル名に地番・市町村が入っている場合。PDFは中身のテキストも参照。</span>
+            </div>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:6px;cursor:pointer;font-size:12px;">
+            <input type="radio" name="bulkMatchMode" value="ai" onchange="_updateBulkMatchModeUI()">
+            <div>
+              <b>AI地番自動マッチング</b> ⚡ <span style="color:#f0b429;">推奨（ファイル名が意味なしの場合）</span><br>
+              <span style="font-size:10px;color:var(--text-muted);">先に未紐付けで一括アップロード → AI転記で地番を読み取って自動的に案件と紐付け</span>
+            </div>
+          </label>
+          <div id="bulkMatchScopeArea" style="display:none;margin-top:8px;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">🎯 マッチング対象範囲（狭くすると誤紐付けを防止）</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <label style="font-size:11px;">エリア:</label>
+              <input type="text" id="bulkMatchScopeArea_name" placeholder="例: 高島市" style="padding:4px 8px;background:var(--surface);border:1px solid var(--border);color:var(--text);font-size:11px;width:120px;">
+              <label style="font-size:11px;">ステータス:</label>
+              <select id="bulkMatchScopeStatus" style="padding:4px 8px;background:var(--surface);border:1px solid var(--border);color:var(--text);font-size:11px;">
+                <option value="">絞込なし</option>
+                <option value="NOT VISITED" selected>NOT VISITED</option>
+                <option value="LTR済">LTR済</option>
+                <option value="SUCCESS">SUCCESS</option>
+                <option value="OK">OK</option>
+                <option value="UNKNOWN">UNKNOWN</option>
+                <option value="未判定">未判定</option>
+              </select>
+            </div>
+            <div style="font-size:10px;color:var(--text-muted);margin-top:6px;">💡 空欄で「全国のNOT VISITED案件から検索」も可能</div>
+          </div>
+        </div>
         <div id="bulkDropZone" style="text-align:center;padding:40px 20px;border:2px dashed var(--border);border-radius:12px;background:var(--surface2);transition:all 0.2s;">
           <div style="font-size:48px;margin-bottom:16px;">📁</div>
           <div style="font-size:14px;color:var(--text);margin-bottom:8px;font-weight:500;">登記簿・公図のフォルダを選択 or <b style="color:var(--accent);">ドラッグ&ドロップ</b>（PDF / JPEG / PNG / WebP）</div>
@@ -3135,6 +3171,120 @@ function _bulkIsImage(file){
   return /\.(jpe?g|png|webp)$/i.test(file.name);
 }
 
+// v20260709h: マッチング方式切替時のUI更新
+function _updateBulkMatchModeUI(){
+  const mode=document.querySelector('input[name="bulkMatchMode"]:checked')?.value||'filename';
+  const scopeArea=document.getElementById('bulkMatchScopeArea');
+  if(scopeArea)scopeArea.style.display=(mode==='ai')?'block':'none';
+}
+
+// v20260709h: AI地番自動マッチングモードのハンドラ
+// ファイル名マッチングをスキップして、未紐付けで一括アップロード→AI転記で自動紐付け
+async function _handleBulkAiMode(files){
+  const docTypeChoice=await _bulkAiChooseDocType();
+  if(!docTypeChoice)return;
+  const matchScope={
+    area_name:(document.getElementById('bulkMatchScopeArea_name').value||'').trim()||null,
+    status:document.getElementById('bulkMatchScopeStatus').value||null
+  };
+  const scopeText=`${matchScope.area_name||'（全国）'} / ${matchScope.status||'全ステータス'}`;
+  if(!confirm(`AI自動マッチングモード\n\n${files.length}件を未紐付けで一括アップロード後、AI転記で地番を読み取って自動的に案件と紐付けます。\n\n書類種別: ${docTypeChoice==='touki'?'登記簿':'公図'}\nマッチング対象: ${scopeText}\n所要時間目安: 約${Math.ceil(files.length*13/60)}分\n\n開始しますか?`))return;
+  // Phase 2に切替（進捗表示）
+  document.getElementById('bulkPhase1').style.display='none';
+  document.getElementById('bulkPhase2').style.display='block';
+  document.getElementById('bulkAnalyzeLabel').textContent='未紐付けでアップロード中...';
+  document.getElementById('bulkAnalyzeDetail').textContent='';
+  const uploadedDocIds=[];
+  let successUp=0,failUp=0;
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+    document.getElementById('bulkAnalyzeLabel').textContent=`未紐付けでアップロード ${i+1}/${files.length}`;
+    document.getElementById('bulkAnalyzeBar').style.width=`${Math.round((i+1)/files.length*40)}%`;
+    document.getElementById('bulkAnalyzeDetail').textContent=file.name;
+    try{
+      const isPdf=_bulkIsPdf(file);
+      const contentType=file.type||(isPdf?'application/pdf':'application/octet-stream');
+      let uploadBlob=file;
+      let compressionApplied=false,compressedSize=file.size;
+      if(isPdf){
+        try{
+          const c=await _compressPdfToImagePdf(file);
+          if(c.size<file.size){uploadBlob=c;compressedSize=c.size;compressionApplied=true;}
+        }catch(_){}
+      }
+      const ts=Date.now();
+      const safeName=file.name.replace(/[^\w.\-]/g,'_');
+      // case_id が NULL の書類は 'unlinked/' フォルダにまとめる
+      const storagePath=`unlinked/${docTypeChoice}/${ts}_${i}_${safeName}`;
+      const{error:upErr}=await db.storage.from('registry-docs').upload(storagePath,uploadBlob,{contentType,upsert:false});
+      if(upErr)throw upErr;
+      const{data:inserted,error:dbErr}=await db.from('case_documents').insert({
+        case_id:null,  // 未紐付け
+        document_type:docTypeChoice,
+        chiban:null,
+        file_path:storagePath,
+        file_name:file.name,
+        file_size_original:file.size,
+        file_size_compressed:compressedSize,
+        compression_applied:compressionApplied,
+        is_active:true,is_deleted:false
+      }).select('id').single();
+      if(dbErr){
+        await db.storage.from('registry-docs').remove([storagePath]);
+        throw dbErr;
+      }
+      uploadedDocIds.push(inserted.id);
+      successUp++;
+    }catch(e){
+      console.error('アップロード失敗:',file.name,e);
+      failUp++;
+    }
+  }
+  document.getElementById('bulkAnalyzeLabel').textContent=`アップロード完了: 成功${successUp} / 失敗${failUp} → AI転記へ`;
+  document.getElementById('bulkAnalyzeBar').style.width='40%';
+  if(!uploadedDocIds.length){
+    showToast('アップロードに失敗しました','error');
+    return;
+  }
+  if(docTypeChoice!=='touki'){
+    // 公図はAI転記対象外
+    showToast(`公図${uploadedDocIds.length}件を未紐付けでアップロード完了。案件マスターで手動紐付けしてください。`,'info');
+    closeModal('bulkImportModal');
+    return;
+  }
+  // AI転記実行 (matchScope 付き)
+  if(typeof window.tokiAiBatchProcess!=='function'){
+    showToast('AI転記モジュール未読込','error');return;
+  }
+  _openBatchAiProgressModal(uploadedDocIds.length);
+  try{
+    const result=await window.tokiAiBatchProcess(uploadedDocIds,{
+      matchScope:matchScope,
+      onProgress:(idx,total,docId)=>_updateBatchAiProgress(idx,total,'AI転記中...'),
+      onLog:(msg,kind)=>_appendBatchAiLog(msg,kind),
+      onComplete:(results,summary)=>{
+        _updateBatchAiProgress(summary.total,summary.total,'完了');
+        _appendBatchAiSummary(summary);
+      }
+    });
+    const s=result.summary;
+    const unmatched=result.results.filter(r=>r.status==='unmatched'||r.status==='ambiguous').length;
+    showToast(`AI転記完了: 成功${s.success}件 / 未紐付け${unmatched}件 / 面積等更新${s.totalAreaUpdates}件`,'success');
+    closeModal('bulkImportModal');
+  }catch(e){
+    console.error('AI転記エラー:',e);
+    showToast('AI転記でエラー: '+(e.message||e),'error');
+  }
+}
+
+// 書類種別選択（AIモード用）
+function _bulkAiChooseDocType(){
+  return new Promise(resolve=>{
+    const ans=confirm('書類種別を選択してください:\n\n【OK】= 登記簿 (touki)\n【キャンセル】= 公図 (kouzu)\n\n※AI転記自動マッチングは登記簿のみ対応');
+    resolve(ans?'touki':'kouzu');
+  });
+}
+
 // マッチング判定（Tier1=地番込み完全一致, Tier2=町名一致, none=なし）
 function _bulkMatchFile(parsed,pdfTextParsed,candidates){
   // ファイル名の location（地番除去済み・市町村+町名）を正規化
@@ -3243,6 +3393,13 @@ async function handleBulkFolderSelect(event){
   if(imgCount>0){
     showToast(`📄 PDF ${pdfCount}件 / 🖼 画像 ${imgCount}件 を解析します（画像はファイル名マッチング）`,'info');
   }
+  // v20260709h: マッチング方式をチェック
+  const matchMode=document.querySelector('input[name="bulkMatchMode"]:checked')?.value||'filename';
+  if(matchMode==='ai'){
+    // AI地番自動マッチングモード → Phase 2/3をスキップして直接Phase 3準備
+    return _handleBulkAiMode(validFiles);
+  }
+  // 従来のファイル名マッチングモードは以下のフロー
   // フェーズ2へ
   document.getElementById('bulkPhase1').style.display='none';
   document.getElementById('bulkPhase2').style.display='block';

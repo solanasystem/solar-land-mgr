@@ -2,17 +2,17 @@
  * toki-ai.js
  * GRID LAND MGR フェーズ1 ※2: 登記簿AI自動転記メインロジック
  *
- * BUILD: v20260709f (一括AI転記が全項目自動反映対応)
+ * BUILD: v20260709h (未紐付けアップロード→AI地番自動マッチング対応)
  * 修正履歴:
+ *   v20260709h: batchTranscribe に matchScope 対応追加
+ *               - case_id=NULL の書類も対象化
+ *               - AI抽出地番で案件を検索(area_name/status で絞込)
+ *               - 1件マッチ→自動case_id確定、複数/0件→未紐付けとしてbatch_log記録
+ *               - batchFindCaseByChiban(chiban, matchScope) 新設
  *   v20260709f: 一括AI転記に全項目自動反映を追加
- *               - batchAutoUpdateLandInfoFull: 表題部(所在/地番/地目/地積) → land_info
- *               - batchAutoUpdateLandowners:   甲区(氏名/住所) → landowner_info (INSERT/UPDATE)
- *               - batchAutoUpdateOtsuku:       乙区の権利 → 筆頭所有者.memo (既存があればスキップ)
- *   v20260709e: 一括AI転記機能追加 window.tokiAiBatchProcess
- *               batchTranscribe → area_sqm自動更新 → toki_ai_batch_log 記録
- *   v20260709d: Blob が image/* なら pdfjsLib をスキップして直接 base64 化
- *               media_type を dataURL ヘッダから動的抽出
- *   v20260622a: 初期版 (PDF専用、pdfjsLib で画像化してから API 送信)
+ *   v20260709e: batchTranscribe (一括AI転記) 新設
+ *   v20260709d: JPEG直接対応、media_type動的抽出
+ *   v20260622a: 初期版
  *
  * 公開関数:
  *   window.openTokiAiModal(documentId)                - 単一PDF/画像のAI転記モーダル
@@ -1403,9 +1403,49 @@
   }
 
   /**
+   * v20260709h: 地番+絞込条件で案件マスターから該当案件を検索
+   * @param {string} chiban - AIが抽出した地番
+   * @param {Object} matchScope - { area_name: '高島市', status: 'NOT VISITED' } のような絞込条件（任意）
+   * @returns {Array} 該当 case のレコード [{id, case_no, area_name, status, land_info_location}]
+   */
+  async function batchFindCaseByChiban(chiban, matchScope) {
+    if (!chiban) return [];
+    const normAiChiban = batchNormalizeChiban(chiban);
+    if (!normAiChiban) return [];
+    // land_info を JOIN で拾い、chiban 完全一致案件を絞る
+    // 全件取得は現実的でないので、absent の場合は絞り込みなしとする（デフォルト全国）
+    let query = db.from('cases').select('id, case_no, area_name, status, land_info(chiban, location)');
+    if (matchScope && matchScope.area_name) {
+      query = query.eq('area_name', matchScope.area_name);
+    }
+    if (matchScope && matchScope.status) {
+      query = query.eq('status', matchScope.status);
+    }
+    const { data, error } = await query;
+    if (error || !data) return [];
+    // land_info 側の chiban を正規化してマッチング
+    const matched = [];
+    for (const c of data) {
+      const landArr = Array.isArray(c.land_info) ? c.land_info : (c.land_info ? [c.land_info] : []);
+      let hit = false;
+      for (const l of landArr) {
+        const dbChiban = batchNormalizeChiban(l.chiban || l.location || '');
+        if (dbChiban && dbChiban === normAiChiban) { hit = true; break; }
+      }
+      if (hit) matched.push({
+        id: c.id, case_no: c.case_no, area_name: c.area_name, status: c.status,
+        land_info_locations: landArr.map(l => l.location || l.chiban).filter(Boolean)
+      });
+    }
+    return matched;
+  }
+
+  /**
    * バッチ処理コア: documentIds を順次AI転記
+   * v20260709h: matchScope 対応 - case_id=NULL の書類も対象、AI抽出後に地番で自動マッチング
    * @param {string[]} documentIds - case_documents.id の配列
-   * @param {Object} callbacks - { onProgress, onLog, onComplete }
+   * @param {Object} callbacks - { onProgress, onLog, onComplete, matchScope? }
+   *   matchScope: { area_name: '高島市', status: 'NOT VISITED' } のような絞込条件
    * @returns Promise<{ batchId, results: [{docId, status, ...}], summary: {...} }>
    */
   async function batchTranscribe(documentIds, callbacks) {
@@ -1413,6 +1453,7 @@
     const onProgress = callbacks.onProgress || (() => {});
     const onLog = callbacks.onLog || (() => {});
     const onComplete = callbacks.onComplete || (() => {});
+    const matchScope = callbacks.matchScope || null;  // v20260709h
 
     const apiKey = getApiKey();
     if (!apiKey) throw new Error('APIキー未設定。案件マスターで一度AI転記を実行し、APIキーを保存してください');
@@ -1485,12 +1526,76 @@
         const parsed = parseApiResponse(apiResp);
         logRecord.parsed_json = parsed;
 
-        // 7. v20260709f: 全項目自動反映（表題部→land_info、甲区→landowner_info、乙区→memo）
-        const landUpdates = await batchAutoUpdateLandInfoFull(doc.case_id, parsed);
-        const ownerResult = await batchAutoUpdateLandowners(doc.case_id, parsed);
+        // v20260709h: 未紐付け書類(doc.case_id=NULL)の場合、AI抽出地番で自動マッチング
+        let effectiveCaseId = doc.case_id;
+        let matchInfo = null;
+        if (!effectiveCaseId) {
+          // AI抽出結果から地番を取り出し
+          const hyo = parsed?.hyodaibu || (parsed?.hitsu_list?.[0]?.hyodaibu) || {};
+          const aiChiban = hyo.chiban || hyo['地番'] || null;
+          if (!aiChiban) {
+            logRecord.status = 'unmatched';
+            logRecord.error_message = 'AI抽出結果に地番なし（自動マッチング不可）';
+            logRecord.area_updates = { match_status: 'no_chiban' };
+            errorCount++;
+            const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
+            onLog(`  ⚠ 未紐付け: 地番抽出不可 (${elapsed}秒, $${cost.toFixed(4)})`, 'err');
+            try { await db.from('toki_ai_batch_log').insert(logRecord); } catch(e) {}
+            results.push(logRecord);
+            continue;
+          }
+          const candidates = await batchFindCaseByChiban(aiChiban, matchScope);
+          if (candidates.length === 0) {
+            logRecord.status = 'unmatched';
+            logRecord.error_message = `地番「${aiChiban}」に該当する案件なし（絞込範囲内）`;
+            logRecord.area_updates = { match_status: 'no_candidate', extracted_chiban: aiChiban };
+            errorCount++;
+            const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
+            onLog(`  ⚠ 未紐付け: 地番「${aiChiban}」該当案件なし`, 'err');
+            try { await db.from('toki_ai_batch_log').insert(logRecord); } catch(e) {}
+            results.push(logRecord);
+            continue;
+          }
+          if (candidates.length > 1) {
+            logRecord.status = 'ambiguous';
+            logRecord.error_message = `地番「${aiChiban}」に${candidates.length}件該当（要手動選択）`;
+            logRecord.area_updates = {
+              match_status: 'ambiguous',
+              extracted_chiban: aiChiban,
+              candidates: candidates
+            };
+            errorCount++;
+            onLog(`  ⚠ 曖昧: 地番「${aiChiban}」に${candidates.length}件該当`, 'err');
+            try { await db.from('toki_ai_batch_log').insert(logRecord); } catch(e) {}
+            results.push(logRecord);
+            continue;
+          }
+          // 1件マッチ確定 → case_documents.case_id を更新
+          effectiveCaseId = candidates[0].id;
+          const { error: linkErr } = await db.from('case_documents')
+            .update({ case_id: effectiveCaseId })
+            .eq('id', docId);
+          if (linkErr) {
+            logRecord.status = 'error';
+            logRecord.error_message = 'case_id 紐付け失敗: ' + linkErr.message;
+            errorCount++;
+            onLog(`  ❌ 紐付け失敗: ${linkErr.message}`, 'err');
+            try { await db.from('toki_ai_batch_log').insert(logRecord); } catch(e) {}
+            results.push(logRecord);
+            continue;
+          }
+          logRecord.case_id = effectiveCaseId;
+          matchInfo = { auto_matched_case_id: effectiveCaseId, matched_case_no: candidates[0].case_no, extracted_chiban: aiChiban };
+          onLog(`  🔗 自動紐付け: 地番「${aiChiban}」→ 案件「${candidates[0].case_no}」`, 'info');
+        }
+
+        // 7. 全項目自動反映（case_id が確定している書類のみ）
+        const landUpdates = await batchAutoUpdateLandInfoFull(effectiveCaseId, parsed);
+        const ownerResult = await batchAutoUpdateLandowners(effectiveCaseId, parsed);
         const otsukuResult = await batchAutoUpdateOtsuku(parsed, ownerResult.primaryOwnerId);
-        // area_updates カラムに統合履歴を格納 (JSONB)
         logRecord.area_updates = {
+          ...(matchInfo || {}),
+          match_status: matchInfo ? 'auto_matched' : 'preassigned',
           land_info: landUpdates,
           landowners: ownerResult.updates,
           otsuku: otsukuResult
