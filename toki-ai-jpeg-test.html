@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: toki-ai-jpeg-test v20260709A / JPEG直送方式の登記簿AI転記(中間生成物ゼロ、Claude Sonnet 4.6 Vision API 直接呼び出し) -->
+<!-- BUILD: toki-ai-jpeg-test v20260709B / URLパラメータ自動ロード対応(main.html から起動できる) -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -603,8 +603,46 @@ function clearAll() {
   document.getElementById('log').innerHTML = '';
 }
 
+// ========== URLパラメータからの自動ロード (v20260709A2) ==========
+async function autoLoadFromUrlParams() {
+  const params = new URLSearchParams(location.search);
+  const fileUrl = params.get('file_url');
+  const fileName = params.get('file_name');
+  const caseId = params.get('case_id');
+  if (!fileUrl) return;
+
+  const banner = document.createElement('div');
+  banner.style.cssText = 'background:var(--surface2);border:1px solid var(--accent);padding:10px 14px;margin-bottom:16px;font-size:12px;';
+  banner.innerHTML = `📥 案件マスターから受け取り中...<br>案件: <b>${escapeHtml(caseId||'?')}</b> / ファイル: <b>${escapeHtml(fileName||'?')}</b>`;
+  document.querySelector('.container').insertBefore(banner, document.querySelector('.card'));
+
+  try {
+    log(`URL経由でファイルを取得中: ${fileName}`);
+    const resp = await fetch(fileUrl);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const blob = await resp.blob();
+    // MIMEタイプの矯正 (Supabase Signed URL は generic な application/octet-stream で来ることがある)
+    const ext = (fileName||'').toLowerCase().split('.').pop();
+    const mimeMap = { jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', webp:'image/webp' };
+    const forcedType = mimeMap[ext] || blob.type;
+    const file = new File([blob], fileName || 'document.jpg', { type: forcedType });
+    if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
+      throw new Error('未対応の形式: ' + file.type);
+    }
+    selectedFiles = [file];
+    renderFileList();
+    banner.innerHTML = `✅ 案件マスターから受信完了 (${(blob.size/1024).toFixed(0)} KB) — 「▶ 転記実行」で開始`;
+    banner.style.borderColor = 'var(--green)';
+  } catch (e) {
+    log(`自動ロード失敗: ${e.message}`, 'err');
+    banner.innerHTML = `❌ 自動ロード失敗: ${escapeHtml(e.message)}`;
+    banner.style.borderColor = 'var(--red)';
+  }
+}
+
 // 初期化
 loadKey();
+autoLoadFromUrlParams();
 </script>
 </body>
 </html>

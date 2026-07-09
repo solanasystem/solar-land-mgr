@@ -2632,12 +2632,23 @@ async function loadDocuments(caseId){
       ?'opacity:0.5;border:1px dashed #6b7280;background:rgba(107,114,128,.1);'
       :'border:1px solid var(--border);background:var(--surface2);';
     // ボタン群（削除済み/通常で異なる）
+    // v20260709a: 拡張子でPDF/画像を判定し、AI転記ボタンを分岐
+    const fname=(d.file_name||'').toLowerCase();
+    const isPdfDoc=fname.endsWith('.pdf');
+    const isImgDoc=/\.(jpe?g|png|webp)$/.test(fname);
+    const aiBtn=isTouki
+      ?(isPdfDoc
+        ?`<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#f0b429;border-color:#f0b429;" onclick="window.openTokiAiModal && window.openTokiAiModal('${d.id}')" title="登記簿AI転記(PDF)">📄 AI転記</button>`
+        :(isImgDoc
+          ?`<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#f0b429;border-color:#f0b429;" onclick="openJpegAiTranscribe('${d.id}','${currentCaseId||''}')" title="登記簿AI転記(JPEG直送・新タブで開きます)">📷 AI転記</button>`
+          :''))
+      :'';
     const btnsHtml=isDeleted
       ?`<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#22c55e;" onclick="restoreDocument('${d.id}')">↺ 復元</button>
         <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#ef4444;border-color:#ef4444;" onclick="permanentDeleteDocument('${d.id}','${(d.file_name||'').replace(/'/g,"\\'")}')">⚠ 完全削除</button>`
       :`<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="previewDocument('${d.id}')">🔍 プレビュー</button>
         <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="downloadDocument('${d.id}')">⬇ DL</button>
-        ${isTouki?`<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#f0b429;border-color:#f0b429;" onclick="window.openTokiAiModal && window.openTokiAiModal('${d.id}')" title="登記簿AI転記">📄 AI転記</button>`:''}
+        ${aiBtn}
         <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#ef4444;" onclick="deleteDocument('${d.id}')">🗑 削除</button>`;
     return `<div class="doc-item" style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-radius:8px;margin-bottom:8px;flex-wrap:wrap;gap:8px;${cardStyle}">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1;min-width:200px;">
@@ -3677,6 +3688,31 @@ async function executeBulkUpload(){
 }
 
 // プレビュー：署名付きURLを生成して新タブで開く
+// v20260709a: JPEG登記簿のAI転記入口。案件マスターから独立ツールを新タブで開く
+async function openJpegAiTranscribe(docId,caseId){
+  try{
+    const{data,error}=await db.from('case_documents').select('file_path,file_name,document_type').eq('id',docId).single();
+    if(error||!data)throw error||new Error('書類が見つかりません');
+    if(data.document_type!=='touki'){showToast('登記簿のみ対応です','error');return;}
+    // 1時間有効な署名付きURL
+    const{data:urlData,error:urlErr}=await db.storage.from('registry-docs').createSignedUrl(data.file_path,3600);
+    if(urlErr)throw urlErr;
+    if(!urlData?.signedUrl)throw new Error('URL生成失敗');
+    // toki-ai-jpeg-test.html に URLパラメータで渡す
+    const params=new URLSearchParams({
+      case_id:caseId||currentCaseId||'',
+      doc_id:docId,
+      file_url:urlData.signedUrl,
+      file_name:data.file_name||''
+    });
+    const url=`toki-ai-jpeg-test.html?${params.toString()}`;
+    window.open(url,'_blank','noopener,noreferrer');
+  }catch(e){
+    console.error('JPEG AI転記エラー:',e);
+    showToast('起動失敗: '+(e.message||e),'error');
+  }
+}
+
 async function previewDocument(id){
   try{
     const{data,error}=await db.from('case_documents').select('file_path,file_name').eq('id',id).single();
