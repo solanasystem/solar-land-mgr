@@ -2,16 +2,22 @@
  * toki-ai.js
  * GRID LAND MGR フェーズ1 ※2: 登記簿AI自動転記メインロジック
  *
- * BUILD: v20260709d (JPEG/PNG/WebP 直接受入対応、中間生成物ゼロ)
+ * BUILD: v20260709f (一括AI転記が全項目自動反映対応)
  * 修正履歴:
- *   v20260709d: Blob が image/* なら pdfjsLib をスキップして直接 base64 化。
- *               media_type を dataURL ヘッダから動的抽出。
- *               ログメッセージを PDF/画像で分岐表示。
+ *   v20260709f: 一括AI転記に全項目自動反映を追加
+ *               - batchAutoUpdateLandInfoFull: 表題部(所在/地番/地目/地積) → land_info
+ *               - batchAutoUpdateLandowners:   甲区(氏名/住所) → landowner_info (INSERT/UPDATE)
+ *               - batchAutoUpdateOtsuku:       乙区の権利 → 筆頭所有者.memo (既存があればスキップ)
+ *   v20260709e: 一括AI転記機能追加 window.tokiAiBatchProcess
+ *               batchTranscribe → area_sqm自動更新 → toki_ai_batch_log 記録
+ *   v20260709d: Blob が image/* なら pdfjsLib をスキップして直接 base64 化
+ *               media_type を dataURL ヘッダから動的抽出
  *   v20260622a: 初期版 (PDF専用、pdfjsLib で画像化してから API 送信)
  *
  * 公開関数:
- *   window.openTokiAiModal(documentId)        - 単一PDF/画像のAI転記モーダルを開く
- *   window.openTokiAiHistoryModal(caseId)     - 案件のAI転記履歴を表示
+ *   window.openTokiAiModal(documentId)                - 単一PDF/画像のAI転記モーダル
+ *   window.openTokiAiHistoryModal(caseId)             - 案件のAI転記履歴を表示
+ *   window.tokiAiBatchProcess(docIds, callbacks)      - 一括AI転記(全項目自動反映)
  *
  * 依存:
  *   db (Supabase クライアント)         ← index.html で定義済み
@@ -1224,8 +1230,312 @@
   }
 
   // ============================================================================
+  // v20260709e: 一括AI転記 (batch)
+  //   - 大量の書類を連続的に AI転記
+  //   - 各書類ごと: 取得 → 画像化 or 直接 → API → パース → area_sqm自動更新 → batch_log記録
+  //   - 個別失敗は記録して続行、全体停止しない
+  //   - 進捗コールバック onProgress(idx, total, currentDocId) で呼出元に通知
+  // ============================================================================
+
+  /**
+   * chiban を数字とハイフンだけに正規化
+   * 例:「4975番12」「4975の12」「４９７５-１２」→「4975-12」
+   */
+  function batchNormalizeChiban(s) {
+    if (s === null || s === undefined) return '';
+    let t = String(s).trim();
+    t = t.replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+    t = t.replace(/[番の・／／]/g, '-');
+    t = t.replace(/[ー－―‐]/g, '-');
+    t = t.replace(/[^\d-]/g, '');
+    t = t.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+    return t;
+  }
+
+  /**
+   * AI結果の表題部から、案件の land_info を chiban で自動マッチして全項目上書き
+   * v20260709f: location/chiban/chimoku/area_sqm すべて上書き対象
+   * @returns 更新履歴 [{ land_id, chiban, changed_fields: {field: [old, new]}}]
+   */
+  async function batchAutoUpdateLandInfoFull(caseId, parsed) {
+    const updates = [];
+    if (!parsed || !parsed.hyodaibu) return updates;
+    // hyodaibu は既存 toki-ai.js のスキーマでは単一オブジェクト
+    // 一括処理用: 単一オブジェクト or 配列を両対応
+    const titleArr = Array.isArray(parsed.hyodaibu) ? parsed.hyodaibu : [parsed.hyodaibu];
+    if (!titleArr.length) return updates;
+    const { data: lands, error } = await db.from('land_info')
+      .select('id, chiban, location, chimoku, area_sqm')
+      .eq('case_id', caseId);
+    if (error || !lands) return updates;
+    const usedIds = new Set();
+    for (const t of titleArr) {
+      const rawChiban = t.chiban || t['地番'] || '';
+      const normAiChiban = batchNormalizeChiban(rawChiban);
+      let matched = null;
+      // chiban で完全マッチ
+      if (normAiChiban) {
+        matched = lands.find(l => !usedIds.has(l.id) && batchNormalizeChiban(l.chiban || l.location || '') === normAiChiban);
+      }
+      // フォールバック: land_info が1件だけなら chiban 空でもそれを対象に
+      if (!matched && lands.length === 1 && !usedIds.has(lands[0].id)) {
+        matched = lands[0];
+      }
+      if (!matched) continue;
+      usedIds.add(matched.id);
+
+      // 各項目の新旧比較 → 更新対象を組み立て
+      const aiLocation = t.shozai || t['所在'] || null;
+      const aiChiban = t.chiban || t['地番'] || null;
+      const aiChimoku = t.chimoku || t['地目'] || null;
+      const rawArea = t.chiseki_sqm !== undefined ? t.chiseki_sqm : t['地積_平米'];
+      let aiArea = null;
+      if (rawArea !== null && rawArea !== undefined && rawArea !== '') {
+        const n = Number(String(rawArea).replace(/[^\d.]/g, ''));
+        if (!isNaN(n)) aiArea = n;
+      }
+      const updatePayload = {};
+      const changed = {};
+      // 上書きは AI値が「空でない」時のみ
+      if (aiLocation && aiLocation !== matched.location) { updatePayload.location = aiLocation; changed.location = [matched.location, aiLocation]; }
+      if (aiChiban && aiChiban !== matched.chiban) { updatePayload.chiban = aiChiban; changed.chiban = [matched.chiban, aiChiban]; }
+      if (aiChimoku && aiChimoku !== matched.chimoku) { updatePayload.chimoku = aiChimoku; changed.chimoku = [matched.chimoku, aiChimoku]; }
+      const dbArea = matched.area_sqm === null ? null : Number(matched.area_sqm);
+      if (aiArea !== null && (dbArea === null || Math.abs(dbArea - aiArea) >= 0.005)) {
+        updatePayload.area_sqm = aiArea;
+        changed.area_sqm = [dbArea, aiArea];
+      }
+      if (Object.keys(updatePayload).length === 0) continue;
+      const { error: upErr } = await db.from('land_info').update(updatePayload).eq('id', matched.id);
+      if (upErr) continue;
+      updates.push({
+        land_id: matched.id,
+        chiban: matched.chiban || matched.location,
+        changed_fields: changed
+      });
+    }
+    return updates;
+  }
+
+  /**
+   * 甲区の所有者を landowner_info に INSERT/UPDATE
+   * name + address 完全一致 → UPDATE / それ以外 → INSERT
+   * @returns { updates: [{action, landowner_id, name, address}], primaryOwnerId }
+   */
+  async function batchAutoUpdateLandowners(caseId, parsed) {
+    const result = { updates: [], primaryOwnerId: null };
+    const owners = parsed?.kouku?.owners || [];
+    if (!owners.length) return result;
+    // 既存 landowner_info を取得（マッチング用）
+    const { data: existing, error } = await db.from('landowner_info')
+      .select('id, name, address, memo')
+      .eq('case_id', caseId);
+    if (error) return result;
+    const existingArr = existing || [];
+    for (let idx = 0; idx < owners.length; idx++) {
+      const o = owners[idx];
+      if (!o.name && !o.address) continue;
+      const match = matchOwner(o.name, o.address, existingArr);
+      const formattedName = formatOwnerNameWithSpaces(o.name) || null;
+      const payload = { case_id: caseId, name: formattedName, address: o.address || null };
+      // ジオコーディング（既存関数を利用、失敗時はnullのまま）
+      if (o.address) {
+        try {
+          const geo = await geocodeAddressGSI(o.address);
+          if (geo) { payload.lat = geo.lat; payload.lng = geo.lng; }
+        } catch (_) { /* ignore */ }
+      }
+      if (match.type === 'update') {
+        // 既存を UPDATE
+        const { error: upErr } = await db.from('landowner_info').update(payload).eq('id', match.existing.id);
+        if (upErr) continue;
+        result.updates.push({
+          action: 'update',
+          landowner_id: match.existing.id,
+          name: formattedName,
+          address: o.address
+        });
+        if (idx === 0) result.primaryOwnerId = match.existing.id;
+      } else {
+        // 新規 INSERT (new / new_with_warning とも INSERT)
+        const { data: inserted, error: insErr } = await db.from('landowner_info').insert(payload).select('id').single();
+        if (insErr || !inserted) continue;
+        result.updates.push({
+          action: 'insert',
+          landowner_id: inserted.id,
+          name: formattedName,
+          address: o.address,
+          matchWarning: match.type === 'new_with_warning' ? '同名の地権者がDBに存在（住所違い）' : null
+        });
+        if (idx === 0) result.primaryOwnerId = inserted.id;
+      }
+    }
+    return result;
+  }
+
+  /**
+   * 乙区を筆頭所有者の memo に転記
+   * 栗本さん指定: 既存memoが空の場合のみ書き込む、既存があればスキップ
+   * @returns { action: 'set'|'skip_existing'|'skip_empty_otsuku'|'skip_no_owner', ... }
+   */
+  async function batchAutoUpdateOtsuku(parsed, primaryOwnerId) {
+    const otsuku = parsed?.otsuku || {};
+    if (otsuku.empty || !Array.isArray(otsuku.rights) || otsuku.rights.length === 0) {
+      return { action: 'skip_empty_otsuku' };
+    }
+    if (!primaryOwnerId) return { action: 'skip_no_owner' };
+    // 筆頭所有者の現在の memo を取得
+    const { data: owner, error } = await db.from('landowner_info')
+      .select('memo').eq('id', primaryOwnerId).single();
+    if (error || !owner) return { action: 'skip_no_owner' };
+    if (owner.memo && String(owner.memo).trim() !== '') {
+      return { action: 'skip_existing', existing_memo: owner.memo };
+    }
+    const aiMemoText = otsuku.rights.map(r => `【${r.type || '権利'}】${r.details || ''}`).join('\n');
+    const { error: upErr } = await db.from('landowner_info').update({ memo: aiMemoText }).eq('id', primaryOwnerId);
+    if (upErr) return { action: 'error', error: upErr.message };
+    return { action: 'set', landowner_id: primaryOwnerId, new_memo: aiMemoText };
+  }
+
+  // 旧関数 batchAutoUpdateLandInfo を維持（内部で新関数へ委譲）
+  async function batchAutoUpdateLandInfo(caseId, parsed) {
+    return batchAutoUpdateLandInfoFull(caseId, parsed);
+  }
+
+  /**
+   * バッチ処理コア: documentIds を順次AI転記
+   * @param {string[]} documentIds - case_documents.id の配列
+   * @param {Object} callbacks - { onProgress, onLog, onComplete }
+   * @returns Promise<{ batchId, results: [{docId, status, ...}], summary: {...} }>
+   */
+  async function batchTranscribe(documentIds, callbacks) {
+    callbacks = callbacks || {};
+    const onProgress = callbacks.onProgress || (() => {});
+    const onLog = callbacks.onLog || (() => {});
+    const onComplete = callbacks.onComplete || (() => {});
+
+    const apiKey = getApiKey();
+    if (!apiKey) throw new Error('APIキー未設定。案件マスターで一度AI転記を実行し、APIキーを保存してください');
+
+    // batch_id 生成 (簡易UUID: crypto.randomUUID があれば使う)
+    const batchId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : 'batch-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10);
+
+    const results = [];
+    let successCount = 0, errorCount = 0, totalCostUsd = 0, totalAreaUpdates = 0;
+
+    onLog(`🚀 バッチAI転記開始 (batch_id=${batchId}, 対象=${documentIds.length}件)`, 'info');
+
+    for (let i = 0; i < documentIds.length; i++) {
+      const docId = documentIds[i];
+      onProgress(i, documentIds.length, docId);
+      const startedAt = Date.now();
+      let logRecord = {
+        batch_id: batchId,
+        case_id: null,
+        document_id: docId,
+        file_name: null,
+        status: 'error',
+        error_message: null,
+        input_tokens: null,
+        output_tokens: null,
+        cost_usd: null,
+        raw_response: null,
+        parsed_json: null,
+        area_updates: null
+      };
+
+      try {
+        // 1. case_documents から情報取得
+        const { data: doc, error: docErr } = await db.from('case_documents')
+          .select('id, case_id, file_path, file_name, document_type')
+          .eq('id', docId)
+          .single();
+        if (docErr || !doc) throw new Error('書類レコード取得失敗: ' + (docErr?.message || 'not found'));
+        if (doc.document_type !== 'touki') throw new Error('登記簿以外は対象外');
+        logRecord.case_id = doc.case_id;
+        logRecord.file_name = doc.file_name;
+
+        onLog(`[${i + 1}/${documentIds.length}] ${doc.file_name}`, 'info');
+
+        // 2. Storage から取得
+        const blob = await fetchPdfFromStorage(doc.file_path);
+
+        // 3. 画像化 (PDF) or 直接 (画像)
+        const images = await pdfBlobToImages(blob);
+
+        // 4. Claude API 呼出
+        const apiResp = await callClaudeApi(images, apiKey);
+
+        // 5. コスト計算
+        const inTok = apiResp.usage?.input_tokens || 0;
+        const outTok = apiResp.usage?.output_tokens || 0;
+        const cost = inTok * PRICE.input / 1000000 + outTok * PRICE.output / 1000000;
+        logRecord.input_tokens = inTok;
+        logRecord.output_tokens = outTok;
+        logRecord.cost_usd = Number(cost.toFixed(6));
+        totalCostUsd += cost;
+
+        // 生レスポンス
+        const tc = apiResp.content.find(c => c.type === 'text');
+        logRecord.raw_response = tc ? tc.text : '';
+
+        // 6. パース
+        const parsed = parseApiResponse(apiResp);
+        logRecord.parsed_json = parsed;
+
+        // 7. v20260709f: 全項目自動反映（表題部→land_info、甲区→landowner_info、乙区→memo）
+        const landUpdates = await batchAutoUpdateLandInfoFull(doc.case_id, parsed);
+        const ownerResult = await batchAutoUpdateLandowners(doc.case_id, parsed);
+        const otsukuResult = await batchAutoUpdateOtsuku(parsed, ownerResult.primaryOwnerId);
+        // area_updates カラムに統合履歴を格納 (JSONB)
+        logRecord.area_updates = {
+          land_info: landUpdates,
+          landowners: ownerResult.updates,
+          otsuku: otsukuResult
+        };
+        const changeCount = landUpdates.length + ownerResult.updates.length + (otsukuResult.action === 'set' ? 1 : 0);
+        totalAreaUpdates += changeCount;
+
+        logRecord.status = 'success';
+        successCount++;
+        const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
+        onLog(`  ✅ 成功 (${elapsed}秒, $${cost.toFixed(4)}, 土地${landUpdates.length}/地権者${ownerResult.updates.length}/乙区${otsukuResult.action === 'set' ? '記入' : otsukuResult.action === 'skip_existing' ? '既存維持' : '対象外'})`, 'ok');
+      } catch (e) {
+        logRecord.status = 'error';
+        logRecord.error_message = e.message || String(e);
+        errorCount++;
+        onLog(`  ❌ 失敗: ${logRecord.error_message}`, 'err');
+      }
+
+      // 8. batch_log に記録
+      try {
+        await db.from('toki_ai_batch_log').insert(logRecord);
+      } catch (logErr) {
+        console.error('[batch_log insert]', logErr);
+      }
+
+      results.push(logRecord);
+    }
+
+    const summary = {
+      batchId,
+      total: documentIds.length,
+      success: successCount,
+      error: errorCount,
+      totalCostUsd: Number(totalCostUsd.toFixed(4)),
+      totalAreaUpdates
+    };
+    onLog(`🎉 バッチ完了: 成功${successCount} / 失敗${errorCount} / 合計更新${totalAreaUpdates}件 / 合計$${summary.totalCostUsd}`, 'ok');
+    onComplete(results, summary);
+    return { batchId, results, summary };
+  }
+
+  // ============================================================================
   // グローバル公開
   // ============================================================================
   window.openTokiAiModal = openTokiAiModal;
   window.openTokiAiHistoryModal = openTokiAiHistoryModal;
+  window.tokiAiBatchProcess = batchTranscribe;
 })();

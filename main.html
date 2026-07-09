@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- BUILD: main v20260622g / ステータスバッジ(LETTER/LTR済)の最終発信日表示を改善：紫の補色=黄緑(#bef264)で太字大きめ・position:absoluteでバッジ右端内側に重ねるためバッジ幅は不変(min-width:92px維持)。 -->
 <!-- BUILD: main v20260707b / 3マスターの操作メニューに「🎨 CADで開く」追加(cad-editor.html?case_id=を別タブ)。前:v20260707a -->
-<!-- BUILD: main v20260709c / toki-ai.js v20260709d の JPEG対応と統合。既存📄AI転記ボタンでPDF/JPEG両対応。前:v20260709b -->
+<!-- BUILD: main v20260709f / 一括AI転記が全項目自動反映対応(表題部/甲区/乙区とも自動)。前:v20260709e -->
 <!-- v20260528a: ステータスバッジ(.status-badge)の帯を統一。min-width:92px + justify-content:center で全ステータス(NOT VISITED/LTR済/OK等)の帯長を揃える。文字数依存の不揃いを解消。全マスター(案件/地権者/土地情報/不動産会社)共通で適用 -->
 <html lang="ja">
 <head>
@@ -46,12 +46,12 @@
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="mobile-responsive.css?v=20260516zg">
-<link rel="stylesheet" href="toki-ai.css?v=20260709d">
+<link rel="stylesheet" href="toki-ai.css?v=20260709f">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="power-company-utils.js?v=20260516zg"></script>
-<script src="toki-ai.js?v=20260709d"defer></script>
+<script src="toki-ai.js?v=20260709f"defer></script>
 <style>
   :root {
     --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
@@ -1191,6 +1191,12 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('bulkImportModal')" id="bulkCancelBtn">キャンセル</button>
+      <!-- v20260709e: 一括AI転記オプション -->
+      <label id="bulkAiOptLabel" style="display:none;align-items:center;gap:6px;font-size:12px;color:var(--text);margin-right:auto;cursor:pointer;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;">
+        <input type="checkbox" id="bulkAiExecCheck" checked>
+        <span>🤖 アップロード完了後、AI転記も連続実行</span>
+        <span style="font-size:10px;color:var(--text-muted);">(登記簿のみ)</span>
+      </label>
       <button class="btn btn-primary" onclick="executeBulkUpload()" id="bulkExecBtn" disabled style="display:none;">選択した0件をアップロード</button>
     </div>
   </div>
@@ -3240,6 +3246,9 @@ async function handleBulkFolderSelect(event){
       document.getElementById('bulkPhase2').style.display='none';
       document.getElementById('bulkPhase3').style.display='block';
       document.getElementById('bulkExecBtn').style.display='inline-block';
+      // v20260709e: 登記簿(touki)が1件以上あればAI転記オプション表示
+      const hasTouki = _bulkAnalysisResults.some(r => r.fileNameParsed?.docType === 'touki');
+      document.getElementById('bulkAiOptLabel').style.display = hasTouki ? 'flex' : 'none';
       renderBulkPreview();
     },300);
   }catch(err){
@@ -3737,7 +3746,13 @@ async function uploadOneBulkItem(idx){
 async function executeBulkUpload(){
   const targets=_bulkAnalysisResults.map((r,i)=>({r,i})).filter(o=>o.r.selected&&o.r.selectedCaseId&&!o.r.uploaded);
   if(!targets.length){showToast('アップロード対象がありません','error');return;}
-  if(!confirm(`${targets.length}件をアップロードしますか？`))return;
+  // v20260709e: AI転記オプションの状態確認
+  const aiOptEl=document.getElementById('bulkAiExecCheck');
+  const doAi=aiOptEl && aiOptEl.checked;
+  const confirmMsg=doAi
+    ? `${targets.length}件をアップロード後、登記簿はAI転記も連続実行します。よろしいですか?\n(所要時間目安: 約${Math.ceil(targets.length*12/60)}分)`
+    : `${targets.length}件をアップロードしますか？`;
+  if(!confirm(confirmMsg))return;
   const execBtn=document.getElementById('bulkExecBtn');
   const cancelBtn=document.getElementById('bulkCancelBtn');
   execBtn.disabled=true;cancelBtn.disabled=true;
@@ -3752,8 +3767,137 @@ async function executeBulkUpload(){
     }catch(e){failed++;}
   }
   execBtn.disabled=false;cancelBtn.disabled=false;
-  showToast(`完了: 成功${success}件 / 失敗${failed}件`,failed===0?'success':'error');
+  showToast(`アップロード完了: 成功${success}件 / 失敗${failed}件`,failed===0?'success':'error');
   updateBulkExecButton();
+  // v20260709e: AI転記連続実行
+  if(doAi){
+    await _runBatchAiAfterUpload(targets);
+  }
+}
+
+// v20260709e: アップロード成功した登記簿(touki)を対象にAI転記一括実行
+async function _runBatchAiAfterUpload(targets){
+  if(typeof window.tokiAiBatchProcess!=='function'){
+    showToast('AI転記モジュールが読み込まれていません','error');return;
+  }
+  // 対象: 今回のバッチでアップロード成功した case_documents.id を集める
+  // uploadOneBulkItem で成功時に item.uploaded_doc_id をセットしていないため、
+  // case_id+file_name で最新レコードを引く
+  const successItems=[];
+  for(const t of targets){
+    const item=_bulkAnalysisResults[t.i];
+    if(!item.uploaded)continue;
+    if(item.fileNameParsed?.docType!=='touki')continue;
+    successItems.push(item);
+  }
+  if(!successItems.length){
+    showToast('AI転記対象の登記簿がありません(公図のみアップロード)','info');
+    return;
+  }
+  // 各 item に対応する case_documents.id を取得（file_name + case_id で最新1件）
+  const docIds=[];
+  for(const item of successItems){
+    try{
+      const{data,error}=await db.from('case_documents')
+        .select('id,uploaded_at')
+        .eq('case_id',item.selectedCaseId)
+        .eq('file_name',item.file.name)
+        .eq('document_type','touki')
+        .eq('is_active',true)
+        .eq('is_deleted',false)
+        .order('uploaded_at',{ascending:false})
+        .limit(1);
+      if(!error && data && data.length){
+        docIds.push(data[0].id);
+      }
+    }catch(e){console.error('docId取得エラー:',e);}
+  }
+  if(!docIds.length){
+    showToast('AI転記用の書類IDが取得できませんでした','error');
+    return;
+  }
+  // 進捗UIを開く
+  _openBatchAiProgressModal(docIds.length);
+  try{
+    const result=await window.tokiAiBatchProcess(docIds,{
+      onProgress:(idx,total,docId)=>{
+        _updateBatchAiProgress(idx,total,'AI転記実行中...');
+      },
+      onLog:(msg,kind)=>{
+        _appendBatchAiLog(msg,kind);
+      },
+      onComplete:(results,summary)=>{
+        _updateBatchAiProgress(summary.total,summary.total,'完了');
+        _appendBatchAiSummary(summary);
+      }
+    });
+    showToast(`AI転記完了: 成功${result.summary.success}件 / 失敗${result.summary.error}件 / 面積更新${result.summary.totalAreaUpdates}件`,result.summary.error===0?'success':'info');
+  }catch(e){
+    console.error('バッチAI転記エラー:',e);
+    _appendBatchAiLog('❌ 全体エラー: '+(e.message||e),'err');
+    showToast('AI転記でエラー: '+(e.message||e),'error');
+  }
+}
+
+// v20260709e: バッチAI転記の進捗表示モーダル
+function _openBatchAiProgressModal(total){
+  let m=document.getElementById('batchAiProgressModal');
+  if(!m){
+    m=document.createElement('div');
+    m.id='batchAiProgressModal';
+    m.className='modal-overlay';
+    m.innerHTML=`<div class="modal" style="max-width:700px;">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">🤖 一括AI転記 実行中</div>
+          <div class="modal-subtitle" id="batchAiProgressText">-</div>
+        </div>
+        <button class="modal-close" onclick="_closeBatchAiProgressModal()" id="batchAiCloseBtn" style="display:none;">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="width:100%;height:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:12px;">
+          <div id="batchAiProgressBar" style="height:100%;background:var(--accent);width:0%;transition:width 0.3s;"></div>
+        </div>
+        <div id="batchAiLog" style="background:#000;color:#0f0;font-family:monospace;font-size:11px;padding:10px;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;"></div>
+      </div>
+    </div>`;
+    document.body.appendChild(m);
+  }
+  m.classList.add('active');
+  document.getElementById('batchAiLog').innerHTML='';
+  document.getElementById('batchAiProgressBar').style.width='0%';
+  document.getElementById('batchAiProgressText').textContent=`0 / ${total}`;
+  document.getElementById('batchAiCloseBtn').style.display='none';
+}
+
+function _closeBatchAiProgressModal(){
+  const m=document.getElementById('batchAiProgressModal');
+  if(m)m.classList.remove('active');
+}
+
+function _updateBatchAiProgress(idx,total,label){
+  const bar=document.getElementById('batchAiProgressBar');
+  const txt=document.getElementById('batchAiProgressText');
+  if(bar)bar.style.width=Math.round(idx/total*100)+'%';
+  if(txt)txt.textContent=`${idx} / ${total} (${label||''})`;
+}
+
+function _appendBatchAiLog(msg,kind){
+  const el=document.getElementById('batchAiLog');
+  if(!el)return;
+  const ts=new Date().toLocaleTimeString();
+  const color=kind==='err'?'#f66':kind==='ok'?'#0f0':'#8be9fd';
+  el.innerHTML+=`<span style="color:${color}">[${ts}] ${(msg+'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span>\n`;
+  el.scrollTop=el.scrollHeight;
+}
+
+function _appendBatchAiSummary(summary){
+  const el=document.getElementById('batchAiLog');
+  if(!el)return;
+  el.innerHTML+=`\n<span style="color:#0ff;font-weight:bold;">===== 完了サマリー =====\nバッチID: ${summary.batchId}\n総件数: ${summary.total}\n成功: ${summary.success}\n失敗: ${summary.error}\n面積更新: ${summary.totalAreaUpdates} 件\n合計コスト: $${summary.totalCostUsd}\n=======================</span>\n`;
+  el.scrollTop=el.scrollHeight;
+  const closeBtn=document.getElementById('batchAiCloseBtn');
+  if(closeBtn)closeBtn.style.display='';
 }
 
 // プレビュー：署名付きURLを生成して新タブで開く
