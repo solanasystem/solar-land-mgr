@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<!-- BUILD: toki-ai-jpeg-test v20260709A / JPEG直送方式の登記簿AI転記(中間生成物ゼロ、Claude Sonnet 4.6 Vision API 直接呼び出し) -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登記簿AI転記 - JPEG直送テスト</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --surface: #1a1f2b;
+    --surface2: #131822;
+    --border: #2a3040;
+    --text: #d1d5db;
+    --text-muted: #7a8595;
+    --accent: #58a6ff;
+    --green: #22c55e;
+    --red: #ef4444;
+    --amber: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Meiryo", sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 20px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  h1 {
+    font-size: 20px;
+    margin: 0 0 20px 0;
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+  }
+  .subtitle {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    margin: 0 0 12px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-family: monospace;
+    border: 1px solid;
+    border-radius: 2px;
+  }
+  .badge.ok { color: var(--green); border-color: var(--green); }
+  .badge.warn { color: var(--amber); border-color: var(--amber); }
+  .badge.err { color: var(--red); border-color: var(--red); }
+  input[type="password"], input[type="text"], textarea {
+    width: 100%;
+    padding: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+  }
+  textarea {
+    min-height: 200px;
+    font-family: monospace;
+    font-size: 11px;
+    resize: vertical;
+  }
+  button {
+    padding: 8px 16px;
+    background: var(--accent);
+    color: #000;
+    border: none;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-right: 8px;
+  }
+  button:hover { opacity: 0.85; }
+  button.secondary {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .row > input[type="password"], .row > input[type="text"] { flex: 1; }
+  .hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+  #dropzone {
+    border: 2px dashed var(--border);
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    background: var(--surface2);
+    transition: all 0.2s;
+  }
+  #dropzone.dragover {
+    border-color: var(--accent);
+    background: rgba(88, 166, 255, 0.05);
+  }
+  #dropzone .big { font-size: 18px; margin-bottom: 8px; }
+  #dropzone .small { font-size: 11px; color: var(--text-muted); }
+  #fileList {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .thumb {
+    position: relative;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 6px;
+  }
+  .thumb img { width: 100%; height: 120px; object-fit: contain; background: #000; }
+  .thumb .thumb-name {
+    font-size: 10px;
+    margin-top: 4px;
+    color: var(--text-muted);
+    word-break: break-all;
+    max-height: 30px;
+    overflow: hidden;
+  }
+  .thumb .thumb-size {
+    font-size: 9px;
+    font-family: monospace;
+    color: var(--accent);
+  }
+  .thumb .thumb-remove {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: rgba(239,68,68,0.9);
+    color: white;
+    border: none;
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+  }
+  #log {
+    background: #000;
+    color: #0f0;
+    font-family: monospace;
+    font-size: 11px;
+    padding: 10px;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  #resultTree {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 12px;
+    font-family: monospace;
+    font-size: 11px;
+    max-height: 500px;
+    overflow-y: auto;
+  }
+  .tree-section {
+    margin-bottom: 12px;
+  }
+  .tree-title {
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .tree-item {
+    background: var(--surface);
+    padding: 8px;
+    margin-bottom: 4px;
+    border-left: 2px solid var(--border);
+  }
+  .tree-kv {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 8px;
+    margin-bottom: 2px;
+  }
+  .tree-key { color: var(--text-muted); }
+  .tree-val { color: var(--text); }
+  details { margin-top: 8px; }
+  details summary { cursor: pointer; color: var(--text-muted); font-size: 11px; }
+  pre { margin: 4px 0 0 0; font-size: 10px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📜 登記簿AI転記 – JPEG直送テスト</h1>
+  <div class="subtitle">
+    BUILD: v20260709A ／ Claude Sonnet 4.6 Vision API 直接呼び出し ／ 中間生成物ゼロ設計<br>
+    第一原理: JPEG → API → 構造化JSON （PDF化・画像化を挟まない）
+  </div>
+
+  <!-- APIキー -->
+  <div class="card">
+    <div class="card-title">🔑 APIキー (Anthropic)
+      <span class="badge" id="keyBadge">未設定</span>
+    </div>
+    <div class="row">
+      <input type="password" id="apiKey" placeholder="sk-ant-api03-...">
+      <button onclick="saveKey()">保存</button>
+      <button class="secondary" onclick="toggleKey()">👁 表示</button>
+      <button class="secondary" onclick="clearKey()">削除</button>
+    </div>
+    <div class="hint">※ ブラウザの localStorage にのみ保存。サーバーには送信されない</div>
+  </div>
+
+  <!-- ファイル選択 -->
+  <div class="card">
+    <div class="card-title">📷 登記簿画像</div>
+    <div id="dropzone" onclick="document.getElementById('fileInput').click()">
+      <div class="big">📎 タップして画像を選択<br>または ここへドラッグ&ドロップ</div>
+      <div class="small">
+        JPEG / PNG / WebP に対応 ／ 複数枚選択可（最大20枚）<br>
+        PDFではなく<b>iPhoneで撮影したJPEG</b>を直接アップロードするのが精度・速度ともに最適
+      </div>
+    </div>
+    <input type="file" id="fileInput" multiple accept="image/jpeg,image/png,image/webp" style="display:none;" onchange="handleFileSelect(event)">
+    <div id="fileList"></div>
+    <div class="hint" id="fileSummary" style="margin-top:8px;"></div>
+  </div>
+
+  <!-- 実行 -->
+  <div class="card">
+    <div class="card-title">🤖 AI転記実行</div>
+    <button id="runBtn" onclick="runTranscribe()">▶ 転記実行</button>
+    <button class="secondary" onclick="clearAll()">全リセット</button>
+    <div class="hint" style="margin-top:8px;">
+      1リクエストで全ページを送信。全ページを1コンテキストで処理するのでページ跨ぎの情報も理解される
+    </div>
+    <div id="log" style="display:none;margin-top:12px;"></div>
+  </div>
+
+  <!-- 結果 -->
+  <div class="card" id="resultCard" style="display:none;">
+    <div class="card-title">📋 転記結果
+      <span class="badge ok" id="resultBadge">解析完了</span>
+    </div>
+    <div id="resultTree"></div>
+    <details>
+      <summary>▼ 生JSONを表示</summary>
+      <pre id="resultJson"></pre>
+    </details>
+    <details>
+      <summary>▼ APIレスポンス生テキスト</summary>
+      <pre id="resultRaw"></pre>
+    </details>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'toki_ai_api_key';
+let selectedFiles = [];
+
+// ========== APIキー管理 ==========
+function loadKey() {
+  const k = localStorage.getItem(STORAGE_KEY);
+  if (k) {
+    document.getElementById('apiKey').value = k;
+    document.getElementById('keyBadge').textContent = '設定済';
+    document.getElementById('keyBadge').className = 'badge ok';
+  } else {
+    document.getElementById('keyBadge').textContent = '未設定';
+    document.getElementById('keyBadge').className = 'badge warn';
+  }
+}
+function saveKey() {
+  const k = document.getElementById('apiKey').value.trim();
+  if (!k) return alert('APIキーを入力してください');
+  localStorage.setItem(STORAGE_KEY, k);
+  loadKey();
+  alert('保存しました');
+}
+function clearKey() {
+  if (!confirm('APIキーを削除しますか？')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  document.getElementById('apiKey').value = '';
+  loadKey();
+}
+function toggleKey() {
+  const el = document.getElementById('apiKey');
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+// ========== ファイル選択 ==========
+function handleFileSelect(e) {
+  addFiles(Array.from(e.target.files));
+  e.target.value = '';
+}
+function addFiles(files) {
+  for (const f of files) {
+    if (!f.type.match(/^image\/(jpeg|png|webp)$/)) {
+      alert(`未対応の形式: ${f.name} (${f.type})`);
+      continue;
+    }
+    if (selectedFiles.length >= 20) {
+      alert('最大20枚までです');
+      break;
+    }
+    selectedFiles.push(f);
+  }
+  renderFileList();
+}
+function removeFile(idx) {
+  selectedFiles.splice(idx, 1);
+  renderFileList();
+}
+function renderFileList() {
+  const list = document.getElementById('fileList');
+  list.innerHTML = '';
+  let totalBytes = 0;
+  selectedFiles.forEach((f, idx) => {
+    totalBytes += f.size;
+    const div = document.createElement('div');
+    div.className = 'thumb';
+    const kb = (f.size / 1024).toFixed(0);
+    const mb = (f.size / 1024 / 1024).toFixed(2);
+    const sizeText = f.size > 500 * 1024 ? `${mb} MB` : `${kb} KB`;
+    const url = URL.createObjectURL(f);
+    div.innerHTML = `
+      <button class="thumb-remove" onclick="removeFile(${idx})" title="削除">✕</button>
+      <img src="${url}" onload="URL.revokeObjectURL(this.src)">
+      <div class="thumb-name">${escapeHtml(f.name)}</div>
+      <div class="thumb-size">${sizeText}</div>
+    `;
+    list.appendChild(div);
+  });
+  const summary = document.getElementById('fileSummary');
+  if (selectedFiles.length > 0) {
+    const totalMB = (totalBytes / 1024 / 1024).toFixed(2);
+    summary.innerHTML = `📊 ${selectedFiles.length}枚 / 合計 ${totalMB} MB` +
+      (totalBytes > 30 * 1024 * 1024 ? ` <span class="badge err">合計30MB超</span>` : '');
+  } else {
+    summary.textContent = '';
+  }
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ========== ドラッグ&ドロップ ==========
+const dz = document.getElementById('dropzone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('dragover');
+  addFiles(Array.from(e.dataTransfer.files));
+});
+
+// ========== ログ ==========
+function log(msg, kind = 'info') {
+  const el = document.getElementById('log');
+  el.style.display = 'block';
+  const ts = new Date().toLocaleTimeString();
+  const color = kind === 'err' ? '#f66' : kind === 'ok' ? '#0f0' : '#8be9fd';
+  el.innerHTML += `<span style="color:${color}">[${ts}] ${escapeHtml(msg)}</span>\n`;
+  el.scrollTop = el.scrollHeight;
+}
+
+// ========== ファイル → base64 ==========
+async function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      resolve(dataUrl.split(',')[1]);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+// ========== API呼び出し ==========
+const PROMPT = `以下は日本の不動産登記簿謄本の画像です。全ページを1つの登記簿として統合し、以下の構造で情報を抽出してください。
+
+必ず以下のJSONフォーマットで返してください（Markdownコードブロック内）。読み取れない項目は null にしてください。
+
+{
+  "表題部": [
+    {
+      "不動産番号": "...",
+      "所在": "...",
+      "地番": "...",
+      "地目": "...",
+      "地積_平米": null,
+      "登記の日付": "YYYY-MM-DD",
+      "備考": "..."
+    }
+  ],
+  "甲区_所有権": [
+    {
+      "順位番号": "...",
+      "登記の目的": "所有権移転 等",
+      "受付年月日": "YYYY-MM-DD",
+      "受付番号": "...",
+      "原因": "売買 / 相続 等",
+      "所有者_氏名": "...",
+      "所有者_住所": "...",
+      "共有持分": "...",
+      "備考": "..."
+    }
+  ],
+  "乙区_その他権利": [
+    {
+      "順位番号": "...",
+      "登記の目的": "抵当権設定 等",
+      "受付年月日": "YYYY-MM-DD",
+      "受付番号": "...",
+      "原因": "...",
+      "債権額_円": null,
+      "利息": "...",
+      "抵当権者_名称": "...",
+      "抵当権者_住所": "...",
+      "備考": "..."
+    }
+  ],
+  "備考": "全体を通じての注記、複数筆の場合の関係など"
+}
+
+複数筆の登記簿が含まれる場合は、表題部の配列に複数エントリを入れ、甲区・乙区もそれぞれに対応するよう記述してください。
+文字が判読不能な部分は "?" を含めて記録し、備考欄で「XX部分が不鮮明」と明記してください。
+`;
+
+async function callClaudeVisionAPI(files, apiKey) {
+  // 全画像を base64 に変換
+  const content = [];
+  for (let i = 0; i < files.length; i++) {
+    log(`画像 ${i+1}/${files.length} を base64 化中: ${files[i].name}`);
+    const b64 = await fileToBase64(files[i]);
+    content.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: files[i].type,
+        data: b64
+      }
+    });
+  }
+  content.push({ type: 'text', text: PROMPT });
+
+  log(`Claude Sonnet 4.6 へ送信中... (${files.length}枚, プロンプト含む)`);
+  const t0 = performance.now();
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 8192,
+      messages: [{ role: 'user', content }]
+    })
+  });
+
+  const t1 = performance.now();
+  const elapsed = ((t1 - t0) / 1000).toFixed(1);
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`API エラー (${response.status}): ${errText}`);
+  }
+
+  const data = await response.json();
+  log(`レスポンス受信 (${elapsed}秒, input_tokens=${data.usage?.input_tokens}, output_tokens=${data.usage?.output_tokens})`, 'ok');
+
+  const textBlock = data.content.find(c => c.type === 'text');
+  if (!textBlock) throw new Error('レスポンスにテキストがありません');
+  return { raw: textBlock.text, usage: data.usage };
+}
+
+// ========== JSON抽出 ==========
+function parseJsonFromText(text) {
+  const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+  if (jsonMatch) {
+    try { return JSON.parse(jsonMatch[1]); }
+    catch (e) { log(`JSON parse失敗: ${e.message}`, 'err'); }
+  }
+  const objMatch = text.match(/(\{[\s\S]*\})/);
+  if (objMatch) {
+    try { return JSON.parse(objMatch[1]); }
+    catch (e) { log(`JSON parse失敗(2): ${e.message}`, 'err'); }
+  }
+  return null;
+}
+
+// ========== メイン ==========
+async function runTranscribe() {
+  const apiKey = localStorage.getItem(STORAGE_KEY) || document.getElementById('apiKey').value.trim();
+  if (!apiKey) return alert('先に APIキーを設定してください');
+  if (selectedFiles.length === 0) return alert('画像を選択してください');
+
+  document.getElementById('log').innerHTML = '';
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('runBtn').textContent = '⏳ 処理中...';
+  document.getElementById('resultCard').style.display = 'none';
+
+  try {
+    log(`開始: ${selectedFiles.length}枚`);
+    const result = await callClaudeVisionAPI(selectedFiles, apiKey);
+    const parsed = parseJsonFromText(result.raw);
+    document.getElementById('resultCard').style.display = 'block';
+    document.getElementById('resultRaw').textContent = result.raw;
+    document.getElementById('resultJson').textContent = parsed ? JSON.stringify(parsed, null, 2) : '(JSON抽出失敗)';
+    renderTree(parsed);
+    log('完了', 'ok');
+  } catch (e) {
+    log(e.message, 'err');
+    document.getElementById('resultCard').style.display = 'block';
+    document.getElementById('resultBadge').textContent = 'エラー';
+    document.getElementById('resultBadge').className = 'badge err';
+    document.getElementById('resultTree').innerHTML = `<div style="color:var(--red)">${escapeHtml(e.message)}</div>`;
+  } finally {
+    document.getElementById('runBtn').disabled = false;
+    document.getElementById('runBtn').textContent = '▶ 転記実行';
+  }
+}
+
+// ========== 結果ツリー描画 ==========
+function renderTree(data) {
+  const el = document.getElementById('resultTree');
+  el.innerHTML = '';
+  if (!data) {
+    el.innerHTML = '<div style="color:var(--amber)">構造化データが抽出できませんでした。生JSONを確認してください。</div>';
+    document.getElementById('resultBadge').textContent = 'JSON失敗';
+    document.getElementById('resultBadge').className = 'badge warn';
+    return;
+  }
+  document.getElementById('resultBadge').textContent = '解析完了';
+  document.getElementById('resultBadge').className = 'badge ok';
+
+  const sections = [
+    ['表題部', data['表題部']],
+    ['甲区_所有権', data['甲区_所有権']],
+    ['乙区_その他権利', data['乙区_その他権利']]
+  ];
+  for (const [title, arr] of sections) {
+    if (!arr || !Array.isArray(arr) || arr.length === 0) continue;
+    const sec = document.createElement('div');
+    sec.className = 'tree-section';
+    sec.innerHTML = `<div class="tree-title">${title} (${arr.length}件)</div>`;
+    for (const item of arr) {
+      const box = document.createElement('div');
+      box.className = 'tree-item';
+      for (const [k, v] of Object.entries(item)) {
+        const kv = document.createElement('div');
+        kv.className = 'tree-kv';
+        const display = v === null || v === undefined ? '<i style="color:var(--text-muted)">null</i>' : escapeHtml(String(v));
+        kv.innerHTML = `<div class="tree-key">${escapeHtml(k)}</div><div class="tree-val">${display}</div>`;
+        box.appendChild(kv);
+      }
+      sec.appendChild(box);
+    }
+    el.appendChild(sec);
+  }
+  if (data['備考']) {
+    const noteSec = document.createElement('div');
+    noteSec.className = 'tree-section';
+    noteSec.innerHTML = `<div class="tree-title">備考</div><div class="tree-item">${escapeHtml(data['備考'])}</div>`;
+    el.appendChild(noteSec);
+  }
+}
+
+// ========== 全リセット ==========
+function clearAll() {
+  if (!confirm('選択した画像と結果をクリアしますか？')) return;
+  selectedFiles = [];
+  renderFileList();
+  document.getElementById('resultCard').style.display = 'none';
+  document.getElementById('log').style.display = 'none';
+  document.getElementById('log').innerHTML = '';
+}
+
+// 初期化
+loadKey();
+</script>
+</body>
+</html>
