@@ -2,8 +2,15 @@
  * toki-ai.js
  * GRID LAND MGR フェーズ1 ※2: 登記簿AI自動転記メインロジック
  *
+ * BUILD: v20260709d (JPEG/PNG/WebP 直接受入対応、中間生成物ゼロ)
+ * 修正履歴:
+ *   v20260709d: Blob が image/* なら pdfjsLib をスキップして直接 base64 化。
+ *               media_type を dataURL ヘッダから動的抽出。
+ *               ログメッセージを PDF/画像で分岐表示。
+ *   v20260622a: 初期版 (PDF専用、pdfjsLib で画像化してから API 送信)
+ *
  * 公開関数:
- *   window.openTokiAiModal(documentId)        - 単一PDFのAI転記モーダルを開く
+ *   window.openTokiAiModal(documentId)        - 単一PDF/画像のAI転記モーダルを開く
  *   window.openTokiAiHistoryModal(caseId)     - 案件のAI転記履歴を表示
  *
  * 依存:
@@ -151,9 +158,23 @@
   }
 
   // ============================================================================
-  // PDF→画像変換（既存※1で実績あるロジック・toki-ai-test.htmlと同等）
+  // Blob→画像配列変換
+  // v20260709d: JPEG/PNG/WebP 対応 - 画像はそのまま base64 化して返す（中間生成物ゼロ）
+  // PDF の場合は従来通り pdfjsLib で全ページ画像化
   // ============================================================================
   async function pdfBlobToImages(blob) {
+    // v20260709d: 画像形式(JPEG/PNG/WebP)は画像化不要、そのまま dataURL 化
+    const bt = (blob.type || '').toLowerCase();
+    if (bt === 'image/jpeg' || bt === 'image/png' || bt === 'image/webp') {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error || new Error('画像読込失敗'));
+        reader.readAsDataURL(blob);
+      });
+      return [dataUrl];  // 1画像だけの配列
+    }
+    // PDF の場合は既存の pdfjsLib パイプライン
     if (!window.pdfjsLib) throw new Error('PDF.jsライブラリが読み込まれていません');
     if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -254,10 +275,13 @@
 - 純粋なJSONテキストのみを返す`;
 
     const imageContents = images.map(dataUrl => {
+      // v20260709d: dataURL のヘッダから media_type を抽出（PNG/WebP/JPEG に対応）
+      const m = /^data:(image\/[^;]+);base64,/.exec(dataUrl);
+      const mediaType = m ? m[1] : 'image/jpeg';
       const base64 = dataUrl.split(',')[1];
       return {
         type: 'image',
-        source: { type: 'base64', media_type: 'image/jpeg', data: base64 }
+        source: { type: 'base64', media_type: mediaType, data: base64 }
       };
     });
 
@@ -558,16 +582,21 @@
     };
 
     try {
-      // Step 1: PDF取得
-      const p1 = addProgress('1. Storage からPDF取得中...', 'active');
+      // Step 1: ファイル取得
+      const p1 = addProgress('1. Storage からファイル取得中...', 'active');
       const blob = await fetchPdfFromStorage(state.docRecord.file_path);
-      p1.textContent = `1. ✅ PDF取得完了（${(blob.size / 1024).toFixed(1)} KB）`;
+      // v20260709d: 種別判定
+      const isImage = (blob.type || '').toLowerCase().startsWith('image/');
+      const kindLabel = isImage ? '🖼 画像' : '📄 PDF';
+      p1.textContent = `1. ✅ ${kindLabel}取得完了（${(blob.size / 1024).toFixed(1)} KB）`;
       p1.className = 'toki-ai-progress-item done';
 
-      // Step 2: 画像化
-      const p2 = addProgress('2. PDF を画像化中...', 'active');
+      // Step 2: 画像化 (PDF) or dataURL化 (画像)
+      const p2 = addProgress(isImage ? '2. 画像を送信準備中...' : '2. PDF を画像化中...', 'active');
       state.pdfImages = await pdfBlobToImages(blob);
-      p2.textContent = `2. ✅ 画像化完了（${state.pdfImages.length} ページ）`;
+      p2.textContent = isImage
+        ? `2. ✅ 画像を直接送信（${state.pdfImages.length}枚・中間生成物なし）`
+        : `2. ✅ 画像化完了（${state.pdfImages.length} ページ）`;
       p2.className = 'toki-ai-progress-item done';
 
       // Step 3: API呼び出し

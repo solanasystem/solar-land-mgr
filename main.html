@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- BUILD: main v20260622g / ステータスバッジ(LETTER/LTR済)の最終発信日表示を改善：紫の補色=黄緑(#bef264)で太字大きめ・position:absoluteでバッジ右端内側に重ねるためバッジ幅は不変(min-width:92px維持)。 -->
 <!-- BUILD: main v20260707b / 3マスターの操作メニューに「🎨 CADで開く」追加(cad-editor.html?case_id=を別タブ)。前:v20260707a -->
-<!-- BUILD: main v20260709b / 書類一括取込もJPEG/PNG/WebP対応（ファイル名マッチング）。前:v20260709a -->
+<!-- BUILD: main v20260709c / toki-ai.js v20260709d の JPEG対応と統合。既存📄AI転記ボタンでPDF/JPEG両対応。前:v20260709b -->
 <!-- v20260528a: ステータスバッジ(.status-badge)の帯を統一。min-width:92px + justify-content:center で全ステータス(NOT VISITED/LTR済/OK等)の帯長を揃える。文字数依存の不揃いを解消。全マスター(案件/地権者/土地情報/不動産会社)共通で適用 -->
 <html lang="ja">
 <head>
@@ -46,12 +46,12 @@
 <title>GRID LAND MGR v3.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="mobile-responsive.css?v=20260516zg">
-<link rel="stylesheet" href="toki-ai.css?v=20260622a">
+<link rel="stylesheet" href="toki-ai.css?v=20260709d">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="power-company-utils.js?v=20260516zg"></script>
-<script src="toki-ai.js?v=20260622a"defer></script>
+<script src="toki-ai.js?v=20260709d"defer></script>
 <style>
   :root {
     --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
@@ -2633,16 +2633,12 @@ async function loadDocuments(caseId){
       ?'opacity:0.5;border:1px dashed #6b7280;background:rgba(107,114,128,.1);'
       :'border:1px solid var(--border);background:var(--surface2);';
     // ボタン群（削除済み/通常で異なる）
-    // v20260709a: 拡張子でPDF/画像を判定し、AI転記ボタンを分岐
+    // v20260709d: PDF/JPEG とも toki-ai.js 統一処理（JPEG直接受入対応済み）
     const fname=(d.file_name||'').toLowerCase();
     const isPdfDoc=fname.endsWith('.pdf');
     const isImgDoc=/\.(jpe?g|png|webp)$/.test(fname);
-    const aiBtn=isTouki
-      ?(isPdfDoc
-        ?`<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#f0b429;border-color:#f0b429;" onclick="window.openTokiAiModal && window.openTokiAiModal('${d.id}')" title="登記簿AI転記(PDF)">📄 AI転記</button>`
-        :(isImgDoc
-          ?`<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#f0b429;border-color:#f0b429;" onclick="openJpegAiTranscribe('${d.id}','${currentCaseId||''}')" title="登記簿AI転記(JPEG直送・新タブで開きます)">📷 AI転記</button>`
-          :''))
+    const aiBtn=isTouki&&(isPdfDoc||isImgDoc)
+      ?`<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#f0b429;border-color:#f0b429;" onclick="window.openTokiAiModal && window.openTokiAiModal('${d.id}')" title="登記簿AI転記（${isPdfDoc?'PDF':'JPEG直送'}）">${isPdfDoc?'📄':'📷'} AI転記</button>`
       :'';
     const btnsHtml=isDeleted
       ?`<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#22c55e;" onclick="restoreDocument('${d.id}')">↺ 復元</button>
@@ -3761,31 +3757,6 @@ async function executeBulkUpload(){
 }
 
 // プレビュー：署名付きURLを生成して新タブで開く
-// v20260709a: JPEG登記簿のAI転記入口。案件マスターから独立ツールを新タブで開く
-async function openJpegAiTranscribe(docId,caseId){
-  try{
-    const{data,error}=await db.from('case_documents').select('file_path,file_name,document_type').eq('id',docId).single();
-    if(error||!data)throw error||new Error('書類が見つかりません');
-    if(data.document_type!=='touki'){showToast('登記簿のみ対応です','error');return;}
-    // 1時間有効な署名付きURL
-    const{data:urlData,error:urlErr}=await db.storage.from('registry-docs').createSignedUrl(data.file_path,3600);
-    if(urlErr)throw urlErr;
-    if(!urlData?.signedUrl)throw new Error('URL生成失敗');
-    // toki-ai-jpeg-test.html に URLパラメータで渡す
-    const params=new URLSearchParams({
-      case_id:caseId||currentCaseId||'',
-      doc_id:docId,
-      file_url:urlData.signedUrl,
-      file_name:data.file_name||''
-    });
-    const url=`toki-ai-jpeg-test.html?${params.toString()}`;
-    window.open(url,'_blank','noopener,noreferrer');
-  }catch(e){
-    console.error('JPEG AI転記エラー:',e);
-    showToast('起動失敗: '+(e.message||e),'error');
-  }
-}
-
 async function previewDocument(id){
   try{
     const{data,error}=await db.from('case_documents').select('file_path,file_name').eq('id',id).single();
