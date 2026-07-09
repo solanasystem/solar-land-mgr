@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260708H / Shift+ドラッグ範囲選択がPolyline上から起動しない問題を修正(mousedownをcapture=true+stopPropagationで確実にshapeより先に受ける)。前:v20260708G -->
+<!-- BUILD: cad-editor v20260708J / 削除モード中でもShift+ドラッグ範囲選択可能に(canRangeSelectから!removeMode除外)+削除モード中は範囲選択と同時に一括削除+矩形色を赤で視覚化。前:v20260708I -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1365,7 +1365,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260708H</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260708J</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -2358,10 +2358,11 @@ function setStatusConn(kind, text) {
 async function loadVillaOverlays() {
   if (!sb) return;
   try {
+    // v20260708I: villa_overlays に visible カラムは存在しない(42703回避)。
+    // 正解座標のバックアップは locked=true で保存される仕様のため、全件取得して表示する
     const { data, error } = await sb
       .from('villa_overlays')
-      .select('*')
-      .eq('visible', true);
+      .select('*');
     if (error) throw error;
 
     document.getElementById('villaOverlaysCount').textContent = (data?.length ?? 0);
@@ -4064,7 +4065,8 @@ function _initRangeSelect() {
   let dragging = false;
 
   const canRangeSelect = () => {
-    return !currentDrawMode && !arcMode && !removeMode && !editMode && !controlPointMode && !measureMode;
+    // v20260708J: removeMode中でも範囲選択できるようにする(範囲一括削除のため)
+    return !currentDrawMode && !arcMode && !editMode && !controlPointMode && !measureMode;
   };
 
   const onMouseDown = (e) => {
@@ -4083,10 +4085,13 @@ function _initRangeSelect() {
     startPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     startLL = map.containerPointToLatLng([startPt.x, startPt.y]);
     boxDiv = document.createElement('div');
+    // v20260708J: 削除モード時は赤矩形で「消える範囲」を視覚化
+    const boxColor = removeMode ? '#f66' : '#58a6ff';
+    const boxBg = removeMode ? 'rgba(255, 100, 100, 0.15)' : 'rgba(88, 166, 255, 0.12)';
     boxDiv.style.cssText = `
       position: absolute;
-      border: 1.5px dashed #58a6ff;
-      background: rgba(88, 166, 255, 0.12);
+      border: 1.5px dashed ${boxColor};
+      background: ${boxBg};
       pointer-events: none;
       z-index: 950;
       left: ${startPt.x}px;
@@ -4152,6 +4157,13 @@ function _initRangeSelect() {
     });
     if (count === 0) {
       showToast('範囲内に図形なし', 'info', 1500);
+      return;
+    }
+    // v20260708J: 削除モード中なら選択と同時に一括削除
+    if (removeMode) {
+      const cnt = selectedShapes.length;
+      deleteSelectedShapes();
+      showToast(`範囲内 ${cnt}件を一括削除しました`, 'success', 2500);
     }
   };
 
