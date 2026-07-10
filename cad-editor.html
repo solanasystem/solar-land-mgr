@@ -1539,8 +1539,8 @@
   <!-- v20260711A: 自動ベクター化グループ (Potrace統合 - 下絵ロード後のみ表示) -->
   <div class="ribbon-group" id="potraceSection" style="display:none;">
     <div class="ribbon-group-content">
-      <button class="ribbon-btn" id="btnPotrace" onclick="openPotraceDialog()" title="Potrace: 輪郭ベースの自動ベクター化。SVG/DXF/GeoJSON 出力対応">
-        <div class="ribbon-btn-icon">🎯</div><div class="ribbon-btn-label">Potrace</div>
+      <button class="ribbon-btn" id="btnPotrace" onclick="openPotraceDialog()" title="Potrace: 輪郭ベースの自動ベクター化。SVG/DXF/GeoJSON 出力対応" style="border:1px solid var(--accent);">
+        <div class="ribbon-btn-icon">🪄</div><div class="ribbon-btn-label">Potrace</div>
       </button>
     </div>
     <div class="ribbon-group-label">自動ベクター化</div>
@@ -1863,7 +1863,7 @@
   <div class="line-extract-panel" style="max-width:720px;">
     <div class="line-extract-header">
       <div>
-        <div class="line-extract-title">🎯 Potrace 自動ベクター化</div>
+        <div class="line-extract-title">🪄 Potrace 自動ベクター化</div>
         <div class="line-extract-info" id="potraceSourceInfo">元解像度: -</div>
       </div>
       <button class="line-extract-btn" onclick="closePotraceDialog()">✕</button>
@@ -6493,7 +6493,8 @@ function onPotraceParamChange() {
 
 /**
  * Potrace 実行のコア関数
- * imgSource: HTMLImageElement
+ * imgSource: { drawable: ImageBitmap|HTMLImageElement, width, height }
+ *   ↑ loadCanvasSafeImage の戻り値と互換の形式
  * 事前に threshold で二値化した画像を Potrace に渡す
  */
 function _runPotraceCore(imgSource, params) {
@@ -6508,12 +6509,12 @@ function _runPotraceCore(imgSource, params) {
       });
 
       const cv = document.createElement('canvas');
-      cv.width = imgSource.naturalWidth || imgSource.width;
-      cv.height = imgSource.naturalHeight || imgSource.height;
+      cv.width = imgSource.width;
+      cv.height = imgSource.height;
       const ctx = cv.getContext('2d');
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, cv.width, cv.height);
-      ctx.drawImage(imgSource, 0, 0);
+      ctx.drawImage(imgSource.drawable, 0, 0);
       // 事前二値化 (Potrace 内部でもやるが、しきい値を明示的に反映させる)
       const imageData = ctx.getImageData(0, 0, cv.width, cv.height);
       const d = imageData.data;
@@ -6563,28 +6564,24 @@ async function runPotracePreview() {
   try {
     const img = await loadCanvasSafeImage(originalOverlayUrl);
     const maxDim = 400;
-    const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
-    const smallW = Math.max(1, Math.round(img.naturalWidth * scale));
-    const smallH = Math.max(1, Math.round(img.naturalHeight * scale));
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const smallW = Math.max(1, Math.round(img.width * scale));
+    const smallH = Math.max(1, Math.round(img.height * scale));
 
-    // 縮小 Canvas → Image
+    // 縮小 Canvas → Image (loadCanvasSafeImage 互換形式)
     const smallCanvas = document.createElement('canvas');
     smallCanvas.width = smallW;
     smallCanvas.height = smallH;
     const sctx = smallCanvas.getContext('2d');
     sctx.fillStyle = '#ffffff';
     sctx.fillRect(0, 0, smallW, smallH);
-    sctx.drawImage(img, 0, 0, smallW, smallH);
+    sctx.drawImage(img.drawable, 0, 0, smallW, smallH);
 
-    const smallImg = new Image();
-    smallImg.src = smallCanvas.toDataURL('image/png');
-    await new Promise((res, rej) => {
-      smallImg.onload = res;
-      smallImg.onerror = () => rej(new Error('small image load failed'));
-    });
+    // 縮小 Canvas を Potrace 用の imgSource 形式でラップ
+    const smallImgSource = { drawable: smallCanvas, width: smallW, height: smallH };
 
     const params = _getPotraceParams();
-    const { svg, imgW, imgH } = await _runPotraceCore(smallImg, params);
+    const { svg, imgW, imgH } = await _runPotraceCore(smallImgSource, params);
 
     // プレビューキャンバスに描画
     const ctx = cv.getContext('2d');
@@ -6745,7 +6742,7 @@ async function _runPotraceFullResolution() {
   _updatePotraceProgress('元画像を読み込み中...', 10);
   const img = await loadCanvasSafeImage(originalOverlayUrl);
 
-  _updatePotraceProgress(`Potrace 実行中 (${img.naturalWidth}×${img.naturalHeight})...`, 40);
+  _updatePotraceProgress(`Potrace 実行中 (${img.width}×${img.height})...`, 40);
   const { svg, imgW, imgH } = await _runPotraceCore(img, params);
 
   _updatePotraceProgress('path 解析中...', 80);
