@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260708L / リボンに「範囲削除」専用ボタン追加(Shift不要でドラッグ→一括削除、rangeDeleteMode独立モード)。前:v20260708K -->
+<!-- BUILD: cad-editor v20260711A / CAD Sprint 1: Potrace統合による自動ベクター化。新規リボングループ「自動ベクター化」・potraceModal・SVG/DXF/GeoJSON 3点出力(DXF は地図座標メートル)。既存 Zhang-Suen パイプラインとは完全独立で並存。前:v20260708L -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -36,6 +36,8 @@
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
 </script>
+<!-- v20260711A: Potrace 統合 (kilobtye/potrace - Bezier曲線ベースの輪郭ベクター化) -->
+<script src="https://cdn.jsdelivr.net/gh/kilobtye/potrace@master/potrace.js"></script>
 
 <style>
   :root {
@@ -1534,6 +1536,16 @@
     <div class="ribbon-group-label">線抽出</div>
   </div>
 
+  <!-- v20260711A: 自動ベクター化グループ (Potrace統合 - 下絵ロード後のみ表示) -->
+  <div class="ribbon-group" id="potraceSection" style="display:none;">
+    <div class="ribbon-group-content">
+      <button class="ribbon-btn" id="btnPotrace" onclick="openPotraceDialog()" title="Potrace: 輪郭ベースの自動ベクター化。SVG/DXF/GeoJSON 出力対応">
+        <div class="ribbon-btn-icon">🎯</div><div class="ribbon-btn-label">Potrace</div>
+      </button>
+    </div>
+    <div class="ribbon-group-label">自動ベクター化</div>
+  </div>
+
   <div class="ribbon-group">
     <div class="ribbon-group-content">
       <button class="ribbon-btn" id="btnMeasure" onclick="toggleMeasureMode()" title="距離/面積測定">
@@ -1841,6 +1853,109 @@
         <button class="line-extract-btn" onclick="closeLineExtractDialog()">キャンセル</button>
         <button class="line-extract-btn" onclick="applyLineExtract()" title="ラスター画像として線抽出を適用">元解像度で適用（ラスター）</button>
         <button class="line-extract-btn primary" onclick="vectorizeOverlay()" title="Zhang-Suen細線化＋グラフトレースで全自動ベクター化。ポリゴン画層にPolyline群として追加">🔀 ベクター化してポリゴン画層へ</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== v20260711A: Potrace モーダル ===== -->
+<div id="potraceModal" class="line-extract-modal">
+  <div class="line-extract-panel" style="max-width:720px;">
+    <div class="line-extract-header">
+      <div>
+        <div class="line-extract-title">🎯 Potrace 自動ベクター化</div>
+        <div class="line-extract-info" id="potraceSourceInfo">元解像度: -</div>
+      </div>
+      <button class="line-extract-btn" onclick="closePotraceDialog()">✕</button>
+    </div>
+    <div class="line-extract-body">
+      <!-- しきい値 -->
+      <div class="line-extract-row">
+        <span class="line-extract-label">二値化しきい値</span>
+        <input type="range" min="0" max="255" value="128" id="potraceThreshold" class="line-extract-threshold-input" oninput="onPotraceParamChange()">
+        <span class="line-extract-threshold-value" id="potraceThresholdValue">128</span>
+        <span class="line-extract-info">明るさがこの値以下を輪郭対象</span>
+      </div>
+      <!-- turdsize -->
+      <div class="line-extract-row">
+        <span class="line-extract-label">小塊除去 (turdsize)</span>
+        <input type="range" min="0" max="100" value="2" id="potraceTurdsize" class="line-extract-threshold-input" oninput="onPotraceParamChange()">
+        <span class="line-extract-threshold-value" id="potraceTurdsizeValue">2</span>
+        <span class="line-extract-info">この画素数以下の輪郭を除去 (小さいノイズ)</span>
+      </div>
+      <!-- alphamax -->
+      <div class="line-extract-row">
+        <span class="line-extract-label">コーナー感度 (alphamax)</span>
+        <input type="range" min="0" max="1334" value="1000" id="potraceAlphamax" class="line-extract-threshold-input" oninput="onPotraceParamChange()">
+        <span class="line-extract-threshold-value" id="potraceAlphamaxValue">1.000</span>
+        <span class="line-extract-info">大=尖った角保持 / 小=丸め</span>
+      </div>
+      <!-- opttolerance -->
+      <div class="line-extract-row">
+        <span class="line-extract-label">曲線最適化許容</span>
+        <input type="range" min="0" max="1000" value="200" id="potraceOpttolerance" class="line-extract-threshold-input" oninput="onPotraceParamChange()">
+        <span class="line-extract-threshold-value" id="potraceOpttoleranceValue">0.200</span>
+        <span class="line-extract-info">大=単純化 / 小=忠実</span>
+      </div>
+      <!-- optcurve -->
+      <div class="line-extract-row">
+        <span class="line-extract-label">曲線化</span>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
+          <input type="checkbox" id="potraceOptcurve" checked onchange="onPotraceParamChange()"> ベジェ曲線を有効化
+        </label>
+        <span class="line-extract-info">OFFで折れ線化 (CADで扱いやすい)</span>
+      </div>
+      <!-- サンプリング密度 -->
+      <div class="line-extract-row">
+        <span class="line-extract-label">曲線サンプリング</span>
+        <input type="range" min="4" max="20" value="8" id="potraceCurveSteps" class="line-extract-threshold-input" oninput="_updatePotraceLabel('potraceCurveStepsValue', this.value + '点/curve')">
+        <span class="line-extract-threshold-value" id="potraceCurveStepsValue">8点/curve</span>
+        <span class="line-extract-info">Polyline化時のBezier分割数</span>
+      </div>
+      <!-- 出力先画層 -->
+      <div class="line-extract-row">
+        <span class="line-extract-label">出力先画層</span>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
+          <input type="radio" name="potraceTarget" value="polygon" checked> ポリゴン画層
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
+          <input type="radio" name="potraceTarget" value="current"> 現在の画層
+        </label>
+        <span class="line-extract-info">既存 Zhang-Suen と混ざらないようポリゴン推奨</span>
+      </div>
+      <!-- プレビュー -->
+      <div class="line-extract-row" style="flex-direction:column;align-items:stretch;gap:4px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span class="line-extract-label">プレビュー</span>
+          <span class="line-extract-info" id="potracePreviewInfo">パラメータ変更でリアルタイム更新</span>
+        </div>
+        <div class="line-extract-preview-wrap">
+          <div class="line-extract-preview-loader" id="potracePreviewLoader">処理中...</div>
+          <canvas id="potracePreviewCanvas" width="680" height="240"></canvas>
+        </div>
+      </div>
+      <!-- 進捗 -->
+      <div class="line-extract-row" id="potraceProgressRow" style="flex-direction:column;align-items:stretch;gap:4px;display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span class="line-extract-label" style="color:var(--accent);">Potrace処理</span>
+          <span class="line-extract-info" id="potraceProgressText">-</span>
+        </div>
+        <div style="width:100%;height:6px;background:#0a0e14;border:1px solid var(--border);">
+          <div id="potraceProgressBar" style="height:100%;background:var(--accent);width:0%;transition:width 0.2s;"></div>
+        </div>
+      </div>
+      <!-- 統計 -->
+      <div class="line-extract-row" style="flex-direction:column;align-items:stretch;gap:4px;">
+        <span class="line-extract-info" id="potraceStats" style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);">結果: - path / - vertex</span>
+      </div>
+    </div>
+    <div class="line-extract-footer">
+      <button class="line-extract-btn" onclick="closePotraceDialog()">閉じる</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="line-extract-btn" onclick="exportPotraceSVG()" title="SVG形式でダウンロード">📥 SVG</button>
+        <button class="line-extract-btn" onclick="exportPotraceDXF()" title="DXF形式でダウンロード (地図座標メートル)">📥 DXF</button>
+        <button class="line-extract-btn" onclick="exportPotraceGeoJSON()" title="GeoJSON形式でダウンロード (WGS84)">📥 GeoJSON</button>
+        <button class="line-extract-btn primary" onclick="applyPotraceToLayer()" title="結果をLeaflet Polyline/Polygonとして画層に追加">🔀 画層へ追加</button>
       </div>
     </div>
   </div>
@@ -2729,6 +2844,9 @@ function showOverlayControlPanel(ov) {
   // v20260708B: 線抽出セクションも表示
   const lineExtractSection = document.getElementById('lineExtractSection');
   if (lineExtractSection) lineExtractSection.style.display = 'flex';
+  // v20260711A: Potraceセクションも表示
+  const potraceSection = document.getElementById('potraceSection');
+  if (potraceSection) potraceSection.style.display = 'flex';
   document.getElementById('overlayOpacitySlider').value = Math.round((ov.opacity ?? 0.7) * 100);
   document.getElementById('overlayOpacityValue').textContent = Math.round((ov.opacity ?? 0.7) * 100) + '%';
   document.getElementById('overlayLockCheckbox').checked = !!ov.locked;
@@ -2740,6 +2858,9 @@ function hideOverlayControlPanel() {
   // v20260708B: 線抽出セクションも非表示
   const lineExtractSection = document.getElementById('lineExtractSection');
   if (lineExtractSection) lineExtractSection.style.display = 'none';
+  // v20260711A: Potraceセクションも非表示
+  const potraceSection = document.getElementById('potraceSection');
+  if (potraceSection) potraceSection.style.display = 'none';
 }
 
 function onOpacityChange(val) {
@@ -6291,6 +6412,627 @@ window.addEventListener('DOMContentLoaded', () => {
   };
   tryInit();
 });
+
+/* ========================================================================
+   v20260711A: Potrace 統合 (CAD Sprint 1)
+   既存 Zhang-Suen パイプライン (vectorizeOverlay) とは完全独立で並存する
+   追加のみ・既存関数改変なし
+   ======================================================================== */
+
+let _potraceLastResult = null;   // { svg, paths, imgW, imgH, sourceUrl, params }
+let _potracePreviewTimer = null;
+
+function _updatePotraceLabel(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function _updatePotraceProgress(text, percent) {
+  const row = document.getElementById('potraceProgressRow');
+  const bar = document.getElementById('potraceProgressBar');
+  const txt = document.getElementById('potraceProgressText');
+  if (row) row.style.display = 'flex';
+  if (bar) bar.style.width = Math.max(0, Math.min(100, percent)) + '%';
+  if (txt) txt.textContent = text;
+}
+
+function _hidePotraceProgress() {
+  const row = document.getElementById('potraceProgressRow');
+  if (row) row.style.display = 'none';
+}
+
+function _getPotraceParams() {
+  const threshold = parseInt(document.getElementById('potraceThreshold').value, 10);
+  const turdsize = parseInt(document.getElementById('potraceTurdsize').value, 10);
+  const alphamax = parseInt(document.getElementById('potraceAlphamax').value, 10) / 1000;
+  const opttolerance = parseInt(document.getElementById('potraceOpttolerance').value, 10) / 1000;
+  const optcurve = document.getElementById('potraceOptcurve').checked;
+  const curveSteps = parseInt(document.getElementById('potraceCurveSteps').value, 10);
+  return { threshold, turdsize, alphamax, opttolerance, optcurve, curveSteps };
+}
+
+async function openPotraceDialog() {
+  if (!currentOverlay || !currentOverlayLayer) {
+    showToast('先に下絵をアップロードしてください', 'error');
+    return;
+  }
+  if (typeof Potrace === 'undefined') {
+    showToast('Potrace ライブラリが未ロードです。ページを再読込してください', 'error', 5000);
+    return;
+  }
+  if (!originalOverlayUrl) originalOverlayUrl = currentOverlay.source_url;
+
+  const modal = document.getElementById('potraceModal');
+  modal.style.display = 'flex';
+
+  const info = document.getElementById('potraceSourceInfo');
+  if (info) {
+    const w = currentOverlay.source_width_px || '?';
+    const h = currentOverlay.source_height_px || '?';
+    info.textContent = `元解像度: ${w}×${h} / 案件: ${currentOverlay.case_name || '-'}`;
+  }
+
+  await runPotracePreview();
+}
+
+function closePotraceDialog() {
+  const modal = document.getElementById('potraceModal');
+  if (modal) modal.style.display = 'none';
+  _hidePotraceProgress();
+}
+
+function onPotraceParamChange() {
+  const p = _getPotraceParams();
+  _updatePotraceLabel('potraceThresholdValue', String(p.threshold));
+  _updatePotraceLabel('potraceTurdsizeValue', String(p.turdsize));
+  _updatePotraceLabel('potraceAlphamaxValue', p.alphamax.toFixed(3));
+  _updatePotraceLabel('potraceOpttoleranceValue', p.opttolerance.toFixed(3));
+  if (_potracePreviewTimer) clearTimeout(_potracePreviewTimer);
+  _potracePreviewTimer = setTimeout(() => runPotracePreview(), 300);
+}
+
+/**
+ * Potrace 実行のコア関数
+ * imgSource: HTMLImageElement
+ * 事前に threshold で二値化した画像を Potrace に渡す
+ */
+function _runPotraceCore(imgSource, params) {
+  return new Promise((resolve, reject) => {
+    try {
+      Potrace.setParameter({
+        turnpolicy: 'minority',
+        turdsize: params.turdsize,
+        optcurve: params.optcurve,
+        alphamax: params.alphamax,
+        opttolerance: params.opttolerance
+      });
+
+      const cv = document.createElement('canvas');
+      cv.width = imgSource.naturalWidth || imgSource.width;
+      cv.height = imgSource.naturalHeight || imgSource.height;
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.drawImage(imgSource, 0, 0);
+      // 事前二値化 (Potrace 内部でもやるが、しきい値を明示的に反映させる)
+      const imageData = ctx.getImageData(0, 0, cv.width, cv.height);
+      const d = imageData.data;
+      const t = params.threshold;
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        const v = gray < t ? 0 : 255;
+        d[i] = v; d[i + 1] = v; d[i + 2] = v; d[i + 3] = 255;
+      }
+      ctx.putImageData(imageData, 0, 0);
+
+      const dataUrl = cv.toDataURL('image/png');
+      Potrace.loadImageFromUrl(dataUrl);
+
+      // Potrace 内部の img.onload 待ち (dataURL は同期に近いが余裕を持たせる)
+      const waitAndProcess = (retries) => {
+        try {
+          Potrace.process(() => {
+            try {
+              const svg = Potrace.getSVG(1);
+              resolve({ svg, imgW: cv.width, imgH: cv.height });
+            } catch (e2) {
+              reject(e2);
+            }
+          });
+        } catch (e) {
+          if (retries > 0) {
+            setTimeout(() => waitAndProcess(retries - 1), 200);
+          } else {
+            reject(e);
+          }
+        }
+      };
+      setTimeout(() => waitAndProcess(5), 300);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+async function runPotracePreview() {
+  const cv = document.getElementById('potracePreviewCanvas');
+  const loader = document.getElementById('potracePreviewLoader');
+  if (!cv) return;
+  if (loader) loader.style.display = 'block';
+
+  try {
+    const img = await loadCanvasSafeImage(originalOverlayUrl);
+    const maxDim = 400;
+    const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+    const smallW = Math.max(1, Math.round(img.naturalWidth * scale));
+    const smallH = Math.max(1, Math.round(img.naturalHeight * scale));
+
+    // 縮小 Canvas → Image
+    const smallCanvas = document.createElement('canvas');
+    smallCanvas.width = smallW;
+    smallCanvas.height = smallH;
+    const sctx = smallCanvas.getContext('2d');
+    sctx.fillStyle = '#ffffff';
+    sctx.fillRect(0, 0, smallW, smallH);
+    sctx.drawImage(img, 0, 0, smallW, smallH);
+
+    const smallImg = new Image();
+    smallImg.src = smallCanvas.toDataURL('image/png');
+    await new Promise((res, rej) => {
+      smallImg.onload = res;
+      smallImg.onerror = () => rej(new Error('small image load failed'));
+    });
+
+    const params = _getPotraceParams();
+    const { svg, imgW, imgH } = await _runPotraceCore(smallImg, params);
+
+    // プレビューキャンバスに描画
+    const ctx = cv.getContext('2d');
+    const cvW = cv.width, cvH = cv.height;
+    ctx.fillStyle = '#0a0e14';
+    ctx.fillRect(0, 0, cvW, cvH);
+
+    const svgBlob = new Blob([svg], { type: 'image/svg+xml' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const svgImg = new Image();
+    svgImg.src = svgUrl;
+    await new Promise((res, rej) => {
+      svgImg.onload = res;
+      svgImg.onerror = () => rej(new Error('svg render failed'));
+    });
+
+    const scale2 = Math.min(cvW / imgW, cvH / imgH);
+    const dstW = imgW * scale2;
+    const dstH = imgH * scale2;
+    const dstX = (cvW - dstW) / 2;
+    const dstY = (cvH - dstH) / 2;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(dstX, dstY, dstW, dstH);
+    ctx.drawImage(svgImg, dstX, dstY, dstW, dstH);
+    URL.revokeObjectURL(svgUrl);
+
+    const paths = _parsePotraceSVGPaths(svg);
+    const pathCount = paths.length;
+    let vertexCount = 0;
+    paths.forEach(p => { vertexCount += p.commands.length; });
+    const stats = document.getElementById('potraceStats');
+    if (stats) stats.textContent = `プレビュー結果: ${pathCount} path / ${vertexCount} command (縮小 ${smallW}×${smallH})`;
+  } catch (e) {
+    console.error('[runPotracePreview]', e);
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#0a0e14';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = '#ff5555';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('プレビューエラー: ' + e.message, 10, 20);
+  } finally {
+    if (loader) loader.style.display = 'none';
+  }
+}
+
+function _parsePotraceSVGPaths(svg) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svg, 'image/svg+xml');
+  const pathElements = doc.querySelectorAll('path');
+  const results = [];
+  pathElements.forEach(pe => {
+    const d = pe.getAttribute('d') || '';
+    const commands = _parseSVGPathData(d);
+    results.push({ d, commands });
+  });
+  return results;
+}
+
+/**
+ * SVG path d 属性を tokenize (Potrace 出力の M/L/C/Z サブセットのみサポート)
+ */
+function _parseSVGPathData(d) {
+  const tokens = d.match(/[MLCZmlcz]|-?\d+\.?\d*(?:[eE][-+]?\d+)?/g) || [];
+  const commands = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const t = tokens[i];
+    if (/^[MLCZmlcz]$/.test(t)) {
+      const type = t;
+      i++;
+      let argsN = 0;
+      if (type === 'M' || type === 'L' || type === 'm' || type === 'l') argsN = 2;
+      else if (type === 'C' || type === 'c') argsN = 6;
+      else if (type === 'Z' || type === 'z') argsN = 0;
+      const args = [];
+      for (let k = 0; k < argsN && i < tokens.length; k++) {
+        args.push(parseFloat(tokens[i]));
+        i++;
+      }
+      commands.push({ type, args });
+    } else {
+      const prev = commands[commands.length - 1];
+      if (!prev) { i++; continue; }
+      const argsN = (prev.type === 'M' || prev.type === 'L' || prev.type === 'm' || prev.type === 'l') ? 2
+                   : (prev.type === 'C' || prev.type === 'c' ? 6 : 0);
+      if (argsN === 0) { i++; continue; }
+      const args = [parseFloat(t)];
+      i++;
+      for (let k = 1; k < argsN && i < tokens.length; k++) {
+        args.push(parseFloat(tokens[i]));
+        i++;
+      }
+      // M の後の implicit 継続は L
+      const nextType = prev.type === 'M' ? 'L' : (prev.type === 'm' ? 'l' : prev.type);
+      commands.push({ type: nextType, args });
+    }
+  }
+  return commands;
+}
+
+function _sampleBezierCubic(p0, p1, p2, p3, steps) {
+  const pts = [];
+  for (let s = 1; s <= steps; s++) {
+    const t = s / steps;
+    const mt = 1 - t;
+    const x = mt * mt * mt * p0.x + 3 * mt * mt * t * p1.x + 3 * mt * t * t * p2.x + t * t * t * p3.x;
+    const y = mt * mt * mt * p0.y + 3 * mt * mt * t * p1.y + 3 * mt * t * t * p2.y + t * t * t * p3.y;
+    pts.push({ x, y });
+  }
+  return pts;
+}
+
+function _potracePathToVertices(commands, curveSteps) {
+  const subpaths = [];
+  let current = null;
+  let cursor = { x: 0, y: 0 };
+  let subpathStart = { x: 0, y: 0 };
+
+  for (const cmd of commands) {
+    const type = cmd.type;
+    const a = cmd.args;
+    if (type === 'M') {
+      current = { vertices: [{ x: a[0], y: a[1] }], closed: false };
+      subpaths.push(current);
+      cursor = { x: a[0], y: a[1] };
+      subpathStart = { x: a[0], y: a[1] };
+    } else if (type === 'L') {
+      if (!current) { current = { vertices: [{ x: cursor.x, y: cursor.y }], closed: false }; subpaths.push(current); }
+      current.vertices.push({ x: a[0], y: a[1] });
+      cursor = { x: a[0], y: a[1] };
+    } else if (type === 'C') {
+      if (!current) { current = { vertices: [{ x: cursor.x, y: cursor.y }], closed: false }; subpaths.push(current); }
+      const p0 = { x: cursor.x, y: cursor.y };
+      const p1 = { x: a[0], y: a[1] };
+      const p2 = { x: a[2], y: a[3] };
+      const p3 = { x: a[4], y: a[5] };
+      const samples = _sampleBezierCubic(p0, p1, p2, p3, curveSteps);
+      for (const s of samples) current.vertices.push(s);
+      cursor = { x: p3.x, y: p3.y };
+    } else if (type === 'Z') {
+      if (current) {
+        current.closed = true;
+        const first = current.vertices[0];
+        const last = current.vertices[current.vertices.length - 1];
+        if (first && last && (first.x !== last.x || first.y !== last.y)) {
+          current.vertices.push({ x: first.x, y: first.y });
+        }
+      }
+      cursor = { x: subpathStart.x, y: subpathStart.y };
+      current = null;
+    }
+  }
+  return subpaths;
+}
+
+async function _runPotraceFullResolution() {
+  const params = _getPotraceParams();
+  _updatePotraceProgress('元画像を読み込み中...', 10);
+  const img = await loadCanvasSafeImage(originalOverlayUrl);
+
+  _updatePotraceProgress(`Potrace 実行中 (${img.naturalWidth}×${img.naturalHeight})...`, 40);
+  const { svg, imgW, imgH } = await _runPotraceCore(img, params);
+
+  _updatePotraceProgress('path 解析中...', 80);
+  const paths = _parsePotraceSVGPaths(svg);
+
+  _potraceLastResult = { svg, paths, imgW, imgH, sourceUrl: originalOverlayUrl, params };
+  _updatePotraceProgress(`完了: ${paths.length} path`, 100);
+  return _potraceLastResult;
+}
+
+async function applyPotraceToLayer() {
+  if (!currentOverlay || !currentOverlayLayer) {
+    showToast('先に下絵をアップロードしてください', 'error');
+    return;
+  }
+  const t0 = performance.now();
+  try {
+    const result = await _runPotraceFullResolution();
+    const params = result.params;
+
+    _updatePotraceProgress('Polyline/Polygon 化中...', 90);
+
+    const targetSel = document.querySelector('input[name="potraceTarget"]:checked')?.value || 'polygon';
+    const targetLayerId = targetSel === 'current' ? getCurrentLayerId() : 'polygon';
+    const cadLayer = getLayerById(targetLayerId);
+    const color = cadLayer?.color || '#ff8800';
+
+    let addedCount = 0;
+    let vertexCount = 0;
+
+    for (const path of result.paths) {
+      const subpaths = _potracePathToVertices(path.commands, params.curveSteps);
+      for (const sp of subpaths) {
+        if (sp.vertices.length < 2) continue;
+        const latlngs = sp.vertices.map(v => imagePixelToLatLng(v.x, v.y, currentOverlayLayer, result.imgW, result.imgH));
+        vertexCount += latlngs.length;
+
+        let shape;
+        if (sp.closed) {
+          shape = L.polygon(latlngs, {
+            color, weight: 2, opacity: 1,
+            fill: false, fillOpacity: 0, interactive: true
+          });
+          shape._shapeData = {
+            properties: {
+              shape: 'Polygon', color, weight: 2, dashArray: null,
+              layer_id: targetLayerId, auto_generated: true, source: 'potrace'
+            }
+          };
+        } else {
+          shape = L.polyline(latlngs, {
+            color, weight: 2, opacity: 1, interactive: true
+          });
+          shape._shapeData = {
+            properties: {
+              shape: 'Line', color, weight: 2, dashArray: null,
+              layer_id: targetLayerId, auto_generated: true, source: 'potrace'
+            }
+          };
+        }
+        shapesGroup.addLayer(shape);
+        if (typeof onShapeClickForSelect === 'function') shape.on('click', onShapeClickForSelect);
+        addedCount++;
+      }
+    }
+
+    if (typeof updateShapesCount === 'function') updateShapesCount();
+    if (typeof applyLayerVisibility === 'function') applyLayerVisibility();
+
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+    _updatePotraceProgress(`完了: ${addedCount} 図形 / ${vertexCount} 頂点 (${elapsed}秒)`, 100);
+    const stats = document.getElementById('potraceStats');
+    if (stats) stats.textContent = `適用結果: ${result.paths.length} path → ${addedCount} 図形 / ${vertexCount} 頂点 (${elapsed}秒)`;
+
+    setTimeout(() => _hidePotraceProgress(), 2500);
+    showToast(`Potrace 適用完了: ${addedCount} 図形を「${cadLayer?.name || targetLayerId}」画層に追加 (${elapsed}秒)`, 'success', 5000);
+  } catch (e) {
+    console.error('[applyPotraceToLayer]', e);
+    _hidePotraceProgress();
+    showToast('Potrace 適用失敗: ' + e.message, 'error', 5000);
+  }
+}
+
+async function exportPotraceSVG() {
+  try {
+    if (!_potraceLastResult) {
+      _updatePotraceProgress('元解像度で Potrace 実行中...', 10);
+      await _runPotraceFullResolution();
+      _hidePotraceProgress();
+    }
+    const filename = `potrace_${_potraceFilenameSuffix()}.svg`;
+    _downloadBlob(_potraceLastResult.svg, filename, 'image/svg+xml');
+    showToast(`SVG ダウンロード: ${filename}`, 'success');
+  } catch (e) {
+    console.error('[exportPotraceSVG]', e);
+    showToast('SVG エクスポート失敗: ' + e.message, 'error');
+  }
+}
+
+async function exportPotraceDXF() {
+  try {
+    if (!_potraceLastResult) {
+      _updatePotraceProgress('元解像度で Potrace 実行中...', 10);
+      await _runPotraceFullResolution();
+      _hidePotraceProgress();
+    }
+    const result = _potraceLastResult;
+
+    const allSubpaths = [];
+    const latlngList = [];
+    for (const path of result.paths) {
+      const subpaths = _potracePathToVertices(path.commands, result.params.curveSteps);
+      for (const sp of subpaths) {
+        if (sp.vertices.length < 2) continue;
+        const latlngs = sp.vertices.map(v => imagePixelToLatLng(v.x, v.y, currentOverlayLayer, result.imgW, result.imgH));
+        latlngList.push(...latlngs);
+        allSubpaths.push({ latlngs, closed: sp.closed });
+      }
+    }
+    if (latlngList.length === 0) {
+      showToast('出力対象のパスがありません', 'error');
+      return;
+    }
+
+    // 重心を参照点として相対メートル座標に変換
+    const centerLat = latlngList.reduce((s, ll) => s + ll.lat, 0) / latlngList.length;
+    const centerLng = latlngList.reduce((s, ll) => s + ll.lng, 0) / latlngList.length;
+    const centerMeter = latLngToMeter(centerLat, centerLng, centerLat);
+
+    const dxfEntities = [];
+    for (const sp of allSubpaths) {
+      const points = sp.latlngs.map(ll => {
+        const m = latLngToMeter(ll.lat, ll.lng, centerLat);
+        return { x: m.x - centerMeter.x, y: m.y - centerMeter.y };
+      });
+      const closed = sp.closed ? 1 : 0;
+      const lines = [
+        '0', 'LWPOLYLINE',
+        '8', 'POTRACE',
+        '90', String(points.length),
+        '70', String(closed)
+      ];
+      for (const p of points) {
+        lines.push('10', p.x.toFixed(4));
+        lines.push('20', p.y.toFixed(4));
+      }
+      dxfEntities.push(lines.join('\n'));
+    }
+
+    const dxf = _buildMinimalDXF(dxfEntities, {
+      centerLat, centerLng,
+      caseName: currentOverlay?.case_name || '',
+      note: 'Potrace vectorized. Origin = centroid of all vertices. Local metric CRS (approx WGS84 delta).'
+    });
+
+    const filename = `potrace_${_potraceFilenameSuffix()}_meter.dxf`;
+    _downloadBlob(dxf, filename, 'image/vnd.dxf');
+    showToast(`DXF ダウンロード: ${filename} (原点=重心, ${allSubpaths.length} POLYLINE)`, 'success', 5000);
+  } catch (e) {
+    console.error('[exportPotraceDXF]', e);
+    showToast('DXF エクスポート失敗: ' + e.message, 'error');
+  }
+}
+
+function _buildMinimalDXF(entityBlocks, meta) {
+  const header = [
+    '999', 'Potrace / GRID LAND MGR',
+    '999', `centerLat=${meta.centerLat.toFixed(8)} centerLng=${meta.centerLng.toFixed(8)}`,
+    '999', meta.note,
+    '999', `case=${meta.caseName}`,
+    '0', 'SECTION',
+    '2', 'HEADER',
+    '9', '$ACADVER',
+    '1', 'AC1009',
+    '9', '$INSUNITS',
+    '70', '6',
+    '0', 'ENDSEC'
+  ].join('\n');
+
+  const tables = [
+    '0', 'SECTION',
+    '2', 'TABLES',
+    '0', 'TABLE',
+    '2', 'LAYER',
+    '70', '1',
+    '0', 'LAYER',
+    '2', 'POTRACE',
+    '70', '0',
+    '62', '7',
+    '6', 'CONTINUOUS',
+    '0', 'ENDTAB',
+    '0', 'ENDSEC'
+  ].join('\n');
+
+  const entities = [
+    '0', 'SECTION',
+    '2', 'ENTITIES',
+    entityBlocks.join('\n'),
+    '0', 'ENDSEC'
+  ].join('\n');
+
+  const eof = '0\nEOF\n';
+  return [header, tables, entities, eof].join('\n');
+}
+
+async function exportPotraceGeoJSON() {
+  try {
+    if (!_potraceLastResult) {
+      _updatePotraceProgress('元解像度で Potrace 実行中...', 10);
+      await _runPotraceFullResolution();
+      _hidePotraceProgress();
+    }
+    const result = _potraceLastResult;
+
+    const features = [];
+    for (const path of result.paths) {
+      const subpaths = _potracePathToVertices(path.commands, result.params.curveSteps);
+      for (const sp of subpaths) {
+        if (sp.vertices.length < 2) continue;
+        const coords = sp.vertices.map(v => {
+          const ll = imagePixelToLatLng(v.x, v.y, currentOverlayLayer, result.imgW, result.imgH);
+          return [ll.lng, ll.lat];
+        });
+        if (sp.closed) {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'Polygon', coordinates: [coords] },
+            properties: { source: 'potrace', closed: true }
+          });
+        } else {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: coords },
+            properties: { source: 'potrace', closed: false }
+          });
+        }
+      }
+    }
+
+    const geojson = {
+      type: 'FeatureCollection',
+      features,
+      metadata: {
+        generator: 'GRID LAND MGR / Potrace',
+        case: currentOverlay?.case_name || '',
+        params: result.params,
+        source_image: currentOverlay?.source_url || ''
+      }
+    };
+
+    const filename = `potrace_${_potraceFilenameSuffix()}.geojson`;
+    _downloadBlob(JSON.stringify(geojson, null, 2), filename, 'application/geo+json');
+    showToast(`GeoJSON ダウンロード: ${filename} (${features.length} feature)`, 'success', 5000);
+  } catch (e) {
+    console.error('[exportPotraceGeoJSON]', e);
+    showToast('GeoJSON エクスポート失敗: ' + e.message, 'error');
+  }
+}
+
+function _potraceFilenameSuffix() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const caseSlug = (currentOverlay?.case_name || 'noname').replace(/[^\w一-龯ぁ-んァ-ヶ]/g, '_').substring(0, 30);
+  return `${caseSlug}_${y}${m}${d}_${hh}${mm}`;
+}
+
+function _downloadBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 200);
+}
+
+/* ========================================================================
+   v20260711A: Potrace 統合 END
+   ======================================================================== */
 </script>
 
 </body>
