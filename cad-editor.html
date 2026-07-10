@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260711A / CAD Sprint 1: Potrace統合による自動ベクター化。新規リボングループ「自動ベクター化」・potraceModal・SVG/DXF/GeoJSON 3点出力(DXF は地図座標メートル)。既存 Zhang-Suen パイプラインとは完全独立で並存。前:v20260708L -->
+<!-- BUILD: cad-editor v20260711B / CAD Sprint 2 Phase A: 位相再構成モジュール追加 (交点検出＋5類型判定＋可視化)。新規リボングループ「位相再構成」・topoModal・Leaflet ベースの色分けマーカー可視化。空間ハッシュ + 重心追従クラスタリング。既存 Potrace / Zhang-Suen とは完全独立で並存。前:v20260711A -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1326,6 +1326,38 @@
     fill: none;
     pointer-events: none;
   }
+
+  /* ===== v20260711B: Sprint 2 Phase A 位相再構成 ===== */
+  #topoModal .topo-param-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 0; font-size: 11px;
+  }
+  #topoModal .topo-param-row label {
+    flex: 0 0 220px; color: var(--text);
+  }
+  #topoModal .topo-param-row input[type=range] { flex: 1; }
+  #topoModal .topo-param-row .topo-param-value {
+    flex: 0 0 60px; text-align: right;
+    font-family: var(--font-mono); color: var(--accent);
+  }
+  #topoModal .topo-legend {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 12px;
+    margin: 10px 0; font-size: 11px; color: var(--text);
+  }
+  #topoModal .topo-legend-item {
+    display: flex; align-items: center; gap: 6px;
+  }
+  #topoModal .topo-legend-swatch {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 1px solid var(--border);
+  }
+  #topoModal .topo-stats {
+    background: #0a0e14; border: 1px solid var(--border);
+    padding: 8px 10px; border-radius: 2px;
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--text); line-height: 1.6;
+  }
+  #topoModal .topo-stats b { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -1544,6 +1576,19 @@
       </button>
     </div>
     <div class="ribbon-group-label">自動ベクター化</div>
+  </div>
+
+  <!-- v20260711B: Sprint 2 Phase A 位相再構成グループ (Potrace 結果を消費) -->
+  <div class="ribbon-group" id="topoSection">
+    <div class="ribbon-group-content">
+      <button class="ribbon-btn" id="btnTopoDetect" onclick="_topoPhaseA_openModal()" title="Potrace 結果から交点を検出し 5 類型（十字/T字/90°折れ/R付き/3線分岐）に分類" style="border:1px solid #b478ff;">
+        <div class="ribbon-btn-icon">🕸</div><div class="ribbon-btn-label">交点検出</div>
+      </button>
+      <button class="ribbon-btn" id="btnTopoClear" onclick="_topoPhaseA_clearOverlay()" title="検出結果マーカーを地図上から消去">
+        <div class="ribbon-btn-icon">🧹</div><div class="ribbon-btn-label">消去</div>
+      </button>
+    </div>
+    <div class="ribbon-group-label">位相再構成</div>
   </div>
 
   <div class="ribbon-group">
@@ -1956,6 +2001,71 @@
         <button class="line-extract-btn" onclick="exportPotraceDXF()" title="DXF形式でダウンロード (地図座標メートル)">📥 DXF</button>
         <button class="line-extract-btn" onclick="exportPotraceGeoJSON()" title="GeoJSON形式でダウンロード (WGS84)">📥 GeoJSON</button>
         <button class="line-extract-btn primary" onclick="applyPotraceToLayer()" title="結果をLeaflet Polyline/Polygonとして画層に追加">🔀 画層へ追加</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== v20260711B: Sprint 2 Phase A 位相再構成モーダル ===== -->
+<div id="topoModal" class="line-extract-modal">
+  <div class="line-extract-panel" style="max-width:640px;">
+    <div class="line-extract-header">
+      <div>
+        <div class="line-extract-title">🕸 交点検出 (Sprint 2 Phase A)</div>
+        <div class="line-extract-info" id="topoSourceInfo">直近の Potrace 出力を入力とします</div>
+      </div>
+      <button class="line-extract-btn" onclick="_topoPhaseA_closeModal()">✕</button>
+    </div>
+    <div class="line-extract-body">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;line-height:1.5;">
+        頂点を空間ハッシュでクラスタリングし、交点を 5 類型（十字/T字/90°折れ/R付き/3線分岐）に分類します。
+        分類結果は地図上にカラーマーカーで表示されます。
+      </div>
+
+      <div class="topo-param-row">
+        <label>スナップ距離（m）</label>
+        <input type="range" id="topoPSnap" min="0.1" max="3.0" step="0.1" value="0.5"
+               oninput="document.getElementById('topoPSnapV').textContent = parseFloat(this.value).toFixed(1)">
+        <span class="topo-param-value" id="topoPSnapV">0.5</span>
+      </div>
+
+      <div class="topo-param-row">
+        <label>90°判定許容角度（±°）</label>
+        <input type="range" id="topoPAngle" min="5" max="30" step="1" value="15"
+               oninput="document.getElementById('topoPAngleV').textContent = this.value">
+        <span class="topo-param-value" id="topoPAngleV">15</span>
+      </div>
+
+      <div class="topo-param-row">
+        <label>R付きコーナー累積角度（°）</label>
+        <input type="range" id="topoPRcum" min="30" max="120" step="5" value="60"
+               oninput="document.getElementById('topoPRcumV').textContent = this.value">
+        <span class="topo-param-value" id="topoPRcumV">60</span>
+      </div>
+
+      <div class="topo-param-row">
+        <label>R付き頂点間距離上限（m）</label>
+        <input type="range" id="topoPRdist" min="0.1" max="2.0" step="0.1" value="0.5"
+               oninput="document.getElementById('topoPRdistV').textContent = parseFloat(this.value).toFixed(1)">
+        <span class="topo-param-value" id="topoPRdistV">0.5</span>
+      </div>
+
+      <div class="topo-legend">
+        <div class="topo-legend-item"><span class="topo-legend-swatch" style="background:#e53935"></span>十字 (4本)</div>
+        <div class="topo-legend-item"><span class="topo-legend-swatch" style="background:#fb8c00"></span>T字 (3本)</div>
+        <div class="topo-legend-item"><span class="topo-legend-swatch" style="background:#43a047"></span>90°折れ (2本)</div>
+        <div class="topo-legend-item"><span class="topo-legend-swatch" style="background:#1e88e5"></span>R付き (2本)</div>
+        <div class="topo-legend-item"><span class="topo-legend-swatch" style="background:#8e24aa"></span>3線分岐</div>
+        <div class="topo-legend-item"><span class="topo-legend-swatch" style="background:#9e9e9e"></span>未分類/端点</div>
+      </div>
+
+      <div class="topo-stats" id="topoStats" style="display:none;"></div>
+    </div>
+    <div class="line-extract-footer">
+      <button class="line-extract-btn" onclick="_topoPhaseA_closeModal()">閉じる</button>
+      <div style="display:flex;gap:8px;">
+        <button class="line-extract-btn" onclick="_topoPhaseA_clearOverlay()">マーカー消去</button>
+        <button class="line-extract-btn primary" onclick="_topoPhaseA_run()">▶ 実行</button>
       </div>
     </div>
   </div>
@@ -7029,6 +7139,411 @@ function _downloadBlob(content, filename, mime) {
 
 /* ========================================================================
    v20260711A: Potrace 統合 END
+   ======================================================================== */
+
+
+/* ========================================================================
+   v20260711B: Sprint 2 Phase A 位相再構成モジュール START
+   ------------------------------------------------------------------------
+   スコープ: Potrace 出力を入力として、頂点を空間ハッシュでクラスタリングし、
+            交点を 5 類型（十字/T字/90°折れ/R付き/3線分岐）に分類する。
+   出力: グラフ G=(V,E) データ構造（Phase B/C で消費）＋ 可視化マーカー。
+   既存機能への影響: なし（全て新規追加）。
+   ======================================================================== */
+
+// ---------- 名前空間: グローバル状態 ----------
+window._topoPhaseA_state = {
+  clusters: null,   // Map<clusterId, {x, y, count, lat, lng, edges:[], type}>
+  edges: null,      // Array<{from, to, polyIdx, vertRange:[a,b]}>
+  polylines: null,  // 入力 polylines (meter系、lat/lng付き)
+  layerGroup: null, // Leaflet LayerGroup for markers
+  lastParams: null,
+};
+
+// ---------- SpatialHash ----------
+class _TopoSpatialHash {
+  constructor(cellSize) {
+    this.cellSize = cellSize;
+    this.buckets = new Map();
+  }
+  _key(x, y) {
+    return Math.floor(x / this.cellSize) + ',' + Math.floor(y / this.cellSize);
+  }
+  add(x, y, payload) {
+    const k = this._key(x, y);
+    if (!this.buckets.has(k)) this.buckets.set(k, []);
+    this.buckets.get(k).push({ x, y, payload });
+  }
+  queryRadius(x, y, r) {
+    const cx = Math.floor(x / this.cellSize);
+    const cy = Math.floor(y / this.cellSize);
+    const range = Math.ceil(r / this.cellSize);
+    const r2 = r * r;
+    const hits = [];
+    for (let dx = -range; dx <= range; dx++) {
+      for (let dy = -range; dy <= range; dy++) {
+        const k = (cx + dx) + ',' + (cy + dy);
+        const bucket = this.buckets.get(k);
+        if (!bucket) continue;
+        for (const p of bucket) {
+          const ddx = p.x - x, ddy = p.y - y;
+          if (ddx * ddx + ddy * ddy <= r2) hits.push(p);
+        }
+      }
+    }
+    return hits;
+  }
+}
+
+// ---------- 入力取得: Potrace 結果 → polylines (メートル系) ----------
+function _topoPhaseA_getPolylines() {
+  if (typeof _potraceLastResult === 'undefined' || !_potraceLastResult) {
+    throw new Error('Potrace 結果が見つかりません。先に「Potrace」ボタンから実行してください。');
+  }
+  const result = _potraceLastResult;
+  if (!result.paths || result.paths.length === 0) {
+    throw new Error('Potrace 結果のパスが空です。');
+  }
+
+  // First pass: collect lat/lng for centroid
+  const rawSubpaths = [];
+  const latlngList = [];
+  for (const path of result.paths) {
+    const subpaths = _potracePathToVertices(path.commands, result.params.curveSteps);
+    for (const sp of subpaths) {
+      if (sp.vertices.length < 2) continue;
+      const latlngs = sp.vertices.map(v => imagePixelToLatLng(v.x, v.y, currentOverlayLayer, result.imgW, result.imgH));
+      latlngList.push(...latlngs);
+      rawSubpaths.push({ latlngs, closed: sp.closed });
+    }
+  }
+  if (latlngList.length === 0) throw new Error('変換後の頂点が空です。');
+
+  const centerLat = latlngList.reduce((s, ll) => s + ll.lat, 0) / latlngList.length;
+  const centerLng = latlngList.reduce((s, ll) => s + ll.lng, 0) / latlngList.length;
+  const centerMeter = latLngToMeter(centerLat, centerLng, centerLat);
+
+  const polylines = rawSubpaths.map(sp => sp.latlngs.map(ll => {
+    const m = latLngToMeter(ll.lat, ll.lng, centerLat);
+    return {
+      x: m.x - centerMeter.x,
+      y: m.y - centerMeter.y,
+      lat: ll.lat,
+      lng: ll.lng,
+    };
+  }));
+
+  return { polylines, meta: { centerLat, centerLng, centerMeter, totalVerts: latlngList.length } };
+}
+
+// ---------- クラスタリング: 頂点を近接統合（重心追従型） ----------
+function _topoPhaseA_clusterVertices(polylines, snapDist) {
+  const hash = new _TopoSpatialHash(Math.max(snapDist * 2, 0.5));
+  const clusters = new Map();
+  const vertexToCluster = [];
+  let nextId = 0;
+
+  for (let pi = 0; pi < polylines.length; pi++) {
+    const poly = polylines[pi];
+    vertexToCluster[pi] = new Array(poly.length);
+    for (let vi = 0; vi < poly.length; vi++) {
+      const v = poly[vi];
+      const near = hash.queryRadius(v.x, v.y, snapDist);
+      if (near.length === 0) {
+        const cid = nextId++;
+        clusters.set(cid, {
+          x: v.x, y: v.y, count: 1,
+          lat: v.lat, lng: v.lng,
+          edges: [], type: 'unknown',
+        });
+        hash.add(v.x, v.y, { cid });
+        vertexToCluster[pi][vi] = cid;
+      } else {
+        let best = near[0];
+        let bestD2 = (best.x - v.x) ** 2 + (best.y - v.y) ** 2;
+        for (let k = 1; k < near.length; k++) {
+          const d2 = (near[k].x - v.x) ** 2 + (near[k].y - v.y) ** 2;
+          if (d2 < bestD2) { best = near[k]; bestD2 = d2; }
+        }
+        const cid = best.payload.cid;
+        const c = clusters.get(cid);
+        // 重心更新
+        const newCount = c.count + 1;
+        c.x = (c.x * c.count + v.x) / newCount;
+        c.y = (c.y * c.count + v.y) / newCount;
+        c.lat = (c.lat * c.count + v.lat) / newCount;
+        c.lng = (c.lng * c.count + v.lng) / newCount;
+        c.count = newCount;
+        vertexToCluster[pi][vi] = cid;
+      }
+    }
+  }
+  return { clusters, vertexToCluster };
+}
+
+// ---------- エッジ抽出: polyline をクラスタ境界で分割 ----------
+function _topoPhaseA_extractEdges(polylines, vertexToCluster, clusters) {
+  const edges = [];
+  for (let pi = 0; pi < polylines.length; pi++) {
+    const v2c = vertexToCluster[pi];
+    if (v2c.length < 2) continue;
+    let startVi = 0;
+    let startCid = v2c[0];
+    for (let vi = 1; vi < v2c.length; vi++) {
+      const cid = v2c[vi];
+      if (cid !== startCid) {
+        const edgeIdx = edges.length;
+        edges.push({ from: startCid, to: cid, polyIdx: pi, vertRange: [startVi, vi] });
+        if (clusters.has(startCid)) {
+          clusters.get(startCid).edges.push({ polyIdx: pi, vertIdx: startVi, dir: 'out', otherCid: cid, edgeIdx });
+        }
+        if (clusters.has(cid)) {
+          clusters.get(cid).edges.push({ polyIdx: pi, vertIdx: vi, dir: 'in', otherCid: startCid, edgeIdx });
+        }
+        startVi = vi;
+        startCid = cid;
+      }
+    }
+  }
+  return edges;
+}
+
+// ---------- 角度ユーティリティ ----------
+function _topoPhaseA_edgeAngleAt(polylines, edgeInfo) {
+  const poly = polylines[edgeInfo.polyIdx];
+  const vi = edgeInfo.vertIdx;
+  let dx, dy;
+  if (edgeInfo.dir === 'out') {
+    if (vi + 1 >= poly.length) return null;
+    dx = poly[vi + 1].x - poly[vi].x;
+    dy = poly[vi + 1].y - poly[vi].y;
+  } else {
+    if (vi - 1 < 0) return null;
+    dx = poly[vi - 1].x - poly[vi].x;
+    dy = poly[vi - 1].y - poly[vi].y;
+  }
+  if (dx === 0 && dy === 0) return null;
+  return Math.atan2(dy, dx) * 180 / Math.PI;
+}
+
+function _topoPhaseA_normalizeAngleDeg(deg) {
+  let d = ((deg % 360) + 540) % 360 - 180;
+  return d;
+}
+
+// ---------- R付きコーナー判定 ----------
+function _topoPhaseA_checkRCorner(cluster, polylines, params) {
+  for (const e of cluster.edges) {
+    const poly = polylines[e.polyIdx];
+    const startVi = e.vertIdx;
+    let totalAng = 0;
+    let dist = 0;
+    let prevAng = null;
+    const step = e.dir === 'out' ? 1 : -1;
+    for (let k = 0; k < 15; k++) {
+      const vi = startVi + step * k;
+      const viNext = vi + step;
+      if (vi < 0 || vi >= poly.length) break;
+      if (viNext < 0 || viNext >= poly.length) break;
+      const v0 = poly[vi], v1 = poly[viNext];
+      const seg = Math.hypot(v1.x - v0.x, v1.y - v0.y);
+      dist += seg;
+      if (dist > params.rDistMax) break;
+      const ang = Math.atan2(v1.y - v0.y, v1.x - v0.x) * 180 / Math.PI;
+      if (prevAng !== null) {
+        totalAng += Math.abs(_topoPhaseA_normalizeAngleDeg(ang - prevAng));
+      }
+      prevAng = ang;
+    }
+    if (totalAng > params.rCumDeg) {
+      return { isRCorner: true, cumDeg: totalAng };
+    }
+  }
+  return { isRCorner: false };
+}
+
+// ---------- 5類型判定 ----------
+function _topoPhaseA_classify(cluster, polylines, params) {
+  const edges = cluster.edges;
+  const degree = edges.length;
+
+  if (degree < 2) return 'endpoint';
+  if (degree > 4) return 'complex';
+
+  const angles = [];
+  for (const e of edges) {
+    const a = _topoPhaseA_edgeAngleAt(polylines, e);
+    if (a !== null) angles.push(a);
+  }
+  if (angles.length !== degree) return 'unknown';
+
+  if (degree === 4) return 'cross';
+
+  if (degree === 3) {
+    const tol = params.angle90Tol;
+    // 直線的に対向するペアを探す
+    for (let i = 0; i < 3; i++) {
+      for (let j = i + 1; j < 3; j++) {
+        const diff = Math.abs(_topoPhaseA_normalizeAngleDeg(angles[i] - angles[j] + 180));
+        if (diff < tol) {
+          const kth = 3 - i - j;
+          const branchDiff = Math.abs(_topoPhaseA_normalizeAngleDeg(angles[kth] - angles[i] - 90));
+          const branchDiff2 = Math.abs(_topoPhaseA_normalizeAngleDeg(angles[kth] - angles[i] + 90));
+          if (Math.min(branchDiff, branchDiff2) < tol) return 't_junction';
+          return 'branch_3';
+        }
+      }
+    }
+    return 'branch_3';
+  }
+
+  if (degree === 2) {
+    const rInfo = _topoPhaseA_checkRCorner(cluster, polylines, params);
+    if (rInfo.isRCorner) return 'corner_r';
+
+    const angDiff = Math.abs(_topoPhaseA_normalizeAngleDeg(angles[0] - angles[1] + 180));
+    const bendAngle = 180 - angDiff;
+    if (Math.abs(bendAngle - 90) < params.angle90Tol) return 'corner_90';
+    return 'corner_other';
+  }
+
+  return 'unknown';
+}
+
+// ---------- ラベル・カラー ----------
+function _topoPhaseA_typeLabel(t) {
+  return ({
+    cross: '十字', t_junction: 'T字', corner_90: '90°折れ',
+    corner_r: 'R付き', branch_3: '3線分岐',
+    corner_other: '斜め角', endpoint: '端点',
+    complex: '5本以上', unknown: '未分類',
+  })[t] || t;
+}
+function _topoPhaseA_typeColor(t) {
+  return ({
+    cross: '#e53935', t_junction: '#fb8c00', corner_90: '#43a047',
+    corner_r: '#1e88e5', branch_3: '#8e24aa',
+    corner_other: '#795548', endpoint: '#607d8b',
+    complex: '#000000', unknown: '#9e9e9e',
+  })[t] || '#9e9e9e';
+}
+
+// ---------- モーダル制御 ----------
+function _topoPhaseA_openModal() {
+  const m = document.getElementById('topoModal');
+  if (!m) { showToast('topoModal 要素が見つかりません', 'error'); return; }
+  m.style.display = 'flex';
+  const info = document.getElementById('topoSourceInfo');
+  if (info) {
+    if (typeof _potraceLastResult !== 'undefined' && _potraceLastResult) {
+      const npath = _potraceLastResult.paths ? _potraceLastResult.paths.length : 0;
+      info.textContent = `直近の Potrace 出力: ${npath} paths`;
+    } else {
+      info.textContent = '⚠ Potrace 未実行。先に「Potrace」から実行してください';
+    }
+  }
+}
+function _topoPhaseA_closeModal() {
+  const m = document.getElementById('topoModal');
+  if (m) m.style.display = 'none';
+}
+
+// ---------- 実行本体 ----------
+function _topoPhaseA_run() {
+  const params = {
+    snapDist: parseFloat(document.getElementById('topoPSnap').value),
+    angle90Tol: parseFloat(document.getElementById('topoPAngle').value),
+    rCumDeg: parseFloat(document.getElementById('topoPRcum').value),
+    rDistMax: parseFloat(document.getElementById('topoPRdist').value),
+  };
+  console.log('[TopoPhaseA] params:', params);
+
+  let input;
+  try {
+    input = _topoPhaseA_getPolylines();
+  } catch (e) {
+    showToast(e.message, 'error', 5000);
+    console.error('[TopoPhaseA]', e);
+    return;
+  }
+  const { polylines, meta } = input;
+  console.log('[TopoPhaseA] input polylines:', polylines.length, 'vertices:', meta.totalVerts);
+
+  const t0 = performance.now();
+  const { clusters, vertexToCluster } = _topoPhaseA_clusterVertices(polylines, params.snapDist);
+  const t1 = performance.now();
+  const edges = _topoPhaseA_extractEdges(polylines, vertexToCluster, clusters);
+  const t2 = performance.now();
+
+  const typeCounts = {};
+  for (const [cid, c] of clusters) {
+    c.type = _topoPhaseA_classify(c, polylines, params);
+    typeCounts[c.type] = (typeCounts[c.type] || 0) + 1;
+  }
+  const t3 = performance.now();
+
+  _topoPhaseA_state.clusters = clusters;
+  _topoPhaseA_state.edges = edges;
+  _topoPhaseA_state.polylines = polylines;
+  _topoPhaseA_state.lastParams = params;
+
+  console.log('[TopoPhaseA] clusters:', clusters.size, 'edges:', edges.length);
+  console.log('[TopoPhaseA] type counts:', typeCounts);
+  console.log('[TopoPhaseA] timing: cluster=' + (t1 - t0).toFixed(1) + 'ms, edges=' + (t2 - t1).toFixed(1) + 'ms, classify=' + (t3 - t2).toFixed(1) + 'ms');
+
+  const statsEl = document.getElementById('topoStats');
+  if (statsEl) {
+    const integrateRate = (100 * (1 - clusters.size / meta.totalVerts)).toFixed(1);
+    const typeSummary = Object.entries(typeCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${_topoPhaseA_typeLabel(k)}=${v}`)
+      .join(' / ');
+    statsEl.style.display = 'block';
+    statsEl.innerHTML =
+      `<div><b>入力</b>: ${polylines.length} polylines, ${meta.totalVerts} 頂点</div>` +
+      `<div><b>クラスタ</b>: ${clusters.size} (統合率 ${integrateRate}%)</div>` +
+      `<div><b>エッジ</b>: ${edges.length}</div>` +
+      `<div><b>分類</b>: ${typeSummary}</div>` +
+      `<div><b>処理時間</b>: cluster ${(t1 - t0).toFixed(0)}ms / edges ${(t2 - t1).toFixed(0)}ms / classify ${(t3 - t2).toFixed(0)}ms</div>`;
+  }
+
+  _topoPhaseA_drawOverlay();
+  showToast(`交点検出完了: ${clusters.size} クラスタ（統合率 ${(100 * (1 - clusters.size / meta.totalVerts)).toFixed(1)}%）`, 'success', 4000);
+}
+
+// ---------- 可視化: Leaflet Layer Group にマーカー描画 ----------
+function _topoPhaseA_drawOverlay() {
+  _topoPhaseA_clearOverlay();
+  const st = _topoPhaseA_state;
+  if (!st.clusters || !map) return;
+
+  const lg = L.layerGroup();
+  for (const [cid, c] of st.clusters) {
+    const marker = L.circleMarker([c.lat, c.lng], {
+      radius: 5,
+      fillColor: _topoPhaseA_typeColor(c.type),
+      color: '#000',
+      weight: 1,
+      opacity: 1,
+      fillOpacity: 0.9,
+    });
+    marker.bindTooltip(`${_topoPhaseA_typeLabel(c.type)} (次数=${c.edges.length}, 統合=${c.count}頂点)`, { sticky: true });
+    lg.addLayer(marker);
+  }
+  lg.addTo(map);
+  st.layerGroup = lg;
+}
+
+function _topoPhaseA_clearOverlay() {
+  const st = _topoPhaseA_state;
+  if (st.layerGroup && map) {
+    map.removeLayer(st.layerGroup);
+  }
+  st.layerGroup = null;
+}
+
+/* ========================================================================
+   v20260711B: Sprint 2 Phase A 位相再構成モジュール END
    ======================================================================== */
 </script>
 
