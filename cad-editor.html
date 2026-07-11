@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260711G / CAD Sprint 2 Phase A-4 消しゴム機能追加。ラスター化した下絵の任意領域を人為的に削除する「消しゴム」を追加、削除内容は overlay_eraser_marks テーブルに永続化。座標系は (lat, lng, radius_m) で保存、交点検出時に mask座標に変換して適用。前:v20260711F -->
+<!-- BUILD: cad-editor v20260711H / 消しゴム半径調整UI改善。モーダル内スライダーからマップ上フロートパネルに変更、消しゴムモード ON 時のみ画面上部中央に表示。マウスホイールでも半径調整可能に。前:v20260711G -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1399,7 +1399,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711G</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711H</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -2123,6 +2123,47 @@
 
 <!-- ===== トーストコンテナ ===== -->
 <div class="toast-container" id="toastContainer"></div>
+
+<!-- v20260711H: 消しゴム半径調整フロートパネル（消しゴムモード ON 時のみ表示） -->
+<div id="eraserFloatPanel" style="
+  display: none;
+  position: fixed;
+  top: 200px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9500;
+  background: rgba(20, 20, 20, 0.92);
+  border: 2px solid #e53935;
+  border-radius: 8px;
+  padding: 10px 16px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  color: #fff;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  user-select: none;
+  min-width: 340px;
+">
+  <div style="display: flex; align-items: center; gap: 12px;">
+    <div style="font-size: 18px;">🧽</div>
+    <div style="flex: 0 0 auto; font-weight: 600; color: #ff6b6b;">消しゴム半径</div>
+    <input type="range" id="eraserFloatRadius" min="1" max="30" step="0.5" value="3"
+      style="flex: 1; accent-color: #e53935; min-width: 120px;"
+      oninput="_eraserFloatRadiusChange(this.value)">
+    <div id="eraserFloatRadiusVal" style="font-family: monospace; font-weight: 600; color: #ff9a9a; min-width: 46px; text-align: right;">3.0 m</div>
+    <button onclick="_eraserToggle()" style="
+      background: rgba(229,57,53,0.3);
+      border: 1px solid #e53935;
+      color: #fff;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+    ">OFF</button>
+  </div>
+  <div style="font-size: 10px; color: #aaa; margin-top: 6px; text-align: center;">
+    ドラッグで削除範囲追加 / <b>マウスホイール</b>で半径調整 / <b>ESC</b>で終了
+  </div>
+</div>
 
 <script>
 /* ==========================================================================
@@ -7927,14 +7968,68 @@ function _eraserToggle() {
   }
 }
 
+// v20260711H: フロートパネルのスライダー変更ハンドラ
+function _eraserFloatRadiusChange(val) {
+  const st = window._eraserState;
+  const v = parseFloat(val);
+  st.radius = v;
+  const disp = document.getElementById('eraserFloatRadiusVal');
+  if (disp) disp.textContent = v.toFixed(1) + ' m';
+  // モーダル側スライダーも同期（存在すれば）
+  const modalSlider = document.getElementById('topoPEraserR');
+  if (modalSlider) {
+    modalSlider.value = v;
+    const modalDisp = document.getElementById('topoPEraserRV');
+    if (modalDisp) modalDisp.textContent = v.toFixed(1);
+  }
+  // カーソル追従円のサイズも更新
+  if (st.cursor) {
+    try { st.cursor.setRadius(v); } catch(e) {}
+  }
+}
+
+// v20260711H: マウスホイールで半径を変更
+function _eraserWheelHandler(e) {
+  const st = window._eraserState;
+  if (!st.active) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const delta = e.deltaY > 0 ? -0.5 : 0.5;
+  let newR = Math.max(1, Math.min(30, st.radius + delta));
+  _eraserFloatRadiusChange(newR);
+  const floatSlider = document.getElementById('eraserFloatRadius');
+  if (floatSlider) floatSlider.value = newR;
+}
+
+// v20260711H: ESC キーで消しゴム終了
+function _eraserEscHandler(e) {
+  if (e.key === 'Escape' && window._eraserState.active) {
+    _eraserToggle();
+  }
+}
+
 function _eraserActivate() {
   const st = window._eraserState;
   st.active = true;
-  const rEl = document.getElementById('topoPEraserR');
-  if (rEl) st.radius = parseFloat(rEl.value);
+  // 現在の半径取得（フロートパネル → モーダル → デフォルト の順）
+  const floatEl = document.getElementById('eraserFloatRadius');
+  const modalEl = document.getElementById('topoPEraserR');
+  if (floatEl) st.radius = parseFloat(floatEl.value);
+  else if (modalEl) st.radius = parseFloat(modalEl.value);
+  // フロートパネル表示 + 値同期
+  const panel = document.getElementById('eraserFloatPanel');
+  if (panel) {
+    panel.style.display = 'block';
+    if (floatEl) floatEl.value = st.radius;
+    const disp = document.getElementById('eraserFloatRadiusVal');
+    if (disp) disp.textContent = st.radius.toFixed(1) + ' m';
+  }
   if (map) {
     map.dragging.disable();
     map.getContainer().style.cursor = 'crosshair';
+    // マウスホイール & ESC
+    map.getContainer().addEventListener('wheel', _eraserWheelHandler, { passive: false });
+    document.addEventListener('keydown', _eraserEscHandler);
   }
   if (!st.cursor && map) {
     st.cursor = L.circle([0, 0], {
@@ -7974,12 +8069,17 @@ function _eraserDeactivate() {
   const st = window._eraserState;
   st.active = false;
   st.isDragging = false;
+  // フロートパネル非表示
+  const panel = document.getElementById('eraserFloatPanel');
+  if (panel) panel.style.display = 'none';
   if (map) {
     map.dragging.enable();
     map.getContainer().style.cursor = '';
     if (st._mouseMoveHandler) map.off('mousemove', st._mouseMoveHandler);
     if (st._mouseDownHandler) map.off('mousedown', st._mouseDownHandler);
     if (st._mouseUpHandler) map.off('mouseup', st._mouseUpHandler);
+    try { map.getContainer().removeEventListener('wheel', _eraserWheelHandler); } catch(e){}
+    try { document.removeEventListener('keydown', _eraserEscHandler); } catch(e){}
   }
   if (st.cursor) {
     try { map.removeLayer(st.cursor); } catch(e) {}
