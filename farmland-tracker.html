@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260711B / 地番プレビュー(草案)ドットのポップアップに現地調査写真グリッドを追加。field-survey.html と同じ photo_road/land/pole/shadow の12カラムから撮影済のみを2列グリッドでサムネイル表示、クリックで拡大。コメントも表示。前:v20260711A -->
+<!-- BUILD: farmland-tracker v20260711C / 写真クリック時の挙動を「新タブ拡大」から「ページ内ライトボックス」に変更。左上に「← 戻る」ボタン、右上に「✕」ボタン、背景クリック・ESCキーでも閉じる。前:v20260711B -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -462,6 +462,85 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   .landnum-dot.j-unusable { display:none; }
   .landnum-marker-wrapper:has(.landnum-dot.j-unusable) { display:none !important; }
   /* 判定なし = 基底の紫のまま（未判定状態を表す） */
+
+  /* v20260711C: 写真ライトボックス */
+  .photo-lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.88);
+    z-index: 100000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+    animation: photoLbFadeIn 0.15s ease-out;
+  }
+  .photo-lightbox.open { display: flex; }
+  @keyframes photoLbFadeIn { from{opacity:0;} to{opacity:1;} }
+  .photo-lightbox-img {
+    max-width: 96vw;
+    max-height: 92vh;
+    object-fit: contain;
+    cursor: default;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+    border-radius: 6px;
+  }
+  .photo-lightbox-back {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    padding: 10px 20px;
+    border: none;
+    background: rgba(255,255,255,0.18);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    transition: background 0.15s;
+    z-index: 100001;
+  }
+  .photo-lightbox-back:hover { background: rgba(255,255,255,0.32); }
+  .photo-lightbox-close {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 44px;
+    height: 44px;
+    border: none;
+    background: rgba(255,255,255,0.18);
+    color: #fff;
+    font-size: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    transition: background 0.15s;
+    z-index: 100001;
+  }
+  .photo-lightbox-close:hover { background: rgba(255,255,255,0.32); }
+  .photo-lightbox-caption {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.7);
+    font-size: 12px;
+    padding: 6px 14px;
+    background: rgba(0,0,0,0.4);
+    border-radius: 14px;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 100001;
+  }
 
   /* 街区ラベル (villa_block_labels) v20260703v */
   .block-label-container {
@@ -953,6 +1032,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   </div>
 </div>
 <div class="toast-container" id="toastContainer"></div>
+
+<!-- v20260711C: 写真ライトボックス（拡大表示 + 戻るボタン） -->
+<div id="photoLightbox" class="photo-lightbox" onclick="_closePhotoLightbox(event)">
+  <button class="photo-lightbox-back" onclick="_closePhotoLightbox(event)" type="button" title="戻る">← 戻る</button>
+  <button class="photo-lightbox-close" onclick="_closePhotoLightbox(event)" type="button" title="閉じる">✕</button>
+  <img class="photo-lightbox-img" id="photoLightboxImg" alt="拡大写真" onclick="event.stopPropagation()">
+  <div class="photo-lightbox-caption" id="photoLightboxCaption"></div>
+</div>
 <script>
 var SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
 var SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
@@ -3164,6 +3251,37 @@ async function diagnosePBFKeys(){
 }
 function hideLoading(){document.getElementById('loadingOverlay').style.display='none';}
 function showToast(msg,type){var c=document.getElementById('toastContainer'),t=document.createElement('div');t.className='toast '+(type||'success');t.textContent=msg;c.appendChild(t);setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},6000);}
+
+// v20260711C: 写真ライトボックス（拡大 + 戻るボタン + ESCキー閉じ）
+var _photoLbEscHandler=null;
+function _openPhotoLightbox(url, caption){
+  var box=document.getElementById('photoLightbox');
+  var img=document.getElementById('photoLightboxImg');
+  var cap=document.getElementById('photoLightboxCaption');
+  if(!box||!img)return false;
+  img.src=url;
+  if(cap)cap.textContent=caption||'';
+  box.classList.add('open');
+  // ESCキーで閉じる
+  if(_photoLbEscHandler)document.removeEventListener('keydown',_photoLbEscHandler);
+  _photoLbEscHandler=function(e){
+    if(e.key==='Escape'){_closePhotoLightbox();}
+  };
+  document.addEventListener('keydown',_photoLbEscHandler);
+  // 背景スクロール抑止
+  document.body.style.overflow='hidden';
+  return false;
+}
+function _closePhotoLightbox(event){
+  if(event){event.stopPropagation();}
+  var box=document.getElementById('photoLightbox');
+  if(!box)return;
+  box.classList.remove('open');
+  var img=document.getElementById('photoLightboxImg');
+  if(img)setTimeout(function(){img.src='';},200); // アニメーション後に解放
+  if(_photoLbEscHandler){document.removeEventListener('keydown',_photoLbEscHandler);_photoLbEscHandler=null;}
+  document.body.style.overflow='';
+}
 function showDebug(msg){var el=document.getElementById('debugPanel');if(!el){el=document.createElement('div');el.id='debugPanel';el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:9999;background:#1c2333;border:2px solid #f0b429;border-radius:10px;padding:16px 24px;max-width:700px;width:90%;font-family:monospace;font-size:12px;color:#e6edf3;white-space:pre-wrap;max-height:400px;overflow-y:auto;';el.innerHTML='<button onclick="this.parentElement.remove()" style="float:right;background:#f85149;border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;">X</button><div id="debugLog"></div>';document.body.appendChild(el);}document.getElementById('debugLog').textContent+=new Date().toLocaleTimeString()+' '+msg+'\n';}
 // ======== 都市計画情報（用途地域 XKT002） ========
 var URBAN_API_BASE = WORKER_BASE + '/api';
@@ -4779,9 +4897,13 @@ function _renderLandNumberDraft(){
       if(info.photos && info.photos.length>0){
         popupHtml+='<div style="font-size:10px;color:#666;margin:6px 0 4px 0;">📷 現地写真 '+info.photos.length+'枚（クリックで拡大）</div>'
           +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">';
-        info.photos.forEach(function(url){
-          popupHtml+='<a href="'+url+'" target="_blank" rel="noopener">'
-            +'<img src="'+url+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:4px;border:1px solid #d0d7de;display:block;" loading="lazy">'
+        info.photos.forEach(function(url,i){
+          // v20260711C: 新タブではなくページ内ライトボックスで拡大
+          var safeUrl=(url||'').replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+          var caption='地番 '+row.land_number+' / '+(i+1)+'/'+info.photos.length+' 枚目';
+          var safeCap=caption.replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+          popupHtml+='<a href="'+safeUrl+'" onclick="return _openPhotoLightbox(\''+safeUrl+'\',\''+safeCap+'\');" style="text-decoration:none;">'
+            +'<img src="'+safeUrl+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:4px;border:1px solid #d0d7de;display:block;cursor:zoom-in;" loading="lazy">'
             +'</a>';
         });
         popupHtml+='</div>';
