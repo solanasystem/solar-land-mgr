@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260707a / 地図右上に「🎨 CADで開く」フローティングコントロール追加(現在の地図中心・ズームを引継ぎ)。前:v20260703x -->
+<!-- BUILD: farmland-tracker v20260711A / 地番プレビュー(草案)ドット表示に field-survey.html と同じ現地調査ステータス色分けを反映。villa_hatch_landnumber_draft.land_number → land_info.chiban → cases → field_survey_status.judgment の3段JOINで OK=緑/検討=黄/NG=非表示/未判定=紫。前:v20260707a -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -446,6 +446,22 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     white-space: nowrap;
     pointer-events: none;
   }
+
+  /* v20260711A: 現地調査ステータス色分け (field-survey.html v20260710B と同じ配色) */
+  /* judgment='usable' (OK/使用可) → 緑 */
+  .landnum-dot.j-usable  { background:#22c55e; border-color:#15803d; }
+  .landnum-marker-wrapper:has(.landnum-dot.j-usable) .landnum-label {
+    background: rgba(21,128,61,0.9);
+  }
+  /* judgment='consider' (検討) → 黄 */
+  .landnum-dot.j-consider { background:#eab308; border-color:#a16207; }
+  .landnum-marker-wrapper:has(.landnum-dot.j-consider) .landnum-label {
+    background: rgba(161,98,7,0.9);
+  }
+  /* judgment='unusable' (NG/使用不可) → 完全非表示（ドットもラベルも） */
+  .landnum-dot.j-unusable { display:none; }
+  .landnum-marker-wrapper:has(.landnum-dot.j-unusable) { display:none !important; }
+  /* 判定なし = 基底の紫のまま（未判定状態を表す） */
 
   /* 街区ラベル (villa_block_labels) v20260703v */
   .block-label-container {
@@ -4599,10 +4615,60 @@ function _setVillaHatchOpacity(v){villaHatchOpacity=parseInt(v)/100; if(villaHat
 
 // ======== 地番プレビュー草案 (villa_hatch_landnumber_draft) v20260703p ========
 // CADから抽出した地番TEXT位置を紫の点で地図表示。目視確認用。
+// v20260711A: 現地調査ステータス（field_survey_status.judgment）で色分け
+//   land_number → land_info.chiban → cases → field_survey_status
+//   OK=緑, 検討=黄, NG=非表示, 未判定=紫
 var landNumberDraftEnabled=false;
 var landNumberDraftLayer=null;
 var landNumberDraftCache=null;
 var landNumberDraftLoading=false;
+// v20260711A: 現地調査ステータス Map (land_number → 'usable'/'consider'/'unusable')
+var landJudgmentMap=null;
+var landJudgmentLoading=false;
+
+// v20260711A: 判定データを Supabase から取得し、land_number → judgment のマップを構築
+// land_info (chiban ↔ case_id) と field_survey_status (case_id ↔ judgment) を JOIN
+async function _loadLandJudgments(){
+  if(landJudgmentMap)return landJudgmentMap;
+  if(landJudgmentLoading)return null;
+  landJudgmentLoading=true;
+  try{
+    // land_info: chiban ↔ case_id
+    var landRes=await _fetchAllPaged(function(){return db.from('land_info').select('case_id,chiban');});
+    if(landRes.error)throw landRes.error;
+    // field_survey_status: case_id ↔ judgment
+    var statusRes=await _fetchAllPaged(function(){return db.from('field_survey_status').select('case_id,judgment,flag_color');});
+    if(statusRes.error)throw statusRes.error;
+    // case_id → judgment
+    var caseToJudgment={};
+    (statusRes.data||[]).forEach(function(s){
+      if(s.case_id && s.judgment){
+        caseToJudgment[s.case_id]={judgment:s.judgment, flag_color:s.flag_color};
+      }
+    });
+    // chiban → judgment
+    var map={};
+    (landRes.data||[]).forEach(function(l){
+      if(l.chiban && caseToJudgment[l.case_id]){
+        map[l.chiban]=caseToJudgment[l.case_id];
+      }
+    });
+    landJudgmentMap=map;
+    landJudgmentLoading=false;
+    var okN=0,csN=0,ngN=0;
+    Object.values(map).forEach(function(j){
+      if(j.judgment==='usable')okN++;
+      else if(j.judgment==='consider')csN++;
+      else if(j.judgment==='unusable')ngN++;
+    });
+    console.log('[LandJudgment] loaded: OK='+okN+', 検討='+csN+', NG='+ngN+' (total '+Object.keys(map).length+')');
+    return map;
+  }catch(e){
+    console.error('判定データ読込エラー:',e);
+    landJudgmentLoading=false;
+    return null;
+  }
+}
 
 function toggleLandNumberDraft(){
   var btn=document.getElementById('hzLandNumberDraft');
@@ -4627,7 +4693,12 @@ async function _loadLandNumberDraft(){
   var info=document.getElementById('landNumberDraftInfo');
   if(info)info.textContent='読み込み中...';
   try{
-    var res=await db.from('villa_hatch_landnumber_draft').select('land_number,lat,lng,rotation_deg').eq('villa_name','びわこの森').range(0,999);
+    // v20260711A: 地番データと判定データを並列取得
+    var results=await Promise.all([
+      db.from('villa_hatch_landnumber_draft').select('land_number,lat,lng,rotation_deg').eq('villa_name','びわこの森').range(0,999),
+      _loadLandJudgments()
+    ]);
+    var res=results[0];
     if(res.error)throw res.error;
     landNumberDraftCache=res.data||[];
     landNumberDraftLoading=false;
@@ -4647,6 +4718,8 @@ function _renderLandNumberDraft(){
   if(landNumberDraftLayer){try{map.removeLayer(landNumberDraftLayer);}catch(e){}landNumberDraftLayer=null;}
   if(!map.getPane('landNumberDraftPane')){var p=map.createPane('landNumberDraftPane');p.style.zIndex=428;}
   var group=L.layerGroup([],{pane:'landNumberDraftPane'});
+  // v20260711A: 判定別カウント
+  var counts={usable:0, consider:0, unusable:0, unjudged:0};
   (landNumberDraftCache||[]).forEach(function(row){
     if(row.lat==null||row.lng==null)return;
     // 一律-12度傾斜（街区全体の向きに合わせる）
@@ -4654,9 +4727,21 @@ function _renderLandNumberDraft(){
     // 表示は枝番のみ（4957-15 → 15）
     var suffix=(row.land_number||'').split('-').slice(1).join('-');
     if(!suffix) suffix=row.land_number;
+    // v20260711A: 現地調査ステータスから CSS クラス決定
+    var judClass='';
+    var judLabel='未判定';
+    if(landJudgmentMap && landJudgmentMap[row.land_number]){
+      var jd=landJudgmentMap[row.land_number].judgment;
+      if(jd==='usable'){judClass='j-usable';counts.usable++;judLabel='使用可(OK)';}
+      else if(jd==='consider'){judClass='j-consider';counts.consider++;judLabel='検討';}
+      else if(jd==='unusable'){judClass='j-unusable';counts.unusable++;judLabel='使用不可(NG)';}
+      else{counts.unjudged++;}
+    }else{
+      counts.unjudged++;
+    }
     // CSS変数 --rot でラベル部分だけ個別回転
     var html='<div class="landnum-marker-wrapper" style="--rot:'+rot+'deg">'
-           +'<div class="landnum-dot"></div>'
+           +'<div class="landnum-dot '+judClass+'"></div>'
            +'<div class="landnum-label">'+suffix+'</div>'
            +'</div>';
     var icon=L.divIcon({
@@ -4666,13 +4751,21 @@ function _renderLandNumberDraft(){
       iconAnchor:[6,6]
     });
     var marker=L.marker([row.lat,row.lng],{icon:icon,pane:'landNumberDraftPane'});
-    marker.bindPopup('<div style="font-weight:600">地番: '+row.land_number+'</div><div style="font-size:11px;color:#666">緯度: '+row.lat.toFixed(7)+'<br>経度: '+row.lng.toFixed(7)+'</div>');
+    marker.bindPopup(
+      '<div style="font-weight:600">地番: '+row.land_number+'</div>'
+      +'<div style="font-size:11px;color:#666">緯度: '+row.lat.toFixed(7)+'<br>経度: '+row.lng.toFixed(7)+'</div>'
+      +'<div style="font-size:11px;margin-top:4px;color:#333"><b>現地調査</b>: '+judLabel+'</div>'
+    );
     group.addLayer(marker);
   });
   landNumberDraftLayer=group;
   landNumberDraftLayer.addTo(map);
   var info=document.getElementById('landNumberDraftInfo');
-  if(info)info.innerHTML='地番 '+(landNumberDraftCache?landNumberDraftCache.length:0)+'件を表示中(街区長辺に沿った個別回転)';
+  if(info){
+    var total=landNumberDraftCache?landNumberDraftCache.length:0;
+    // v20260711A: 判定別内訳を表示（NGは非表示だが件数は明示）
+    info.innerHTML='地番 '+total+'件（🟢OK '+counts.usable+' / 🟡検討 '+counts.consider+' / <span style="text-decoration:line-through;opacity:0.6">⚫NG '+counts.unusable+'非表示</span> / 🟣未判定 '+counts.unjudged+'）';
+  }
   // 街区ラベルも同時に読み込み
   _loadBlockLabels();
 }
