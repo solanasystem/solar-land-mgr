@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260711I / 消しゴム保存レースコンディション修正。Supabaseからの load 完了前に save がトリガーされ、空配列で既存データを上書きする致命的バグを防ぐ。loaded フラグ導入 + save は loaded=true になるまで発火せず。前:v20260711H -->
+<!-- BUILD: cad-editor v20260711J / 消しゴムモード ON 中に下絵(DistortableImage)の編集ハンドルを一時無効化。ユーザーが消しゴムドラッグ操作中に誤ってコーナーハンドルを掴んで下絵を引き伸ばす事故を防止。OFF時に元の編集状態を復元。前:v20260711I -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1399,7 +1399,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711I</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711J</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -8041,6 +8041,16 @@ function _eraserActivate() {
     const disp = document.getElementById('eraserFloatRadiusVal');
     if (disp) disp.textContent = st.radius.toFixed(1) + ' m';
   }
+  // v20260711J: 下絵の編集ハンドルを無効化（誤操作による引き伸ばし防止）
+  if (currentOverlayLayer && currentOverlayLayer.editing) {
+    try {
+      st._prevOverlayEditingEnabled = currentOverlayLayer.editing._enabled !== false;
+      if (typeof currentOverlayLayer.editing.disable === 'function') {
+        currentOverlayLayer.editing.disable();
+        console.log('[Eraser] disabled overlay editing (prev enabled=' + st._prevOverlayEditingEnabled + ')');
+      }
+    } catch(e) { console.warn('[Eraser] disable overlay editing failed', e); }
+  }
   if (map) {
     map.dragging.disable();
     map.getContainer().style.cursor = 'crosshair';
@@ -8079,7 +8089,7 @@ function _eraserActivate() {
   map.on('mousemove', st._mouseMoveHandler);
   map.on('mousedown', st._mouseDownHandler);
   map.on('mouseup', st._mouseUpHandler);
-  showToast('🧽 消しゴムモード ON: ドラッグで削除範囲を追加', 'info', 3500);
+  showToast('🧽 消しゴムモード ON: 下絵編集は一時無効化されました', 'info', 3500);
 }
 
 function _eraserDeactivate() {
@@ -8105,6 +8115,16 @@ function _eraserDeactivate() {
   st._mouseMoveHandler = null;
   st._mouseDownHandler = null;
   st._mouseUpHandler = null;
+  // v20260711J: 下絵の編集を復元（元々有効だったら再度有効化）
+  if (currentOverlayLayer && currentOverlayLayer.editing && st._prevOverlayEditingEnabled === true) {
+    try {
+      if (typeof currentOverlayLayer.editing.enable === 'function') {
+        currentOverlayLayer.editing.enable();
+        console.log('[Eraser] re-enabled overlay editing');
+      }
+    } catch(e) { console.warn('[Eraser] re-enable overlay editing failed', e); }
+  }
+  st._prevOverlayEditingEnabled = undefined;
   showToast('🧽 消しゴムモード OFF', 'info', 2000);
 }
 
