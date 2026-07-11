@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260711L / 点抽出 (幾何演算)。Potraceで得た二重線ベクター(そのまま単線化しない)から、①全線分同士の交点、②曲率解析でフィレット/R曲、を幾何学的に抽出する。二重線ペアの集約はクラスタリング半径で対処。点群のみ出力、線引きは次段(v20260711M以降)でラスターをガイドに実施。前:v20260711J -->
+<!-- BUILD: cad-editor v20260711M / v20260711L の点抽出モジュールで対象フィルタが Polygon のみだった問題を修正。applyPotraceToLayer が閉/開ループを Polygon/Polyline で使い分けるため、両方を対象にする。加えて figure 総数のログ追加。前:v20260711L -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1399,7 +1399,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711L</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711M</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -8302,19 +8302,24 @@ function _peOpenModal() {
   const m = document.getElementById('pointExtractModal');
   if (!m) { showToast('点抽出モーダル要素なし', 'error'); return; }
   m.style.display = 'flex';
+  // v20260711M: L.Polygon / L.Polyline 両対応
   let count = 0;
+  let closed = 0, open = 0;
   if (typeof shapesGroup !== 'undefined' && shapesGroup) {
     shapesGroup.eachLayer(l => {
       const src = l._shapeData?.properties?.source;
-      if (src === 'potrace' && l instanceof L.Polygon) count++;
+      if (src !== 'potrace') return;
+      if (l instanceof L.Polygon) { count++; closed++; }
+      else if (l instanceof L.Polyline) { count++; open++; }
     });
   }
+  console.log(`[PointExtract] scan: source=potrace: closed=${closed}, open=${open}, total=${count}`);
   const info = document.getElementById('peSourceInfo');
   if (info) {
     if (count === 0) {
-      info.innerHTML = '<span style="color:#ff6b6b;">⚠ Potrace 由来の閉じたポリゴンがマップ上に見つかりません。先に「🪄 Potrace」→「🔀 画層へ追加」でベクター化してください。</span>';
+      info.innerHTML = '<span style="color:#ff6b6b;">⚠ Potrace 由来の図形がマップ上に見つかりません。先に「🪄 Potrace」→「🔀 画層へ追加」でベクター化してください。</span>';
     } else {
-      info.textContent = `対象: マップ上の Potrace 由来ポリゴン ${count} 件`;
+      info.textContent = `対象: Potrace 由来 ${count} 件 (閉=${closed} / 開=${open})`;
     }
   }
 }
@@ -8347,50 +8352,58 @@ async function _peRun() {
   if (st.pointLayer && map) { try { map.removeLayer(st.pointLayer); } catch(e){} }
   st.pointLayer = null;
 
-  // Potrace 由来ポリゴンを集める
+  // Potrace 由来ポリゴン/ポリラインを集める (v20260711M)
   const targets = [];
+  let closedCount = 0, openCount = 0;
   if (typeof shapesGroup !== 'undefined' && shapesGroup) {
     shapesGroup.eachLayer(l => {
       const src = l._shapeData?.properties?.source;
-      if (src === 'potrace' && l instanceof L.Polygon) targets.push(l);
+      if (src !== 'potrace') return;
+      if (l instanceof L.Polygon) { targets.push({ shape: l, closed: true }); closedCount++; }
+      else if (l instanceof L.Polyline) { targets.push({ shape: l, closed: false }); openCount++; }
     });
   }
   if (targets.length === 0) {
-    showToast('Potrace 由来のポリゴンがありません', 'error', 3000);
+    showToast('Potrace 由来の図形がありません', 'error', 3000);
     return;
   }
+  console.log(`[PointExtract] targets: closed=${closedCount}, open=${openCount}, total=${targets.length}`);
 
   const t0 = performance.now();
 
-  // ---------- A) 各ポリゴンの緯度経度 → 画像ピクセル座標 → 線分抽出 ----------
-  // 同時にポリゴン単位の頂点列も保存(フィレット検出用)
-  const polygons = [];  // [{id, vertices: [{x,y}, ...]}]
-  const segments = []; // {x1,y1,x2,y2,polyId}
+  // ---------- A) 各図形の緯度経度 → 画像ピクセル座標 → 線分抽出 ----------
+  const polygons = [];
+  const segments = [];
   let polyIdCounter = 0;
-  for (const shape of targets) {
+  for (const tgt of targets) {
+    const shape = tgt.shape;
+    const isClosed = tgt.closed;
     let latlngRing;
     try {
       latlngRing = shape.getLatLngs();
       if (Array.isArray(latlngRing[0])) latlngRing = latlngRing[0];
     } catch(e) { continue; }
-    if (!latlngRing || latlngRing.length < 3) continue;
+    if (!latlngRing || latlngRing.length < 2) continue;
     const vertices = [];
     for (const ll of latlngRing) {
       const px = mapPointToImagePixel(ll, currentOverlayLayer, currentOverlay);
       if (!px) continue;
       vertices.push(px);
     }
-    if (vertices.length < 3) continue;
+    if (vertices.length < 2) continue;
     const polyId = polyIdCounter++;
-    polygons.push({ id: polyId, vertices });
-    // 閉ループとして線分化
-    for (let i = 0; i < vertices.length; i++) {
-      const j = (i + 1) % vertices.length;
+    polygons.push({ id: polyId, vertices, closed: isClosed });
+    // 線分化
+    const nSeg = isClosed ? vertices.length : vertices.length - 1;
+    for (let i = 0; i < nSeg; i++) {
+      const j = isClosed ? (i + 1) % vertices.length : i + 1;
       segments.push({
         x1: vertices[i].x, y1: vertices[i].y,
         x2: vertices[j].x, y2: vertices[j].y,
         polyId,
         localIdx: i,
+        polyLen: vertices.length,
+        polyClosed: isClosed,
       });
     }
   }
@@ -8588,10 +8601,14 @@ function _peDetectFillets(polygons, angleThresholdDeg, minRunLen) {
   for (const poly of polygons) {
     const V = poly.vertices;
     const N = V.length;
+    const isClosed = poly.closed;
     if (N < minRunLen + 2) continue;
     // 各頂点の折れ角を計算
-    const bends = new Array(N);
-    for (let i = 0; i < N; i++) {
+    // 閉ループは全頂点、開ループは端点2つを除外
+    const bends = new Array(N).fill(0);
+    const startI = isClosed ? 0 : 1;
+    const endI = isClosed ? N : N - 1;
+    for (let i = startI; i < endI; i++) {
       const prev = V[(i - 1 + N) % N];
       const curr = V[i];
       const next = V[(i + 1) % N];
@@ -8603,20 +8620,18 @@ function _peDetectFillets(polygons, angleThresholdDeg, minRunLen) {
       bends[i] = diff;
     }
     // 「連続して同方向に曲がる区間」を検出
-    let i = 0;
-    while (i < N) {
+    let i = startI;
+    while (i < endI) {
       const bi = bends[i];
       if (Math.abs(bi) < angRadThr) { i++; continue; }
-      // 開始点 i、方向 sign(bi)
       const sign = Math.sign(bi);
       let j = i;
       let sumX = 0, sumY = 0, count = 0;
-      let sharpBendCount = 0; // 急折れ (90°以上) の数
-      while (j < N) {
+      let sharpBendCount = 0;
+      while (j < endI) {
         const bj = bends[j];
         if (Math.abs(bj) < angRadThr / 2) break;
         if (Math.sign(bj) !== sign && Math.abs(bj) > angRadThr) break;
-        // 90° 以上の急折れは fillet ではなく交点扱い、集計に含めるが後で除外
         if (Math.abs(bj) > Math.PI / 2 * 0.8) sharpBendCount++;
         sumX += V[j].x;
         sumY += V[j].y;
@@ -8624,11 +8639,10 @@ function _peDetectFillets(polygons, angleThresholdDeg, minRunLen) {
         j++;
       }
       const runLen = j - i;
-      // 十分な長さがあり、急折れが半分未満なら fillet として採用
-      if (runLen >= minRunLen && sharpBendCount < runLen / 2) {
+      if (runLen >= minRunLen && sharpBendCount < runLen / 2 && count > 0) {
         fillets.push({ x: sumX / count, y: sumY / count, runLen });
       }
-      i = j;
+      i = j > i ? j : i + 1;
     }
   }
   return fillets;
