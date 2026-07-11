@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260711E / CAD Sprint 2 Phase A-3: ウィンドウ・テンプレート・マッチング方式へ全面転換。各骨格画素の周囲 W×W ウィンドウで境界を横切るアームの本数と角度を測定、5類型テンプレート（②十字/③T字/⑤3線分岐/①R付き/④90°折れ）と照合し、合致しないものは出力しない。CN=3のみ数えていた旧方式では 4-way が分裂して十字が数えられなかった構造的問題を、ウィンドウの範囲設定で解決。前:v20260711D -->
+<!-- BUILD: cad-editor v20260711F / CAD Sprint 2 Phase A-3.1 バグ修正版。①evalCurvature を書き直し(旧: compactness 判定がW=10で常に isSharp=false 破綻 → 全て R付き扱いで 90°折れが0件)、中心画素の即時8近傍の角度差 vs アームの角度差の比較で判別。②matchTemplate cross 判定緩和(4アームは基本 cross、perpTol検査は撤廃 → complex_4 に落ちる問題を解消)。前:v20260711E -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1399,7 +1399,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711E</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711F</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -7322,35 +7322,72 @@ function _topoPhaseA_angDiff(a, b) {
 }
 
 // ---------- 曲率評価: 2アームケースで中心が急変か緩変かを判定 ----------
-// reachable の骨格画素を辿り、方向変化がどこに集中しているかを見る
+// v20260711F: 中心画素の即時8近傍(3x3)の角度差 vs ウィンドウ端で見たアーム角度差を比較。
+// 一致 → アームが中心付近から真っ直ぐ伸びている → 急変(④90°折れ)
+// 大きく異なる → アームが中心付近と離れた場所で異なる方向 → 緩変(①R付き)
+// 旧版の compactness (中心近傍px数/全画素数) は W=10 で常に 0.14〜0.25 で isSharp=false 破綻していた。
 function _topoPhaseA_evalCurvature(reachable, cx, cy, w, arms) {
-  if (arms.length !== 2) return { isSharp: false, isSmooth: false };
-  // アーム端2点から中心に向かって pixel を辿ってパスを構築
-  // 簡易版: reachable の画素を x/y 平均で分割し、中心付近の角度変化を測る
-  // より正確には BFS の距離マップを使うが、まず簡易実装
-  const pxList = [];
-  for (const idx of reachable) {
-    pxList.push({ x: idx % w, y: Math.floor(idx / w) });
-  }
-  if (pxList.length < 5) return { isSharp: true, isSmooth: false };  // 短すぎる = 急変扱い
-  
-  // 中心画素を含む数画素の範囲での方向変化を評価
-  // アーム間の総回転角（180 - |対向角度|）が45°以上なら明確な角と言える
+  if (arms.length !== 2) return { isSharp: false, isSmooth: false, bendAngle: 0 };
+
+  // アーム間の折れ角
   const armAngDiff = Math.abs(_topoPhaseA_angDiff(arms[0].angle, arms[1].angle));
-  const bendAngle = 180 - armAngDiff;  // 折れ角の総量
-  
-  // reachable のうち、中心近傍（距離≤2）の画素数と全体画素数の比で曲率を推定
-  let nearCenter = 0;
-  for (const p of pxList) {
-    const dc = Math.abs(p.x - cx) + Math.abs(p.y - cy);
-    if (dc <= 2) nearCenter++;
+  const bendAngle = 180 - armAngDiff;
+  if (bendAngle < 15) {
+    // ほぼ直線 → 角ではない（呼び出し側で既に弾かれるはずだが念のため）
+    return { isSharp: false, isSmooth: false, bendAngle };
   }
-  // 中心近傍が全体の 40% 以上 → コンパクトな折れ（急変）
-  // それ以下 → 広がった曲線（緩変）
-  const compactness = nearCenter / pxList.length;
-  const isSharp = compactness > 0.35 && bendAngle > 30;
-  const isSmooth = !isSharp && bendAngle > 15;
-  return { isSharp, isSmooth, bendAngle, compactness };
+
+  // 中心画素の即時8近傍のうち骨格画素だけ取り出す
+  // 8近傍を時計回りに (dx, dy) で列挙
+  const NB = [
+    [ 0, -1],  // 上
+    [ 1, -1],  // 右上
+    [ 1,  0],  // 右
+    [ 1,  1],  // 右下
+    [ 0,  1],  // 下
+    [-1,  1],  // 左下
+    [-1,  0],  // 左
+    [-1, -1],  // 左上
+  ];
+  const immAngles = [];
+  for (const [dx, dy] of NB) {
+    const idx = (cy + dy) * w + (cx + dx);
+    if (reachable.has(idx)) {
+      // atan2(dy, dx) を deg 化。アームの angle と同じ座標系(数学系)
+      immAngles.push(Math.atan2(dy, dx) * 180 / Math.PI);
+    }
+  }
+
+  // 中心の即時近傍が丁度2つない場合は判定できない → smooth 扱い（R付き）
+  // (次数2のウィンドウでも稀に発生: 中心画素が骨格の分岐に近い場所にある等)
+  if (immAngles.length !== 2) {
+    return {
+      isSharp: false,
+      isSmooth: true,
+      bendAngle,
+      immCount: immAngles.length,
+      note: 'immediate neighbors ≠ 2',
+    };
+  }
+
+  // 中心即時近傍のなす角度差
+  const immAngDiff = Math.abs(_topoPhaseA_angDiff(immAngles[0], immAngles[1]));
+
+  // 判定基準:
+  //  即時近傍角度差 と アーム角度差 の差が小さい → アームが中心からまっすぐ伸びている → 急変
+  //  差が大きい → 中心では近傍が寄っている(隣り合う8近傍)が、遠方で分岐 → 緩変
+  const spread = Math.abs(immAngDiff - armAngDiff);
+  const isSharp = spread < 25;   // 25°以内なら「アーム方向がそのまま中心まで届いてる」
+  const isSmooth = !isSharp;
+
+  return {
+    isSharp,
+    isSmooth,
+    bendAngle,
+    immAngDiff,
+    armAngDiff,
+    spread,
+  };
 }
 
 // ---------- 5類型テンプレート照合 ----------
@@ -7360,15 +7397,20 @@ function _topoPhaseA_matchTemplate(arms, curvature, params) {
   const perpTol = params.perpTol;
 
   if (n === 4) {
-    // 4本アーム: 各対が~90°で全部並んでいるか
+    // v20260711F: 4本アームは基本 cross として採用
+    // (旧: 全ての隣接ペアが 90°±perpTol でないと complex_4 に落とす厳格判定 → 大半を取りこぼしていた)
+    // 参考情報として直角度合いも見るが、あくまで「著しく歪な場合」だけ complex_4 に落とす。
     const angs = arms.map(a => a.angle).sort((x, y) => x - y);
-    let ok = true;
+    let maxDeviation = 0;
     for (let i = 0; i < 4; i++) {
       const next = angs[(i + 1) % 4];
       const diff = (i === 3) ? (next + 360 - angs[i]) : (next - angs[i]);
-      if (Math.abs(diff - 90) > perpTol) { ok = false; break; }
+      const dev = Math.abs(diff - 90);
+      if (dev > maxDeviation) maxDeviation = dev;
     }
-    return ok ? 'cross' : 'complex_4';
+    // 90°から大きく外れる隣接ペアが1つでも perpTol×2 (デフォ60°) を超えたら複雑扱い
+    if (maxDeviation > perpTol * 2) return 'complex_4';
+    return 'cross';
   }
 
   if (n === 3) {
