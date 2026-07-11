@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260711M / v20260711L の点抽出モジュールで対象フィルタが Polygon のみだった問題を修正。applyPotraceToLayer が閉/開ループを Polygon/Polyline で使い分けるため、両方を対象にする。加えて figure 総数のログ追加。前:v20260711L -->
+<!-- BUILD: cad-editor v20260711N / 点抽出の交点計算を非同期化。500線分ごとに setTimeout でメインスレッドを解放してブラウザフリーズを防ぐ。進捗表示とキャンセルボタン追加。アルゴリズムも「セル二重ループ」→「線分×近傍セル走査」に変更してメモリ効率も改善。前:v20260711M -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1399,7 +1399,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711M</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711N</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -2080,12 +2080,21 @@
       </div>
 
       <div class="topo-stats" id="peStats" style="display:none;"></div>
+
+      <!-- v20260711N: 進捗表示 -->
+      <div id="peProgressRow" style="display:none;margin-top:8px;padding:8px;background:rgba(255,136,0,0.08);border:1px solid rgba(255,136,0,0.3);border-radius:4px;">
+        <div style="font-size:11px;color:var(--accent);margin-bottom:4px;" id="peProgressText">処理中...</div>
+        <div style="width:100%;height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;">
+          <div id="peProgressBar" style="height:100%;background:linear-gradient(90deg,#ff8800,#ff6b00);width:0%;transition:width 0.15s ease-out;"></div>
+        </div>
+      </div>
     </div>
     <div class="line-extract-footer">
       <button class="line-extract-btn" onclick="_peCloseModal()">閉じる</button>
       <div style="flex:1"></div>
+      <button class="line-extract-btn" id="peCancelBtn" onclick="_peCancel()" style="display:none;background:#e53935;color:#fff;">✕ キャンセル</button>
       <button class="line-extract-btn" onclick="_peClearPoints()">点消去</button>
-      <button class="line-extract-btn primary" onclick="_peRun()">▶ 実行</button>
+      <button class="line-extract-btn primary" id="peRunBtn" onclick="_peRun()">▶ 実行</button>
     </div>
   </div>
 </div>
@@ -8296,7 +8305,33 @@ window._peState = {
   pointLayer: null,
   points: [],
   lastResult: null,
+  aborted: false,           // v20260711N: キャンセルフラグ
+  running: false,           // v20260711N: 実行中フラグ
 };
+
+function _peCancel() {
+  window._peState.aborted = true;
+  console.log('[PointExtract] cancel requested');
+}
+
+function _peSetProgress(pct, text) {
+  const row = document.getElementById('peProgressRow');
+  const bar = document.getElementById('peProgressBar');
+  const t = document.getElementById('peProgressText');
+  if (row) row.style.display = 'block';
+  if (bar) bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  if (t) t.textContent = text;
+}
+function _peHideProgress() {
+  const row = document.getElementById('peProgressRow');
+  if (row) row.style.display = 'none';
+}
+function _peShowCancel(show) {
+  const btn = document.getElementById('peCancelBtn');
+  const runBtn = document.getElementById('peRunBtn');
+  if (btn) btn.style.display = show ? 'inline-block' : 'none';
+  if (runBtn) runBtn.disabled = show;
+}
 
 function _peOpenModal() {
   const m = document.getElementById('pointExtractModal');
@@ -8339,6 +8374,7 @@ function _peClearPoints() {
 
 async function _peRun() {
   const st = window._peState;
+  if (st.running) { showToast('既に処理中です', 'error'); return; }
   if (!currentOverlay || !currentOverlayLayer) {
     showToast('先に下絵をアップロードしてください', 'error', 3000);
     return;
@@ -8348,9 +8384,15 @@ async function _peRun() {
   const filletMin = parseInt(document.getElementById('peFilletMin').value);
   const markerSize = parseFloat(document.getElementById('peMSize').value);
 
-  // 既存点消去
+  // 既存点消去 & 状態リセット
   if (st.pointLayer && map) { try { map.removeLayer(st.pointLayer); } catch(e){} }
   st.pointLayer = null;
+  st.aborted = false;
+  st.running = true;
+  _peShowCancel(true);
+  _peSetProgress(0, '準備中...');
+
+  try {
 
   // Potrace 由来ポリゴン/ポリラインを集める (v20260711M)
   const targets = [];
@@ -8365,17 +8407,23 @@ async function _peRun() {
   }
   if (targets.length === 0) {
     showToast('Potrace 由来の図形がありません', 'error', 3000);
+    st.running = false; _peShowCancel(false); _peHideProgress();
     return;
   }
   console.log(`[PointExtract] targets: closed=${closedCount}, open=${openCount}, total=${targets.length}`);
 
   const t0 = performance.now();
+  _peSetProgress(2, `線分化中... (${targets.length} 図形)`);
+  await new Promise(r => setTimeout(r, 10));
 
   // ---------- A) 各図形の緯度経度 → 画像ピクセル座標 → 線分抽出 ----------
   const polygons = [];
   const segments = [];
   let polyIdCounter = 0;
-  for (const tgt of targets) {
+  const batchSize = 500;
+  for (let ti = 0; ti < targets.length; ti++) {
+    if (st.aborted) throw new Error('canceled');
+    const tgt = targets[ti];
     const shape = tgt.shape;
     const isClosed = tgt.closed;
     let latlngRing;
@@ -8393,88 +8441,112 @@ async function _peRun() {
     if (vertices.length < 2) continue;
     const polyId = polyIdCounter++;
     polygons.push({ id: polyId, vertices, closed: isClosed });
-    // 線分化
     const nSeg = isClosed ? vertices.length : vertices.length - 1;
     for (let i = 0; i < nSeg; i++) {
       const j = isClosed ? (i + 1) % vertices.length : i + 1;
       segments.push({
         x1: vertices[i].x, y1: vertices[i].y,
         x2: vertices[j].x, y2: vertices[j].y,
-        polyId,
-        localIdx: i,
+        polyId, localIdx: i,
         polyLen: vertices.length,
         polyClosed: isClosed,
       });
     }
+    if ((ti + 1) % batchSize === 0) {
+      _peSetProgress(2 + 8 * (ti + 1) / targets.length, `線分化中... ${ti + 1}/${targets.length}`);
+      await new Promise(r => setTimeout(r, 0));
+    }
   }
   const t1 = performance.now();
+  console.log(`[PointExtract] segments extracted: ${segments.length}`);
 
-  // ---------- B) 空間インデックス + 線分ペア交差判定 ----------
+  // ---------- B) 空間インデックス + 線分ペア交差判定 (非同期) ----------
+  _peSetProgress(10, `空間インデックス構築...`);
+  await new Promise(r => setTimeout(r, 10));
   const spatialIdx = _peBuildSpatialIndex(segments, 40);
-  const rawIntersections = _peComputeIntersections(segments, spatialIdx);
-  const t2 = performance.now();
 
-  // ---------- C) 交点クラスタリング (二重線ペアの集約) ----------
+  _peSetProgress(15, `交差計算中... 0 / ${segments.length}`);
+  const intersectResult = await _peComputeIntersections(segments, spatialIdx, (cur, tot, count) => {
+    const p = 15 + 60 * cur / tot;
+    _peSetProgress(p, `交差計算中... ${cur.toLocaleString()} / ${tot.toLocaleString()} (交点 ${count.toLocaleString()})`);
+  });
+  if (intersectResult.aborted) throw new Error('canceled');
+  const rawIntersections = intersectResult.intersections;
+  const t2 = performance.now();
+  console.log(`[PointExtract] intersections computed: ${rawIntersections.length}`);
+
+  // ---------- C) 交点クラスタリング ----------
+  _peSetProgress(78, `交点クラスタリング... (${rawIntersections.length.toLocaleString()} 個)`);
+  await new Promise(r => setTimeout(r, 10));
   const clusteredIntersections = _peClusterPoints(rawIntersections, clusterR);
   const t3 = performance.now();
 
-  // ---------- D) フィレット/R曲検出 (曲率解析) ----------
+  // ---------- D) フィレット検出 ----------
+  _peSetProgress(85, `フィレット検出...`);
+  await new Promise(r => setTimeout(r, 10));
   const fillets = _peDetectFillets(polygons, filletAng, filletMin);
-  // フィレットもクラスタリング (二重線の対応するフィレットは並列に出る)
   const clusteredFillets = _peClusterPoints(fillets, clusterR);
   const t4 = performance.now();
 
   // ---------- E) 表示 ----------
+  _peSetProgress(92, `マーカー描画...`);
+  await new Promise(r => setTimeout(r, 10));
   const lg = L.layerGroup();
   const totalPoints = [];
-
   for (const p of clusteredIntersections) {
     const ll = imagePixelToLatLng(p.x, p.y, currentOverlayLayer, currentOverlay.source_width_px, currentOverlay.source_height_px);
     const marker = L.circleMarker([ll.lat, ll.lng], {
-      radius: markerSize,
-      fillColor: '#e53935',
-      color: '#000',
-      weight: 1,
-      opacity: 1,
-      fillOpacity: 0.9,
+      radius: markerSize, fillColor: '#e53935', color: '#000',
+      weight: 1, opacity: 1, fillOpacity: 0.9,
     });
-    marker.bindTooltip(`交点 (集約 ${p.count} 個, px=[${p.x.toFixed(0)},${p.y.toFixed(0)}])`, { sticky: true });
+    marker.bindTooltip(`交点 (集約 ${p.count} 個)`, { sticky: true });
     lg.addLayer(marker);
     totalPoints.push({ type: 'intersection', lat: ll.lat, lng: ll.lng, x: p.x, y: p.y, count: p.count });
   }
   for (const p of clusteredFillets) {
     const ll = imagePixelToLatLng(p.x, p.y, currentOverlayLayer, currentOverlay.source_width_px, currentOverlay.source_height_px);
     const marker = L.circleMarker([ll.lat, ll.lng], {
-      radius: markerSize,
-      fillColor: '#1e88e5',
-      color: '#000',
-      weight: 1,
-      opacity: 1,
-      fillOpacity: 0.9,
+      radius: markerSize, fillColor: '#1e88e5', color: '#000',
+      weight: 1, opacity: 1, fillOpacity: 0.9,
     });
-    marker.bindTooltip(`フィレット/R曲 (集約 ${p.count} 個, px=[${p.x.toFixed(0)},${p.y.toFixed(0)}])`, { sticky: true });
+    marker.bindTooltip(`フィレット/R曲 (集約 ${p.count} 個)`, { sticky: true });
     lg.addLayer(marker);
     totalPoints.push({ type: 'fillet', lat: ll.lat, lng: ll.lng, x: p.x, y: p.y, count: p.count });
   }
   lg.addTo(map);
   st.pointLayer = lg;
   st.points = totalPoints;
+  const t5 = performance.now();
 
   // ---------- F) 統計表示 ----------
-  const t5 = performance.now();
   const statsEl = document.getElementById('peStats');
   if (statsEl) {
     statsEl.style.display = 'block';
     statsEl.innerHTML =
-      `<div><b>入力</b>: ${targets.length} ポリゴン / ${segments.length.toLocaleString()} 線分</div>` +
-      `<div><b>交点 raw</b>: ${rawIntersections.length.toLocaleString()} → <b>クラスタ後</b>: ${clusteredIntersections.length}</div>` +
+      `<div><b>入力</b>: ${targets.length} 図形 (閉=${closedCount}, 開=${openCount}) / ${segments.length.toLocaleString()} 線分</div>` +
+      `<div><b>交点 raw</b>: ${rawIntersections.length.toLocaleString()} → <b>クラスタ後</b>: ${clusteredIntersections.length.toLocaleString()}</div>` +
       `<div><b>フィレット raw</b>: ${fillets.length} → <b>クラスタ後</b>: ${clusteredFillets.length}</div>` +
-      `<div><b>クラスタ半径</b>: ${clusterR} px (元画像座標)</div>` +
-      `<div><b>処理時間</b>: 線分化 ${(t1 - t0).toFixed(0)}ms / 交差 ${(t2 - t1).toFixed(0)}ms / cluster ${(t3 - t2).toFixed(0)}ms / フィレット ${(t4 - t3).toFixed(0)}ms / 表示 ${(t5 - t4).toFixed(0)}ms</div>`;
+      `<div><b>クラスタ半径</b>: ${clusterR} px</div>` +
+      `<div><b>処理時間</b>: 線分化 ${(t1-t0).toFixed(0)}ms / 交差 ${(t2-t1).toFixed(0)}ms / cluster ${(t3-t2).toFixed(0)}ms / フィレット ${(t4-t3).toFixed(0)}ms / 表示 ${(t5-t4).toFixed(0)}ms</div>`;
   }
-  console.log(`[PointExtract] segments=${segments.length}, raw_intersections=${rawIntersections.length}, clustered=${clusteredIntersections.length}, fillets_raw=${fillets.length}, fillets_clustered=${clusteredFillets.length}, time=${(t5-t0).toFixed(0)}ms`);
-  showToast(`点抽出完了: 交点 ${clusteredIntersections.length} + フィレット ${clusteredFillets.length} = ${totalPoints.length} 点`, 'success', 5000);
+  console.log(`[PointExtract] DONE: segments=${segments.length}, raw_int=${rawIntersections.length}, clustered_int=${clusteredIntersections.length}, fillets_raw=${fillets.length}, fillets_clus=${clusteredFillets.length}, total=${(t5-t0).toFixed(0)}ms`);
+  _peSetProgress(100, `完了`);
+  showToast(`点抽出完了: 交点 ${clusteredIntersections.length.toLocaleString()} + フィレット ${clusteredFillets.length} = ${totalPoints.length.toLocaleString()} 点`, 'success', 6000);
   st.lastResult = { segments, rawIntersections, clusteredIntersections, fillets, clusteredFillets };
+
+  } catch (e) {
+    if (String(e.message || e).includes('canceled')) {
+      showToast('キャンセルされました', 'error', 3000);
+      console.log('[PointExtract] user canceled');
+    } else {
+      console.error('[PointExtract] error:', e);
+      showToast('点抽出エラー: ' + e.message, 'error', 5000);
+    }
+  } finally {
+    st.running = false;
+    _peShowCancel(false);
+    setTimeout(_peHideProgress, 1500);
+  }
 }
 
 // ---------- 空間インデックス (grid-based) ----------
@@ -8511,31 +8583,54 @@ function _peSegSegIntersect(a, b) {
   return { x: x1 + t * (x2 - x1), y: y1 + t * (y2 - y1) };
 }
 
-// ---------- 全線分ペアの交差計算 (空間インデックス利用) ----------
-function _peComputeIntersections(segments, spatialIdx) {
+// ---------- v20260711N: 非同期で全線分の交点計算 (線分×近傍セル走査) ----------
+async function _peComputeIntersections(segments, spatialIdx, onProgress) {
   const intersections = [];
-  const seen = new Set(); // "min-max" pair key
-  for (const [key, list] of spatialIdx.idx.entries()) {
-    for (let i = 0; i < list.length; i++) {
-      for (let j = i + 1; j < list.length; j++) {
-        const si = list[i], sj = list[j];
-        const pairKey = si < sj ? (si + '-' + sj) : (sj + '-' + si);
-        if (seen.has(pairKey)) continue;
-        seen.add(pairKey);
-        const a = segments[si], b = segments[sj];
-        // 同じポリゴンの連続する線分はスキップ (共有端点なので交差扱いしない)
-        if (a.polyId === b.polyId) {
-          const nA = segments.filter(s => s.polyId === a.polyId).length; // ダサいが仮
-          // 単純化: 同じポリゴンの隣接線分は skip
-          if (Math.abs(a.localIdx - b.localIdx) <= 1 ||
-              Math.abs(a.localIdx - b.localIdx) === nA - 1) continue;
+  const cellSize = spatialIdx.cellSize;
+  const idx = spatialIdx.idx;
+  const N = segments.length;
+  const batchSize = 1000; // これごとにメインスレッド解放
+  const st = window._peState;
+
+  for (let s = 0; s < N; s++) {
+    if (st.aborted) return { intersections, aborted: true };
+
+    const seg = segments[s];
+    const x0 = Math.min(seg.x1, seg.x2), x1max = Math.max(seg.x1, seg.x2);
+    const y0 = Math.min(seg.y1, seg.y2), y1max = Math.max(seg.y1, seg.y2);
+    const cx0 = Math.floor(x0 / cellSize), cx1 = Math.floor(x1max / cellSize);
+    const cy0 = Math.floor(y0 / cellSize), cy1 = Math.floor(y1max / cellSize);
+
+    // このセグメントが跨るセル + 1 セル分だけ周辺を走査 → 二重カウント防止に t > s のみ
+    const seenT = new Set();
+    for (let cx = cx0; cx <= cx1; cx++) {
+      for (let cy = cy0; cy <= cy1; cy++) {
+        const list = idx.get(cx + ',' + cy);
+        if (!list) continue;
+        for (const t of list) {
+          if (t <= s) continue;              // t > s のみ (二重カウント防止)
+          if (seenT.has(t)) continue;
+          seenT.add(t);
+          const a = seg, b = segments[t];
+          // 同じポリゴンの隣接線分は共有端点なので交差判定しない
+          if (a.polyId === b.polyId) {
+            const diff = Math.abs(a.localIdx - b.localIdx);
+            if (diff <= 1) continue;
+            if (a.polyClosed && diff === a.polyLen - 1) continue;
+          }
+          const p = _peSegSegIntersect(a, b);
+          if (p) intersections.push({ x: p.x, y: p.y, segA: s, segB: t });
         }
-        const p = _peSegSegIntersect(a, b);
-        if (p) intersections.push({ x: p.x, y: p.y, segA: si, segB: sj });
       }
     }
+
+    // 進捗更新 & メインスレッド解放
+    if ((s + 1) % batchSize === 0) {
+      if (onProgress) onProgress(s + 1, N, intersections.length);
+      await new Promise(r => setTimeout(r, 0));
+    }
   }
-  return intersections;
+  return { intersections, aborted: false };
 }
 
 // ---------- 点群クラスタリング (grid-based single-linkage) ----------
