@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260711A / 地番プレビュー(草案)ドット表示に field-survey.html と同じ現地調査ステータス色分けを反映。villa_hatch_landnumber_draft.land_number → land_info.chiban → cases → field_survey_status.judgment の3段JOINで OK=緑/検討=黄/NG=非表示/未判定=紫。前:v20260707a -->
+<!-- BUILD: farmland-tracker v20260711B / 地番プレビュー(草案)ドットのポップアップに現地調査写真グリッドを追加。field-survey.html と同じ photo_road/land/pole/shadow の12カラムから撮影済のみを2列グリッドでサムネイル表示、クリックで拡大。コメントも表示。前:v20260711A -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -4628,6 +4628,7 @@ var landJudgmentLoading=false;
 
 // v20260711A: 判定データを Supabase から取得し、land_number → judgment のマップを構築
 // land_info (chiban ↔ case_id) と field_survey_status (case_id ↔ judgment) を JOIN
+// v20260711B: 写真URL(12列)とコメントも取得してポップアップで表示
 async function _loadLandJudgments(){
   if(landJudgmentMap)return landJudgmentMap;
   if(landJudgmentLoading)return null;
@@ -4636,32 +4637,45 @@ async function _loadLandJudgments(){
     // land_info: chiban ↔ case_id
     var landRes=await _fetchAllPaged(function(){return db.from('land_info').select('case_id,chiban');});
     if(landRes.error)throw landRes.error;
-    // field_survey_status: case_id ↔ judgment
-    var statusRes=await _fetchAllPaged(function(){return db.from('field_survey_status').select('case_id,judgment,flag_color');});
+    // field_survey_status: 判定 + 写真URL群 + コメント
+    // カラムが将来増減してもエラーで止まらないよう select('*') で取得
+    var statusRes=await _fetchAllPaged(function(){return db.from('field_survey_status').select('*');});
     if(statusRes.error)throw statusRes.error;
-    // case_id → judgment
-    var caseToJudgment={};
+    // case_id → 判定・写真・コメントすべて
+    var caseToInfo={};
     (statusRes.data||[]).forEach(function(s){
       if(s.case_id && s.judgment){
-        caseToJudgment[s.case_id]={judgment:s.judgment, flag_color:s.flag_color};
+        caseToInfo[s.case_id]={
+          judgment: s.judgment,
+          flag_color: s.flag_color,
+          comment: s.comment || '',
+          // 写真URLは撮影されているもののみ配列に集約
+          photos: [
+            s.photo_road1, s.photo_road2,
+            s.photo_land1, s.photo_land2, s.photo_land3, s.photo_land4,
+            s.photo_pole1, s.photo_pole2, s.photo_pole3,
+            s.photo_shadow_am, s.photo_shadow_noon, s.photo_shadow_pm
+          ].filter(function(u){return u && typeof u==='string' && u.length>0;})
+        };
       }
     });
-    // chiban → judgment
+    // chiban → info
     var map={};
     (landRes.data||[]).forEach(function(l){
-      if(l.chiban && caseToJudgment[l.case_id]){
-        map[l.chiban]=caseToJudgment[l.case_id];
+      if(l.chiban && caseToInfo[l.case_id]){
+        map[l.chiban]=caseToInfo[l.case_id];
       }
     });
     landJudgmentMap=map;
     landJudgmentLoading=false;
-    var okN=0,csN=0,ngN=0;
+    var okN=0,csN=0,ngN=0,photoN=0;
     Object.values(map).forEach(function(j){
       if(j.judgment==='usable')okN++;
       else if(j.judgment==='consider')csN++;
       else if(j.judgment==='unusable')ngN++;
+      if(j.photos && j.photos.length>0)photoN++;
     });
-    console.log('[LandJudgment] loaded: OK='+okN+', 検討='+csN+', NG='+ngN+' (total '+Object.keys(map).length+')');
+    console.log('[LandJudgment] loaded: OK='+okN+', 検討='+csN+', NG='+ngN+' (total '+Object.keys(map).length+', 写真あり '+photoN+'件)');
     return map;
   }catch(e){
     console.error('判定データ読込エラー:',e);
@@ -4730,8 +4744,10 @@ function _renderLandNumberDraft(){
     // v20260711A: 現地調査ステータスから CSS クラス決定
     var judClass='';
     var judLabel='未判定';
+    var info=null;
     if(landJudgmentMap && landJudgmentMap[row.land_number]){
-      var jd=landJudgmentMap[row.land_number].judgment;
+      info=landJudgmentMap[row.land_number];
+      var jd=info.judgment;
       if(jd==='usable'){judClass='j-usable';counts.usable++;judLabel='使用可(OK)';}
       else if(jd==='consider'){judClass='j-consider';counts.consider++;judLabel='検討';}
       else if(jd==='unusable'){judClass='j-unusable';counts.unusable++;judLabel='使用不可(NG)';}
@@ -4751,20 +4767,39 @@ function _renderLandNumberDraft(){
       iconAnchor:[6,6]
     });
     var marker=L.marker([row.lat,row.lng],{icon:icon,pane:'landNumberDraftPane'});
-    marker.bindPopup(
-      '<div style="font-weight:600">地番: '+row.land_number+'</div>'
-      +'<div style="font-size:11px;color:#666">緯度: '+row.lat.toFixed(7)+'<br>経度: '+row.lng.toFixed(7)+'</div>'
-      +'<div style="font-size:11px;margin-top:4px;color:#333"><b>現地調査</b>: '+judLabel+'</div>'
-    );
+    // v20260711B: ポップアップに写真グリッドとコメントを追加（field-survey.html と同じ表示）
+    var popupHtml='<div style="min-width:220px;max-width:340px;font-family:system-ui,sans-serif;">'
+      +'<div style="font-weight:700;font-size:13px;margin-bottom:2px;">地番: '+row.land_number+'</div>'
+      +'<div style="font-size:10px;color:#666;margin-bottom:6px;">緯度: '+row.lat.toFixed(6)+' / 経度: '+row.lng.toFixed(6)+'</div>'
+      +'<div style="font-size:12px;margin-bottom:4px;"><b>現地調査</b>: '+judLabel+'</div>';
+    if(info){
+      if(info.comment){
+        popupHtml+='<div style="font-size:11px;background:#f6f8fa;border-left:3px solid #d0d7de;padding:4px 6px;margin:4px 0;color:#333;white-space:pre-wrap;">💬 '+info.comment+'</div>';
+      }
+      if(info.photos && info.photos.length>0){
+        popupHtml+='<div style="font-size:10px;color:#666;margin:6px 0 4px 0;">📷 現地写真 '+info.photos.length+'枚（クリックで拡大）</div>'
+          +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">';
+        info.photos.forEach(function(url){
+          popupHtml+='<a href="'+url+'" target="_blank" rel="noopener">'
+            +'<img src="'+url+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:4px;border:1px solid #d0d7de;display:block;" loading="lazy">'
+            +'</a>';
+        });
+        popupHtml+='</div>';
+      }else if(info.judgment){
+        popupHtml+='<div style="font-size:10px;color:#999;margin-top:4px;">📷 写真未登録</div>';
+      }
+    }
+    popupHtml+='</div>';
+    marker.bindPopup(popupHtml, {maxWidth:360, minWidth:240});
     group.addLayer(marker);
   });
   landNumberDraftLayer=group;
   landNumberDraftLayer.addTo(map);
-  var info=document.getElementById('landNumberDraftInfo');
-  if(info){
+  var infoEl=document.getElementById('landNumberDraftInfo');
+  if(infoEl){
     var total=landNumberDraftCache?landNumberDraftCache.length:0;
     // v20260711A: 判定別内訳を表示（NGは非表示だが件数は明示）
-    info.innerHTML='地番 '+total+'件（🟢OK '+counts.usable+' / 🟡検討 '+counts.consider+' / <span style="text-decoration:line-through;opacity:0.6">⚫NG '+counts.unusable+'非表示</span> / 🟣未判定 '+counts.unjudged+'）';
+    infoEl.innerHTML='地番 '+total+'件（🟢OK '+counts.usable+' / 🟡検討 '+counts.consider+' / <span style="text-decoration:line-through;opacity:0.6">⚫NG '+counts.unusable+'非表示</span> / 🟣未判定 '+counts.unjudged+'）';
   }
   // 街区ラベルも同時に読み込み
   _loadBlockLabels();
