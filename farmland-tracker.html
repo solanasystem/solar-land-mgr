@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260711C / 写真クリック時の挙動を「新タブ拡大」から「ページ内ライトボックス」に変更。左上に「← 戻る」ボタン、右上に「✕」ボタン、背景クリック・ESCキーでも閉じる。前:v20260711B -->
+<!-- BUILD: farmland-tracker v20260711D / 写真ライトボックスのクリックハンドリングを body レベルのイベントデリゲーションに変更。変電所・空容量レイヤー(canvas renderer)がクリックを吸って写真が開かなくなる問題を修正。data-photo-url 属性で URL を保持、body の click リスナーで一元処理。前:v20260711C -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -3282,6 +3282,30 @@ function _closePhotoLightbox(event){
   if(_photoLbEscHandler){document.removeEventListener('keydown',_photoLbEscHandler);_photoLbEscHandler=null;}
   document.body.style.overflow='';
 }
+
+// v20260711D: body レベルのイベントデリゲーション
+// 変電所・空容量レイヤーの canvas renderer がクリックを吸って
+// popup 内の inline onclick が動かなくなる問題を回避。
+// キャプチャフェーズで受けることで、Leaflet の canvas hit-test より先に処理する。
+(function(){
+  function handler(e){
+    // .photo-lb-trigger をクリック（またはその子孫クリック）を検出
+    var el=e.target;
+    while(el && el!==document.body){
+      if(el.classList && el.classList.contains('photo-lb-trigger')){
+        e.preventDefault();
+        e.stopPropagation();
+        var url=el.getAttribute('data-photo-url');
+        var cap=el.getAttribute('data-photo-caption')||'';
+        if(url) _openPhotoLightbox(url, cap);
+        return;
+      }
+      el=el.parentNode;
+    }
+  }
+  // capture=true でキャプチャフェーズで受ける（イベント伝播より先に発火）
+  document.addEventListener('click', handler, true);
+})();
 function showDebug(msg){var el=document.getElementById('debugPanel');if(!el){el=document.createElement('div');el.id='debugPanel';el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:9999;background:#1c2333;border:2px solid #f0b429;border-radius:10px;padding:16px 24px;max-width:700px;width:90%;font-family:monospace;font-size:12px;color:#e6edf3;white-space:pre-wrap;max-height:400px;overflow-y:auto;';el.innerHTML='<button onclick="this.parentElement.remove()" style="float:right;background:#f85149;border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;">X</button><div id="debugLog"></div>';document.body.appendChild(el);}document.getElementById('debugLog').textContent+=new Date().toLocaleTimeString()+' '+msg+'\n';}
 // ======== 都市計画情報（用途地域 XKT002） ========
 var URBAN_API_BASE = WORKER_BASE + '/api';
@@ -4898,12 +4922,13 @@ function _renderLandNumberDraft(){
         popupHtml+='<div style="font-size:10px;color:#666;margin:6px 0 4px 0;">📷 現地写真 '+info.photos.length+'枚（クリックで拡大）</div>'
           +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">';
         info.photos.forEach(function(url,i){
-          // v20260711C: 新タブではなくページ内ライトボックスで拡大
-          var safeUrl=(url||'').replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+          // v20260711D: data-photo-url 属性で URL を保持、body のイベントデリゲーションで処理
+          // （インライン onclick は変電所レイヤーのcanvas rendererに干渉されて動かない場合があるため）
+          var safeUrl=(url||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
           var caption='地番 '+row.land_number+' / '+(i+1)+'/'+info.photos.length+' 枚目';
-          var safeCap=caption.replace(/'/g,'&#39;').replace(/"/g,'&quot;');
-          popupHtml+='<a href="'+safeUrl+'" onclick="return _openPhotoLightbox(\''+safeUrl+'\',\''+safeCap+'\');" style="text-decoration:none;">'
-            +'<img src="'+safeUrl+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:4px;border:1px solid #d0d7de;display:block;cursor:zoom-in;" loading="lazy">'
+          var safeCap=caption.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+          popupHtml+='<a href="'+safeUrl+'" class="photo-lb-trigger" data-photo-url="'+safeUrl+'" data-photo-caption="'+safeCap+'" style="text-decoration:none;">'
+            +'<img src="'+safeUrl+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:4px;border:1px solid #d0d7de;display:block;cursor:zoom-in;pointer-events:none;" loading="lazy">'
             +'</a>';
         });
         popupHtml+='</div>';
