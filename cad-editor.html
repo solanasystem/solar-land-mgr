@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260711H / 消しゴム半径調整UI改善。モーダル内スライダーからマップ上フロートパネルに変更、消しゴムモード ON 時のみ画面上部中央に表示。マウスホイールでも半径調整可能に。前:v20260711G -->
+<!-- BUILD: cad-editor v20260711I / 消しゴム保存レースコンディション修正。Supabaseからの load 完了前に save がトリガーされ、空配列で既存データを上書きする致命的バグを防ぐ。loaded フラグ導入 + save は loaded=true になるまで発火せず。前:v20260711H -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1399,7 +1399,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711H</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711I</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -7856,6 +7856,7 @@ function _topoPhaseA_clearOverlay() {
 
 window._eraserState = {
   marks: [],
+  loaded: false,          // v20260711I: load 完了フラグ（save は loaded=true になるまで発火しない）
   active: false,
   radius: 3,
   layer: null,
@@ -7871,7 +7872,7 @@ window._eraserState = {
 async function _eraserLoadMarks() {
   const st = window._eraserState;
   if (!currentOverlay || !currentOverlay.id) return;
-  if (st.loadedForOverlayId === currentOverlay.id) return;
+  if (st.loadedForOverlayId === currentOverlay.id && st.loaded) return;
   try {
     const { data, error } = await sb
       .from('overlay_eraser_marks')
@@ -7880,19 +7881,27 @@ async function _eraserLoadMarks() {
       .maybeSingle();
     if (error && error.code !== 'PGRST116') {
       console.warn('[Eraser] load error:', error);
+      // v20260711I: エラー時は loaded を false のままにして save を封じる
       return;
     }
     st.marks = (data && Array.isArray(data.marks)) ? data.marks : [];
     st.loadedForOverlayId = currentOverlay.id;
-    console.log(`[Eraser] loaded ${st.marks.length} marks for overlay ${currentOverlay.id}`);
+    st.loaded = true; // v20260711I: 成功時のみ loaded=true
+    console.log(`[Eraser] loaded ${st.marks.length} marks for overlay ${currentOverlay.id} (loaded=true, save 有効化)`);
     _eraserRender();
   } catch (e) {
     console.warn('[Eraser] load exception:', e);
+    // loaded は false のまま
   }
 }
 
 function _eraserSaveMarks() {
   const st = window._eraserState;
+  // v20260711I: load 完了前は save 発火禁止（空データで既存マークを上書きしてしまうバグ対策）
+  if (!st.loaded) {
+    console.warn('[Eraser] save skipped: not loaded yet (would overwrite existing data)');
+    return;
+  }
   if (!currentOverlay || !currentOverlay.id) return;
   if (st.saveTimer) clearTimeout(st.saveTimer);
   st.saveTimer = setTimeout(async () => {
@@ -7957,6 +7966,14 @@ function _eraserToggle() {
   const btn = document.getElementById('btnEraserToggle');
   if (!currentOverlay || !currentOverlayLayer) {
     showToast('先に下絵をアップロードしてください', 'error', 3000);
+    return;
+  }
+  // v20260711I: load 未完了の場合は消しゴム起動を拒否（既存マーク上書き防止）
+  if (!st.loaded) {
+    showToast('消しゴムマーク読込中...少し待って再試行してください', 'error', 3500);
+    console.warn('[Eraser] toggle blocked: not loaded yet');
+    // 再度 load を試みる
+    _eraserLoadMarks().catch(e => console.warn('[Eraser] retry load failed', e));
     return;
   }
   if (st.active) {
