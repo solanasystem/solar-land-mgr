@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260711F / CAD Sprint 2 Phase A-3.1 バグ修正版。①evalCurvature を書き直し(旧: compactness 判定がW=10で常に isSharp=false 破綻 → 全て R付き扱いで 90°折れが0件)、中心画素の即時8近傍の角度差 vs アームの角度差の比較で判別。②matchTemplate cross 判定緩和(4アームは基本 cross、perpTol検査は撤廃 → complex_4 に落ちる問題を解消)。前:v20260711E -->
+<!-- BUILD: cad-editor v20260711G / CAD Sprint 2 Phase A-4 消しゴム機能追加。ラスター化した下絵の任意領域を人為的に削除する「消しゴム」を追加、削除内容は overlay_eraser_marks テーブルに永続化。座標系は (lat, lng, radius_m) で保存、交点検出時に mask座標に変換して適用。前:v20260711F -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1399,7 +1399,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711F</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711G</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -1586,6 +1586,13 @@
       </button>
       <button class="ribbon-btn" id="btnTopoClear" onclick="_topoPhaseA_clearOverlay()" title="検出結果マーカーを地図上から消去">
         <div class="ribbon-btn-icon">🧹</div><div class="ribbon-btn-label">消去</div>
+      </button>
+      <!-- v20260711G: 消しゴム機能 -->
+      <button class="ribbon-btn" id="btnEraserToggle" onclick="_eraserToggle()" title="下絵から不要な線を人為的に削除する消しゴムモード（削除内容は自動保存）" style="border:1px solid #e53935;">
+        <div class="ribbon-btn-icon">🧽</div><div class="ribbon-btn-label">消しゴム</div>
+      </button>
+      <button class="ribbon-btn" id="btnEraserClear" onclick="_eraserClearAll()" title="全ての消しゴム削除範囲を解除">
+        <div class="ribbon-btn-icon">🗑</div><div class="ribbon-btn-label">全解除</div>
       </button>
     </div>
     <div class="ribbon-group-label">位相再構成</div>
@@ -2075,6 +2082,18 @@
         <input type="range" id="topoPMSize" min="3" max="12" step="1" value="6"
                oninput="document.getElementById('topoPMSizeV').textContent = this.value">
         <span class="topo-param-value" id="topoPMSizeV">6</span>
+      </div>
+
+      <div class="topo-param-row" style="border-top:1px solid #b478ff33;padding-top:8px;margin-top:8px;">
+        <label>🧽 消しゴム半径（m）</label>
+        <input type="range" id="topoPEraserR" min="1" max="20" step="0.5" value="3"
+               oninput="document.getElementById('topoPEraserRV').textContent = parseFloat(this.value).toFixed(1);_eraserUpdateCursorSize();">
+        <span class="topo-param-value" id="topoPEraserRV">3.0</span>
+      </div>
+
+      <div style="font-size:10px;color:var(--text-muted);margin:4px 0 8px 0;">
+        ※ 消しゴムモードを ON にすると、地図上でクリック/ドラッグした領域が削除範囲として記録されます。
+        削除範囲は <b>Supabase に自動保存</b>され、次回セッションでも復元されます。
       </div>
 
       <div class="topo-legend">
@@ -2813,6 +2832,10 @@ function _placeAsTemporaryOverlay(ov) {
   // v20260707e: 保存済み残差の復元
   if (ov.residual_mean_m != null && ov.residual_max_m != null) {
     updateResidualStatus(ov.residual_mean_m, ov.residual_max_m);
+  }
+  // v20260711G: 消しゴム削除範囲を読込（overlay_eraser_marks）
+  if (typeof _eraserLoadMarks === 'function') {
+    _eraserLoadMarks().catch(e => console.warn('[Eraser] load failed', e));
   }
 }
 
@@ -7650,9 +7673,18 @@ async function _topoPhaseA_run() {
     const t1b = performance.now();
     console.log(`[TopoPhaseA] preprocessing: morphOpen=${morphInfo}, removeSmall=${smallCompInfo} (${(t1b - t1).toFixed(0)}ms)`);
 
+    // v20260711G: 消しゴム適用（前処理と細線化の間に挿入）
+    let eraserInfo = 'skip';
+    if (typeof _eraserApplyToMask === 'function' && window._eraserState.marks.length > 0) {
+      const { erasedPx, marks } = _eraserApplyToMask(mask, sourceW, sourceH, width, height);
+      eraserInfo = `${marks}マーク, ${erasedPx.toLocaleString()}px 削除`;
+    }
+    const t1c = performance.now();
+    console.log(`[TopoPhaseA] eraser: ${eraserInfo} (${(t1c - t1b).toFixed(0)}ms)`);
+
     const iters = zhangSuenThinning(mask, width, height);
     const t2 = performance.now();
-    console.log(`[TopoPhaseA] Zhang-Suen iterations=${iters}, thin=${(t2 - t1b).toFixed(0)}ms`);
+    console.log(`[TopoPhaseA] Zhang-Suen iterations=${iters}, thin=${(t2 - t1c).toFixed(0)}ms`);
 
     const { nodes: rawNodes, typeCounts: rawCounts, scannedPx, bfsCalls } = _topoPhaseA_analyzeSkeleton(mask, width, height, params);
     const t3 = performance.now();
@@ -7701,11 +7733,12 @@ async function _topoPhaseA_run() {
       statsEl.innerHTML =
         `<div><b>マスク</b>: ${width}×${height} (元: ${sourceW}×${sourceH})</div>` +
         `<div><b>前処理</b>: morphOpen=${morphInfo} / removeSmall=${smallCompInfo}</div>` +
+        `<div><b>🧽 消しゴム</b>: ${eraserInfo}</div>` +
         `<div><b>骨格画素</b>: ${scannedPx.toLocaleString()} px（thin後）</div>` +
         `<div><b>BFS呼出</b>: ${bfsCalls.toLocaleString()} 回（W=${winR}px）</div>` +
         `<div><b>テンプレート合致</b>: ${rawNodes.length} → <b>統合後</b>: ${nodes.length}</div>` +
         `<div><b>分類</b>: ${typeSummary || '(なし)'}</div>` +
-        `<div><b>処理時間</b>: mask ${(t1 - t0).toFixed(0)}ms / prep ${(t1b - t1).toFixed(0)}ms / thin ${(t2 - t1b).toFixed(0)}ms / analysis ${(t3 - t2).toFixed(0)}ms / merge ${(t3a - t3).toFixed(0)}ms / geo ${(t4 - t3a).toFixed(0)}ms</div>`;
+        `<div><b>処理時間</b>: mask ${(t1 - t0).toFixed(0)}ms / prep ${(t1b - t1).toFixed(0)}ms / eraser ${(t1c - t1b).toFixed(0)}ms / thin ${(t2 - t1c).toFixed(0)}ms / analysis ${(t3 - t2).toFixed(0)}ms / merge ${(t3a - t3).toFixed(0)}ms / geo ${(t4 - t3a).toFixed(0)}ms</div>`;
     }
 
     _topoPhaseA_drawOverlay(markerSize);
@@ -7758,6 +7791,277 @@ function _topoPhaseA_clearOverlay() {
   }
   st.layerGroup = null;
 }
+
+/* ========================================================================
+   v20260711G: 消しゴム機能 START
+   ------------------------------------------------------------------------
+   ラスター化した下絵の任意領域を人為的に削除する消しゴム。
+   削除範囲は (lat, lng, radius_meters) で保存し、overlay_eraser_marks テーブルに
+   永続化する。交点検出時に mask 座標に変換して mask=0 で塗りつぶす。
+   
+   Supabase テーブル（栗本さん側で作成が必要）:
+     CREATE TABLE IF NOT EXISTS overlay_eraser_marks (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       overlay_id UUID NOT NULL REFERENCES overlays(id) ON DELETE CASCADE,
+       organization_id UUID NOT NULL,
+       marks JSONB NOT NULL DEFAULT '[]'::jsonb,
+       created_at TIMESTAMPTZ DEFAULT NOW(),
+       updated_at TIMESTAMPTZ DEFAULT NOW(),
+       updated_by UUID
+     );
+     CREATE UNIQUE INDEX IF NOT EXISTS overlay_eraser_marks_unique
+       ON overlay_eraser_marks(overlay_id);
+   ======================================================================== */
+
+window._eraserState = {
+  marks: [],
+  active: false,
+  radius: 3,
+  layer: null,
+  cursor: null,
+  loadedForOverlayId: null,
+  saveTimer: null,
+  isDragging: false,
+  _mouseMoveHandler: null,
+  _mouseDownHandler: null,
+  _mouseUpHandler: null,
+};
+
+async function _eraserLoadMarks() {
+  const st = window._eraserState;
+  if (!currentOverlay || !currentOverlay.id) return;
+  if (st.loadedForOverlayId === currentOverlay.id) return;
+  try {
+    const { data, error } = await sb
+      .from('overlay_eraser_marks')
+      .select('marks')
+      .eq('overlay_id', currentOverlay.id)
+      .maybeSingle();
+    if (error && error.code !== 'PGRST116') {
+      console.warn('[Eraser] load error:', error);
+      return;
+    }
+    st.marks = (data && Array.isArray(data.marks)) ? data.marks : [];
+    st.loadedForOverlayId = currentOverlay.id;
+    console.log(`[Eraser] loaded ${st.marks.length} marks for overlay ${currentOverlay.id}`);
+    _eraserRender();
+  } catch (e) {
+    console.warn('[Eraser] load exception:', e);
+  }
+}
+
+function _eraserSaveMarks() {
+  const st = window._eraserState;
+  if (!currentOverlay || !currentOverlay.id) return;
+  if (st.saveTimer) clearTimeout(st.saveTimer);
+  st.saveTimer = setTimeout(async () => {
+    try {
+      const orgId = window.__auth?.profile?.organization_id;
+      const userId = window.__auth?.user?.id;
+      if (!orgId) { console.warn('[Eraser] organization_id 未取得'); return; }
+      const payload = {
+        overlay_id: currentOverlay.id,
+        organization_id: orgId,
+        marks: st.marks,
+        updated_at: new Date().toISOString(),
+        updated_by: userId,
+      };
+      const { error } = await sb
+        .from('overlay_eraser_marks')
+        .upsert(payload, { onConflict: 'overlay_id' });
+      if (error) {
+        console.error('[Eraser] save error:', error);
+        showToast('消しゴム保存失敗: ' + error.message, 'error', 4000);
+      } else {
+        console.log(`[Eraser] saved ${st.marks.length} marks`);
+      }
+    } catch (e) {
+      console.error('[Eraser] save exception:', e);
+    }
+  }, 500);
+}
+
+function _eraserRender() {
+  const st = window._eraserState;
+  if (st.layer && map) { try { map.removeLayer(st.layer); } catch(e){} st.layer = null; }
+  if (!map || !st.marks || st.marks.length === 0) return;
+  const lg = L.layerGroup();
+  for (const m of st.marks) {
+    const c = L.circle([m.lat, m.lng], {
+      radius: m.r,
+      color: '#e53935',
+      weight: 1,
+      opacity: 0.7,
+      fillColor: '#e53935',
+      fillOpacity: 0.28,
+      interactive: false,
+    });
+    lg.addLayer(c);
+  }
+  lg.addTo(map);
+  st.layer = lg;
+}
+
+function _eraserUpdateCursorSize() {
+  const rEl = document.getElementById('topoPEraserR');
+  if (rEl) window._eraserState.radius = parseFloat(rEl.value);
+  const st = window._eraserState;
+  if (st.cursor) {
+    try { st.cursor.setRadius(st.radius); } catch(e) {}
+  }
+}
+
+function _eraserToggle() {
+  const st = window._eraserState;
+  const btn = document.getElementById('btnEraserToggle');
+  if (!currentOverlay || !currentOverlayLayer) {
+    showToast('先に下絵をアップロードしてください', 'error', 3000);
+    return;
+  }
+  if (st.active) {
+    _eraserDeactivate();
+    if (btn) btn.style.background = '';
+  } else {
+    _eraserActivate();
+    if (btn) btn.style.background = '#e5393555';
+  }
+}
+
+function _eraserActivate() {
+  const st = window._eraserState;
+  st.active = true;
+  const rEl = document.getElementById('topoPEraserR');
+  if (rEl) st.radius = parseFloat(rEl.value);
+  if (map) {
+    map.dragging.disable();
+    map.getContainer().style.cursor = 'crosshair';
+  }
+  if (!st.cursor && map) {
+    st.cursor = L.circle([0, 0], {
+      radius: st.radius,
+      color: '#e53935',
+      weight: 2,
+      opacity: 0.9,
+      fillColor: '#e53935',
+      fillOpacity: 0.15,
+      interactive: false,
+    });
+    st.cursor.addTo(map);
+  }
+  st._mouseMoveHandler = function(e) {
+    if (st.cursor) st.cursor.setLatLng(e.latlng);
+    if (st.isDragging) {
+      _eraserAddStroke(e.latlng);
+    }
+  };
+  st._mouseDownHandler = function(e) {
+    st.isDragging = true;
+    _eraserAddStroke(e.latlng);
+  };
+  st._mouseUpHandler = function() {
+    if (st.isDragging) {
+      st.isDragging = false;
+      _eraserSaveMarks();
+    }
+  };
+  map.on('mousemove', st._mouseMoveHandler);
+  map.on('mousedown', st._mouseDownHandler);
+  map.on('mouseup', st._mouseUpHandler);
+  showToast('🧽 消しゴムモード ON: ドラッグで削除範囲を追加', 'info', 3500);
+}
+
+function _eraserDeactivate() {
+  const st = window._eraserState;
+  st.active = false;
+  st.isDragging = false;
+  if (map) {
+    map.dragging.enable();
+    map.getContainer().style.cursor = '';
+    if (st._mouseMoveHandler) map.off('mousemove', st._mouseMoveHandler);
+    if (st._mouseDownHandler) map.off('mousedown', st._mouseDownHandler);
+    if (st._mouseUpHandler) map.off('mouseup', st._mouseUpHandler);
+  }
+  if (st.cursor) {
+    try { map.removeLayer(st.cursor); } catch(e) {}
+    st.cursor = null;
+  }
+  st._mouseMoveHandler = null;
+  st._mouseDownHandler = null;
+  st._mouseUpHandler = null;
+  showToast('🧽 消しゴムモード OFF', 'info', 2000);
+}
+
+function _eraserAddStroke(latlng) {
+  const st = window._eraserState;
+  const r = st.radius;
+  const last = st.marks[st.marks.length - 1];
+  if (last) {
+    const dLat = (latlng.lat - last.lat) * 111320;
+    const dLng = (latlng.lng - last.lng) * 111320 * Math.cos(latlng.lat * Math.PI / 180);
+    const dist = Math.sqrt(dLat*dLat + dLng*dLng);
+    if (dist < r * 0.4) return;
+  }
+  st.marks.push({ lat: latlng.lat, lng: latlng.lng, r });
+  _eraserRender();
+}
+
+function _eraserClearAll() {
+  const st = window._eraserState;
+  if (st.marks.length === 0) {
+    showToast('消しゴム削除範囲はありません', 'info', 2000);
+    return;
+  }
+  if (!confirm('全ての消しゴム削除範囲を解除しますか？（' + st.marks.length + '個の削除範囲）')) return;
+  st.marks = [];
+  _eraserRender();
+  _eraserSaveMarks();
+  showToast('消しゴム全解除しました', 'success', 2000);
+}
+
+function _eraserApplyToMask(mask, sourceW, sourceH, maskW, maskH) {
+  const st = window._eraserState;
+  if (!st.marks || st.marks.length === 0) return { erasedPx: 0, marks: 0 };
+  if (!currentOverlay || !currentOverlayLayer) return { erasedPx: 0, marks: 0 };
+  const sx = maskW / sourceW;
+  const sy = maskH / sourceH;
+  let erasedPx = 0;
+  for (const m of st.marks) {
+    const center = mapPointToImagePixel({ lat: m.lat, lng: m.lng }, currentOverlayLayer, currentOverlay);
+    if (!center) continue;
+    const north = mapPointToImagePixel(
+      { lat: m.lat + m.r / 111320, lng: m.lng },
+      currentOverlayLayer, currentOverlay
+    );
+    if (!north) continue;
+    const rSrcPx = Math.hypot(north.x - center.x, north.y - center.y);
+    const cxMask = center.x * sx;
+    const cyMask = center.y * sy;
+    const rMask = Math.max(1, rSrcPx * sx);
+    const rMask2 = rMask * rMask;
+    const x0 = Math.max(0, Math.floor(cxMask - rMask));
+    const x1 = Math.min(maskW - 1, Math.ceil(cxMask + rMask));
+    const y0 = Math.max(0, Math.floor(cyMask - rMask));
+    const y1 = Math.min(maskH - 1, Math.ceil(cyMask + rMask));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const dx = x - cxMask, dy = y - cyMask;
+        if (dx*dx + dy*dy <= rMask2) {
+          const idx = y * maskW + x;
+          if (mask[idx] === 1) {
+            mask[idx] = 0;
+            erasedPx++;
+          }
+        }
+      }
+    }
+  }
+  return { erasedPx, marks: st.marks.length };
+}
+
+/* ========================================================================
+   v20260711G: 消しゴム機能 END
+   ======================================================================== */
+
 
 /* ========================================================================
    v20260711E: Sprint 2 Phase A-3 位相再構成モジュール END
