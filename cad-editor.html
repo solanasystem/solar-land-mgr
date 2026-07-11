@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260711K / 二重線一本化(spine extraction)を追加。Potraceが出力する閉じたthin loopから曲率解析で両端の折り返しを検出、2辺を弧長ペアリングで中心線(medial axis)を抽出。地番境界を単線化してその後の交点検出を幾何学的に厳密にできるようにする本命機能。前:v20260711J -->
+<!-- BUILD: cad-editor v20260711L / 点抽出 (幾何演算)。Potraceで得た二重線ベクター(そのまま単線化しない)から、①全線分同士の交点、②曲率解析でフィレット/R曲、を幾何学的に抽出する。二重線ペアの集約はクラスタリング半径で対処。点群のみ出力、線引きは次段(v20260711M以降)でラスターをガイドに実施。前:v20260711J -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1399,7 +1399,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711K</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260711L</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -1574,9 +1574,12 @@
       <button class="ribbon-btn" id="btnPotrace" onclick="openPotraceDialog()" title="Potrace: 輪郭ベースの自動ベクター化。SVG/DXF/GeoJSON 出力対応" style="border:1px solid var(--accent);">
         <div class="ribbon-btn-icon">🪄</div><div class="ribbon-btn-label">Potrace</div>
       </button>
-      <!-- v20260711K: 二重線一本化 -->
-      <button class="ribbon-btn" id="btnDoubleLineMerge" onclick="_dlMergeOpenModal()" title="Potrace 出力の閉じた thin loop から中心線(medial axis)を抽出して単線化" style="border:1px solid #ff8800;">
-        <div class="ribbon-btn-icon">🔗</div><div class="ribbon-btn-label">二重線一本化</div>
+      <!-- v20260711L: 点抽出 (幾何演算) -->
+      <button class="ribbon-btn" id="btnPointExtract" onclick="_peOpenModal()" title="Potrace 二重線から幾何演算で全交点とフィレット/R曲を抽出" style="border:1px solid #ff8800;">
+        <div class="ribbon-btn-icon">🎯</div><div class="ribbon-btn-label">点抽出</div>
+      </button>
+      <button class="ribbon-btn" id="btnPointClear" onclick="_peClearPoints()" title="抽出された点を地図上から消去">
+        <div class="ribbon-btn-icon">🧹</div><div class="ribbon-btn-label">点消去</div>
       </button>
     </div>
     <div class="ribbon-group-label">自動ベクター化</div>
@@ -2017,59 +2020,72 @@
   </div>
 </div>
 
-<!-- ===== v20260711K: 二重線一本化モーダル ===== -->
-<div id="doubleLineModal" class="line-extract-modal">
-  <div class="line-extract-panel" style="max-width:640px;">
+<!-- ===== v20260711L: 点抽出モーダル ===== -->
+<div id="pointExtractModal" class="line-extract-modal">
+  <div class="line-extract-panel" style="max-width:680px;">
     <div class="line-extract-header">
       <div>
-        <div class="line-extract-title">🔗 二重線一本化（medial axis 抽出）</div>
-        <div class="line-extract-info" id="dlMergeSourceInfo">対象: -</div>
+        <div class="line-extract-title">🎯 点抽出（幾何演算・二重線対応）</div>
+        <div class="line-extract-info" id="peSourceInfo">対象: -</div>
       </div>
-      <button class="line-extract-btn" onclick="_dlMergeCloseModal()">✕</button>
+      <button class="line-extract-btn" onclick="_peCloseModal()">✕</button>
     </div>
     <div class="line-extract-body">
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;line-height:1.5;">
-        処理: <b style="color:#ff8800;">Potrace の閉じた thin loop → 曲率解析で両端の折り返し検出 → 2辺を弧長ペアリング → 中点を連結 → 中心線出力</b><br>
-        地番境界の二重線を単線化することで、その後の交点検出を幾何学的に厳密にできます。
+        処理: <b style="color:#ff8800;">Potrace 二重線ベクター → 全線分交点(線分×線分の交差判定) + フィレット/R曲(曲率解析) → クラスタリング → 点群</b><br>
+        単線化はしない。二重線ペアの重複はクラスタリング半径で1点に集約。
       </div>
 
       <div class="topo-param-row">
-        <label>最大線幅 (px、これより太い loop は thin line 扱いしない)</label>
-        <input type="range" id="dlMergeMaxWidth" min="2" max="30" step="1" value="10"
-               oninput="document.getElementById('dlMergeMaxWidthV').textContent = this.value">
-        <span class="topo-param-value" id="dlMergeMaxWidthV">10</span>
+        <label>【交点】クラスタリング半径 (元画像px、二重線ペアの集約用)</label>
+        <input type="range" id="peClusterR" min="1" max="50" step="1" value="10"
+               oninput="document.getElementById('peClusterRV').textContent = this.value">
+        <span class="topo-param-value" id="peClusterRV">10</span>
+      </div>
+      <div style="font-size:10px;color:var(--text-muted);margin:2px 0 8px 0;">
+        ※ 半径以内の交点は 1 点に統合。二重線の間隔(通常 2〜8 px)より大きく、隣接する別交点までの距離より小さい値。
       </div>
 
       <div class="topo-param-row">
-        <label>最小 spine 長さ (頂点数)</label>
-        <input type="range" id="dlMergeMinLen" min="2" max="30" step="1" value="5"
-               oninput="document.getElementById('dlMergeMinLenV').textContent = this.value">
-        <span class="topo-param-value" id="dlMergeMinLenV">5</span>
+        <label>【フィレット】曲率検出角度閾値 (°)</label>
+        <input type="range" id="peFilletAng" min="5" max="60" step="1" value="15"
+               oninput="document.getElementById('peFilletAngV').textContent = this.value">
+        <span class="topo-param-value" id="peFilletAngV">15</span>
+      </div>
+      <div style="font-size:10px;color:var(--text-muted);margin:2px 0 8px 0;">
+        ※ 連続 3+ 頂点で毎回この角度以上曲がる部分をフィレット/R曲として検出。90°折れは含まない (それは交点扱い)。
       </div>
 
       <div class="topo-param-row">
-        <label>中心線の色</label>
-        <input type="color" id="dlMergeSpineColor" value="#ff6b00" style="width:60px;height:24px;">
+        <label>【フィレット】最小連続頂点数 (これ未満なら曲率検出しない)</label>
+        <input type="range" id="peFilletMin" min="2" max="10" step="1" value="3"
+               oninput="document.getElementById('peFilletMinV').textContent = this.value">
+        <span class="topo-param-value" id="peFilletMinV">3</span>
       </div>
 
       <div class="topo-param-row">
-        <label>
-          <input type="checkbox" id="dlMergeRemoveOrig">
-          元の Potrace 図形を非表示にする（結果比較用、削除ではない）
-        </label>
+        <label>マーカーサイズ (px)</label>
+        <input type="range" id="peMSize" min="3" max="12" step="1" value="5"
+               oninput="document.getElementById('peMSizeV').textContent = this.value">
+        <span class="topo-param-value" id="peMSizeV">5</span>
+      </div>
+
+      <div style="display:flex;gap:16px;font-size:11px;margin:8px 0;">
+        <div><span style="display:inline-block;width:10px;height:10px;background:#e53935;border-radius:50%;border:1px solid #000;"></span> 交点</div>
+        <div><span style="display:inline-block;width:10px;height:10px;background:#1e88e5;border-radius:50%;border:1px solid #000;"></span> フィレット/R曲</div>
       </div>
 
       <div style="font-size:10px;color:var(--text-muted);margin:8px 0;">
         ※ 対象は「Potrace で生成された閉じたポリゴン」のみ。Potrace を先に実行しておいてください。
       </div>
 
-      <div class="topo-stats" id="dlMergeStats" style="display:none;"></div>
+      <div class="topo-stats" id="peStats" style="display:none;"></div>
     </div>
     <div class="line-extract-footer">
-      <button class="line-extract-btn" onclick="_dlMergeCloseModal()">閉じる</button>
+      <button class="line-extract-btn" onclick="_peCloseModal()">閉じる</button>
       <div style="flex:1"></div>
-      <button class="line-extract-btn" onclick="_dlMergeClearSpines()">中心線消去</button>
-      <button class="line-extract-btn primary" onclick="_dlMergeRun()">▶ 実行</button>
+      <button class="line-extract-btn" onclick="_peClearPoints()">点消去</button>
+      <button class="line-extract-btn primary" onclick="_peRun()">▶ 実行</button>
     </div>
   </div>
 </div>
@@ -8262,82 +8278,74 @@ function _eraserApplyToMask(mask, sourceW, sourceH, maskW, maskH) {
 
 
 /* ========================================================================
-   v20260711K: 二重線一本化 (medial axis extraction) START
+   v20260711L: 点抽出 (幾何演算・二重線対応) START
    ------------------------------------------------------------------------
-   Potrace が出力する閉じた thin loop（線を輪郭として追跡した結果 = 二重線）
-   から曲率解析で両端の折り返しを検出、2辺を弧長ペアリングして中点を連結、
-   中心線 (spine / medial axis) を抽出する。
+   入力: Potrace が生成したマップ上の閉じたポリゴン (二重線ベクター)
+   処理:
+     A) 全ポリゴンから線分を抽出
+     B) 全線分ペアの交差判定 (パラメトリック線分交差)
+     C) 交点をクラスタリング (二重線ペアの集約)
+     D) 頂点列の曲率解析でフィレット/R曲を検出
+   出力: 交点マーカー + フィレット/R曲マーカー
    
-   結果は独立した layerGroup として表示。オリジナルの Potrace 図形とは分離管理。
-   その後の交点検出は、この中心線群に対して幾何学的に厳密な線分交差計算で行える。
+   単線化はしない。線分を「そのまま」使う。次段 (v20260711M以降) で
+   点と点を線で結ぶ処理をラスターガイド付きで実装する予定。
    ======================================================================== */
 
-window._dlMergeState = {
-  spineLayer: null,       // Leaflet layerGroup for spine visualization
-  spines: [],             // 抽出された spine の配列 [{latlngs}]
-  hiddenShapes: [],       // 非表示にした元 Potrace 図形（復元用）
+window._peState = {
+  pointLayer: null,
+  points: [],
+  lastResult: null,
 };
 
-function _dlMergeOpenModal() {
-  const m = document.getElementById('doubleLineModal');
-  if (!m) { showToast('二重線モーダル要素なし', 'error'); return; }
+function _peOpenModal() {
+  const m = document.getElementById('pointExtractModal');
+  if (!m) { showToast('点抽出モーダル要素なし', 'error'); return; }
   m.style.display = 'flex';
-  // 対象カウント
-  let potraceCount = 0;
+  let count = 0;
   if (typeof shapesGroup !== 'undefined' && shapesGroup) {
     shapesGroup.eachLayer(l => {
       const src = l._shapeData?.properties?.source;
-      if (src === 'potrace' && l instanceof L.Polygon) potraceCount++;
+      if (src === 'potrace' && l instanceof L.Polygon) count++;
     });
   }
-  const info = document.getElementById('dlMergeSourceInfo');
+  const info = document.getElementById('peSourceInfo');
   if (info) {
-    if (potraceCount === 0) {
+    if (count === 0) {
       info.innerHTML = '<span style="color:#ff6b6b;">⚠ Potrace 由来の閉じたポリゴンがマップ上に見つかりません。先に「🪄 Potrace」→「🔀 画層へ追加」でベクター化してください。</span>';
     } else {
-      info.textContent = `対象: マップ上の Potrace 由来ポリゴン ${potraceCount} 件`;
+      info.textContent = `対象: マップ上の Potrace 由来ポリゴン ${count} 件`;
     }
   }
 }
 
-function _dlMergeCloseModal() {
-  const m = document.getElementById('doubleLineModal');
+function _peCloseModal() {
+  const m = document.getElementById('pointExtractModal');
   if (m) m.style.display = 'none';
 }
 
-function _dlMergeClearSpines() {
-  const st = window._dlMergeState;
-  if (st.spineLayer && map) { try { map.removeLayer(st.spineLayer); } catch(e){} }
-  st.spineLayer = null;
-  st.spines = [];
-  // 非表示にしていた元 Potrace 図形を復元
-  for (const s of st.hiddenShapes) {
-    try { if (map && !map.hasLayer(s)) shapesGroup.addLayer(s); } catch(e){}
-  }
-  st.hiddenShapes = [];
-  showToast('中心線を消去、元図形を復元しました', 'success', 2000);
+function _peClearPoints() {
+  const st = window._peState;
+  if (st.pointLayer && map) { try { map.removeLayer(st.pointLayer); } catch(e){} }
+  st.pointLayer = null;
+  st.points = [];
+  showToast('抽出点を消去しました', 'success', 2000);
 }
 
-async function _dlMergeRun() {
-  const st = window._dlMergeState;
+async function _peRun() {
+  const st = window._peState;
   if (!currentOverlay || !currentOverlayLayer) {
     showToast('先に下絵をアップロードしてください', 'error', 3000);
     return;
   }
-  const maxWidthPx = parseInt(document.getElementById('dlMergeMaxWidth').value);
-  const minSpineLen = parseInt(document.getElementById('dlMergeMinLen').value);
-  const spineColor = document.getElementById('dlMergeSpineColor').value || '#ff6b00';
-  const removeOriginals = document.getElementById('dlMergeRemoveOrig').checked;
+  const clusterR = parseFloat(document.getElementById('peClusterR').value);
+  const filletAng = parseFloat(document.getElementById('peFilletAng').value);
+  const filletMin = parseInt(document.getElementById('peFilletMin').value);
+  const markerSize = parseFloat(document.getElementById('peMSize').value);
 
-  // 元 spine を消去
-  if (st.spineLayer && map) { try { map.removeLayer(st.spineLayer); } catch(e){} }
-  st.spineLayer = null;
-  st.spines = [];
-  // 過去の非表示を復元してから新規処理
-  for (const s of st.hiddenShapes) {
-    try { if (!map.hasLayer(s)) shapesGroup.addLayer(s); } catch(e){}
-  }
-  st.hiddenShapes = [];
+  // 既存点消去
+  if (st.pointLayer && map) { try { map.removeLayer(st.pointLayer); } catch(e){} }
+  st.pointLayer = null;
 
   // Potrace 由来ポリゴンを集める
   const targets = [];
@@ -8353,159 +8361,281 @@ async function _dlMergeRun() {
   }
 
   const t0 = performance.now();
-  const spines = [];
-  let processedCount = 0;
-  let skippedThinFail = 0;
-  let skippedShort = 0;
-  let skippedGeom = 0;
-  const widths = [];
 
+  // ---------- A) 各ポリゴンの緯度経度 → 画像ピクセル座標 → 線分抽出 ----------
+  // 同時にポリゴン単位の頂点列も保存(フィレット検出用)
+  const polygons = [];  // [{id, vertices: [{x,y}, ...]}]
+  const segments = []; // {x1,y1,x2,y2,polyId}
+  let polyIdCounter = 0;
   for (const shape of targets) {
     let latlngRing;
     try {
       latlngRing = shape.getLatLngs();
       if (Array.isArray(latlngRing[0])) latlngRing = latlngRing[0];
-    } catch(e) { skippedGeom++; continue; }
-    if (!latlngRing || latlngRing.length < 6) { skippedShort++; continue; }
-    // 緯度経度 → 画像ピクセル
+    } catch(e) { continue; }
+    if (!latlngRing || latlngRing.length < 3) continue;
     const vertices = [];
     for (const ll of latlngRing) {
       const px = mapPointToImagePixel(ll, currentOverlayLayer, currentOverlay);
       if (!px) continue;
       vertices.push(px);
     }
-    if (vertices.length < 6) { skippedGeom++; continue; }
-
-    const result = _dlMergeExtractSpine(vertices, maxWidthPx);
-    if (!result) { skippedThinFail++; continue; }
-    if (result.spine.length < minSpineLen) { skippedShort++; continue; }
-
-    widths.push(result.avgWidth);
-
-    // spine（画像ピクセル）→ 緯度経度
-    const spineLatLngs = result.spine.map(p =>
-      imagePixelToLatLng(p.x, p.y, currentOverlayLayer, currentOverlay.source_width_px, currentOverlay.source_height_px)
-    );
-    spines.push({ latlngs: spineLatLngs, sourceShape: shape });
-    processedCount++;
-
-    if (removeOriginals) {
-      try { shapesGroup.removeLayer(shape); st.hiddenShapes.push(shape); } catch(e){}
+    if (vertices.length < 3) continue;
+    const polyId = polyIdCounter++;
+    polygons.push({ id: polyId, vertices });
+    // 閉ループとして線分化
+    for (let i = 0; i < vertices.length; i++) {
+      const j = (i + 1) % vertices.length;
+      segments.push({
+        x1: vertices[i].x, y1: vertices[i].y,
+        x2: vertices[j].x, y2: vertices[j].y,
+        polyId,
+        localIdx: i,
+      });
     }
   }
   const t1 = performance.now();
 
-  // 表示
+  // ---------- B) 空間インデックス + 線分ペア交差判定 ----------
+  const spatialIdx = _peBuildSpatialIndex(segments, 40);
+  const rawIntersections = _peComputeIntersections(segments, spatialIdx);
+  const t2 = performance.now();
+
+  // ---------- C) 交点クラスタリング (二重線ペアの集約) ----------
+  const clusteredIntersections = _peClusterPoints(rawIntersections, clusterR);
+  const t3 = performance.now();
+
+  // ---------- D) フィレット/R曲検出 (曲率解析) ----------
+  const fillets = _peDetectFillets(polygons, filletAng, filletMin);
+  // フィレットもクラスタリング (二重線の対応するフィレットは並列に出る)
+  const clusteredFillets = _peClusterPoints(fillets, clusterR);
+  const t4 = performance.now();
+
+  // ---------- E) 表示 ----------
   const lg = L.layerGroup();
-  for (const sp of spines) {
-    const line = L.polyline(sp.latlngs, {
-      color: spineColor,
-      weight: 2,
+  const totalPoints = [];
+
+  for (const p of clusteredIntersections) {
+    const ll = imagePixelToLatLng(p.x, p.y, currentOverlayLayer, currentOverlay.source_width_px, currentOverlay.source_height_px);
+    const marker = L.circleMarker([ll.lat, ll.lng], {
+      radius: markerSize,
+      fillColor: '#e53935',
+      color: '#000',
+      weight: 1,
       opacity: 1,
-      interactive: false,
+      fillOpacity: 0.9,
     });
-    lg.addLayer(line);
+    marker.bindTooltip(`交点 (集約 ${p.count} 個, px=[${p.x.toFixed(0)},${p.y.toFixed(0)}])`, { sticky: true });
+    lg.addLayer(marker);
+    totalPoints.push({ type: 'intersection', lat: ll.lat, lng: ll.lng, x: p.x, y: p.y, count: p.count });
+  }
+  for (const p of clusteredFillets) {
+    const ll = imagePixelToLatLng(p.x, p.y, currentOverlayLayer, currentOverlay.source_width_px, currentOverlay.source_height_px);
+    const marker = L.circleMarker([ll.lat, ll.lng], {
+      radius: markerSize,
+      fillColor: '#1e88e5',
+      color: '#000',
+      weight: 1,
+      opacity: 1,
+      fillOpacity: 0.9,
+    });
+    marker.bindTooltip(`フィレット/R曲 (集約 ${p.count} 個, px=[${p.x.toFixed(0)},${p.y.toFixed(0)}])`, { sticky: true });
+    lg.addLayer(marker);
+    totalPoints.push({ type: 'fillet', lat: ll.lat, lng: ll.lng, x: p.x, y: p.y, count: p.count });
   }
   lg.addTo(map);
-  st.spineLayer = lg;
-  st.spines = spines;
+  st.pointLayer = lg;
+  st.points = totalPoints;
 
-  const avgWidthAll = widths.length > 0 ? (widths.reduce((s, w) => s + w, 0) / widths.length).toFixed(2) : '-';
-  const statsEl = document.getElementById('dlMergeStats');
+  // ---------- F) 統計表示 ----------
+  const t5 = performance.now();
+  const statsEl = document.getElementById('peStats');
   if (statsEl) {
     statsEl.style.display = 'block';
     statsEl.innerHTML =
-      `<div><b>処理対象</b>: ${targets.length} ポリゴン</div>` +
-      `<div><b>Spine 抽出成功</b>: ${processedCount}</div>` +
-      `<div><b>スキップ内訳</b>: 太すぎ=${skippedThinFail} / 短すぎ=${skippedShort} / 幾何=${skippedGeom}</div>` +
-      `<div><b>平均線幅</b>: ${avgWidthAll} px (元画像座標)</div>` +
-      `<div><b>処理時間</b>: ${(t1 - t0).toFixed(0)}ms</div>`;
+      `<div><b>入力</b>: ${targets.length} ポリゴン / ${segments.length.toLocaleString()} 線分</div>` +
+      `<div><b>交点 raw</b>: ${rawIntersections.length.toLocaleString()} → <b>クラスタ後</b>: ${clusteredIntersections.length}</div>` +
+      `<div><b>フィレット raw</b>: ${fillets.length} → <b>クラスタ後</b>: ${clusteredFillets.length}</div>` +
+      `<div><b>クラスタ半径</b>: ${clusterR} px (元画像座標)</div>` +
+      `<div><b>処理時間</b>: 線分化 ${(t1 - t0).toFixed(0)}ms / 交差 ${(t2 - t1).toFixed(0)}ms / cluster ${(t3 - t2).toFixed(0)}ms / フィレット ${(t4 - t3).toFixed(0)}ms / 表示 ${(t5 - t4).toFixed(0)}ms</div>`;
   }
-  console.log(`[DLMerge] processed=${processedCount}, skipped=${skippedThinFail + skippedShort + skippedGeom} (thin=${skippedThinFail}, short=${skippedShort}, geom=${skippedGeom}), avgWidth=${avgWidthAll}px, time=${(t1-t0).toFixed(0)}ms`);
-  showToast(`二重線一本化: ${processedCount} 中心線抽出 (スキップ ${skippedThinFail + skippedShort + skippedGeom})`, 'success', 5000);
+  console.log(`[PointExtract] segments=${segments.length}, raw_intersections=${rawIntersections.length}, clustered=${clusteredIntersections.length}, fillets_raw=${fillets.length}, fillets_clustered=${clusteredFillets.length}, time=${(t5-t0).toFixed(0)}ms`);
+  showToast(`点抽出完了: 交点 ${clusteredIntersections.length} + フィレット ${clusteredFillets.length} = ${totalPoints.length} 点`, 'success', 5000);
+  st.lastResult = { segments, rawIntersections, clusteredIntersections, fillets, clusteredFillets };
 }
 
-// ---------- Spine extraction: 曲率解析 → 2辺分割 → 弧長ペアリング → 中点連結 ----------
-function _dlMergeExtractSpine(vertices, maxWidthPx) {
-  const N = vertices.length;
-  if (N < 6) return null;
-
-  // Step 1: 各頂点の曲率（前後方向の角度差）
-  const curvatures = new Array(N);
-  for (let i = 0; i < N; i++) {
-    const prev = vertices[(i - 1 + N) % N];
-    const curr = vertices[i];
-    const next = vertices[(i + 1) % N];
-    const angA = Math.atan2(curr.y - prev.y, curr.x - prev.x);
-    const angB = Math.atan2(next.y - curr.y, next.x - curr.x);
-    let diff = Math.abs(angB - angA);
-    if (diff > Math.PI) diff = 2 * Math.PI - diff;
-    curvatures[i] = diff;
+// ---------- 空間インデックス (grid-based) ----------
+function _peBuildSpatialIndex(segments, cellSize) {
+  const idx = new Map();
+  for (let s = 0; s < segments.length; s++) {
+    const seg = segments[s];
+    const x0 = Math.min(seg.x1, seg.x2), x1 = Math.max(seg.x1, seg.x2);
+    const y0 = Math.min(seg.y1, seg.y2), y1 = Math.max(seg.y1, seg.y2);
+    const cx0 = Math.floor(x0 / cellSize), cx1 = Math.floor(x1 / cellSize);
+    const cy0 = Math.floor(y0 / cellSize), cy1 = Math.floor(y1 / cellSize);
+    for (let cx = cx0; cx <= cx1; cx++) {
+      for (let cy = cy0; cy <= cy1; cy++) {
+        const key = cx + ',' + cy;
+        if (!idx.has(key)) idx.set(key, []);
+        idx.get(key).push(s);
+      }
+    }
   }
+  return { idx, cellSize };
+}
 
-  // Step 2: 最も高い曲率の 2 点、少なくとも N/4 離れている
-  const sorted = curvatures.map((c, i) => ({ c, i })).sort((a, b) => b.c - a.c);
-  const turn1 = sorted[0].i;
-  let turn2 = -1;
-  const minSep = Math.max(3, Math.floor(N / 4));
-  for (let k = 1; k < sorted.length; k++) {
-    const s = sorted[k];
-    const dist = Math.min(Math.abs(s.i - turn1), N - Math.abs(s.i - turn1));
-    if (dist >= minSep) { turn2 = s.i; break; }
+// ---------- 線分交差判定 (パラメトリック) ----------
+// 戻り値: {x, y} または null
+function _peSegSegIntersect(a, b) {
+  const x1 = a.x1, y1 = a.y1, x2 = a.x2, y2 = a.y2;
+  const x3 = b.x1, y3 = b.y1, x4 = b.x2, y4 = b.y2;
+  const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  if (Math.abs(den) < 1e-9) return null; // parallel
+  const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;
+  const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / den;
+  const eps = 1e-6;
+  if (t < -eps || t > 1 + eps || u < -eps || u > 1 + eps) return null;
+  return { x: x1 + t * (x2 - x1), y: y1 + t * (y2 - y1) };
+}
+
+// ---------- 全線分ペアの交差計算 (空間インデックス利用) ----------
+function _peComputeIntersections(segments, spatialIdx) {
+  const intersections = [];
+  const seen = new Set(); // "min-max" pair key
+  for (const [key, list] of spatialIdx.idx.entries()) {
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const si = list[i], sj = list[j];
+        const pairKey = si < sj ? (si + '-' + sj) : (sj + '-' + si);
+        if (seen.has(pairKey)) continue;
+        seen.add(pairKey);
+        const a = segments[si], b = segments[sj];
+        // 同じポリゴンの連続する線分はスキップ (共有端点なので交差扱いしない)
+        if (a.polyId === b.polyId) {
+          const nA = segments.filter(s => s.polyId === a.polyId).length; // ダサいが仮
+          // 単純化: 同じポリゴンの隣接線分は skip
+          if (Math.abs(a.localIdx - b.localIdx) <= 1 ||
+              Math.abs(a.localIdx - b.localIdx) === nA - 1) continue;
+        }
+        const p = _peSegSegIntersect(a, b);
+        if (p) intersections.push({ x: p.x, y: p.y, segA: si, segB: sj });
+      }
+    }
   }
-  if (turn2 === -1) return null;
+  return intersections;
+}
 
-  // Step 3: ループを 2 側に分割
-  //   sideA: turn1 → turn2 を forward (i++)
-  //   sideB: turn1 → turn2 を backward (i--)
-  const sideA = [];
-  let i = turn1;
-  let safety = N + 2;
-  while (safety-- > 0) {
-    sideA.push(vertices[i]);
-    if (i === turn2) break;
-    i = (i + 1) % N;
+// ---------- 点群クラスタリング (grid-based single-linkage) ----------
+function _peClusterPoints(points, radius) {
+  if (points.length === 0) return [];
+  const cellSize = Math.max(radius, 1);
+  const buckets = new Map();
+  for (let i = 0; i < points.length; i++) {
+    const cx = Math.floor(points[i].x / cellSize);
+    const cy = Math.floor(points[i].y / cellSize);
+    const key = cx + ',' + cy;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(i);
   }
-  const sideB = [];
-  i = turn1;
-  safety = N + 2;
-  while (safety-- > 0) {
-    sideB.push(vertices[i]);
-    if (i === turn2) break;
-    i = (i - 1 + N) % N;
+  const used = new Array(points.length).fill(false);
+  const clusters = [];
+  const r2 = radius * radius;
+  for (let i = 0; i < points.length; i++) {
+    if (used[i]) continue;
+    used[i] = true;
+    const cluster = [i];
+    const stack = [i];
+    while (stack.length > 0) {
+      const cur = stack.pop();
+      const p = points[cur];
+      const cx = Math.floor(p.x / cellSize);
+      const cy = Math.floor(p.y / cellSize);
+      for (let dcy = -1; dcy <= 1; dcy++) {
+        for (let dcx = -1; dcx <= 1; dcx++) {
+          const key = (cx + dcx) + ',' + (cy + dcy);
+          const bucket = buckets.get(key);
+          if (!bucket) continue;
+          for (const j of bucket) {
+            if (used[j]) continue;
+            const dx = p.x - points[j].x;
+            const dy = p.y - points[j].y;
+            if (dx * dx + dy * dy <= r2) {
+              used[j] = true;
+              cluster.push(j);
+              stack.push(j);
+            }
+          }
+        }
+      }
+    }
+    let sumX = 0, sumY = 0;
+    for (const k of cluster) { sumX += points[k].x; sumY += points[k].y; }
+    clusters.push({
+      x: sumX / cluster.length,
+      y: sumY / cluster.length,
+      count: cluster.length,
+    });
   }
-  if (sideA.length < 2 || sideB.length < 2) return null;
+  return clusters;
+}
 
-  // Step 4: 弧長パラメトリックでペアリング、中点計算
-  const NA = sideA.length;
-  const NB = sideB.length;
-  const M = Math.max(NA, NB);
-  const spine = [];
-  let totalWidth = 0;
-  let widthCount = 0;
-  for (let k = 0; k < M; k++) {
-    const t = k / (M - 1);
-    const kA = Math.min(NA - 1, Math.round(t * (NA - 1)));
-    const kB = Math.min(NB - 1, Math.round(t * (NB - 1)));
-    const a = sideA[kA];
-    const b = sideB[kB];
-    const dx = a.x - b.x;
-    const dy = a.y - b.y;
-    const width = Math.hypot(dx, dy);
-    totalWidth += width;
-    widthCount++;
-    spine.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+// ---------- フィレット/R曲検出 (曲率解析) ----------
+// 各ポリゴンの頂点列を走査、連続する頂点で角度が閾値以上曲がっている部分を
+// 「1 つのフィレット」として抽出。単一の急な折れ (90°折れ) は除外。
+function _peDetectFillets(polygons, angleThresholdDeg, minRunLen) {
+  const fillets = [];
+  const angRadThr = angleThresholdDeg * Math.PI / 180;
+  for (const poly of polygons) {
+    const V = poly.vertices;
+    const N = V.length;
+    if (N < minRunLen + 2) continue;
+    // 各頂点の折れ角を計算
+    const bends = new Array(N);
+    for (let i = 0; i < N; i++) {
+      const prev = V[(i - 1 + N) % N];
+      const curr = V[i];
+      const next = V[(i + 1) % N];
+      const angA = Math.atan2(curr.y - prev.y, curr.x - prev.x);
+      const angB = Math.atan2(next.y - curr.y, next.x - curr.x);
+      let diff = angB - angA;
+      while (diff > Math.PI) diff -= 2 * Math.PI;
+      while (diff < -Math.PI) diff += 2 * Math.PI;
+      bends[i] = diff;
+    }
+    // 「連続して同方向に曲がる区間」を検出
+    let i = 0;
+    while (i < N) {
+      const bi = bends[i];
+      if (Math.abs(bi) < angRadThr) { i++; continue; }
+      // 開始点 i、方向 sign(bi)
+      const sign = Math.sign(bi);
+      let j = i;
+      let sumX = 0, sumY = 0, count = 0;
+      let sharpBendCount = 0; // 急折れ (90°以上) の数
+      while (j < N) {
+        const bj = bends[j];
+        if (Math.abs(bj) < angRadThr / 2) break;
+        if (Math.sign(bj) !== sign && Math.abs(bj) > angRadThr) break;
+        // 90° 以上の急折れは fillet ではなく交点扱い、集計に含めるが後で除外
+        if (Math.abs(bj) > Math.PI / 2 * 0.8) sharpBendCount++;
+        sumX += V[j].x;
+        sumY += V[j].y;
+        count++;
+        j++;
+      }
+      const runLen = j - i;
+      // 十分な長さがあり、急折れが半分未満なら fillet として採用
+      if (runLen >= minRunLen && sharpBendCount < runLen / 2) {
+        fillets.push({ x: sumX / count, y: sumY / count, runLen });
+      }
+      i = j;
+    }
   }
-  const avgWidth = widthCount > 0 ? totalWidth / widthCount : 0;
-
-  // Step 5: 線幅チェック（太すぎたら thin loop ではない）
-  if (avgWidth > maxWidthPx) return null;
-
-  return { spine, avgWidth };
+  return fillets;
 }
 
 /* ========================================================================
-   v20260711K: 二重線一本化 END
+   v20260711L: 点抽出 END
    ======================================================================== */
 
 
