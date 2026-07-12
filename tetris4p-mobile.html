@@ -649,8 +649,11 @@ function handleMessage(msg, conn){
       startGame();
       break;
     case 'state':
-      // Player state update from someone
-      GAME.states[msg.id] = msg.state;
+      // Player state update from someone. Deserialize from wire format to full object.
+      if(msg.state){
+        try { GAME.states[msg.id] = deserializeState(msg.state); }
+        catch(e){ console.warn('bad state', e, msg); }
+      }
       if(NET.isHost) relayToOtherGuests(msg, conn);
       break;
     case 'sync':
@@ -666,7 +669,20 @@ function handleMessage(msg, conn){
       break;
     case 'result':
       NET.players = msg.players;
-      GAME.states = msg.states;
+      if(msg.states){
+        const newStates = {};
+        for(const id in msg.states){
+          const s = msg.states[id];
+          // short form (from network) has .b; long form has .board
+          if(s && typeof s.b === 'string'){
+            try { newStates[id] = deserializeState(s); }
+            catch(e){ newStates[id] = s; }
+          } else {
+            newStates[id] = s;
+          }
+        }
+        GAME.states = newStates;
+      }
       showResult(msg.winnerId);
       break;
   }
@@ -1083,8 +1099,8 @@ function loop(now){
   // periodic state broadcast in case nothing changed
   if(now - GAME.lastBroadcast > 300) broadcastMyState();
 
-  render(now);
-  updateHUD(now);
+  try { render(now); } catch(e){ console.warn('render error', e); }
+  try { updateHUD(now); } catch(e){ console.warn('hud error', e); }
 
   const alive = countAlive();
   if(alive <= 1){
@@ -1137,6 +1153,7 @@ function drawCell(ctx, x, y, size, color){
 function drawBoard(ctx, state, cell, w, h, drawGhost=false){
   ctx.fillStyle = '#050110';
   ctx.fillRect(0,0,w,h);
+  if(!state || !state.board) return;
   // grid (subtle)
   if(cell >= 8){
     ctx.strokeStyle = '#241344';
