@@ -273,7 +273,7 @@
 <!-- ============ TITLE ============ -->
 <div class="screen on" id="title-screen">
   <div class="brand">QUAD▪TETRIS</div>
-  <div class="sub">— 4P MOBILE SYNC — <span style="color:var(--gold)">v20260712-4</span></div>
+  <div class="sub">— 4P MOBILE SYNC — <span style="color:var(--gold)">v20260712-5</span></div>
   <button class="big-btn primary" onclick="goCreate()">CREATE ROOM</button>
   <button class="big-btn" onclick="goJoin()">JOIN ROOM</button>
   <div class="footnote">
@@ -391,7 +391,7 @@
 </div>
 
 <div class="toast" id="toast"></div>
-<div class="version-tag">v20260712-4</div>
+<div class="version-tag">v20260712-5</div>
 
 <script>
 // ============================================================
@@ -826,7 +826,21 @@ function copyText(text, msg){
 function emptyBoard(){
   return Array.from({length:ROWS}, ()=>Array(COLS).fill(null));
 }
+function makeBag(){
+  const bag = TYPES.slice();
+  // Fisher-Yates shuffle
+  for(let i=bag.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [bag[i], bag[j]] = [bag[j], bag[i]];
+  }
+  return bag;
+}
+function drawFromBag(p){
+  if(!p.bag || p.bag.length === 0) p.bag = makeBag();
+  return p.bag.shift();
+}
 function randomType(){
+  // legacy: still used for initial/test cases without a bag
   return TYPES[Math.floor(Math.random()*TYPES.length)];
 }
 function rotate(shape){
@@ -851,10 +865,11 @@ function valid(board, type, rot, x, y){
   return true;
 }
 function newPlayerState(){
-  return {
+  const state = {
     board: emptyBoard(),
-    piece: {type: randomType(), rotation:0, x: Math.floor(COLS/2)-1, y:0},
-    next: randomType(),
+    bag: makeBag(),
+    piece: null,
+    next: null,
     score: 0,
     lines: 0,
     charges: 0,
@@ -863,10 +878,13 @@ function newPlayerState(){
     dropTimer: 0,
     flashUntil: 0,
   };
+  state.piece = {type: drawFromBag(state), rotation:0, x: Math.floor(COLS/2)-1, y:0};
+  state.next = drawFromBag(state);
+  return state;
 }
 function spawnNew(p){
   p.piece = {type: p.next, rotation:0, x: Math.floor(COLS/2)-1, y:0};
-  p.next = randomType();
+  p.next = drawFromBag(p);
   if(!valid(p.board, p.piece.type, 0, p.piece.x, p.piece.y)){
     p.eliminated = true;
   }
