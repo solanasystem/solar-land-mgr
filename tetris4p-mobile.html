@@ -72,8 +72,26 @@
     border-radius:2px;margin-bottom:10px;
   }
   .code-hint{text-align:center;font-size:10px;color:var(--ink-dim);letter-spacing:0.2em;margin-bottom:16px}
-  .qr-wrap{display:flex;justify-content:center;margin-bottom:16px}
+  .qr-wrap{display:flex;flex-direction:column;justify-content:center;align-items:center;margin-bottom:16px}
   .qr-wrap img{width:150px;height:150px;background:#fff;padding:8px;border-radius:4px}
+  .qr-url{
+    margin-top:8px;padding:6px 8px;background:var(--bg);
+    border:1px solid var(--panel-edge);border-radius:2px;
+    font-size:9px;letter-spacing:0.05em;color:var(--ink-dim);
+    max-width:100%;word-break:break-all;text-align:center;
+    cursor:pointer;-webkit-user-select:text;user-select:text;
+  }
+  .qr-url:active{background:var(--panel)}
+  .qr-warn{
+    margin-top:8px;padding:8px;background:rgba(255,51,85,0.15);
+    border-left:2px solid var(--danger);
+    font-size:10px;letter-spacing:0.1em;color:#ffbbc4;line-height:1.5;
+  }
+  .qr-hint{
+    margin-top:8px;font-size:10px;color:var(--ink-dim);
+    letter-spacing:0.15em;text-align:center;line-height:1.6;
+  }
+  .qr-hint b{color:var(--gold)}
   .player-slots{margin-bottom:14px}
   .slot{
     display:flex;align-items:center;padding:10px;margin-bottom:5px;
@@ -121,6 +139,12 @@
   }
   .top-bar b{color:var(--accent2)}
   .top-bar .charge-tag{color:var(--gold)}
+  .quit-btn{
+    background:transparent;border:1px solid var(--danger);color:var(--danger);
+    font-family:inherit;font-size:10px;font-weight:900;letter-spacing:0.2em;
+    padding:3px 8px;border-radius:2px;cursor:pointer;
+  }
+  .quit-btn:active{background:var(--danger);color:#fff}
 
   .opponents{
     display:flex;justify-content:center;gap:6px;padding:4px 0 6px;
@@ -317,6 +341,7 @@
     <span>TIME <b id="clock">00:00</b></span>
     <span>ALIVE <b id="alive-count">1</b></span>
     <span class="charge-tag">⚡ <b id="my-charges">0</b></span>
+    <button class="quit-btn" onclick="quitGame()">QUIT</button>
   </div>
   <div class="opponents" id="opponents"></div>
   <div class="main-wrap">
@@ -735,7 +760,35 @@ function copyCode(){
 function renderQR(code){
   const url = location.origin + location.pathname + '?code=' + code;
   const el = document.getElementById('qr-wrap');
-  el.innerHTML = `<img alt="QR" src="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(url)}&size=200x200&bgcolor=ffffff" onerror="this.style.display='none'">`;
+  const proto = location.protocol;
+  const host = location.hostname;
+  const isFile = proto === 'file:';
+  const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('10.');
+  const isPreviewLike = /claude|artifact|anthropic/i.test(host);
+
+  let warn = '';
+  if(isFile){
+    warn = `<div class="qr-warn">⚠ このHTMLは <b>file://</b> で開かれています。他のiPhoneからは絶対にアクセスできません。<br>GitHub Pagesなど<b>HTTPS公開URL</b>に配置してください。</div>`;
+  } else if(isPreviewLike){
+    warn = `<div class="qr-warn">⚠ プレビュー環境の可能性があります。他の端末からアクセスできない場合はGitHub PagesなどHTTPS公開URLに配置してください。</div>`;
+  } else if(isLocalhost){
+    warn = `<div class="qr-warn">⚠ localhost/LAN URLです。同じWiFiの端末からのみアクセス可能。屋外プレイならHTTPS公開URLへ。</div>`;
+  }
+
+  el.innerHTML = `
+    <img alt="QR" src="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(url)}&size=200x200&bgcolor=ffffff" onerror="this.style.display='none'">
+    <div class="qr-url" onclick="copyText(this.textContent, 'URL copied')">${url}</div>
+    ${warn}
+    <div class="qr-hint">
+      QRが読めない時は、他のiPhoneで<br>
+      同じURLを開いて → <b>JOIN ROOM</b> → <b>${code}</b> と入力
+    </div>
+  `;
+}
+function copyText(text, msg){
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(text).then(()=>toast(msg||'copied')).catch(()=>{});
+  }
 }
 
 // ============================================================
@@ -1214,6 +1267,26 @@ function showResult(winnerId){
   });
   document.getElementById('win-stats').innerHTML = html;
   show('result-screen');
+}
+
+// ============================================================
+// QUIT / EXIT
+// ============================================================
+function quitGame(){
+  if(!confirm('ゲームを終了してタイトル画面に戻ります。よろしいですか？')) return;
+  const p = GAME.myPlayer;
+  if(p && !p.eliminated){
+    p.eliminated = true;
+    try{ broadcastMyState(); }catch(e){}
+  }
+  GAME.running = false;
+  // give the network a moment to propagate my elimination before we tear down
+  setTimeout(()=>{
+    try{
+      if(NET.peer && !NET.peer.destroyed) NET.peer.destroy();
+    }catch(e){}
+    location.reload();
+  }, 400);
 }
 
 // ============================================================
