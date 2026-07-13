@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260711F / landNumberDraftPane と blockLabelsPane の z-index を subPane(635) より上に引き上げ(640/641)。空容量・変電所レイヤーの canvas がドットのクリックを吸って popup 自体が開かなくなる根本問題を修正。前:v20260711E -->
+<!-- BUILD: farmland-tracker v20260711G / 都市計画区域(XKT001)の実効表示閾値をズーム15→12に緩和。タイル数上限を36→128に引き上げてズーム12のワイド視野でも取得できるようにする(zoom>=11のprimaryチェックは維持)。トースト文言も更新。3マップ共通ロジックのため他2ファイルにも同じ修正必須。前:v20260711F -->
 <html lang="ja">
 <head>
 <!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
@@ -672,7 +672,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260711F</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260711G</span>
   </div>
   <div style="display:flex;align-items:center;gap:8px;">
     <a href="farmland-candidates.html" class="btn btn-ghost">&#128203; 開拓候補</a>
@@ -3527,7 +3527,7 @@ function _doRenderCityPlan() {
   if (!cityPlanEnabled) return;
   if (map.getZoom() < 11) {
     if (cityPlanLayer) { map.removeLayer(cityPlanLayer); cityPlanLayer = null; }
-    showToast('ズーム11以上で都市計画区域が表示されます', 'error');
+    showToast('ズーム12以上で都市計画区域が表示されます', 'error');
     return;
   }
   _fetchAndRenderCityPlan();
@@ -3538,7 +3538,8 @@ async function _fetchAndRenderCityPlan() {
   const tileZoom = Math.min(Math.max(Math.floor(map.getZoom()), 11), 14);
   const tiles = getTilesForBounds(bounds, tileZoom);
 
-  if (tiles.length > 36) {
+  // v20260711G: タイル数上限を 36 → 128 に引き上げ、ズーム 12 のワイド視野でも取得可能に
+  if (tiles.length > 128) {
     if (cityPlanLayer) { map.removeLayer(cityPlanLayer); cityPlanLayer = null; }
     showToast('もう少しズームインすると都市計画区域が表示されます', 'error');
     return;
