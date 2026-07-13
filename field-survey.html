@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: field-survey v20260710B / 判定色最終仕様確定: 使用可=緑#22c55e(147件表示) / 検討=黄#eab308(17件、v20260707b元色復元) / 使用不可=非表示(216件、:has()セレクタでマーカー丸ごと隠す) / 未判定=紫(v20260707b元色復元)。v20260710A全緑化は誤仕様、NG非表示・検討区別が正解。CSS変更のみ、JSロジック無変更。前:v20260710A -->
+<!-- BUILD: field-survey v20260711A / 都市計画区域(XKT001)の実効表示閾値をズーム15→12に緩和。タイル数上限を36→128に引き上げてズーム12のワイド視野でも取得可能に(zoom>=11のprimaryチェックは維持)。トースト文言も更新。3マップ共通ロジックのためfarmland-tracker v20260711Gと同じ修正。前:v20260710B -->
 <!-- BUILD: field-survey v20260710A / 全ステータス緑フラグ化(視覚確認優先): 未判定・使用可・検討・使用不可の全4状態を#22c55e緑で統一。NG除外は業務パイプライン側で維持、地図表示のみ視認性優先。CSS4行変更、JSロジック無変更。前:v20260707b -->
 <!-- BUILD: field-survey v20260707b / 現在地区画ポップアップを非表示(邪魔なため)、ハイライトは維持。前:v20260707a -->
 <!-- BUILD: field-survey v20260704j / 現地調査モード実装(びわこの森385区画): 紫フラグ(地番)タップ→3値判定(使用可/検討/使用不可)大ボタン→使用可・検討は接道1+敷地内4枚+音声コメント→完了→次へ。判定でフラグ3色化(緑/黄/灰)。写真は現地調査専用強圧縮(1024px/品質0.5,上限~120KB)→IndexedDBに即保存(電波不要)→裏で自動アップロード(成功で端末から削除)+手動同期ボタン。電柱は⚡ボタンで地図タップ記録(pole_records)。+ 判定モーダルに「戻る」ボタン追加(誤操作対策)+電柱マーカーをタップで削除可能に。前:v20260703d -->
@@ -4380,7 +4380,7 @@ function _doRenderCityPlan() {
   if (!cityPlanEnabled) return;
   if (map.getZoom() < 11) {
     if (cityPlanLayer) { map.removeLayer(cityPlanLayer); cityPlanLayer = null; }
-    showToast('\u30ba\u30fc\u30e011\u4ee5\u4e0a\u3067\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059', 'error');
+    showToast('\u30ba\u30fc\u30e012\u4ee5\u4e0a\u3067\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059', 'error');
     return;
   }
   _fetchAndRenderCityPlan();
@@ -4391,7 +4391,8 @@ async function _fetchAndRenderCityPlan() {
   const tileZoom = Math.min(Math.max(Math.floor(map.getZoom()), 11), 14);
   const tiles = getTilesForBounds(bounds, tileZoom);
 
-  if (tiles.length > 36) {
+  // v20260711A: タイル数上限を 36 → 128 に引き上げ、ズーム 12 のワイド視野でも取得可能に
+  if (tiles.length > 128) {
     if (cityPlanLayer) { map.removeLayer(cityPlanLayer); cityPlanLayer = null; }
     showToast('\u3082\u3046\u5c11\u3057\u30ba\u30fc\u30e0\u30a4\u30f3\u3059\u308b\u3068\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059', 'error');
     return;

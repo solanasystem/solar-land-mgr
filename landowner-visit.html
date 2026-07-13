@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: landowner-visit v20260702m / 土砂災害警戒区域を「重ねるハザードマップ」公式タイル方式に変更(3種類重畳: 土石流・急傾斜地・地すべり)。旧Supabase A33ポリゴン方式(row_limit=300で欠落あり)を廃止。事業性判断で公式ハザードマップと100%一致。3-map共通ルールに従い farmland-tracker.html / field-survey.html と同じ実装。 -->
+<!-- BUILD: landowner-visit v20260711A / 都市計画区域(XKT001)の実効表示閾値をズーム15→12に緩和。タイル数上限を36→128に引き上げてズーム12のワイド視野でも取得可能に(zoom>=11のprimaryチェックは維持)。トースト文言も更新。3マップ共通ロジックのためfarmland-tracker v20260711G / field-survey v20260711Aと同じ修正。前:v20260702m -->
 <!-- v20260626c: ポップアップにGoogle地図・ストリートビューボタン追加
 <!-- v20260626a: 別荘地候補レイヤー追加（villa_place_names 16件・v_villa_places_map ビュー経由）。🏘️別荘地候補トグル+パターン別色分け凡例（別荘地#7c3aed/ハイランド・リゾート#c026d3/高原#a855f7）。villaPane(zIndex640)+canvas。3マップ同期実装。 -->
 <!-- v20260622c: 手紙ワークフロー実装。地権者ポップアップに【📮手紙発信→LETTER】【📦印刷完了→LTR済】2段ボタン追加(郵便番号空欄時は発信ボタン無効化＋警告)。ツールバーに【📮一括手紙発信(表示中・郵便番号必須)】【📋宛名ラベルCSV出力(BOM付UTF-8・Excel互換)】追加。RPC mark_letter_sent/mark_letter_printed/mark_letters_sent_bulk(全DEFINER)経由でcases.status・last_letter_sent_at更新。ポップアップに〒+最新発信日も表示。 -->
@@ -1070,14 +1070,15 @@ function loadCityPlan(){ map.on('moveend',renderCityPlanInView); map.on('zoomend
 function renderCityPlanInView(){ if(cityPlanRenderTimer)clearTimeout(cityPlanRenderTimer); cityPlanRenderTimer=setTimeout(_doRenderCityPlan,400); }
 function _doRenderCityPlan(){
   if(!cityPlanEnabled)return;
-  if(map.getZoom()<11){ if(cityPlanLayer){map.removeLayer(cityPlanLayer);cityPlanLayer=null;} showToast('\u30ba\u30fc\u30e011\u4ee5\u4e0a\u3067\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error'); return; }
+  if(map.getZoom()<11){ if(cityPlanLayer){map.removeLayer(cityPlanLayer);cityPlanLayer=null;} showToast('\u30ba\u30fc\u30e012\u4ee5\u4e0a\u3067\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error'); return; }
   _fetchAndRenderCityPlan();
 }
 async function _fetchAndRenderCityPlan(){
   var bounds=map.getBounds();
   var tileZoom=Math.min(Math.max(Math.floor(map.getZoom()),11),14);
   var tiles=getTilesForBounds(bounds,tileZoom);
-  if(tiles.length>36){ if(cityPlanLayer){map.removeLayer(cityPlanLayer);cityPlanLayer=null;} showToast('\u3082\u3046\u5c11\u3057\u30ba\u30fc\u30e0\u30a4\u30f3\u3059\u308b\u3068\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error'); return; }
+  // v20260711A: タイル数上限を 36 → 128 に引き上げ、ズーム 12 のワイド視野でも取得可能に
+  if(tiles.length>128){ if(cityPlanLayer){map.removeLayer(cityPlanLayer);cityPlanLayer=null;} showToast('\u3082\u3046\u5c11\u3057\u30ba\u30fc\u30e0\u30a4\u30f3\u3059\u308b\u3068\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error'); return; }
   var allFeatures=[];
   await Promise.all(tiles.map(async function(t){
     try { var res=await fetch(URBAN_API_BASE+'/XKT001?response_format=geojson&z='+t.z+'&x='+t.x+'&y='+t.y); if(!res.ok)return; var data=await res.json(); if(data.features)allFeatures.push.apply(allFeatures,data.features); } catch(e){}
