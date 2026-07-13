@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: case-excel-export v20260713A / 案件マスター(cases)を1行1案件でExcel出力する独立ページ。地権者情報(landowner_info)と土地情報(land_info)を各案件単位で集約(、区切り)。現地調査判定(field_survey_status)も含む。同origin共通のSupabase Auth session使用。 -->
+<!-- BUILD: case-excel-export v20260713B / フィルタ機能追加: 電力会社(prefecture→derived)・エリア・ステータス・区分・案件番号範囲。データ先読み→フィルタ選択→プレビュー件数→Excel出力の2段階UI。前:v20260713A -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -9,17 +9,18 @@
   :root{
     --bg:#0f1419; --surface:#1a1f2e; --surface2:#252b3d; --border:#333949;
     --text:#e6e9ef; --text-muted:#8b93a7; --accent:#4a9eff; --green:#22c55e;
-    --red:#ef4444; --yellow:#eab308; --orange:#f97316;
+    --red:#ef4444; --yellow:#eab308; --orange:#f97316; --purple:#a78bfa;
   }
   *{box-sizing:border-box;}
   body{
     margin:0; background:var(--bg); color:var(--text);
     font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
-    padding:24px; max-width:900px; margin-left:auto; margin-right:auto;
+    padding:24px; max-width:1000px; margin-left:auto; margin-right:auto;
     min-height:100vh;
   }
   h1{margin:0 0 8px 0; font-size:22px;}
-  .subtitle{color:var(--text-muted); font-size:13px; margin-bottom:24px;}
+  h2{margin:16px 0 8px 0; font-size:15px; color:var(--accent);}
+  .subtitle{color:var(--text-muted); font-size:13px; margin-bottom:20px;}
   .card{
     background:var(--surface); border:1px solid var(--border);
     border-radius:8px; padding:20px; margin-bottom:16px;
@@ -27,12 +28,14 @@
   .btn{
     display:inline-flex; align-items:center; gap:8px;
     background:var(--accent); color:#fff; border:none;
-    padding:12px 24px; border-radius:6px; font-size:15px; font-weight:600;
+    padding:11px 22px; border-radius:6px; font-size:14px; font-weight:600;
     cursor:pointer; transition:opacity 0.15s;
   }
   .btn:hover{opacity:0.85;}
   .btn:disabled{opacity:0.4; cursor:not-allowed;}
-  .btn.secondary{background:var(--surface2); color:var(--text);}
+  .btn.big{padding:14px 28px; font-size:15px;}
+  .btn.secondary{background:var(--surface2); color:var(--text); border:1px solid var(--border);}
+  .btn.success{background:var(--green);}
   #status{
     margin:12px 0; padding:10px 14px; border-radius:6px;
     font-size:13px; min-height:22px;
@@ -50,7 +53,7 @@
     border:1px solid var(--border);
   }
   .stat-label{font-size:11px; color:var(--text-muted);}
-  .stat-value{font-size:20px; font-weight:600; margin-top:2px;}
+  .stat-value{font-size:18px; font-weight:600; margin-top:2px;}
   .progress-wrap{
     height:8px; background:var(--surface2); border-radius:4px;
     overflow:hidden; margin-top:8px; display:none;
@@ -60,42 +63,79 @@
     height:100%; background:linear-gradient(90deg,var(--accent),var(--green));
     width:0%; transition:width 0.2s ease-out;
   }
+  .filter-section{
+    margin:12px 0;
+    padding:12px;
+    background:var(--surface2);
+    border-radius:6px;
+    border:1px solid var(--border);
+  }
+  .filter-title{
+    font-size:13px; font-weight:600; margin-bottom:8px;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .filter-title button{
+    background:transparent; border:1px solid var(--border);
+    color:var(--text-muted); padding:2px 8px; border-radius:4px;
+    font-size:11px; cursor:pointer;
+  }
+  .filter-title button:hover{color:var(--text);}
+  .filter-chips{
+    display:flex; flex-wrap:wrap; gap:6px;
+    max-height:160px; overflow-y:auto;
+    padding:4px 0;
+  }
+  .chip{
+    display:inline-flex; align-items:center; gap:6px;
+    padding:4px 10px; border-radius:14px;
+    background:var(--surface); border:1px solid var(--border);
+    font-size:12px; cursor:pointer; user-select:none;
+    transition:all 0.1s;
+  }
+  .chip:hover{border-color:var(--accent);}
+  .chip.active{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .chip .count{
+    font-size:10px; padding:1px 6px; background:rgba(255,255,255,0.15);
+    border-radius:8px;
+  }
+  .range-inputs{
+    display:flex; gap:8px; align-items:center; margin-top:4px;
+  }
+  .range-inputs input{
+    flex:1; padding:6px 10px; font-size:13px;
+    background:var(--surface); color:var(--text);
+    border:1px solid var(--border); border-radius:4px;
+    font-family:"SF Mono",Consolas,monospace;
+  }
   .config-row{
     display:flex; align-items:center; gap:10px; margin:8px 0;
     font-size:13px;
   }
   .config-row input[type="checkbox"]{transform:scale(1.2);}
-  code{
-    background:var(--surface2); padding:1px 6px; border-radius:3px;
-    font-family:"SF Mono","Monaco",Consolas,monospace; font-size:12px;
+  .preview{
+    padding:12px; background:var(--surface2); border-radius:6px;
+    border:2px solid var(--accent);
+    margin:12px 0;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .preview-count{
+    font-size:20px; font-weight:700; color:var(--accent);
   }
   a{color:var(--accent);}
+  #filtersCard{display:none;}
+  #filtersCard.visible{display:block;}
 </style>
 </head>
 <body>
 
 <h1>📊 案件マスター Excel 出力</h1>
-<div class="subtitle">案件マスター (cases) を <b>1行1案件</b> で Excel に出力。地権者情報 (landowner_info) と土地情報 (land_info) は「、」区切りで集約。</div>
+<div class="subtitle">案件マスターを <b>1行1案件</b> で Excel に出力。地権者情報・土地情報は「、」区切りで集約。</div>
 
+<!-- ステップ1: データ読込 -->
 <div class="card">
-  <div style="font-size:14px; font-weight:600; margin-bottom:10px;">出力設定</div>
-  <div class="config-row">
-    <input type="checkbox" id="incFieldSurvey" checked>
-    <label for="incFieldSurvey">現地調査ステータス (field_survey_status.judgment) を含める</label>
-  </div>
-  <div class="config-row">
-    <input type="checkbox" id="incGoogleMap">
-    <label for="incGoogleMap">Google Maps URL を含める (地権者・土地の両方)</label>
-  </div>
-  <div class="config-row">
-    <input type="checkbox" id="incRealestate">
-    <label for="incRealestate">不動産会社情報 (realestate_info) を含める</label>
-  </div>
-</div>
-
-<div class="card">
-  <button class="btn" id="btnExport" onclick="doExport()">🗒 Excel を作成してダウンロード</button>
-  <div id="status">準備中...</div>
+  <h2>ステップ1: データ読込</h2>
+  <button class="btn" id="btnLoad" onclick="loadData()">📥 全案件を読み込む</button>
+  <div id="status">未読込</div>
   <div class="progress-wrap" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
   <div class="stats" id="stats" style="display:none;">
     <div class="stat"><div class="stat-label">案件</div><div class="stat-value" id="statCases">-</div></div>
@@ -105,46 +145,143 @@
   </div>
 </div>
 
-<div class="card" style="font-size:12px; color:var(--text-muted);">
-  <div><b>出力カラム</b> (1行 = 1案件):</div>
-  <div style="margin-top:6px; line-height:1.6;">
-    案件番号 / 発電区分 / ステータス / 案件金額(万円) / エリア / 登録日 /
-    地権者数 / 地権者名(集約) / 地権者住所(集約) / 地権者電話(集約) / 地権者希望金額合計(万円) / 地権者メモ(集約) /
-    土地件数 / 登記面積合計(㎡) / 所在(集約) / 地番(集約) / 法令上の制限(集約) / ハザード(集約) / 土地備考(集約)
-    + オプションで現地調査判定・Google Maps URL・不動産会社情報
+<!-- ステップ2: フィルタ選択 -->
+<div class="card" id="filtersCard">
+  <h2>ステップ2: フィルタ選択</h2>
+
+  <div class="filter-section">
+    <div class="filter-title">
+      <span>⚡ 電力会社</span>
+      <button onclick="toggleAll('power')">全解除/全選択</button>
+    </div>
+    <div class="filter-chips" id="filterPower"></div>
   </div>
+
+  <div class="filter-section">
+    <div class="filter-title">
+      <span>📍 エリア (case.area_name)</span>
+      <button onclick="toggleAll('area')">全解除/全選択</button>
+    </div>
+    <div class="filter-chips" id="filterArea"></div>
+  </div>
+
+  <div class="filter-section">
+    <div class="filter-title">
+      <span>🚦 ステータス</span>
+      <button onclick="toggleAll('status')">全解除/全選択</button>
+    </div>
+    <div class="filter-chips" id="filterStatus"></div>
+  </div>
+
+  <div class="filter-section">
+    <div class="filter-title">
+      <span>⚙️ 発電区分</span>
+      <button onclick="toggleAll('kubun')">全解除/全選択</button>
+    </div>
+    <div class="filter-chips" id="filterKubun"></div>
+  </div>
+
+  <div class="filter-section">
+    <div class="filter-title">
+      <span>🔢 案件番号範囲</span>
+      <button onclick="clearRange()">クリア</button>
+    </div>
+    <div class="range-inputs">
+      <input type="text" id="caseFrom" placeholder="例: 蒲郡市-001" oninput="updatePreview()">
+      <span>〜</span>
+      <input type="text" id="caseTo" placeholder="例: 蒲郡市-100" oninput="updatePreview()">
+    </div>
+    <div style="font-size:10px; color:var(--text-muted); margin-top:6px;">
+      ※ 案件番号の辞書順で比較 (空欄なら制限なし)
+    </div>
+  </div>
+</div>
+
+<!-- ステップ3: プレビュー & 出力 -->
+<div class="card" id="exportCard" style="display:none;">
+  <h2>ステップ3: 出力</h2>
+
+  <div class="preview">
+    <div>フィルタ条件に合致する案件</div>
+    <div class="preview-count"><span id="previewCount">0</span> 件</div>
+  </div>
+
+  <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">出力オプション:</div>
+  <div class="config-row">
+    <input type="checkbox" id="incFieldSurvey" checked>
+    <label for="incFieldSurvey">現地調査ステータス (judgment / flag_color / comment)</label>
+  </div>
+  <div class="config-row">
+    <input type="checkbox" id="incGoogleMap">
+    <label for="incGoogleMap">Google Maps URL (地権者・土地)</label>
+  </div>
+  <div class="config-row">
+    <input type="checkbox" id="incRealestate">
+    <label for="incRealestate">不動産会社情報 (realestate_info)</label>
+  </div>
+
+  <button class="btn big success" id="btnExport" onclick="doExport()" style="margin-top:12px;">
+    🗒 選択した <span id="btnExportCount">0</span> 件を Excel 出力
+  </button>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
-// ===== Supabase 設定 (他ページと共通、Auth session を共有) =====
+// ===== Supabase 設定 (他ページと Auth session 共有) =====
 const SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
 const db=supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, storageKey: 'sb-fygnrjjifoasozbhkxlk-auth-token' }
 });
 
+// ===== 都道府県 → 電力会社 マップ =====
+const PREF_TO_POWER = {
+  '北海道':'北海道電力',
+  '青森県':'東北電力','岩手県':'東北電力','宮城県':'東北電力','秋田県':'東北電力','山形県':'東北電力','福島県':'東北電力',
+  '茨城県':'東京電力','栃木県':'東京電力','群馬県':'東京電力','埼玉県':'東京電力','千葉県':'東京電力','東京都':'東京電力','神奈川県':'東京電力','山梨県':'東京電力',
+  '新潟県':'東北電力',
+  '富山県':'北陸電力','石川県':'北陸電力','福井県':'北陸電力',
+  '長野県':'中部電力','岐阜県':'中部電力','静岡県':'中部電力','愛知県':'中部電力','三重県':'中部電力',
+  '滋賀県':'関西電力','京都府':'関西電力','大阪府':'関西電力','兵庫県':'関西電力','奈良県':'関西電力','和歌山県':'関西電力',
+  '鳥取県':'中国電力','島根県':'中国電力','岡山県':'中国電力','広島県':'中国電力','山口県':'中国電力',
+  '徳島県':'四国電力','香川県':'四国電力','愛媛県':'四国電力','高知県':'四国電力',
+  '福岡県':'九州電力','佐賀県':'九州電力','長崎県':'九州電力','熊本県':'九州電力','大分県':'九州電力','宮崎県':'九州電力','鹿児島県':'九州電力',
+  '沖縄県':'沖縄電力',
+};
+const PREFS_ORDER = Object.keys(PREF_TO_POWER);
+
+// area_name (市名) → 都道府県 のヒント辞書 (よく使う地域だけ、他は住所欄から推定)
+const CITY_TO_PREF = {
+  '蒲郡':'愛知県','豊橋':'愛知県','岡崎':'愛知県','名古屋':'愛知県','知立':'愛知県','刈谷':'愛知県','西尾':'愛知県','安城':'愛知県','豊川':'愛知県','豊田':'愛知県','田原':'愛知県','新城':'愛知県',
+  '三島':'静岡県','沼津':'静岡県','浜松':'静岡県','静岡市':'静岡県',
+  '岐阜':'岐阜県','大垣':'岐阜県',
+  '四日市':'三重県','津':'三重県','桑名':'三重県',
+  '高島':'滋賀県','大津':'滋賀県','東近江':'滋賀県','米原':'滋賀県','長浜':'滋賀県','近江八幡':'滋賀県','安曇川':'滋賀県','守山':'滋賀県','草津':'滋賀県',
+  '京都':'京都府','宇治':'京都府',
+  '大阪':'大阪府','堺':'大阪府',
+  '神戸':'兵庫県','姫路':'兵庫県',
+  '奈良':'奈良県',
+  '和歌山':'和歌山県',
+  '福岡':'福岡県','北九州':'福岡県','伊都':'福岡県','糸島':'福岡県',
+  '佐賀':'佐賀県','長崎':'長崎県','熊本':'熊本県','大分':'大分県','宮崎':'宮崎県','鹿児島':'鹿児島県',
+  '広島':'広島県','岡山':'岡山県','山口':'山口県',
+};
+
 const $ = id => document.getElementById(id);
 
 function setStatus(msg, cls='info'){
-  const el=$('status');
-  el.textContent=msg;
-  el.className=cls;
+  const el=$('status'); el.textContent=msg; el.className=cls;
 }
-
 function setProgress(pct){
-  const wrap=$('progressWrap');
-  const bar=$('progressBar');
+  const wrap=$('progressWrap'), bar=$('progressBar');
   if (pct>0) wrap.classList.add('active');
   bar.style.width=Math.max(0,Math.min(100,pct))+'%';
   if (pct>=100) setTimeout(()=>wrap.classList.remove('active'), 800);
 }
 
-// 大量データ用ページングfetch (Supabase max=1000対応)
 async function fetchAllPaged(tableName, columns='*'){
-  const all=[];
-  let from=0, chunk=1000;
+  const all=[]; let from=0, chunk=1000;
   while(true){
     const { data, error } = await db.from(tableName).select(columns).range(from, from+chunk-1);
     if (error) throw new Error(`${tableName}: ${error.message}`);
@@ -156,19 +293,14 @@ async function fetchAllPaged(tableName, columns='*'){
   return all;
 }
 
-// 値集約: 空値除去 + 「、」区切り
 function joinValues(list, key, unique=false){
   let vals = list.map(x => x[key]).filter(v => v!==null && v!==undefined && String(v).trim()!=='');
   if (unique) vals = [...new Set(vals.map(String))];
   return vals.join('、');
 }
-
-// 数値合計
 function sumValues(list, key){
   return list.reduce((sum, x) => sum + (parseFloat(x[key])||0), 0);
 }
-
-// 日付フォーマット
 function fmtDate(iso){
   if (!iso) return '';
   try {
@@ -177,105 +309,240 @@ function fmtDate(iso){
   } catch(e){ return iso; }
 }
 
-// メイン処理
-async function doExport(){
-  const btn=$('btnExport');
+// 住所文字列 or エリア名 から都道府県を推定
+function extractPrefecture(...strs){
+  for (const str of strs){
+    if (!str) continue;
+    const s = String(str);
+    for (const p of PREFS_ORDER){
+      if (s.includes(p)) return p;
+    }
+  }
+  // 市名からヒント
+  for (const str of strs){
+    if (!str) continue;
+    const s = String(str);
+    for (const key of Object.keys(CITY_TO_PREF)){
+      if (s.includes(key)) return CITY_TO_PREF[key];
+    }
+  }
+  return null;
+}
+
+// ===== グローバルデータ =====
+const state = {
+  cases: [], owners: [], lands: [], fs: [], re: [],
+  ownersByCase: {}, landsByCase: {}, fsByCase: {}, reByCase: {},
+  caseMeta: {}, // case_id → {powerCompany, area, status, kubun}
+  filters: {
+    power: new Set(),
+    area: new Set(),
+    status: new Set(),
+    kubun: new Set(),
+    caseFrom: '',
+    caseTo: '',
+  },
+};
+
+async function loadData(){
+  const btn=$('btnLoad');
   btn.disabled=true;
   setProgress(0);
-
-  const incFS = $('incFieldSurvey').checked;
-  const incGM = $('incGoogleMap').checked;
-  const incRE = $('incRealestate').checked;
-
   try {
-    // ===== 認証確認 =====
     setStatus('認証確認中...', 'info');
     const { data: authData } = await db.auth.getSession();
     if (!authData?.session) {
-      setStatus('⚠ ログインが必要です。まず farmland-tracker などのページでログインしてから、このページを開いてください。', 'err');
-      btn.disabled=false;
-      return;
+      setStatus('⚠ ログインが必要です。他のページでログインしてから再度アクセスしてください', 'err');
+      btn.disabled=false; return;
     }
-    setStatus(`ログイン中: ${authData.session.user.email || authData.session.user.id}`, 'ok');
+    setStatus(`ログイン中: ${authData.session.user.email || 'user'}`, 'ok');
 
-    // ===== データ取得 =====
-    setStatus('案件マスター取得中...', 'info');
-    setProgress(5);
-    const cases = await fetchAllPaged('cases', 'id,case_no,kubun,status,price,area_name,created_at');
-    setProgress(20);
+    setStatus('案件マスター取得中...', 'info'); setProgress(10);
+    state.cases = await fetchAllPaged('cases', 'id,case_no,kubun,status,price,area_name,created_at');
 
-    setStatus(`地権者情報取得中... (案件 ${cases.length} 件)`, 'info');
-    const ownerCols = incGM
-      ? 'id,case_id,name,address,tel,google_map,price,memo,created_at'
-      : 'id,case_id,name,address,tel,price,memo,created_at';
-    const owners = await fetchAllPaged('landowner_info', ownerCols);
-    setProgress(40);
+    setStatus(`地権者情報取得中... (案件 ${state.cases.length} 件)`, 'info'); setProgress(35);
+    state.owners = await fetchAllPaged('landowner_info', 'id,case_id,name,address,tel,google_map,price,memo,created_at');
 
-    setStatus(`土地情報取得中...`, 'info');
-    const landCols = incGM
-      ? 'id,case_id,area_sqm,location,chiban,horeijo_seigen,google_map,hazard,biko,created_at'
-      : 'id,case_id,area_sqm,location,chiban,horeijo_seigen,hazard,biko,created_at';
-    const lands = await fetchAllPaged('land_info', landCols);
-    setProgress(60);
+    setStatus('土地情報取得中...', 'info'); setProgress(60);
+    state.lands = await fetchAllPaged('land_info', 'id,case_id,area_sqm,location,chiban,horeijo_seigen,google_map,hazard,biko,created_at');
 
-    let fieldSurvey = [];
-    if (incFS) {
-      setStatus(`現地調査ステータス取得中...`, 'info');
-      try {
-        fieldSurvey = await fetchAllPaged('field_survey_status', 'case_id,judgment,flag_color,comment');
-      } catch(e) {
-        console.warn('field_survey_status 取得失敗:', e);
-        fieldSurvey = [];
-      }
-    }
-    setProgress(70);
+    setStatus('現地調査ステータス取得中...', 'info'); setProgress(75);
+    try { state.fs = await fetchAllPaged('field_survey_status', 'case_id,judgment,flag_color,comment'); }
+    catch(e){ state.fs = []; console.warn('field_survey_status skip:', e); }
 
-    let realestate = [];
-    if (incRE) {
-      setStatus(`不動産会社情報取得中...`, 'info');
-      try {
-        realestate = await fetchAllPaged('realestate_info', '*');
-      } catch(e) {
-        console.warn('realestate_info 取得失敗:', e);
-        realestate = [];
-      }
-    }
-    setProgress(80);
+    setStatus('不動産会社情報取得中...', 'info'); setProgress(85);
+    try { state.re = await fetchAllPaged('realestate_info', '*'); }
+    catch(e){ state.re = []; console.warn('realestate_info skip:', e); }
 
-    // ===== 統計表示 =====
+    // グルーピング
+    setStatus('集約中...', 'info'); setProgress(92);
+    state.ownersByCase = {}; state.landsByCase = {}; state.fsByCase = {}; state.reByCase = {};
+    state.owners.forEach(o => { if (o.case_id) (state.ownersByCase[o.case_id] = state.ownersByCase[o.case_id] || []).push(o); });
+    state.lands.forEach(l => { if (l.case_id) (state.landsByCase[l.case_id] = state.landsByCase[l.case_id] || []).push(l); });
+    state.fs.forEach(f => { if (f.case_id) state.fsByCase[f.case_id] = f; });
+    state.re.forEach(r => { if (r.case_id) state.reByCase[r.case_id] = r; });
+
+    // 各案件の電力会社を推定 (case.area_name + landowner.address + land.location から)
+    state.caseMeta = {};
+    state.cases.forEach(c => {
+      const os = state.ownersByCase[c.id] || [];
+      const ls = state.landsByCase[c.id] || [];
+      const addrHints = [c.area_name, ...os.map(o=>o.address), ...ls.map(l=>l.location)];
+      const pref = extractPrefecture(...addrHints);
+      const powerCompany = pref ? (PREF_TO_POWER[pref] || 'その他') : '不明';
+      state.caseMeta[c.id] = {
+        powerCompany, prefecture: pref || '',
+        area: c.area_name || '(なし)',
+        status: c.status || '(なし)',
+        kubun: c.kubun || '(なし)',
+      };
+    });
+
+    // 統計表示
     $('stats').style.display='grid';
-    $('statCases').textContent = cases.length.toLocaleString();
-    $('statOwners').textContent = owners.length.toLocaleString();
-    $('statLands').textContent = lands.length.toLocaleString();
-    $('statFS').textContent = fieldSurvey.length.toLocaleString();
+    $('statCases').textContent = state.cases.length.toLocaleString();
+    $('statOwners').textContent = state.owners.length.toLocaleString();
+    $('statLands').textContent = state.lands.length.toLocaleString();
+    $('statFS').textContent = state.fs.length.toLocaleString();
 
-    // ===== case_id ごとにグルーピング =====
-    setStatus('集約中...', 'info');
-    const ownersByCase = {};
-    owners.forEach(o => {
-      if (!o.case_id) return;
-      (ownersByCase[o.case_id] = ownersByCase[o.case_id] || []).push(o);
-    });
-    const landsByCase = {};
-    lands.forEach(l => {
-      if (!l.case_id) return;
-      (landsByCase[l.case_id] = landsByCase[l.case_id] || []).push(l);
-    });
-    const fsByCase = {};
-    fieldSurvey.forEach(f => { if (f.case_id) fsByCase[f.case_id] = f; });
-    const reByCase = {};
-    realestate.forEach(r => { if (r.case_id) reByCase[r.case_id] = r; });
-    setProgress(85);
+    // フィルタ UI を生成
+    buildFilters();
 
-    // ===== 1行1案件で行データ構築 =====
-    const rows = cases.map(c => {
-      const os = ownersByCase[c.id] || [];
-      const ls = landsByCase[c.id] || [];
-      const fs = fsByCase[c.id];
-      const re = reByCase[c.id];
+    setProgress(100);
+    setStatus(`✅ 読込完了: ${state.cases.length} 案件、フィルタで絞り込んでください`, 'ok');
+  } catch(e) {
+    console.error(e);
+    setStatus('❌ エラー: ' + e.message, 'err');
+    setProgress(0);
+  } finally {
+    btn.disabled=false;
+  }
+}
+
+function buildFilters(){
+  // 電力会社
+  const powerCounts = {};
+  state.cases.forEach(c => {
+    const p = state.caseMeta[c.id].powerCompany;
+    powerCounts[p] = (powerCounts[p]||0) + 1;
+  });
+  buildChipList('filterPower', powerCounts, state.filters.power);
+
+  // エリア
+  const areaCounts = {};
+  state.cases.forEach(c => {
+    const a = state.caseMeta[c.id].area;
+    areaCounts[a] = (areaCounts[a]||0) + 1;
+  });
+  buildChipList('filterArea', areaCounts, state.filters.area);
+
+  // ステータス
+  const statusCounts = {};
+  state.cases.forEach(c => {
+    const s = state.caseMeta[c.id].status;
+    statusCounts[s] = (statusCounts[s]||0) + 1;
+  });
+  buildChipList('filterStatus', statusCounts, state.filters.status);
+
+  // 発電区分
+  const kubunCounts = {};
+  state.cases.forEach(c => {
+    const k = state.caseMeta[c.id].kubun;
+    kubunCounts[k] = (kubunCounts[k]||0) + 1;
+  });
+  buildChipList('filterKubun', kubunCounts, state.filters.kubun);
+
+  $('filtersCard').classList.add('visible');
+  $('exportCard').style.display = 'block';
+  updatePreview();
+}
+
+function buildChipList(containerId, counts, activeSet){
+  const container = $(containerId);
+  container.innerHTML = '';
+  const entries = Object.entries(counts).sort((a,b) => b[1]-a[1]);
+  entries.forEach(([val, cnt]) => {
+    activeSet.add(val); // デフォルトで全選択
+    const chip = document.createElement('div');
+    chip.className = 'chip active';
+    chip.innerHTML = `${escapeHtml(val)} <span class="count">${cnt}</span>`;
+    chip.onclick = () => {
+      if (activeSet.has(val)) { activeSet.delete(val); chip.classList.remove('active'); }
+      else { activeSet.add(val); chip.classList.add('active'); }
+      updatePreview();
+    };
+    container.appendChild(chip);
+  });
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+function toggleAll(kind){
+  const set = state.filters[kind];
+  const cnts = {}; state.cases.forEach(c => {
+    const v = state.caseMeta[c.id][kind === 'power' ? 'powerCompany' : kind];
+    cnts[v] = (cnts[v]||0)+1;
+  });
+  const allKeys = Object.keys(cnts);
+  const allSelected = allKeys.every(k => set.has(k));
+  set.clear();
+  if (!allSelected) allKeys.forEach(k => set.add(k));
+  // rebuild UI
+  const containerMap = { power:'filterPower', area:'filterArea', status:'filterStatus', kubun:'filterKubun' };
+  buildChipList(containerMap[kind], cnts, set);
+  updatePreview();
+}
+function clearRange(){
+  $('caseFrom').value = ''; $('caseTo').value = '';
+  updatePreview();
+}
+
+function getFilteredCases(){
+  state.filters.caseFrom = ($('caseFrom')?.value || '').trim();
+  state.filters.caseTo = ($('caseTo')?.value || '').trim();
+  return state.cases.filter(c => {
+    const m = state.caseMeta[c.id];
+    if (!state.filters.power.has(m.powerCompany)) return false;
+    if (!state.filters.area.has(m.area)) return false;
+    if (!state.filters.status.has(m.status)) return false;
+    if (!state.filters.kubun.has(m.kubun)) return false;
+    if (state.filters.caseFrom && (c.case_no||'') < state.filters.caseFrom) return false;
+    if (state.filters.caseTo && (c.case_no||'') > state.filters.caseTo) return false;
+    return true;
+  });
+}
+
+function updatePreview(){
+  const filtered = getFilteredCases();
+  $('previewCount').textContent = filtered.length.toLocaleString();
+  $('btnExportCount').textContent = filtered.length.toLocaleString();
+  $('btnExport').disabled = filtered.length === 0;
+}
+
+async function doExport(){
+  const filtered = getFilteredCases();
+  if (filtered.length === 0) { setStatus('選択案件が 0 件です', 'err'); return; }
+  const incFS = $('incFieldSurvey').checked;
+  const incGM = $('incGoogleMap').checked;
+  const incRE = $('incRealestate').checked;
+  const btn=$('btnExport'); btn.disabled=true;
+  setStatus(`Excel 生成中... (${filtered.length} 件)`, 'info');
+
+  try {
+    // 行データ構築
+    const rows = filtered.map(c => {
+      const os = state.ownersByCase[c.id] || [];
+      const ls = state.landsByCase[c.id] || [];
+      const fs = state.fsByCase[c.id];
+      const re = state.reByCase[c.id];
+      const m = state.caseMeta[c.id];
 
       const row = {
         '案件番号': c.case_no || '',
+        '電力会社(推定)': m.powerCompany,
+        '都道府県(推定)': m.prefecture,
         '発電区分': c.kubun || '',
         'ステータス': c.status || '',
         '案件金額(万円)': c.price ?? '',
@@ -295,13 +562,9 @@ async function doExport(){
         'ハザード': joinValues(ls, 'hazard', true),
         '土地備考': joinValues(ls, 'biko'),
       };
-
       if (incFS) {
         const j = fs?.judgment;
-        row['現地調査判定'] = j === 'usable' ? '使用可(OK)'
-                            : j === 'consider' ? '検討'
-                            : j === 'unusable' ? '使用不可(NG)'
-                            : '';
+        row['現地調査判定'] = j==='usable'?'使用可(OK)':j==='consider'?'検討':j==='unusable'?'使用不可(NG)':'';
         row['現地調査フラグ色'] = fs?.flag_color || '';
         row['現地調査コメント'] = fs?.comment || '';
       }
@@ -319,52 +582,36 @@ async function doExport(){
       }
       return row;
     });
-    setProgress(92);
 
-    // ===== Excel 生成 =====
-    setStatus('Excel 生成中...', 'info');
     const ws = XLSX.utils.json_to_sheet(rows);
-
-    // 列幅を自動調整 (最大30文字)
     const headers = Object.keys(rows[0] || {});
     ws['!cols'] = headers.map(h => {
-      const maxLen = Math.max(
-        h.length * 2,
-        ...rows.slice(0, 100).map(r => String(r[h] ?? '').length)
-      );
+      const maxLen = Math.max(h.length * 2, ...rows.slice(0, 100).map(r => String(r[h] ?? '').length));
       return { wch: Math.min(30, Math.max(8, maxLen)) };
     });
-
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '案件マスター');
 
-    // ファイル名: 案件マスター_YYYYMMDD_HHMM.xlsx
     const now = new Date();
     const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
-    const filename = `案件マスター_${stamp}.xlsx`;
-
-    setProgress(98);
+    const filename = `案件マスター_${stamp}_${rows.length}件.xlsx`;
     XLSX.writeFile(wb, filename);
-    setProgress(100);
-
-    setStatus(`✅ 完了: ${rows.length} 案件を ${filename} に出力しました`, 'ok');
-
-  } catch(e) {
-    console.error('[Export] error:', e);
+    setStatus(`✅ 完了: ${rows.length} 件を ${filename} に出力しました`, 'ok');
+  } catch(e){
+    console.error(e);
     setStatus('❌ エラー: ' + e.message, 'err');
-    setProgress(0);
   } finally {
     btn.disabled=false;
   }
 }
 
-// 初期状態
+// 起動時に session チェック
 window.addEventListener('load', async () => {
   const { data: authData } = await db.auth.getSession();
-  if (authData?.session) {
-    setStatus(`ログイン中: ${authData.session.user.email || 'user'} — 準備完了`, 'ok');
+  if (!authData?.session) {
+    setStatus('⚠ ログインが必要です。他のページでログインしてください', 'err');
   } else {
-    setStatus('⚠ ログインが必要です。まず他のページでログインしてください', 'err');
+    setStatus(`ログイン中: ${authData.session.user.email || 'user'} — 「全案件を読み込む」を押してください`, 'ok');
   }
 });
 </script>
