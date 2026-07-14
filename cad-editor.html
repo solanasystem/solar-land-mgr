@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260714B / 数字除去機能を「下絵」リボングループに独立追加(5段階パイプラインの②線画抽出の実装)。既存下絵ラスターを入力→二値化+消しゴム適用+Polygon-Interior自動判定で境界内部の数字/ノイズを除去→線画ラスターPNG保存。Potraceには一切触らない(v20260714AでPotrace内部に前処理を埋め込んだ設計は撤回、原状復帰済)。既存の_eraserApplyToMask/morphDilate4/labelConnectedComponentsを再利用、新規は_detectPolygonInterior+数字除去モーダル系JS。前:v20260711N -->
+<!-- BUILD: cad-editor v20260714C / 数字除去モーダルに Adaptive Threshold (Sauvola型) 追加。iPhone撮影の照明ムラを局所平均比較で自動吸収。既存の computeAdaptiveMask 関数を再利用。デフォルトモード=Adaptive、パラメータ=ブロックサイズ(15-51)+オフセットC(0-40)。固定しきい値(Simple)モードも残存、切替可能。前:v20260714B -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1399,7 +1399,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260714B</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260714C</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -1938,12 +1938,34 @@
           <b>処理:</b> 下絵 → 二値化 → 消しゴム適用 → 四辺からflood-fillで外部同定 → 外部と接しないCCを削除 → 線画ラスター完成
         </span>
       </div>
-      <!-- 二値化しきい値 -->
+      <!-- 二値化モード -->
       <div class="line-extract-row">
-        <span class="line-extract-label">二値化しきい値</span>
+        <span class="line-extract-label">二値化モード</span>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
+          <input type="checkbox" id="drUseAdaptive" checked onchange="onDigitRemovalParamChange()"> Adaptive (照明ムラ自動吸収)
+        </label>
+        <span class="line-extract-info">iPhone撮影は Adaptive 推奨、スキャン済みなら Simple</span>
+      </div>
+      <!-- Simple: 絶対しきい値 -->
+      <div class="line-extract-row" id="drSimpleRow" style="display:none;">
+        <span class="line-extract-label">二値化しきい値 (Simple)</span>
         <input type="range" min="0" max="255" value="128" id="drBinThresh" class="line-extract-threshold-input" oninput="onDigitRemovalParamChange()">
         <span class="line-extract-threshold-value" id="drBinThreshValue">128</span>
         <span class="line-extract-info">明=前景, 暗=背景の境界値</span>
+      </div>
+      <!-- Adaptive: ブロックサイズ -->
+      <div class="line-extract-row" id="drBlockSizeRow">
+        <span class="line-extract-label">ブロックサイズ</span>
+        <input type="range" min="7" max="51" value="25" step="2" id="drBlockSize" class="line-extract-threshold-input" oninput="onDigitRemovalParamChange()">
+        <span class="line-extract-threshold-value" id="drBlockSizeValue">25 px</span>
+        <span class="line-extract-info">局所平均の窓サイズ(奇数)</span>
+      </div>
+      <!-- Adaptive: オフセット C -->
+      <div class="line-extract-row" id="drAdaptiveCRow">
+        <span class="line-extract-label">オフセット C</span>
+        <input type="range" min="0" max="40" value="8" id="drAdaptiveC" class="line-extract-threshold-input" oninput="onDigitRemovalParamChange()">
+        <span class="line-extract-threshold-value" id="drAdaptiveCValue">8</span>
+        <span class="line-extract-info">局所平均より C 以上暗い画素を前景</span>
       </div>
       <!-- 二値化反転 -->
       <div class="line-extract-row">
@@ -6934,7 +6956,8 @@ let _drState = {
   sourceH: 0,
   procW: 0,     // 処理解像度 (最大 VECTORIZE_MAX_DIM に縮小)
   procH: 0,
-  originalData: null,  // 縮小した ImageData の data (RGBA)
+  gray: null,           // グレースケール輝度 (Uint8Array), computeAdaptiveMask に直接投入
+  alphaOk: null,        // アルファ有効 (Uint8Array)
   mask: null,           // 二値化後の Uint8Array (1=前景)
   labels: null,         // 元 mask に対する CC ラベル (Int32Array)
   numLabels: 0,
@@ -6972,6 +6995,12 @@ async function openDigitRemovalDialog() {
     eraserInfo.textContent = n > 0 ? `${n}件のマーク` : '(マーク無し)';
   }
 
+  // UI 初期同期
+  const useAdaptive = document.getElementById('drUseAdaptive').checked;
+  document.getElementById('drSimpleRow').style.display = useAdaptive ? 'none' : 'flex';
+  document.getElementById('drBlockSizeRow').style.display = useAdaptive ? 'flex' : 'none';
+  document.getElementById('drAdaptiveCRow').style.display = useAdaptive ? 'flex' : 'none';
+
   await _drLoadSource();
   await runDigitRemovalPreview();
 }
@@ -6998,13 +7027,21 @@ async function _drLoadSource() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, procW, procH);
     ctx.drawImage(img.drawable, 0, 0, procW, procH);
-    const imageData = ctx.getImageData(0, 0, procW, procH);
+    const data = ctx.getImageData(0, 0, procW, procH).data;
+    const size = procW * procH;
+    const gray = new Uint8Array(size);
+    const alphaOk = new Uint8Array(size);
+    for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+      gray[j] = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      alphaOk[j] = data[i + 3] >= 20 ? 1 : 0;
+    }
 
     _drState.sourceW = img.width;
     _drState.sourceH = img.height;
     _drState.procW = procW;
     _drState.procH = procH;
-    _drState.originalData = imageData.data;
+    _drState.gray = gray;
+    _drState.alphaOk = alphaOk;
     _drState.loaded = true;
     _drState.lastBinKey = '';
     _drState.lastDilation = -1;
@@ -7019,8 +7056,17 @@ async function _drLoadSource() {
 }
 
 function onDigitRemovalParamChange() {
+  const useAdaptive = document.getElementById('drUseAdaptive').checked;
+  document.getElementById('drSimpleRow').style.display = useAdaptive ? 'none' : 'flex';
+  document.getElementById('drBlockSizeRow').style.display = useAdaptive ? 'flex' : 'none';
+  document.getElementById('drAdaptiveCRow').style.display = useAdaptive ? 'flex' : 'none';
+
   const t = parseInt(document.getElementById('drBinThresh').value, 10);
   document.getElementById('drBinThreshValue').textContent = String(t);
+  const bs = parseInt(document.getElementById('drBlockSize').value, 10);
+  document.getElementById('drBlockSizeValue').textContent = bs + ' px';
+  const c = parseInt(document.getElementById('drAdaptiveC').value, 10);
+  document.getElementById('drAdaptiveCValue').textContent = String(c);
   const d = parseInt(document.getElementById('drDilation').value, 10);
   document.getElementById('drDilationValue').textContent = d + ' px';
   if (_drPreviewTimer) clearTimeout(_drPreviewTimer);
@@ -7039,23 +7085,39 @@ async function runDigitRemovalPreview() {
 
   try {
     const t0 = performance.now();
+    const useAdaptive = document.getElementById('drUseAdaptive').checked;
     const threshold = parseInt(document.getElementById('drBinThresh').value, 10);
+    const blockSize = parseInt(document.getElementById('drBlockSize').value, 10);
+    const adaptiveC = parseInt(document.getElementById('drAdaptiveC').value, 10);
     const invert = document.getElementById('drInvertBinary').checked;
     const useEraser = document.getElementById('drUseEraser').checked;
     const dilationRadius = parseInt(document.getElementById('drDilation').value, 10);
-    const { procW, procH, originalData } = _drState;
+    const { procW, procH, gray, alphaOk } = _drState;
+    const size = procW * procH;
 
     const eraserMarks = window._eraserState?.marks?.length || 0;
-    const binKey = `${threshold}_${invert ? 1 : 0}_${useEraser ? 1 : 0}_${eraserMarks}`;
+    const binKey = useAdaptive
+      ? `A_${blockSize}_${adaptiveC}_${invert ? 1 : 0}_${useEraser ? 1 : 0}_${eraserMarks}`
+      : `S_${threshold}_${invert ? 1 : 0}_${useEraser ? 1 : 0}_${eraserMarks}`;
     const needsRebinarize = (_drState.lastBinKey !== binKey);
 
     if (needsRebinarize) {
-      const mask = new Uint8Array(procW * procH);
-      for (let i = 0, j = 0; i < originalData.length; i += 4, j++) {
-        const gray = 0.299 * originalData[i] + 0.587 * originalData[i + 1] + 0.114 * originalData[i + 2];
-        const isDark = gray < threshold;
-        mask[j] = (invert ? !isDark : isDark) ? 1 : 0;
+      let mask;
+      if (useAdaptive) {
+        // 局所平均比較 (照明ムラ吸収)
+        const bs = Math.max(3, Math.min(101, blockSize | 1)); // 奇数化
+        mask = computeAdaptiveMask(gray, procW, procH, bs, adaptiveC);
+      } else {
+        // 固定しきい値
+        mask = new Uint8Array(size);
+        for (let j = 0; j < size; j++) {
+          mask[j] = gray[j] < threshold ? 1 : 0;
+        }
       }
+      // アルファ無効域を強制背景化
+      for (let j = 0; j < size; j++) if (!alphaOk[j]) mask[j] = 0;
+      // 反転
+      if (invert) for (let j = 0; j < size; j++) mask[j] ^= 1;
       // 既存の消しゴム機能を適用 (v20260711G の資産を利用)
       if (useEraser && typeof _eraserApplyToMask === 'function'
           && window._eraserState?.marks?.length > 0
@@ -7068,16 +7130,12 @@ async function runDigitRemovalPreview() {
     }
 
     if (_drState.lastDilation !== dilationRadius || needsRebinarize) {
-      // 削除判定: mask をコピーして _detectPolygonInterior にかける
       const workMask = new Uint8Array(_drState.mask);
       const res = _detectPolygonInterior(workMask, procW, procH, dilationRadius);
-      // 元 mask に対する CC ラベル計算
       const { label, areas, maxLabel } = labelConnectedComponents(_drState.mask, procW, procH);
       _drState.labels = label;
       _drState.numLabels = maxLabel;
-      // 削除対象CC = 元 mask にあり、workMask で消えた画素の CC
       const removeMask = new Uint8Array(maxLabel + 1);
-      const size = procW * procH;
       for (let i = 0; i < size; i++) {
         if (_drState.mask[i] && !workMask[i]) {
           removeMask[label[i]] = 1;
@@ -7093,7 +7151,8 @@ async function runDigitRemovalPreview() {
     }
 
     const t1 = performance.now();
-    console.log(`[数字除去] 処理完了: 削除=${_drState.removedPx.toLocaleString()}px, 内部CC=${_drState.interiorCCs}/全${_drState.totalCCs}, 主境界=${_drState.mainArea.toLocaleString()}px, ${(t1 - t0).toFixed(0)}ms`);
+    const modeLabel = useAdaptive ? `Adaptive(bs=${blockSize},C=${adaptiveC})` : `Simple(t=${threshold})`;
+    console.log(`[数字除去] ${modeLabel}: 削除=${_drState.removedPx.toLocaleString()}px, 内部CC=${_drState.interiorCCs}/全${_drState.totalCCs}, 主境界=${_drState.mainArea.toLocaleString()}px, ${(t1 - t0).toFixed(0)}ms`);
     _drRender();
   } catch (e) {
     console.error('[数字除去] プレビュー失敗', e);
