@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260711N / 点抽出の交点計算を非同期化。500線分ごとに setTimeout でメインスレッドを解放してブラウザフリーズを防ぐ。進捗表示とキャンセルボタン追加。アルゴリズムも「セル二重ループ」→「線分×近傍セル走査」に変更してメモリ効率も改善。前:v20260711M -->
+<!-- BUILD: cad-editor v20260714A / Potrace パイプラインに前処理チェーン挿入。(1)既存の消しゴム(_eraserApplyToMask)を Potrace 経路にも接続(v20260711G以来の欠落バグ修正)。(2)Polygon-Interior 自動除去 (_detectPolygonInterior) 追加: 境界を膨張→四辺からflood-fill→外部と接しないCCを削除。Photoshopの消しゴム作業の完全自動化。既存関数(morphDilate4/labelConnectedComponents/_eraserApplyToMask)を再利用。前:v20260711N -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1956,6 +1956,24 @@
         <span class="line-extract-threshold-value" id="potraceOpttoleranceValue">0.200</span>
         <span class="line-extract-info">大=単純化 / 小=忠実</span>
       </div>
+      <!-- v20260714A: 前処理チェーン -->
+      <div class="line-extract-row" style="background:rgba(255,136,0,0.06);border:1px solid rgba(255,136,0,0.3);padding:6px 8px;border-radius:2px;">
+        <span class="line-extract-label" style="color:#ff8800;">前処理</span>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
+          <input type="checkbox" id="potraceUseEraser" checked onchange="onPotraceParamChange()"> 消しゴム適用
+        </label>
+        <span class="line-extract-info" id="potraceEraserInfo" style="min-width:80px;">-</span>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
+          <input type="checkbox" id="potraceUsePolygonInterior" onchange="onPotraceParamChange()"> 内部含有ノイズ自動除去
+        </label>
+        <span class="line-extract-info">閉領域の内部を自動判定</span>
+      </div>
+      <div class="line-extract-row" id="potracePolygonInteriorRow" style="display:none;">
+        <span class="line-extract-label">境界膨張 (dilation)</span>
+        <input type="range" min="0" max="8" value="2" id="potracePolygonDilation" class="line-extract-threshold-input" oninput="_updatePotraceLabel('potracePolygonDilationValue', this.value + ' px'); onPotraceParamChange()">
+        <span class="line-extract-threshold-value" id="potracePolygonDilationValue">2 px</span>
+        <span class="line-extract-info">境界の隙間を閉じる (問題①対策)</span>
+      </div>
       <!-- optcurve -->
       <div class="line-extract-row">
         <span class="line-extract-label">曲線化</span>
@@ -3728,6 +3746,96 @@ function removeSmallComponents(mask, w, h, minArea) {
     if (toRemove.has(label[i])) { mask[i] = 0; removed++; }
   }
   return { removed, removedComponents: toRemove.size };
+}
+
+/**
+ * v20260714A: Polygon-Interior 自動除去
+ * 幾何学的公理「地番図は閉じた多角形の集合」の直接実装。
+ * Photoshop 消しゴム作業 (=境界内部の手動削除) の完全自動化。
+ *
+ * アルゴリズム:
+ *   1. mask を dilationRadius だけ膨張 (問題①=線画途切れの隙間を埋める)
+ *   2. 画像四辺から flood-fill で「外部」領域を同定
+ *      → dilated fg に囲まれない bg = 外部、dilated fg に囲まれる bg = 地番の内部
+ *   3. outsideMask を (dilationRadius + 1) 膨張して original fg 境界に届かせる
+ *   4. 元 mask で CC ラベリング
+ *   5. 各 CC が outsideMask と重なるか判定 → 重ならない CC = 内部含有ノイズ
+ *   6. 内部含有ノイズを mask から除去 (in-place)
+ *
+ * 副作用: mask を in-place で書き換える
+ * 既存関数を再利用: morphDilate4, labelConnectedComponents
+ *
+ * @param {Uint8Array} mask - 二値マスク (1=前景, 0=背景), in-place で修正
+ * @param {number} w - 幅
+ * @param {number} h - 高さ
+ * @param {number} dilationRadius - 境界膨張半径 (px), 通常 2-4
+ * @returns {{ removed: number, mainLabel: number, mainArea: number, totalCCs: number, interiorCCs: number }}
+ */
+function _detectPolygonInterior(mask, w, h, dilationRadius) {
+  const size = w * h;
+  const dr = Math.max(0, dilationRadius | 0);
+
+  // 1. Clone mask, dilate to close small gaps in boundary lines
+  const dilated = new Uint8Array(mask);
+  if (dr > 0) morphDilate4(dilated, w, h, dr);
+
+  // 2. BFS flood-fill "outside" from image edges through non-dilated pixels
+  const outsideMask = new Uint8Array(size);
+  const queue = new Int32Array(size);
+  let head = 0, tail = 0;
+  const seed = (i) => {
+    if (!dilated[i] && !outsideMask[i]) {
+      outsideMask[i] = 1;
+      queue[tail++] = i;
+    }
+  };
+  for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1); }
+  while (head < tail) {
+    const i = queue[head++];
+    const x = i % w, y = (i / w) | 0;
+    if (x > 0)   { const n = i - 1; if (!outsideMask[n] && !dilated[n]) { outsideMask[n] = 1; queue[tail++] = n; } }
+    if (x < w-1) { const n = i + 1; if (!outsideMask[n] && !dilated[n]) { outsideMask[n] = 1; queue[tail++] = n; } }
+    if (y > 0)   { const n = i - w; if (!outsideMask[n] && !dilated[n]) { outsideMask[n] = 1; queue[tail++] = n; } }
+    if (y < h-1) { const n = i + w; if (!outsideMask[n] && !dilated[n]) { outsideMask[n] = 1; queue[tail++] = n; } }
+  }
+
+  // 3. Dilate outsideMask by (dr + 1) so it can touch original fg boundaries
+  morphDilate4(outsideMask, w, h, dr + 1);
+
+  // 4. Label CCs on original mask
+  const { label, areas, maxLabel } = labelConnectedComponents(mask, w, h);
+
+  // 5. Determine which CCs touch outside (=must be kept)
+  const touchesOutside = new Uint8Array(maxLabel + 1);
+  // Absolute safety: protect the largest CC (main boundary graph)
+  let mainLabel = 0, mainArea = 0;
+  for (const [lbl, area] of Object.entries(areas)) {
+    if (area > mainArea) { mainArea = area; mainLabel = +lbl; }
+  }
+  if (mainLabel > 0) touchesOutside[mainLabel] = 1;
+
+  for (let i = 0; i < size; i++) {
+    if (!mask[i]) continue;
+    const lbl = label[i];
+    if (touchesOutside[lbl]) continue;
+    if (outsideMask[i]) touchesOutside[lbl] = 1;
+  }
+
+  // 6. Remove pixels of CCs that don't touch outside = interior noise
+  let removed = 0;
+  let interiorCCs = 0;
+  for (let lbl = 1; lbl <= maxLabel; lbl++) {
+    if (areas[lbl] && !touchesOutside[lbl]) interiorCCs++;
+  }
+  for (let i = 0; i < size; i++) {
+    if (mask[i] && !touchesOutside[label[i]]) {
+      mask[i] = 0;
+      removed++;
+    }
+  }
+
+  return { removed, mainLabel, mainArea, totalCCs: maxLabel, interiorCCs };
 }
 
 /* ========================================================================
@@ -6739,7 +6847,11 @@ function _getPotraceParams() {
   const opttolerance = parseInt(document.getElementById('potraceOpttolerance').value, 10) / 1000;
   const optcurve = document.getElementById('potraceOptcurve').checked;
   const curveSteps = parseInt(document.getElementById('potraceCurveSteps').value, 10);
-  return { threshold, turdsize, alphamax, opttolerance, optcurve, curveSteps };
+  // v20260714A: 前処理パラメータ
+  const useEraser = document.getElementById('potraceUseEraser')?.checked ?? true;
+  const usePolygonInterior = document.getElementById('potraceUsePolygonInterior')?.checked ?? false;
+  const polygonDilation = parseInt(document.getElementById('potracePolygonDilation')?.value ?? '2', 10);
+  return { threshold, turdsize, alphamax, opttolerance, optcurve, curveSteps, useEraser, usePolygonInterior, polygonDilation };
 }
 
 async function openPotraceDialog() {
@@ -6762,6 +6874,14 @@ async function openPotraceDialog() {
     const h = currentOverlay.source_height_px || '?';
     info.textContent = `元解像度: ${w}×${h} / 案件: ${currentOverlay.case_name || '-'}`;
   }
+  // v20260714A: 前処理 UI 同期 (消しゴムマーク数、Polygon-Interior 行の表示)
+  const polyRow = document.getElementById('potracePolygonInteriorRow');
+  if (polyRow) polyRow.style.display = document.getElementById('potraceUsePolygonInterior')?.checked ? 'flex' : 'none';
+  const eraserInfo = document.getElementById('potraceEraserInfo');
+  if (eraserInfo && window._eraserState) {
+    const n = window._eraserState.marks?.length || 0;
+    eraserInfo.textContent = n > 0 ? `${n}件のマーク` : '(マーク無し)';
+  }
 
   await runPotracePreview();
 }
@@ -6778,6 +6898,14 @@ function onPotraceParamChange() {
   _updatePotraceLabel('potraceTurdsizeValue', String(p.turdsize));
   _updatePotraceLabel('potraceAlphamaxValue', p.alphamax.toFixed(3));
   _updatePotraceLabel('potraceOpttoleranceValue', p.opttolerance.toFixed(3));
+  // v20260714A: 前処理 UI 同期
+  const polyRow = document.getElementById('potracePolygonInteriorRow');
+  if (polyRow) polyRow.style.display = p.usePolygonInterior ? 'flex' : 'none';
+  const eraserInfo = document.getElementById('potraceEraserInfo');
+  if (eraserInfo && window._eraserState) {
+    const n = window._eraserState.marks?.length || 0;
+    eraserInfo.textContent = n > 0 ? `${n}件のマーク` : '(マーク無し)';
+  }
   if (_potracePreviewTimer) clearTimeout(_potracePreviewTimer);
   _potracePreviewTimer = setTimeout(() => runPotracePreview(), 300);
 }
@@ -6806,15 +6934,46 @@ function _runPotraceCore(imgSource, params) {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, cv.width, cv.height);
       ctx.drawImage(imgSource.drawable, 0, 0);
-      // 事前二値化 (Potrace 内部でもやるが、しきい値を明示的に反映させる)
+      // ===== v20260714A: 前処理チェーン開始 =====
+      // 従来: imageData 上で直接二値化 → dataURL
+      // 変更: 二値化 → Uint8Array mask → 消しゴム適用 → Polygon-Interior 適用 → imageData 書き戻し
       const imageData = ctx.getImageData(0, 0, cv.width, cv.height);
       const d = imageData.data;
       const t = params.threshold;
-      for (let i = 0; i < d.length; i += 4) {
+      const w = cv.width;
+      const h = cv.height;
+      // 1. 二値化 → Uint8Array mask (1=前景/黒, 0=背景/白)
+      const mask = new Uint8Array(w * h);
+      for (let i = 0, j = 0; i < d.length; i += 4, j++) {
         const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-        const v = gray < t ? 0 : 255;
+        mask[j] = gray < t ? 1 : 0;
+      }
+      // 2. 消しゴム適用 (既存機能、Potrace 経路への接続は v20260714A で初実装)
+      let eraserPx = 0;
+      if (params.useEraser && typeof _eraserApplyToMask === 'function'
+          && window._eraserState?.marks?.length > 0
+          && typeof currentOverlay !== 'undefined' && currentOverlay?.source_width_px && currentOverlay?.source_height_px) {
+        const res = _eraserApplyToMask(mask, currentOverlay.source_width_px, currentOverlay.source_height_px, w, h);
+        eraserPx = res.erasedPx || 0;
+      }
+      // 3. Polygon-Interior 自動除去 (閉領域の内部含有ノイズを削除)
+      let polyRes = null;
+      if (params.usePolygonInterior && typeof _detectPolygonInterior === 'function') {
+        polyRes = _detectPolygonInterior(mask, w, h, params.polygonDilation ?? 2);
+      }
+      // 4. mask → imageData (0→白, 1→黒)
+      for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+        const v = mask[j] ? 0 : 255;
         d[i] = v; d[i + 1] = v; d[i + 2] = v; d[i + 3] = 255;
       }
+      // ログ (デバッグ用)
+      if (eraserPx > 0 || polyRes) {
+        const parts = [];
+        if (eraserPx > 0) parts.push(`消しゴム=${eraserPx.toLocaleString()}px`);
+        if (polyRes) parts.push(`Polygon-Interior=${polyRes.removed.toLocaleString()}px (内部CC=${polyRes.interiorCCs}/全${polyRes.totalCCs}, 主境界=${polyRes.mainArea.toLocaleString()}px)`);
+        console.log(`[Potrace前処理] ${w}×${h}: ${parts.join(', ')}`);
+      }
+      // ===== v20260714A: 前処理チェーン終了 =====
       ctx.putImageData(imageData, 0, 0);
 
       const dataUrl = cv.toDataURL('image/png');
