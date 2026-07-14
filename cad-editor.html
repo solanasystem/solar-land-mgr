@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260714C / 数字除去モーダルに Adaptive Threshold (Sauvola型) 追加。iPhone撮影の照明ムラを局所平均比較で自動吸収。既存の computeAdaptiveMask 関数を再利用。デフォルトモード=Adaptive、パラメータ=ブロックサイズ(15-51)+オフセットC(0-40)。固定しきい値(Simple)モードも残存、切替可能。前:v20260714B -->
+<!-- BUILD: cad-editor v20260714D / 消しゴム機能全面刷新: 円形消しゴム廃止、Photoshop準拠の(1)矩形削除=対角線ドラッグで矩形範囲→内部一括削除(Mツール準拠)、(2)矩形消しゴム=サイズ可変(スライダー+数値入力m単位)。マーク永続化は同じ overlay_eraser_marks テーブル、schema拡張 {type:'rect', tl:{lat,lng}, br:{lat,lng}}、旧円形マークは silently drop。数字除去モーダル(v20260714B/C)全撤去、_detectPolygonInterior削除。前:v20260711N -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1399,7 +1399,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260714C</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260714D</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -1430,10 +1430,6 @@
       </button>
       <button class="ribbon-btn" id="btnSaveTransform" onclick="saveOverlayTransform()" title="変形状態を保存">
         <div class="ribbon-btn-icon">💾</div><div class="ribbon-btn-label">保存</div>
-      </button>
-      <!-- v20260714B: 数字除去 (下絵ラスターから境界内部の数字/ノイズを自動判定削除) -->
-      <button class="ribbon-btn" id="btnDigitRemoval" onclick="openDigitRemovalDialog()" title="下絵ラスターから地番境界の内部にある数字・手書き・ノイズを自動判定して除去し、線画ラスターとして完成させる" style="border:1px solid #ff8800;">
-        <div class="ribbon-btn-icon">✨</div><div class="ribbon-btn-label">数字除去</div>
       </button>
     </div>
     <div class="ribbon-group-label">下絵</div>
@@ -1598,11 +1594,14 @@
       <button class="ribbon-btn" id="btnTopoClear" onclick="_topoPhaseA_clearOverlay()" title="検出結果マーカーを地図上から消去">
         <div class="ribbon-btn-icon">🧹</div><div class="ribbon-btn-label">消去</div>
       </button>
-      <!-- v20260711G: 消しゴム機能 -->
-      <button class="ribbon-btn" id="btnEraserToggle" onclick="_eraserToggle()" title="下絵から不要な線を人為的に削除する消しゴムモード（削除内容は自動保存）" style="border:1px solid #e53935;">
-        <div class="ribbon-btn-icon">🧽</div><div class="ribbon-btn-label">消しゴム</div>
+      <!-- v20260714D: 矩形消しゴム機能 (Photoshop準拠) -->
+      <button class="ribbon-btn" id="btnRectSelectToggle" onclick="_eraserToggleMode('rectSelect')" title="対角線ドラッグで矩形範囲を指定→内部を一括削除 (Photoshop M ツール準拠)" style="border:1px solid #e53935;">
+        <div class="ribbon-btn-icon">▭</div><div class="ribbon-btn-label">矩形削除</div>
       </button>
-      <button class="ribbon-btn" id="btnEraserClear" onclick="_eraserClearAll()" title="全ての消しゴム削除範囲を解除">
+      <button class="ribbon-btn" id="btnRectEraserToggle" onclick="_eraserToggleMode('rectEraser')" title="サイズ可変の矩形消しゴム。細部の削除に使用" style="border:1px solid #e53935;">
+        <div class="ribbon-btn-icon">■</div><div class="ribbon-btn-label">消しゴム</div>
+      </button>
+      <button class="ribbon-btn" id="btnEraserClear" onclick="_eraserClearAll()" title="全ての削除範囲を解除">
         <div class="ribbon-btn-icon">🗑</div><div class="ribbon-btn-label">全解除</div>
       </button>
     </div>
@@ -1921,110 +1920,6 @@
   </div>
 </div>
 
-<!-- ===== v20260714B: 数字除去モーダル (下絵ラスターから境界内部を自動判定削除) ===== -->
-<div id="digitRemovalModal" class="line-extract-modal">
-  <div class="line-extract-panel" style="max-width:900px;">
-    <div class="line-extract-header">
-      <div>
-        <div class="line-extract-title">✨ 数字除去 — 線画ラスター生成</div>
-        <div class="line-extract-info" id="digitRemovalSourceInfo">元解像度: -</div>
-      </div>
-      <button class="line-extract-btn" onclick="closeDigitRemovalDialog()">✕</button>
-    </div>
-    <div class="line-extract-body">
-      <div class="line-extract-row" style="background:rgba(255,136,0,0.06);border:1px solid rgba(255,136,0,0.3);padding:8px 10px;border-radius:2px;">
-        <span style="font-size:11px;color:#ff8800;line-height:1.5;">
-          <b>公理:</b> 地番図は閉じた多角形の集合。境界に囲まれた内部にあるもの(数字・手書き・鉛筆)は全部ノイズ。<br>
-          <b>処理:</b> 下絵 → 二値化 → 消しゴム適用 → 四辺からflood-fillで外部同定 → 外部と接しないCCを削除 → 線画ラスター完成
-        </span>
-      </div>
-      <!-- 二値化モード -->
-      <div class="line-extract-row">
-        <span class="line-extract-label">二値化モード</span>
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
-          <input type="checkbox" id="drUseAdaptive" checked onchange="onDigitRemovalParamChange()"> Adaptive (照明ムラ自動吸収)
-        </label>
-        <span class="line-extract-info">iPhone撮影は Adaptive 推奨、スキャン済みなら Simple</span>
-      </div>
-      <!-- Simple: 絶対しきい値 -->
-      <div class="line-extract-row" id="drSimpleRow" style="display:none;">
-        <span class="line-extract-label">二値化しきい値 (Simple)</span>
-        <input type="range" min="0" max="255" value="128" id="drBinThresh" class="line-extract-threshold-input" oninput="onDigitRemovalParamChange()">
-        <span class="line-extract-threshold-value" id="drBinThreshValue">128</span>
-        <span class="line-extract-info">明=前景, 暗=背景の境界値</span>
-      </div>
-      <!-- Adaptive: ブロックサイズ -->
-      <div class="line-extract-row" id="drBlockSizeRow">
-        <span class="line-extract-label">ブロックサイズ</span>
-        <input type="range" min="7" max="51" value="25" step="2" id="drBlockSize" class="line-extract-threshold-input" oninput="onDigitRemovalParamChange()">
-        <span class="line-extract-threshold-value" id="drBlockSizeValue">25 px</span>
-        <span class="line-extract-info">局所平均の窓サイズ(奇数)</span>
-      </div>
-      <!-- Adaptive: オフセット C -->
-      <div class="line-extract-row" id="drAdaptiveCRow">
-        <span class="line-extract-label">オフセット C</span>
-        <input type="range" min="0" max="40" value="8" id="drAdaptiveC" class="line-extract-threshold-input" oninput="onDigitRemovalParamChange()">
-        <span class="line-extract-threshold-value" id="drAdaptiveCValue">8</span>
-        <span class="line-extract-info">局所平均より C 以上暗い画素を前景</span>
-      </div>
-      <!-- 二値化反転 -->
-      <div class="line-extract-row">
-        <span class="line-extract-label">前景/背景</span>
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
-          <input type="checkbox" id="drInvertBinary" onchange="onDigitRemovalParamChange()"> 二値化を反転
-        </label>
-        <span class="line-extract-info">紙の色や線の色に応じて調整</span>
-      </div>
-      <!-- 消しゴム適用 -->
-      <div class="line-extract-row">
-        <span class="line-extract-label">既存の消しゴム</span>
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
-          <input type="checkbox" id="drUseEraser" checked onchange="onDigitRemovalParamChange()"> 適用
-        </label>
-        <span class="line-extract-info" id="drEraserInfo">-</span>
-      </div>
-      <!-- 境界膨張 -->
-      <div class="line-extract-row">
-        <span class="line-extract-label">境界膨張 (dilation)</span>
-        <input type="range" min="0" max="8" value="2" id="drDilation" class="line-extract-threshold-input" oninput="onDigitRemovalParamChange()">
-        <span class="line-extract-threshold-value" id="drDilationValue">2 px</span>
-        <span class="line-extract-info">線画の隙間を閉じる (問題①対策)</span>
-      </div>
-      <!-- 内部背景可視化 -->
-      <div class="line-extract-row">
-        <span class="line-extract-label">Debug表示</span>
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
-          <input type="checkbox" id="drShowInterior" onchange="onDigitRemovalRenderOnly()"> 検出された内部領域を薄オレンジで表示
-        </label>
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
-          <input type="checkbox" id="drShowRemoved" checked onchange="onDigitRemovalRenderOnly()"> 削除対象を赤で表示
-        </label>
-      </div>
-      <!-- プレビュー -->
-      <div class="line-extract-row" style="flex-direction:column;align-items:stretch;gap:4px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span class="line-extract-label">プレビュー</span>
-          <span class="line-extract-info" id="drPreviewInfo">パラメータ変更でリアルタイム更新</span>
-        </div>
-        <div class="line-extract-preview-wrap">
-          <div class="line-extract-preview-loader" id="drPreviewLoader">処理中...</div>
-          <canvas id="drPreviewCanvas" width="860" height="360"></canvas>
-        </div>
-      </div>
-      <!-- 統計 -->
-      <div class="line-extract-row" style="flex-direction:column;align-items:stretch;gap:4px;">
-        <span class="line-extract-info" id="drStats" style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);">結果: -</span>
-      </div>
-    </div>
-    <div class="line-extract-footer">
-      <button class="line-extract-btn" onclick="closeDigitRemovalDialog()">閉じる</button>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="line-extract-btn" onclick="downloadDigitRemovalPNG()" title="線画ラスターを PNG でダウンロード">📥 線画PNG保存</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- ===== v20260711A: Potrace モーダル ===== -->
 <div id="potraceModal" class="line-extract-modal">
   <div class="line-extract-panel" style="max-width:720px;">
@@ -2279,15 +2174,14 @@
       </div>
 
       <div class="topo-param-row" style="border-top:1px solid #b478ff33;padding-top:8px;margin-top:8px;">
-        <label>🧽 消しゴム半径（m）</label>
-        <input type="range" id="topoPEraserR" min="1" max="20" step="0.5" value="3"
-               oninput="document.getElementById('topoPEraserRV').textContent = parseFloat(this.value).toFixed(1);_eraserUpdateCursorSize();">
-        <span class="topo-param-value" id="topoPEraserRV">3.0</span>
+        <label style="font-size:11px;color:var(--text-muted);">消しゴム</label>
+        <span style="font-size:10px;color:var(--text-muted);">
+          リボンの <b>▭ 矩形削除</b> または <b>■ 消しゴム</b> ボタンから起動
+        </span>
       </div>
 
       <div style="font-size:10px;color:var(--text-muted);margin:4px 0 8px 0;">
-        ※ 消しゴムモードを ON にすると、地図上でクリック/ドラッグした領域が削除範囲として記録されます。
-        削除範囲は <b>Supabase に自動保存</b>され、次回セッションでも復元されます。
+        ※ 削除範囲は <b>Supabase に自動保存</b>され、次回セッションでも復元されます。
       </div>
 
       <div class="topo-legend">
@@ -2318,7 +2212,7 @@
 <!-- ===== トーストコンテナ ===== -->
 <div class="toast-container" id="toastContainer"></div>
 
-<!-- v20260711H: 消しゴム半径調整フロートパネル（消しゴムモード ON 時のみ表示） -->
+<!-- v20260714D: 消しゴムフロートパネル（Photoshop準拠：矩形削除+矩形消しゴム） -->
 <div id="eraserFloatPanel" style="
   display: none;
   position: fixed;
@@ -2326,7 +2220,7 @@
   left: 50%;
   transform: translateX(-50%);
   z-index: 9500;
-  background: rgba(20, 20, 20, 0.92);
+  background: rgba(20, 20, 20, 0.94);
   border: 2px solid #e53935;
   border-radius: 8px;
   padding: 10px 16px;
@@ -2335,16 +2229,22 @@
   font-family: system-ui, sans-serif;
   font-size: 13px;
   user-select: none;
-  min-width: 340px;
+  min-width: 420px;
 ">
   <div style="display: flex; align-items: center; gap: 12px;">
-    <div style="font-size: 18px;">🧽</div>
-    <div style="flex: 0 0 auto; font-weight: 600; color: #ff6b6b;">消しゴム半径</div>
-    <input type="range" id="eraserFloatRadius" min="1" max="30" step="0.5" value="3"
-      style="flex: 1; accent-color: #e53935; min-width: 120px;"
-      oninput="_eraserFloatRadiusChange(this.value)">
-    <div id="eraserFloatRadiusVal" style="font-family: monospace; font-weight: 600; color: #ff9a9a; min-width: 46px; text-align: right;">3.0 m</div>
-    <button onclick="_eraserToggle()" style="
+    <div id="eraserFloatModeIcon" style="font-size: 18px;">▭</div>
+    <div id="eraserFloatModeLabel" style="flex: 0 0 auto; font-weight: 600; color: #ff6b6b;">矩形削除</div>
+    <div id="eraserFloatSizeGroup" style="display:flex; align-items:center; gap:6px; flex:1;">
+      <span style="color:#aaa; font-size:11px;">サイズ</span>
+      <input type="range" id="eraserFloatSize" min="1" max="200" step="0.5" value="10"
+        style="flex: 1; accent-color: #e53935; min-width: 100px;"
+        oninput="_eraserFloatSizeChange(this.value)">
+      <input type="number" id="eraserFloatSizeInput" min="0.5" max="500" step="0.5" value="10"
+        style="width: 60px; background:#111; border:1px solid #555; color:#ff9a9a; font-family:monospace; font-weight:600; text-align:right; padding:2px 4px; border-radius:3px;"
+        onchange="_eraserFloatSizeChange(this.value)">
+      <span style="color:#ff9a9a; font-family:monospace; font-size:11px;">m</span>
+    </div>
+    <button onclick="_eraserDeactivate()" style="
       background: rgba(229,57,53,0.3);
       border: 1px solid #e53935;
       color: #fff;
@@ -2354,8 +2254,8 @@
       font-size: 11px;
     ">OFF</button>
   </div>
-  <div style="font-size: 10px; color: #aaa; margin-top: 6px; text-align: center;">
-    ドラッグで削除範囲追加 / <b>マウスホイール</b>で半径調整 / <b>ESC</b>で終了
+  <div style="font-size: 10px; color: #aaa; margin-top: 6px; text-align: center;" id="eraserFloatHint">
+    対角線ドラッグで矩形選択 → 内部を一括削除 / <b>ESC</b>で終了
   </div>
 </div>
 
@@ -3838,95 +3738,6 @@ function removeSmallComponents(mask, w, h, minArea) {
   return { removed, removedComponents: toRemove.size };
 }
 
-/**
- * v20260714A: Polygon-Interior 自動除去
- * 幾何学的公理「地番図は閉じた多角形の集合」の直接実装。
- * Photoshop 消しゴム作業 (=境界内部の手動削除) の完全自動化。
- *
- * アルゴリズム:
- *   1. mask を dilationRadius だけ膨張 (問題①=線画途切れの隙間を埋める)
- *   2. 画像四辺から flood-fill で「外部」領域を同定
- *      → dilated fg に囲まれない bg = 外部、dilated fg に囲まれる bg = 地番の内部
- *   3. outsideMask を (dilationRadius + 1) 膨張して original fg 境界に届かせる
- *   4. 元 mask で CC ラベリング
- *   5. 各 CC が outsideMask と重なるか判定 → 重ならない CC = 内部含有ノイズ
- *   6. 内部含有ノイズを mask から除去 (in-place)
- *
- * 副作用: mask を in-place で書き換える
- * 既存関数を再利用: morphDilate4, labelConnectedComponents
- *
- * @param {Uint8Array} mask - 二値マスク (1=前景, 0=背景), in-place で修正
- * @param {number} w - 幅
- * @param {number} h - 高さ
- * @param {number} dilationRadius - 境界膨張半径 (px), 通常 2-4
- * @returns {{ removed: number, mainLabel: number, mainArea: number, totalCCs: number, interiorCCs: number }}
- */
-function _detectPolygonInterior(mask, w, h, dilationRadius) {
-  const size = w * h;
-  const dr = Math.max(0, dilationRadius | 0);
-
-  // 1. Clone mask, dilate to close small gaps in boundary lines
-  const dilated = new Uint8Array(mask);
-  if (dr > 0) morphDilate4(dilated, w, h, dr);
-
-  // 2. BFS flood-fill "outside" from image edges through non-dilated pixels
-  const outsideMask = new Uint8Array(size);
-  const queue = new Int32Array(size);
-  let head = 0, tail = 0;
-  const seed = (i) => {
-    if (!dilated[i] && !outsideMask[i]) {
-      outsideMask[i] = 1;
-      queue[tail++] = i;
-    }
-  };
-  for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x); }
-  for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1); }
-  while (head < tail) {
-    const i = queue[head++];
-    const x = i % w, y = (i / w) | 0;
-    if (x > 0)   { const n = i - 1; if (!outsideMask[n] && !dilated[n]) { outsideMask[n] = 1; queue[tail++] = n; } }
-    if (x < w-1) { const n = i + 1; if (!outsideMask[n] && !dilated[n]) { outsideMask[n] = 1; queue[tail++] = n; } }
-    if (y > 0)   { const n = i - w; if (!outsideMask[n] && !dilated[n]) { outsideMask[n] = 1; queue[tail++] = n; } }
-    if (y < h-1) { const n = i + w; if (!outsideMask[n] && !dilated[n]) { outsideMask[n] = 1; queue[tail++] = n; } }
-  }
-
-  // 3. Dilate outsideMask by (dr + 1) so it can touch original fg boundaries
-  morphDilate4(outsideMask, w, h, dr + 1);
-
-  // 4. Label CCs on original mask
-  const { label, areas, maxLabel } = labelConnectedComponents(mask, w, h);
-
-  // 5. Determine which CCs touch outside (=must be kept)
-  const touchesOutside = new Uint8Array(maxLabel + 1);
-  // Absolute safety: protect the largest CC (main boundary graph)
-  let mainLabel = 0, mainArea = 0;
-  for (const [lbl, area] of Object.entries(areas)) {
-    if (area > mainArea) { mainArea = area; mainLabel = +lbl; }
-  }
-  if (mainLabel > 0) touchesOutside[mainLabel] = 1;
-
-  for (let i = 0; i < size; i++) {
-    if (!mask[i]) continue;
-    const lbl = label[i];
-    if (touchesOutside[lbl]) continue;
-    if (outsideMask[i]) touchesOutside[lbl] = 1;
-  }
-
-  // 6. Remove pixels of CCs that don't touch outside = interior noise
-  let removed = 0;
-  let interiorCCs = 0;
-  for (let lbl = 1; lbl <= maxLabel; lbl++) {
-    if (areas[lbl] && !touchesOutside[lbl]) interiorCCs++;
-  }
-  for (let i = 0; i < size; i++) {
-    if (mask[i] && !touchesOutside[label[i]]) {
-      mask[i] = 0;
-      removed++;
-    }
-  }
-
-  return { removed, mainLabel, mainArea, totalCCs: maxLabel, interiorCCs };
-}
 
 /* ========================================================================
    v20260708C: 下絵の全自動ベクター化
@@ -6940,364 +6751,6 @@ function _getPotraceParams() {
   return { threshold, turdsize, alphamax, opttolerance, optcurve, curveSteps };
 }
 
-/* ============================================================
-   v20260714B: 数字除去 (下絵ラスターから境界内部の自動削除)
-   ------------------------------------------------------------
-   目的: Photoshop 消しゴム作業の完全自動化。既に完成している
-        下絵ラスターを入力として、地番境界の内部にある数字・
-        手書き・鉛筆等を Polygon-Interior 判定で自動削除し、
-        線画ラスターとして完成させる。
-   位置づけ: 5段階パイプラインの ②線画抽出 の独立実装。
-        Potrace (=③) には触らない。出力は目視+PNG保存可能。
-   ============================================================ */
-let _drState = {
-  loaded: false,
-  sourceW: 0,   // 下絵の元解像度 (source_width_px)
-  sourceH: 0,
-  procW: 0,     // 処理解像度 (最大 VECTORIZE_MAX_DIM に縮小)
-  procH: 0,
-  gray: null,           // グレースケール輝度 (Uint8Array), computeAdaptiveMask に直接投入
-  alphaOk: null,        // アルファ有効 (Uint8Array)
-  mask: null,           // 二値化後の Uint8Array (1=前景)
-  labels: null,         // 元 mask に対する CC ラベル (Int32Array)
-  numLabels: 0,
-  outsideMask: null,    // debug表示用 outside マスク (Uint8Array)
-  removeMask: null,     // CC ラベルインデックスの削除フラグ (Uint8Array)
-  lastDilation: -1,
-  lastBinKey: '',
-  removedPx: 0,
-  mainArea: 0,
-  interiorCCs: 0,
-  totalCCs: 0
-};
-
-let _drPreviewTimer = null;
-
-async function openDigitRemovalDialog() {
-  if (!currentOverlay || !currentOverlayLayer) {
-    showToast('先に下絵をアップロードしてください', 'error');
-    return;
-  }
-  if (!originalOverlayUrl) originalOverlayUrl = currentOverlay.source_url;
-
-  const modal = document.getElementById('digitRemovalModal');
-  modal.style.display = 'flex';
-
-  const info = document.getElementById('digitRemovalSourceInfo');
-  if (info) {
-    const w = currentOverlay.source_width_px || '?';
-    const h = currentOverlay.source_height_px || '?';
-    info.textContent = `元解像度: ${w}×${h} / 案件: ${currentOverlay.case_name || '-'}`;
-  }
-  const eraserInfo = document.getElementById('drEraserInfo');
-  if (eraserInfo && window._eraserState) {
-    const n = window._eraserState.marks?.length || 0;
-    eraserInfo.textContent = n > 0 ? `${n}件のマーク` : '(マーク無し)';
-  }
-
-  // UI 初期同期
-  const useAdaptive = document.getElementById('drUseAdaptive').checked;
-  document.getElementById('drSimpleRow').style.display = useAdaptive ? 'none' : 'flex';
-  document.getElementById('drBlockSizeRow').style.display = useAdaptive ? 'flex' : 'none';
-  document.getElementById('drAdaptiveCRow').style.display = useAdaptive ? 'flex' : 'none';
-
-  await _drLoadSource();
-  await runDigitRemovalPreview();
-}
-
-function closeDigitRemovalDialog() {
-  const modal = document.getElementById('digitRemovalModal');
-  if (modal) modal.style.display = 'none';
-}
-
-async function _drLoadSource() {
-  const loader = document.getElementById('drPreviewLoader');
-  if (loader) loader.style.display = 'block';
-  try {
-    const img = await loadCanvasSafeImage(originalOverlayUrl);
-    const maxDim = (typeof VECTORIZE_MAX_DIM !== 'undefined') ? VECTORIZE_MAX_DIM : 1500;
-    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-    const procW = Math.max(1, Math.round(img.width * scale));
-    const procH = Math.max(1, Math.round(img.height * scale));
-
-    const cv = document.createElement('canvas');
-    cv.width = procW;
-    cv.height = procH;
-    const ctx = cv.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, procW, procH);
-    ctx.drawImage(img.drawable, 0, 0, procW, procH);
-    const data = ctx.getImageData(0, 0, procW, procH).data;
-    const size = procW * procH;
-    const gray = new Uint8Array(size);
-    const alphaOk = new Uint8Array(size);
-    for (let i = 0, j = 0; i < data.length; i += 4, j++) {
-      gray[j] = (data[i] + data[i + 1] + data[i + 2]) / 3;
-      alphaOk[j] = data[i + 3] >= 20 ? 1 : 0;
-    }
-
-    _drState.sourceW = img.width;
-    _drState.sourceH = img.height;
-    _drState.procW = procW;
-    _drState.procH = procH;
-    _drState.gray = gray;
-    _drState.alphaOk = alphaOk;
-    _drState.loaded = true;
-    _drState.lastBinKey = '';
-    _drState.lastDilation = -1;
-    console.log(`[数字除去] 下絵読込: src=${img.width}×${img.height} → proc=${procW}×${procH}`);
-  } catch (e) {
-    console.error('[数字除去] 下絵読込失敗', e);
-    showToast('下絵の読込に失敗: ' + e.message, 'error');
-    _drState.loaded = false;
-  } finally {
-    if (loader) loader.style.display = 'none';
-  }
-}
-
-function onDigitRemovalParamChange() {
-  const useAdaptive = document.getElementById('drUseAdaptive').checked;
-  document.getElementById('drSimpleRow').style.display = useAdaptive ? 'none' : 'flex';
-  document.getElementById('drBlockSizeRow').style.display = useAdaptive ? 'flex' : 'none';
-  document.getElementById('drAdaptiveCRow').style.display = useAdaptive ? 'flex' : 'none';
-
-  const t = parseInt(document.getElementById('drBinThresh').value, 10);
-  document.getElementById('drBinThreshValue').textContent = String(t);
-  const bs = parseInt(document.getElementById('drBlockSize').value, 10);
-  document.getElementById('drBlockSizeValue').textContent = bs + ' px';
-  const c = parseInt(document.getElementById('drAdaptiveC').value, 10);
-  document.getElementById('drAdaptiveCValue').textContent = String(c);
-  const d = parseInt(document.getElementById('drDilation').value, 10);
-  document.getElementById('drDilationValue').textContent = d + ' px';
-  if (_drPreviewTimer) clearTimeout(_drPreviewTimer);
-  _drPreviewTimer = setTimeout(() => runDigitRemovalPreview(), 300);
-}
-
-function onDigitRemovalRenderOnly() {
-  _drRender();
-}
-
-async function runDigitRemovalPreview() {
-  if (!_drState.loaded) return;
-  const loader = document.getElementById('drPreviewLoader');
-  if (loader) loader.style.display = 'block';
-  await new Promise(r => setTimeout(r, 10));
-
-  try {
-    const t0 = performance.now();
-    const useAdaptive = document.getElementById('drUseAdaptive').checked;
-    const threshold = parseInt(document.getElementById('drBinThresh').value, 10);
-    const blockSize = parseInt(document.getElementById('drBlockSize').value, 10);
-    const adaptiveC = parseInt(document.getElementById('drAdaptiveC').value, 10);
-    const invert = document.getElementById('drInvertBinary').checked;
-    const useEraser = document.getElementById('drUseEraser').checked;
-    const dilationRadius = parseInt(document.getElementById('drDilation').value, 10);
-    const { procW, procH, gray, alphaOk } = _drState;
-    const size = procW * procH;
-
-    const eraserMarks = window._eraserState?.marks?.length || 0;
-    const binKey = useAdaptive
-      ? `A_${blockSize}_${adaptiveC}_${invert ? 1 : 0}_${useEraser ? 1 : 0}_${eraserMarks}`
-      : `S_${threshold}_${invert ? 1 : 0}_${useEraser ? 1 : 0}_${eraserMarks}`;
-    const needsRebinarize = (_drState.lastBinKey !== binKey);
-
-    if (needsRebinarize) {
-      let mask;
-      if (useAdaptive) {
-        // 局所平均比較 (照明ムラ吸収)
-        const bs = Math.max(3, Math.min(101, blockSize | 1)); // 奇数化
-        mask = computeAdaptiveMask(gray, procW, procH, bs, adaptiveC);
-      } else {
-        // 固定しきい値
-        mask = new Uint8Array(size);
-        for (let j = 0; j < size; j++) {
-          mask[j] = gray[j] < threshold ? 1 : 0;
-        }
-      }
-      // アルファ無効域を強制背景化
-      for (let j = 0; j < size; j++) if (!alphaOk[j]) mask[j] = 0;
-      // 反転
-      if (invert) for (let j = 0; j < size; j++) mask[j] ^= 1;
-      // 既存の消しゴム機能を適用 (v20260711G の資産を利用)
-      if (useEraser && typeof _eraserApplyToMask === 'function'
-          && window._eraserState?.marks?.length > 0
-          && _drState.sourceW && _drState.sourceH) {
-        _eraserApplyToMask(mask, _drState.sourceW, _drState.sourceH, procW, procH);
-      }
-      _drState.mask = mask;
-      _drState.lastBinKey = binKey;
-      _drState.lastDilation = -1;
-    }
-
-    if (_drState.lastDilation !== dilationRadius || needsRebinarize) {
-      const workMask = new Uint8Array(_drState.mask);
-      const res = _detectPolygonInterior(workMask, procW, procH, dilationRadius);
-      const { label, areas, maxLabel } = labelConnectedComponents(_drState.mask, procW, procH);
-      _drState.labels = label;
-      _drState.numLabels = maxLabel;
-      const removeMask = new Uint8Array(maxLabel + 1);
-      for (let i = 0; i < size; i++) {
-        if (_drState.mask[i] && !workMask[i]) {
-          removeMask[label[i]] = 1;
-        }
-      }
-      _drState.removeMask = removeMask;
-      _drState.removedPx = res.removed;
-      _drState.mainArea = res.mainArea;
-      _drState.interiorCCs = res.interiorCCs;
-      _drState.totalCCs = res.totalCCs;
-      _drState.outsideMask = _drComputeOutsideMask(_drState.mask, procW, procH, dilationRadius);
-      _drState.lastDilation = dilationRadius;
-    }
-
-    const t1 = performance.now();
-    const modeLabel = useAdaptive ? `Adaptive(bs=${blockSize},C=${adaptiveC})` : `Simple(t=${threshold})`;
-    console.log(`[数字除去] ${modeLabel}: 削除=${_drState.removedPx.toLocaleString()}px, 内部CC=${_drState.interiorCCs}/全${_drState.totalCCs}, 主境界=${_drState.mainArea.toLocaleString()}px, ${(t1 - t0).toFixed(0)}ms`);
-    _drRender();
-  } catch (e) {
-    console.error('[数字除去] プレビュー失敗', e);
-    showToast('プレビュー失敗: ' + e.message, 'error');
-  } finally {
-    if (loader) loader.style.display = 'none';
-  }
-}
-
-/**
- * debug 表示用の outsideMask 単体計算
- * (_detectPolygonInterior と同じロジック、mask は変更しない)
- */
-function _drComputeOutsideMask(mask, w, h, dilationRadius) {
-  const size = w * h;
-  const dr = Math.max(0, dilationRadius | 0);
-  const dilated = new Uint8Array(mask);
-  if (dr > 0) morphDilate4(dilated, w, h, dr);
-  const outsideMask = new Uint8Array(size);
-  const queue = new Int32Array(size);
-  let head = 0, tail = 0;
-  const seed = (i) => {
-    if (!dilated[i] && !outsideMask[i]) { outsideMask[i] = 1; queue[tail++] = i; }
-  };
-  for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x); }
-  for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1); }
-  while (head < tail) {
-    const i = queue[head++];
-    const x = i % w, y = (i / w) | 0;
-    if (x > 0)   { const n = i - 1; if (!outsideMask[n] && !dilated[n]) { outsideMask[n] = 1; queue[tail++] = n; } }
-    if (x < w-1) { const n = i + 1; if (!outsideMask[n] && !dilated[n]) { outsideMask[n] = 1; queue[tail++] = n; } }
-    if (y > 0)   { const n = i - w; if (!outsideMask[n] && !dilated[n]) { outsideMask[n] = 1; queue[tail++] = n; } }
-    if (y < h-1) { const n = i + w; if (!outsideMask[n] && !dilated[n]) { outsideMask[n] = 1; queue[tail++] = n; } }
-  }
-  return outsideMask;
-}
-
-function _drRender() {
-  if (!_drState.loaded || !_drState.mask) return;
-  const { procW, procH, mask, labels, removeMask, outsideMask } = _drState;
-  const showRemoved = document.getElementById('drShowRemoved').checked;
-  const showInterior = document.getElementById('drShowInterior').checked;
-
-  const cv = document.getElementById('drPreviewCanvas');
-  const ctx = cv.getContext('2d');
-  const size = procW * procH;
-  const out = new Uint8ClampedArray(size * 4);
-
-  for (let i = 0; i < size; i++) {
-    const p = i * 4;
-    if (mask[i]) {
-      const lbl = labels ? labels[i] : 0;
-      if (removeMask && removeMask[lbl]) {
-        if (showRemoved) {
-          out[p] = 220; out[p + 1] = 38; out[p + 2] = 38; out[p + 3] = 255;
-        } else {
-          out[p] = 255; out[p + 1] = 255; out[p + 2] = 255; out[p + 3] = 255;
-        }
-      } else {
-        out[p] = 17; out[p + 1] = 24; out[p + 2] = 39; out[p + 3] = 255;
-      }
-    } else {
-      if (showInterior && outsideMask && !outsideMask[i]) {
-        out[p] = 254; out[p + 1] = 215; out[p + 2] = 170; out[p + 3] = 255;
-      } else {
-        out[p] = 255; out[p + 1] = 255; out[p + 2] = 255; out[p + 3] = 255;
-      }
-    }
-  }
-
-  const off = document.createElement('canvas');
-  off.width = procW;
-  off.height = procH;
-  off.getContext('2d').putImageData(new ImageData(out, procW, procH), 0, 0);
-
-  const cvW = cv.width, cvH = cv.height;
-  ctx.fillStyle = '#0a0e14';
-  ctx.fillRect(0, 0, cvW, cvH);
-  const scale = Math.min(cvW / procW, cvH / procH);
-  const dstW = procW * scale;
-  const dstH = procH * scale;
-  const dstX = (cvW - dstW) / 2;
-  const dstY = (cvH - dstH) / 2;
-  ctx.drawImage(off, dstX, dstY, dstW, dstH);
-
-  const stats = document.getElementById('drStats');
-  if (stats) {
-    stats.textContent = `処理解像度: ${procW}×${procH} · 全CC=${_drState.totalCCs.toLocaleString()} · 内部CC=${_drState.interiorCCs.toLocaleString()} · 主境界=${_drState.mainArea.toLocaleString()}px · 削除=${_drState.removedPx.toLocaleString()}px`;
-  }
-}
-
-/**
- * 線画ラスターを PNG でダウンロード (原解像度に拡大)
- */
-async function downloadDigitRemovalPNG() {
-  if (!_drState.loaded || !_drState.mask) {
-    showToast('先にプレビューを完了してください', 'error');
-    return;
-  }
-  try {
-    const { procW, procH, mask, labels, removeMask, sourceW, sourceH } = _drState;
-    const procCanvas = document.createElement('canvas');
-    procCanvas.width = procW;
-    procCanvas.height = procH;
-    const pctx = procCanvas.getContext('2d');
-    const out = new Uint8ClampedArray(procW * procH * 4);
-    for (let i = 0; i < procW * procH; i++) {
-      const p = i * 4;
-      const lbl = labels ? labels[i] : 0;
-      if (mask[i] && !(removeMask && removeMask[lbl])) {
-        out[p] = 0; out[p + 1] = 0; out[p + 2] = 0; out[p + 3] = 255;
-      } else {
-        out[p] = 255; out[p + 1] = 255; out[p + 2] = 255; out[p + 3] = 255;
-      }
-    }
-    pctx.putImageData(new ImageData(out, procW, procH), 0, 0);
-
-    const finalCanvas = document.createElement('canvas');
-    finalCanvas.width = sourceW || procW;
-    finalCanvas.height = sourceH || procH;
-    const fctx = finalCanvas.getContext('2d');
-    fctx.imageSmoothingEnabled = false;
-    fctx.fillStyle = '#ffffff';
-    fctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
-    fctx.drawImage(procCanvas, 0, 0, finalCanvas.width, finalCanvas.height);
-
-    finalCanvas.toBlob(blob => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const caseName = (currentOverlay?.case_name || 'raster').replace(/[^a-zA-Z0-9_\-]/g, '_');
-      a.href = url;
-      a.download = `${caseName}_線画ラスター.png`;
-      a.click();
-      URL.revokeObjectURL(url);
-      showToast(`線画PNG保存: ${finalCanvas.width}×${finalCanvas.height}`, 'success');
-    }, 'image/png');
-  } catch (e) {
-    console.error('[数字除去] PNG保存失敗', e);
-    showToast('PNG保存失敗: ' + e.message, 'error');
-  }
-}
-
-/* ============================================================
-   v20260714B: 数字除去 END
-   ============================================================ */
 
 async function openPotraceDialog() {
   if (!currentOverlay || !currentOverlayLayer) {
@@ -8498,20 +7951,29 @@ function _topoPhaseA_clearOverlay() {
    ======================================================================== */
 
 window._eraserState = {
-  marks: [],
-  loaded: false,          // v20260711I: load 完了フラグ（save は loaded=true になるまで発火しない）
+  marks: [],                    // 全マーク配列 (rect only; legacy circle は load時に silently drop)
+  loaded: false,                // v20260711I: load完了フラグ (loaded=false時はsave禁止)
   active: false,
-  radius: 3,
-  layer: null,
-  cursor: null,
+  mode: null,                   // 'rectSelect' | 'rectEraser' | null
+  size: 10,                     // meters (for rectEraser)
+  layer: null,                  // 描画済みマーク layer
+  cursor: null,                 // rectEraser時のマウス追従カーソル
+  dragPreview: null,            // rectSelect時のドラッグプレビュー矩形
+  dragStart: null,              // rectSelect時のドラッグ開始 latlng
   loadedForOverlayId: null,
   saveTimer: null,
   isDragging: false,
   _mouseMoveHandler: null,
   _mouseDownHandler: null,
   _mouseUpHandler: null,
+  _prevOverlayEditingEnabled: undefined,
 };
 
+/**
+ * Supabase から マーク配列を読込。
+ * v20260714D: 旧形式(円形マーク: {lat,lng,r})は silently drop される。
+ * 保持されるのは {type:'rect', tl:{lat,lng}, br:{lat,lng}} のみ。
+ */
 async function _eraserLoadMarks() {
   const st = window._eraserState;
   if (!currentOverlay || !currentOverlay.id) return;
@@ -8524,25 +7986,29 @@ async function _eraserLoadMarks() {
       .maybeSingle();
     if (error && error.code !== 'PGRST116') {
       console.warn('[Eraser] load error:', error);
-      // v20260711I: エラー時は loaded を false のままにして save を封じる
       return;
     }
-    st.marks = (data && Array.isArray(data.marks)) ? data.marks : [];
+    const rawMarks = (data && Array.isArray(data.marks)) ? data.marks : [];
+    const rectMarks = rawMarks.filter(m => m && m.type === 'rect' && m.tl && m.br);
+    const droppedCount = rawMarks.length - rectMarks.length;
+    st.marks = rectMarks;
     st.loadedForOverlayId = currentOverlay.id;
-    st.loaded = true; // v20260711I: 成功時のみ loaded=true
-    console.log(`[Eraser] loaded ${st.marks.length} marks for overlay ${currentOverlay.id} (loaded=true, save 有効化)`);
+    st.loaded = true;
+    if (droppedCount > 0) {
+      console.log(`[Eraser] loaded ${rectMarks.length} rect marks, silently dropped ${droppedCount} legacy circle marks (v20260714D)`);
+    } else {
+      console.log(`[Eraser] loaded ${rectMarks.length} marks for overlay ${currentOverlay.id}`);
+    }
     _eraserRender();
   } catch (e) {
     console.warn('[Eraser] load exception:', e);
-    // loaded は false のまま
   }
 }
 
 function _eraserSaveMarks() {
   const st = window._eraserState;
-  // v20260711I: load 完了前は save 発火禁止（空データで既存マークを上書きしてしまうバグ対策）
   if (!st.loaded) {
-    console.warn('[Eraser] save skipped: not loaded yet (would overwrite existing data)');
+    console.warn('[Eraser] save skipped: not loaded yet');
     return;
   }
   if (!currentOverlay || !currentOverlay.id) return;
@@ -8574,172 +8040,171 @@ function _eraserSaveMarks() {
   }, 500);
 }
 
+/**
+ * マーク配列を地図上に描画。全マーク=矩形前提。
+ */
 function _eraserRender() {
   const st = window._eraserState;
   if (st.layer && map) { try { map.removeLayer(st.layer); } catch(e){} st.layer = null; }
   if (!map || !st.marks || st.marks.length === 0) return;
   const lg = L.layerGroup();
   for (const m of st.marks) {
-    const c = L.circle([m.lat, m.lng], {
-      radius: m.r,
-      color: '#e53935',
-      weight: 1,
-      opacity: 0.7,
-      fillColor: '#e53935',
-      fillOpacity: 0.28,
-      interactive: false,
+    if (m.type !== 'rect' || !m.tl || !m.br) continue;
+    const rect = L.rectangle([[m.tl.lat, m.tl.lng], [m.br.lat, m.br.lng]], {
+      color: '#e53935', weight: 1, opacity: 0.7,
+      fillColor: '#e53935', fillOpacity: 0.28, interactive: false,
     });
-    lg.addLayer(c);
+    lg.addLayer(rect);
   }
   lg.addTo(map);
   st.layer = lg;
 }
 
-function _eraserUpdateCursorSize() {
-  const rEl = document.getElementById('topoPEraserR');
-  if (rEl) window._eraserState.radius = parseFloat(rEl.value);
+/**
+ * リボンボタンからのモード切替。
+ * 同じモードで再クリック → OFF。別モードクリック → モード切替。
+ */
+function _eraserToggleMode(mode) {
   const st = window._eraserState;
-  if (st.cursor) {
-    try { st.cursor.setRadius(st.radius); } catch(e) {}
-  }
-}
-
-function _eraserToggle() {
-  const st = window._eraserState;
-  const btn = document.getElementById('btnEraserToggle');
   if (!currentOverlay || !currentOverlayLayer) {
     showToast('先に下絵をアップロードしてください', 'error', 3000);
     return;
   }
-  // v20260711I: load 未完了の場合は消しゴム起動を拒否（既存マーク上書き防止）
   if (!st.loaded) {
     showToast('消しゴムマーク読込中...少し待って再試行してください', 'error', 3500);
-    console.warn('[Eraser] toggle blocked: not loaded yet');
-    // 再度 load を試みる
     _eraserLoadMarks().catch(e => console.warn('[Eraser] retry load failed', e));
     return;
   }
-  if (st.active) {
+  if (st.active && st.mode === mode) {
     _eraserDeactivate();
-    if (btn) btn.style.background = '';
-  } else {
-    _eraserActivate();
-    if (btn) btn.style.background = '#e5393555';
+    return;
   }
+  if (st.active) _eraserDeactivate();
+  _eraserActivate(mode);
 }
 
-// v20260711H: フロートパネルのスライダー変更ハンドラ
-function _eraserFloatRadiusChange(val) {
+function _eraserFloatSizeChange(val) {
   const st = window._eraserState;
-  const v = parseFloat(val);
-  st.radius = v;
-  const disp = document.getElementById('eraserFloatRadiusVal');
-  if (disp) disp.textContent = v.toFixed(1) + ' m';
-  // モーダル側スライダーも同期（存在すれば）
-  const modalSlider = document.getElementById('topoPEraserR');
-  if (modalSlider) {
-    modalSlider.value = v;
-    const modalDisp = document.getElementById('topoPEraserRV');
-    if (modalDisp) modalDisp.textContent = v.toFixed(1);
-  }
-  // カーソル追従円のサイズも更新
-  if (st.cursor) {
-    try { st.cursor.setRadius(v); } catch(e) {}
+  const v = Math.max(0.5, parseFloat(val) || 10);
+  st.size = v;
+  const slider = document.getElementById('eraserFloatSize');
+  const numInput = document.getElementById('eraserFloatSizeInput');
+  if (slider && parseFloat(slider.value) !== v) slider.value = v;
+  if (numInput && parseFloat(numInput.value) !== v) numInput.value = v;
+  // rectEraserモード時、カーソルサイズを更新
+  if (st.active && st.mode === 'rectEraser' && st.cursor && st.cursor._lastLatLng) {
+    _eraserUpdateRectEraserCursor(st.cursor._lastLatLng);
   }
 }
 
-// v20260711H: マウスホイールで半径を変更
-function _eraserWheelHandler(e) {
-  const st = window._eraserState;
-  if (!st.active) return;
-  e.preventDefault();
-  e.stopPropagation();
-  const delta = e.deltaY > 0 ? -0.5 : 0.5;
-  let newR = Math.max(1, Math.min(30, st.radius + delta));
-  _eraserFloatRadiusChange(newR);
-  const floatSlider = document.getElementById('eraserFloatRadius');
-  if (floatSlider) floatSlider.value = newR;
-}
-
-// v20260711H: ESC キーで消しゴム終了
 function _eraserEscHandler(e) {
   if (e.key === 'Escape' && window._eraserState.active) {
-    _eraserToggle();
+    _eraserDeactivate();
   }
 }
 
-function _eraserActivate() {
+function _eraserActivate(mode) {
   const st = window._eraserState;
   st.active = true;
-  // 現在の半径取得（フロートパネル → モーダル → デフォルト の順）
-  const floatEl = document.getElementById('eraserFloatRadius');
-  const modalEl = document.getElementById('topoPEraserR');
-  if (floatEl) st.radius = parseFloat(floatEl.value);
-  else if (modalEl) st.radius = parseFloat(modalEl.value);
-  // フロートパネル表示 + 値同期
+  st.mode = mode;
+  // フロートパネル表示
   const panel = document.getElementById('eraserFloatPanel');
-  if (panel) {
-    panel.style.display = 'block';
-    if (floatEl) floatEl.value = st.radius;
-    const disp = document.getElementById('eraserFloatRadiusVal');
-    if (disp) disp.textContent = st.radius.toFixed(1) + ' m';
+  const modeIcon = document.getElementById('eraserFloatModeIcon');
+  const modeLabel = document.getElementById('eraserFloatModeLabel');
+  const sizeGroup = document.getElementById('eraserFloatSizeGroup');
+  const hint = document.getElementById('eraserFloatHint');
+  if (panel) panel.style.display = 'block';
+  if (mode === 'rectSelect') {
+    if (modeIcon) modeIcon.textContent = '▭';
+    if (modeLabel) modeLabel.textContent = '矩形削除';
+    if (sizeGroup) sizeGroup.style.display = 'none';
+    if (hint) hint.innerHTML = '対角線ドラッグで矩形選択 → マウスを離した瞬間に内部を一括削除 / <b>ESC</b>で終了';
+  } else {
+    if (modeIcon) modeIcon.textContent = '■';
+    if (modeLabel) modeLabel.textContent = '矩形消しゴム';
+    if (sizeGroup) sizeGroup.style.display = 'flex';
+    if (hint) hint.innerHTML = 'クリック/ドラッグで矩形消しゴム / スライダー・数値でサイズ変更 / <b>ESC</b>で終了';
+    const slider = document.getElementById('eraserFloatSize');
+    const numInput = document.getElementById('eraserFloatSizeInput');
+    if (slider) slider.value = st.size;
+    if (numInput) numInput.value = st.size;
   }
-  // v20260711J: 下絵の編集ハンドルを無効化（誤操作による引き伸ばし防止）
+  // ボタンハイライト
+  const btnSelect = document.getElementById('btnRectSelectToggle');
+  const btnEraser = document.getElementById('btnRectEraserToggle');
+  if (btnSelect) btnSelect.style.background = (mode === 'rectSelect') ? '#e5393555' : '';
+  if (btnEraser) btnEraser.style.background = (mode === 'rectEraser') ? '#e5393555' : '';
+  // 下絵の編集ハンドルを無効化
   if (currentOverlayLayer && currentOverlayLayer.editing) {
     try {
       st._prevOverlayEditingEnabled = currentOverlayLayer.editing._enabled !== false;
       if (typeof currentOverlayLayer.editing.disable === 'function') {
         currentOverlayLayer.editing.disable();
-        console.log('[Eraser] disabled overlay editing (prev enabled=' + st._prevOverlayEditingEnabled + ')');
       }
-    } catch(e) { console.warn('[Eraser] disable overlay editing failed', e); }
+    } catch(e) {}
   }
   if (map) {
     map.dragging.disable();
     map.getContainer().style.cursor = 'crosshair';
-    // マウスホイール & ESC
-    map.getContainer().addEventListener('wheel', _eraserWheelHandler, { passive: false });
     document.addEventListener('keydown', _eraserEscHandler);
   }
-  if (!st.cursor && map) {
-    st.cursor = L.circle([0, 0], {
-      radius: st.radius,
-      color: '#e53935',
-      weight: 2,
-      opacity: 0.9,
-      fillColor: '#e53935',
-      fillOpacity: 0.15,
-      interactive: false,
+  // カーソル準備 (rectEraserモード)
+  if (mode === 'rectEraser' && map) {
+    st.cursor = L.rectangle([[0, 0], [0, 0]], {
+      color: '#e53935', weight: 2, opacity: 0.9,
+      fillColor: '#e53935', fillOpacity: 0.15, interactive: false,
     });
     st.cursor.addTo(map);
   }
+  // イベントハンドラ
   st._mouseMoveHandler = function(e) {
-    if (st.cursor) st.cursor.setLatLng(e.latlng);
-    if (st.isDragging) {
-      _eraserAddStroke(e.latlng);
+    if (st.mode === 'rectEraser') {
+      _eraserUpdateRectEraserCursor(e.latlng);
+      if (st.isDragging) _eraserAddRectEraserAt(e.latlng);
+    } else if (st.mode === 'rectSelect' && st.dragStart) {
+      _eraserUpdateSelectPreview(e.latlng);
     }
   };
   st._mouseDownHandler = function(e) {
-    st.isDragging = true;
-    _eraserAddStroke(e.latlng);
+    if (st.mode === 'rectEraser') {
+      st.isDragging = true;
+      _eraserAddRectEraserAt(e.latlng);
+    } else if (st.mode === 'rectSelect') {
+      st.dragStart = e.latlng;
+      if (st.dragPreview) { try { map.removeLayer(st.dragPreview); } catch(err){} }
+      st.dragPreview = L.rectangle([[e.latlng.lat, e.latlng.lng], [e.latlng.lat, e.latlng.lng]], {
+        color:'#e53935', weight:2, dashArray:'6,4', opacity:0.9,
+        fillColor:'#e53935', fillOpacity:0.15, interactive:false,
+      });
+      st.dragPreview.addTo(map);
+    }
   };
-  st._mouseUpHandler = function() {
-    if (st.isDragging) {
+  st._mouseUpHandler = function(e) {
+    if (st.mode === 'rectEraser' && st.isDragging) {
       st.isDragging = false;
       _eraserSaveMarks();
+    } else if (st.mode === 'rectSelect' && st.dragStart) {
+      const start = st.dragStart, end = e.latlng;
+      if (Math.abs(start.lat - end.lat) > 1e-9 && Math.abs(start.lng - end.lng) > 1e-9) {
+        _eraserCommitSelectRect(start, end);
+      }
+      st.dragStart = null;
+      if (st.dragPreview) { try { map.removeLayer(st.dragPreview); } catch(err){} st.dragPreview = null; }
     }
   };
   map.on('mousemove', st._mouseMoveHandler);
   map.on('mousedown', st._mouseDownHandler);
   map.on('mouseup', st._mouseUpHandler);
-  showToast('🧽 消しゴムモード ON: 下絵編集は一時無効化されました', 'info', 3500);
+  const modeLabel2 = mode === 'rectSelect' ? '▭ 矩形削除' : '■ 矩形消しゴム';
+  showToast(`${modeLabel2}モード ON: 下絵編集は一時無効化`, 'info', 2500);
 }
 
 function _eraserDeactivate() {
   const st = window._eraserState;
   st.active = false;
   st.isDragging = false;
-  // フロートパネル非表示
+  st.mode = null;
+  st.dragStart = null;
   const panel = document.getElementById('eraserFloatPanel');
   if (panel) panel.style.display = 'none';
   if (map) {
@@ -8748,56 +8213,110 @@ function _eraserDeactivate() {
     if (st._mouseMoveHandler) map.off('mousemove', st._mouseMoveHandler);
     if (st._mouseDownHandler) map.off('mousedown', st._mouseDownHandler);
     if (st._mouseUpHandler) map.off('mouseup', st._mouseUpHandler);
-    try { map.getContainer().removeEventListener('wheel', _eraserWheelHandler); } catch(e){}
     try { document.removeEventListener('keydown', _eraserEscHandler); } catch(e){}
   }
-  if (st.cursor) {
-    try { map.removeLayer(st.cursor); } catch(e) {}
-    st.cursor = null;
-  }
+  if (st.cursor) { try { map.removeLayer(st.cursor); } catch(e){} st.cursor = null; }
+  if (st.dragPreview) { try { map.removeLayer(st.dragPreview); } catch(e){} st.dragPreview = null; }
   st._mouseMoveHandler = null;
   st._mouseDownHandler = null;
   st._mouseUpHandler = null;
-  // v20260711J: 下絵の編集を復元（元々有効だったら再度有効化）
+  // 下絵編集を復元
   if (currentOverlayLayer && currentOverlayLayer.editing && st._prevOverlayEditingEnabled === true) {
     try {
       if (typeof currentOverlayLayer.editing.enable === 'function') {
         currentOverlayLayer.editing.enable();
-        console.log('[Eraser] re-enabled overlay editing');
       }
-    } catch(e) { console.warn('[Eraser] re-enable overlay editing failed', e); }
+    } catch(e) {}
   }
   st._prevOverlayEditingEnabled = undefined;
-  showToast('🧽 消しゴムモード OFF', 'info', 2000);
+  const btnSelect = document.getElementById('btnRectSelectToggle');
+  const btnEraser = document.getElementById('btnRectEraserToggle');
+  if (btnSelect) btnSelect.style.background = '';
+  if (btnEraser) btnEraser.style.background = '';
+  showToast('消しゴムモード OFF', 'info', 1500);
 }
 
-function _eraserAddStroke(latlng) {
+function _eraserUpdateRectEraserCursor(latlng) {
   const st = window._eraserState;
-  const r = st.radius;
-  const last = st.marks[st.marks.length - 1];
-  if (last) {
-    const dLat = (latlng.lat - last.lat) * 111320;
-    const dLng = (latlng.lng - last.lng) * 111320 * Math.cos(latlng.lat * Math.PI / 180);
-    const dist = Math.sqrt(dLat*dLat + dLng*dLng);
-    if (dist < r * 0.4) return;
+  const size = st.size;
+  const halfLat = size / 2 / 111320;
+  const cosLat = Math.cos(latlng.lat * Math.PI / 180);
+  const halfLng = size / 2 / (111320 * Math.max(0.01, cosLat));
+  if (st.cursor) {
+    st.cursor.setBounds([
+      [latlng.lat + halfLat, latlng.lng - halfLng],
+      [latlng.lat - halfLat, latlng.lng + halfLng]
+    ]);
+    st.cursor._lastLatLng = latlng;
   }
-  st.marks.push({ lat: latlng.lat, lng: latlng.lng, r });
+}
+
+function _eraserUpdateSelectPreview(currentLatlng) {
+  const st = window._eraserState;
+  if (!st.dragStart || !st.dragPreview) return;
+  st.dragPreview.setBounds([
+    [st.dragStart.lat, st.dragStart.lng],
+    [currentLatlng.lat, currentLatlng.lng]
+  ]);
+}
+
+/**
+ * rectEraser: マウス位置を中心に、サイズ×サイズ (m単位) の矩形を追加
+ * 直前マークと近すぎる場合はスキップ (経路上の重複防止)
+ */
+function _eraserAddRectEraserAt(latlng) {
+  const st = window._eraserState;
+  const size = st.size;
+  const halfLat = size / 2 / 111320;
+  const cosLat = Math.cos(latlng.lat * Math.PI / 180);
+  const halfLng = size / 2 / (111320 * Math.max(0.01, cosLat));
+  const tl = { lat: latlng.lat + halfLat, lng: latlng.lng - halfLng };
+  const br = { lat: latlng.lat - halfLat, lng: latlng.lng + halfLng };
+  // 直前マークとの距離チェック
+  const last = st.marks[st.marks.length - 1];
+  if (last && last.type === 'rect' && last.tl && last.br) {
+    const cLat = (last.tl.lat + last.br.lat) / 2;
+    const cLng = (last.tl.lng + last.br.lng) / 2;
+    const dLatM = (cLat - latlng.lat) * 111320;
+    const dLngM = (cLng - latlng.lng) * 111320 * cosLat;
+    const distM = Math.hypot(dLatM, dLngM);
+    if (distM < size * 0.3) return;
+  }
+  st.marks.push({ type: 'rect', tl, br });
   _eraserRender();
+}
+
+/**
+ * rectSelect: ドラッグ開始点と終了点を対角線とする矩形を確定
+ */
+function _eraserCommitSelectRect(start, end) {
+  const st = window._eraserState;
+  const tl = { lat: Math.max(start.lat, end.lat), lng: Math.min(start.lng, end.lng) };
+  const br = { lat: Math.min(start.lat, end.lat), lng: Math.max(start.lng, end.lng) };
+  st.marks.push({ type: 'rect', tl, br });
+  _eraserRender();
+  _eraserSaveMarks();
+  showToast(`矩形削除範囲を追加 (計${st.marks.length}件)`, 'success', 1500);
 }
 
 function _eraserClearAll() {
   const st = window._eraserState;
   if (st.marks.length === 0) {
-    showToast('消しゴム削除範囲はありません', 'info', 2000);
+    showToast('削除範囲はありません', 'info', 2000);
     return;
   }
-  if (!confirm('全ての消しゴム削除範囲を解除しますか？（' + st.marks.length + '個の削除範囲）')) return;
+  if (!confirm('全ての削除範囲を解除しますか？（' + st.marks.length + '件）')) return;
   st.marks = [];
   _eraserRender();
   _eraserSaveMarks();
-  showToast('消しゴム全解除しました', 'success', 2000);
+  showToast('全解除しました', 'success', 2000);
 }
 
+/**
+ * mask (Uint8Array, 1=前景) に対して全マークを塗りつぶし削除。
+ * 各矩形マークの4隅を image pixel 座標に変換し、
+ * 4角形 (下絵回転時は image空間で四辺形になる) をスキャンライン塗り。
+ */
 function _eraserApplyToMask(mask, sourceW, sourceH, maskW, maskH) {
   const st = window._eraserState;
   if (!st.marks || st.marks.length === 0) return { erasedPx: 0, marks: 0 };
@@ -8806,26 +8325,35 @@ function _eraserApplyToMask(mask, sourceW, sourceH, maskW, maskH) {
   const sy = maskH / sourceH;
   let erasedPx = 0;
   for (const m of st.marks) {
-    const center = mapPointToImagePixel({ lat: m.lat, lng: m.lng }, currentOverlayLayer, currentOverlay);
-    if (!center) continue;
-    const north = mapPointToImagePixel(
-      { lat: m.lat + m.r / 111320, lng: m.lng },
-      currentOverlayLayer, currentOverlay
-    );
-    if (!north) continue;
-    const rSrcPx = Math.hypot(north.x - center.x, north.y - center.y);
-    const cxMask = center.x * sx;
-    const cyMask = center.y * sy;
-    const rMask = Math.max(1, rSrcPx * sx);
-    const rMask2 = rMask * rMask;
-    const x0 = Math.max(0, Math.floor(cxMask - rMask));
-    const x1 = Math.min(maskW - 1, Math.ceil(cxMask + rMask));
-    const y0 = Math.max(0, Math.floor(cyMask - rMask));
-    const y1 = Math.min(maskH - 1, Math.ceil(cyMask + rMask));
-    for (let y = y0; y <= y1; y++) {
-      for (let x = x0; x <= x1; x++) {
-        const dx = x - cxMask, dy = y - cyMask;
-        if (dx*dx + dy*dy <= rMask2) {
+    if (!m || m.type !== 'rect' || !m.tl || !m.br) continue;
+    // 4隅を lat/lng で構築 (map上では軸整列した矩形)
+    const corners = [
+      { lat: m.tl.lat, lng: m.tl.lng },
+      { lat: m.tl.lat, lng: m.br.lng },
+      { lat: m.br.lat, lng: m.br.lng },
+      { lat: m.br.lat, lng: m.tl.lng },
+    ];
+    // image pixel 座標へ変換 (下絵が回転していれば image空間では回転四辺形)
+    const pxCorners = corners.map(c => mapPointToImagePixel(c, currentOverlayLayer, currentOverlay));
+    if (pxCorners.some(c => !c)) continue;
+    const maskCorners = pxCorners.map(c => ({ x: c.x * sx, y: c.y * sy }));
+    // スキャンライン塗り
+    const minY = Math.max(0, Math.floor(Math.min(...maskCorners.map(c => c.y))));
+    const maxY = Math.min(maskH - 1, Math.ceil(Math.max(...maskCorners.map(c => c.y))));
+    for (let y = minY; y <= maxY; y++) {
+      const xs = [];
+      for (let i = 0; i < 4; i++) {
+        const p1 = maskCorners[i], p2 = maskCorners[(i + 1) % 4];
+        if ((p1.y <= y && p2.y > y) || (p2.y <= y && p1.y > y)) {
+          const t = (y - p1.y) / (p2.y - p1.y);
+          xs.push(p1.x + t * (p2.x - p1.x));
+        }
+      }
+      xs.sort((a, b) => a - b);
+      for (let i = 0; i + 1 < xs.length; i += 2) {
+        const x0 = Math.max(0, Math.floor(xs[i]));
+        const x1 = Math.min(maskW - 1, Math.ceil(xs[i + 1]));
+        for (let x = x0; x <= x1; x++) {
           const idx = y * maskW + x;
           if (mask[idx] === 1) {
             mask[idx] = 0;
