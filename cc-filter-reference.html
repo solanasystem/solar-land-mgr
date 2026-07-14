@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CC Filter Reference — GRID LAND MGR CAD Sprint 2</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Yu Gothic", sans-serif;
+    font-size: 13px;
+    color: #1a1a1a;
+    background: #f4f5f7;
+  }
+  header {
+    background: #1f2937;
+    color: #f9fafb;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+  header .meta { font-size: 11px; color: #9ca3af; font-family: ui-monospace, monospace; }
+  main { padding: 12px; max-width: 1400px; margin: 0 auto; }
+  .drop-zone {
+    border: 2px dashed #9ca3af;
+    background: #fff;
+    padding: 24px;
+    text-align: center;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-bottom: 12px;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .drop-zone.hover { border-color: #2563eb; background: #eff6ff; }
+  .drop-zone p { margin: 4px 0; }
+  .drop-zone .hint { color: #6b7280; font-size: 11px; }
+  input[type="file"] { display: none; }
+  .controls {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+  }
+  .control-group { display: flex; flex-direction: column; gap: 4px; }
+  .control-group label {
+    font-size: 11px;
+    color: #4b5563;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .control-group .value {
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: #111827;
+    font-weight: 600;
+  }
+  .control-group input[type="range"] { width: 100%; }
+  .toggles {
+    display: flex;
+    gap: 16px;
+    padding: 8px 0;
+    font-size: 12px;
+  }
+  .toggles label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .canvas-wrap {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 12px;
+    overflow: auto;
+    max-height: 65vh;
+    text-align: center;
+    position: relative;
+  }
+  canvas { max-width: 100%; height: auto; image-rendering: pixelated; display: block; margin: 0 auto; }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .stat {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .stat .k { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat .v { font-family: ui-monospace, monospace; font-size: 16px; color: #111827; font-weight: 600; }
+  .stat.removed .v { color: #dc2626; }
+  .stat.kept .v { color: #059669; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    padding: 8px 16px;
+    border: 1px solid #d1d5db;
+    background: #fff;
+    color: #111827;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  button:hover:not(:disabled) { background: #f3f4f6; }
+  button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  button.primary:hover:not(:disabled) { background: #1d4ed8; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: #6b7280;
+    padding: 4px 0;
+  }
+  .status.busy { color: #ea580c; }
+  .status.done { color: #059669; }
+  .legend {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: #6b7280;
+    padding: 6px 0;
+  }
+  .legend span::before {
+    content: "";
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 4px;
+    vertical-align: middle;
+    border-radius: 2px;
+  }
+  .legend .kept::before { background: #111827; }
+  .legend .removed::before { background: #dc2626; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>CC Filter Reference — Sprint 2 Stage 1 (④ 地番数字除去)</h1>
+  <div class="meta">v0.1 · standalone · pre-integration</div>
+</header>
+
+<main>
+  <label class="drop-zone" id="dropzone">
+    <p><strong>画像を選択 or ドラッグ&ドロップ</strong></p>
+    <p class="hint">二値化前の原画像 / 二値化済みラスター どちらでも OK。PNG / JPG / iPhone HEIC 対応</p>
+    <input type="file" id="fileInput" accept="image/*">
+  </label>
+
+  <div class="controls">
+    <div class="control-group">
+      <label>Binarization Threshold <span class="value" id="binThreshVal">128</span></label>
+      <input type="range" id="binThresh" min="0" max="255" value="128">
+    </div>
+    <div class="control-group">
+      <label>Area Threshold (削除する最大面積) <span class="value" id="areaThreshVal">500</span> px</label>
+      <input type="range" id="areaThresh" min="0" max="10000" value="500">
+    </div>
+    <div class="control-group">
+      <label>Max Aspect Ratio (BBox 縦横比) <span class="value" id="aspectVal">3.0</span></label>
+      <input type="range" id="aspect" min="10" max="100" value="30">
+    </div>
+  </div>
+
+  <div class="toggles">
+    <label><input type="checkbox" id="showOverlay" checked> 削除対象を赤で表示</label>
+    <label><input type="checkbox" id="invertBinary"> 二値化を反転 (背景が濃い画像用)</label>
+    <label><input type="checkbox" id="useLargestCC"> 相対閾値: 最大CCの%で決定</label>
+    <label id="relPctLabel" style="display:none">
+      比率: <input type="range" id="relPct" min="1" max="50" value="5" style="width:100px"> <span id="relPctVal">5</span>%
+    </label>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="k">Image</div><div class="v" id="statImage">–</div></div>
+    <div class="stat"><div class="k">Total CCs</div><div class="v" id="statTotal">–</div></div>
+    <div class="stat kept"><div class="k">Kept</div><div class="v" id="statKept">–</div></div>
+    <div class="stat removed"><div class="k">Removed</div><div class="v" id="statRemoved">–</div></div>
+  </div>
+
+  <div class="canvas-wrap">
+    <canvas id="canvas" width="800" height="450"></canvas>
+    <div class="legend">
+      <span class="kept">残す (境界線)</span>
+      <span class="removed">削除する (数字/ノイズ)</span>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="primary" id="btnApply" disabled>削除を確定してクリーンPNGを出力</button>
+    <button id="btnReset" disabled>リセット</button>
+    <span class="status" id="status">画像を読み込んでください</span>
+  </div>
+</main>
+
+<script>
+// ============================================================
+// Union-Find (Weighted Quick Union + Path Compression)
+// ============================================================
+class UnionFind {
+  constructor(n) {
+    this.parent = new Int32Array(n);
+    for (let i = 0; i < n; i++) this.parent[i] = i;
+  }
+  find(x) {
+    let root = x;
+    while (this.parent[root] !== root) root = this.parent[root];
+    while (this.parent[x] !== root) {
+      const next = this.parent[x];
+      this.parent[x] = root;
+      x = next;
+    }
+    return root;
+  }
+  union(x, y) {
+    const rx = this.find(x), ry = this.find(y);
+    if (rx === ry) return;
+    // Always point larger label to smaller label (keeps label IDs low)
+    if (rx < ry) this.parent[ry] = rx;
+    else this.parent[rx] = ry;
+  }
+}
+
+// ============================================================
+// Two-pass CC labeling with 8-connectivity
+// Input: Uint8Array (0 = background, 1 = foreground)
+// Output: { labels: Int32Array, numLabels: number }
+// ============================================================
+function labelCC(binary, width, height) {
+  const size = width * height;
+  const labels = new Int32Array(size);
+
+  // Upper bound for label count = foreground pixel count
+  let fgCount = 0;
+  for (let i = 0; i < size; i++) if (binary[i]) fgCount++;
+  const uf = new UnionFind(fgCount + 2);
+
+  let nextLabel = 1;
+
+  // First pass: assign provisional labels
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if (!binary[i]) continue;
+
+      // 8-connectivity: check top-left, top, top-right, left
+      let minNeighbor = 0;
+      const neighbors = [];
+      if (y > 0) {
+        if (x > 0) {
+          const l = labels[i - width - 1];
+          if (l) neighbors.push(l);
+        }
+        const l = labels[i - width];
+        if (l) neighbors.push(l);
+        if (x < width - 1) {
+          const l = labels[i - width + 1];
+          if (l) neighbors.push(l);
+        }
+      }
+      if (x > 0) {
+        const l = labels[i - 1];
+        if (l) neighbors.push(l);
+      }
+
+      if (neighbors.length === 0) {
+        labels[i] = nextLabel++;
+      } else {
+        minNeighbor = neighbors[0];
+        for (let k = 1; k < neighbors.length; k++) {
+          if (neighbors[k] < minNeighbor) minNeighbor = neighbors[k];
+        }
+        labels[i] = minNeighbor;
+        for (const n of neighbors) {
+          if (n !== minNeighbor) uf.union(minNeighbor, n);
+        }
+      }
+    }
+  }
+
+  // Second pass: resolve to final labels
+  const remap = new Int32Array(nextLabel);
+  let finalId = 0;
+  for (let i = 0; i < size; i++) {
+    const l = labels[i];
+    if (!l) continue;
+    const root = uf.find(l);
+    if (!remap[root]) remap[root] = ++finalId;
+    labels[i] = remap[root];
+  }
+
+  return { labels, numLabels: finalId };
+}
+
+// ============================================================
+// Compute per-CC stats: area, bbox, aspect ratio
+// ============================================================
+function computeStats(labels, numLabels, width, height) {
+  const stats = new Array(numLabels + 1);
+  for (let i = 1; i <= numLabels; i++) {
+    stats[i] = { area: 0, minX: width, maxX: -1, minY: height, maxY: -1 };
+  }
+  const size = width * height;
+  for (let i = 0; i < size; i++) {
+    const l = labels[i];
+    if (!l) continue;
+    const s = stats[l];
+    s.area++;
+    const x = i % width, y = (i / width) | 0;
+    if (x < s.minX) s.minX = x;
+    if (x > s.maxX) s.maxX = x;
+    if (y < s.minY) s.minY = y;
+    if (y > s.maxY) s.maxY = y;
+  }
+  for (let i = 1; i <= numLabels; i++) {
+    const s = stats[i];
+    const w = s.maxX - s.minX + 1;
+    const h = s.maxY - s.minY + 1;
+    s.width = w;
+    s.height = h;
+    s.aspectRatio = Math.max(w, h) / Math.max(1, Math.min(w, h));
+  }
+  return stats;
+}
+
+// ============================================================
+// Classify each CC for removal
+// Returns Uint8Array where index = label, value = 1 if remove
+// ============================================================
+function classifyForRemoval(stats, numLabels, areaMax, aspectMax, useLargest, relPct) {
+  const mask = new Uint8Array(numLabels + 1);
+  let threshold = areaMax;
+  if (useLargest) {
+    let maxArea = 0;
+    for (let i = 1; i <= numLabels; i++) {
+      if (stats[i] && stats[i].area > maxArea) maxArea = stats[i].area;
+    }
+    threshold = Math.floor(maxArea * relPct / 100);
+  }
+  let removed = 0;
+  for (let i = 1; i <= numLabels; i++) {
+    const s = stats[i];
+    if (!s) continue;
+    if (s.area <= threshold && s.aspectRatio <= aspectMax) {
+      mask[i] = 1;
+      removed++;
+    }
+  }
+  return { mask, removed, threshold };
+}
+
+// ============================================================
+// State
+// ============================================================
+const state = {
+  imageBitmap: null,
+  width: 0,
+  height: 0,
+  originalData: null,   // Uint8ClampedArray (RGBA) of original
+  binary: null,         // Uint8Array (0/1)
+  labels: null,
+  numLabels: 0,
+  stats: null,
+};
+
+// ============================================================
+// Rendering
+// ============================================================
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function renderPreview() {
+  if (!state.binary) return;
+  const { width, height, binary, labels, numLabels } = state;
+
+  const areaMax = parseInt(document.getElementById('areaThresh').value);
+  const aspectMax = parseInt(document.getElementById('aspect').value) / 10;
+  const showOverlay = document.getElementById('showOverlay').checked;
+  const useLargest = document.getElementById('useLargestCC').checked;
+  const relPct = parseInt(document.getElementById('relPct').value);
+
+  const { mask, removed, threshold } = classifyForRemoval(
+    state.stats, numLabels, areaMax, aspectMax, useLargest, relPct
+  );
+
+  // Build RGBA output
+  const out = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    const p = i * 4;
+    if (binary[i]) {
+      if (showOverlay && mask[labels[i]]) {
+        // Removed → red
+        out[p] = 220; out[p+1] = 38; out[p+2] = 38; out[p+3] = 255;
+      } else if (mask[labels[i]]) {
+        // Removed but overlay off → white (as if deleted)
+        out[p] = 255; out[p+1] = 255; out[p+2] = 255; out[p+3] = 255;
+      } else {
+        // Kept → black
+        out[p] = 17; out[p+1] = 24; out[p+2] = 39; out[p+3] = 255;
+      }
+    } else {
+      // Background → white
+      out[p] = 255; out[p+1] = 255; out[p+2] = 255; out[p+3] = 255;
+    }
+  }
+
+  canvas.width = width;
+  canvas.height = height;
+  ctx.putImageData(new ImageData(out, width, height), 0, 0);
+
+  // Update stats display
+  document.getElementById('statTotal').textContent = numLabels.toLocaleString();
+  document.getElementById('statKept').textContent = (numLabels - removed).toLocaleString();
+  document.getElementById('statRemoved').textContent = removed.toLocaleString();
+  const areaLabel = useLargest ? `${relPct}% of max` : `${threshold} px`;
+  setStatus(`閾値: ${areaLabel} · アスペクト比 ≤ ${aspectMax.toFixed(1)}`, 'done');
+}
+
+// ============================================================
+// Binarization (simple luminance threshold + optional invert)
+// ============================================================
+function binarizeFromOriginal() {
+  if (!state.originalData) return;
+  const threshold = parseInt(document.getElementById('binThresh').value);
+  const invert = document.getElementById('invertBinary').checked;
+  const { width, height, originalData } = state;
+  const binary = new Uint8Array(width * height);
+  for (let i = 0; i < width * height; i++) {
+    const p = i * 4;
+    // Luminance (BT.601)
+    const lum = 0.299 * originalData[p] + 0.587 * originalData[p+1] + 0.114 * originalData[p+2];
+    const isDark = lum < threshold;
+    binary[i] = (invert ? !isDark : isDark) ? 1 : 0;
+  }
+  state.binary = binary;
+  // Recompute labels + stats
+  setStatus('CC ラベリング中...', 'busy');
+  setTimeout(() => {
+    const t0 = performance.now();
+    const { labels, numLabels } = labelCC(binary, width, height);
+    const stats = computeStats(labels, numLabels, width, height);
+    state.labels = labels;
+    state.numLabels = numLabels;
+    state.stats = stats;
+    const t1 = performance.now();
+    setStatus(`CC 検出完了 (${numLabels.toLocaleString()} 個, ${(t1-t0).toFixed(0)}ms)`, 'done');
+    renderPreview();
+    document.getElementById('btnApply').disabled = false;
+    document.getElementById('btnReset').disabled = false;
+  }, 10);
+}
+
+// ============================================================
+// Image load
+// ============================================================
+async function loadImage(file) {
+  setStatus('画像を読み込み中...', 'busy');
+  try {
+    const bitmap = await createImageBitmap(file);
+    state.imageBitmap = bitmap;
+    state.width = bitmap.width;
+    state.height = bitmap.height;
+
+    // Draw to offscreen canvas to extract pixel data
+    const off = document.createElement('canvas');
+    off.width = bitmap.width;
+    off.height = bitmap.height;
+    const offCtx = off.getContext('2d');
+    offCtx.drawImage(bitmap, 0, 0);
+    state.originalData = offCtx.getImageData(0, 0, bitmap.width, bitmap.height).data;
+
+    document.getElementById('statImage').textContent = `${bitmap.width}×${bitmap.height}`;
+    setStatus('画像読込完了、二値化中...', 'busy');
+    binarizeFromOriginal();
+  } catch (e) {
+    setStatus(`エラー: ${e.message}`, 'busy');
+    console.error(e);
+  }
+}
+
+// ============================================================
+// Actions
+// ============================================================
+function applyAndDownload() {
+  if (!state.binary) return;
+  const { width, height, binary, labels } = state;
+  const areaMax = parseInt(document.getElementById('areaThresh').value);
+  const aspectMax = parseInt(document.getElementById('aspect').value) / 10;
+  const useLargest = document.getElementById('useLargestCC').checked;
+  const relPct = parseInt(document.getElementById('relPct').value);
+  const { mask } = classifyForRemoval(state.stats, state.numLabels, areaMax, aspectMax, useLargest, relPct);
+
+  // Produce clean binary as PNG (black foreground on white background)
+  const out = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    const p = i * 4;
+    if (binary[i] && !mask[labels[i]]) {
+      out[p] = 0; out[p+1] = 0; out[p+2] = 0; out[p+3] = 255;
+    } else {
+      out[p] = 255; out[p+1] = 255; out[p+2] = 255; out[p+3] = 255;
+    }
+  }
+  const off = document.createElement('canvas');
+  off.width = width;
+  off.height = height;
+  off.getContext('2d').putImageData(new ImageData(out, width, height), 0, 0);
+  off.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'cc-filtered.png';
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus('クリーン画像を出力しました', 'done');
+  }, 'image/png');
+}
+
+function reset() {
+  document.getElementById('binThresh').value = 128;
+  document.getElementById('binThreshVal').textContent = 128;
+  document.getElementById('areaThresh').value = 500;
+  document.getElementById('areaThreshVal').textContent = 500;
+  document.getElementById('aspect').value = 30;
+  document.getElementById('aspectVal').textContent = '3.0';
+  document.getElementById('invertBinary').checked = false;
+  document.getElementById('useLargestCC').checked = false;
+  document.getElementById('relPctLabel').style.display = 'none';
+  binarizeFromOriginal();
+}
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status ' + (cls || '');
+}
+
+// ============================================================
+// UI wiring
+// ============================================================
+document.getElementById('fileInput').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (f) loadImage(f);
+});
+
+const dz = document.getElementById('dropzone');
+dz.addEventListener('click', () => document.getElementById('fileInput').click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('hover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('hover'));
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('hover');
+  const f = e.dataTransfer.files[0];
+  if (f) loadImage(f);
+});
+
+document.getElementById('binThresh').addEventListener('input', e => {
+  document.getElementById('binThreshVal').textContent = e.target.value;
+  if (state.originalData) binarizeFromOriginal();
+});
+document.getElementById('areaThresh').addEventListener('input', e => {
+  document.getElementById('areaThreshVal').textContent = e.target.value;
+  renderPreview();
+});
+document.getElementById('aspect').addEventListener('input', e => {
+  document.getElementById('aspectVal').textContent = (e.target.value / 10).toFixed(1);
+  renderPreview();
+});
+document.getElementById('showOverlay').addEventListener('change', renderPreview);
+document.getElementById('invertBinary').addEventListener('change', () => {
+  if (state.originalData) binarizeFromOriginal();
+});
+document.getElementById('useLargestCC').addEventListener('change', e => {
+  document.getElementById('relPctLabel').style.display = e.target.checked ? 'flex' : 'none';
+  renderPreview();
+});
+document.getElementById('relPct').addEventListener('input', e => {
+  document.getElementById('relPctVal').textContent = e.target.value;
+  renderPreview();
+});
+
+document.getElementById('btnApply').addEventListener('click', applyAndDownload);
+document.getElementById('btnReset').addEventListener('click', reset);
+</script>
+</body>
+</html>
