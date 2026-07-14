@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: cad-editor v20260714E / v20260714D の消しゴムサイズ上限修正: スライダー max 200m→1000m、数値入力 max 500m→10000m、デフォルト 10m→100m。地番図全体が数kmある実運用スケールに対応。他は変更なし。前:v20260714D -->
+<!-- BUILD: cad-editor v20260714F / 破壊的削除に変更: 赤色オーバーレイを廃止し、下絵ラスターそのものを白塗り。原本を canvas キャッシュ→マーク適用→dataURL 生成→currentOverlayLayer._image.src に代入。既存の線抽出パターンを流用。debounce 80ms でちらつき防止。前:v20260714E -->
 <html lang="ja">
 <head>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1399,7 +1399,7 @@
     </a>
     <span class="logo-version">v4.1</span>
     <div class="page-title">CADエディタ <span style="color:var(--accent);font-family:var(--font-mono);font-size:10px;">Track A / Step 2</span></div>
-    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260714E</div>
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);border:1px solid var(--green);padding:2px 6px;">BUILD: v20260714F</div>
     <div id="currentCaseBadge" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--accent);font-weight:500;"></div>
   </div>
   <div class="header-right">
@@ -8041,23 +8041,87 @@ function _eraserSaveMarks() {
 }
 
 /**
- * マーク配列を地図上に描画。全マーク=矩形前提。
+ * v20260714F: 破壊的削除
+ * 赤色オーバーレイは表示せず、下絵ラスター自体を白塗りする。
+ * 具体的には、原本画像を canvas に描画し、マークの4隅をimage pixel座標に変換して
+ * 白の多角形塗りを適用、dataURL 化して DistortableImage の _image.src に代入する。
  */
+let _eraserBaseCanvas = null;   // 現overlayの原本画像キャッシュ (canvas)
+let _eraserApplyPending = null; // debounce用タイマー
+
 function _eraserRender() {
   const st = window._eraserState;
+  // 過去の赤オーバーレイ layer が残っていれば除去
   if (st.layer && map) { try { map.removeLayer(st.layer); } catch(e){} st.layer = null; }
-  if (!map || !st.marks || st.marks.length === 0) return;
-  const lg = L.layerGroup();
-  for (const m of st.marks) {
-    if (m.type !== 'rect' || !m.tl || !m.br) continue;
-    const rect = L.rectangle([[m.tl.lat, m.tl.lng], [m.br.lat, m.br.lng]], {
-      color: '#e53935', weight: 1, opacity: 0.7,
-      fillColor: '#e53935', fillOpacity: 0.28, interactive: false,
-    });
-    lg.addLayer(rect);
+  // 破壊描画をdebounce (連続クリック時のちらつき防止)
+  if (_eraserApplyPending) clearTimeout(_eraserApplyPending);
+  _eraserApplyPending = setTimeout(() => {
+    _eraserApplyPending = null;
+    _eraserApplyToOverlay().catch(e => console.error('[Eraser] applyToOverlay failed:', e));
+  }, 80);
+}
+
+async function _eraserApplyToOverlay() {
+  if (!currentOverlay || !currentOverlayLayer) return;
+  const st = window._eraserState;
+  const url = originalOverlayUrl || currentOverlay.source_url;
+  if (!url) return;
+
+  // 原本キャッシュ (overlay ID が変わったら再構築)
+  if (!_eraserBaseCanvas || _eraserBaseCanvas._overlayId !== currentOverlay.id) {
+    const img = await loadCanvasSafeImage(url);
+    const cv = document.createElement('canvas');
+    cv.width = img.width;
+    cv.height = img.height;
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(img.drawable, 0, 0);
+    cv._overlayId = currentOverlay.id;
+    cv._sourceUrl = url;
+    _eraserBaseCanvas = cv;
   }
-  lg.addTo(map);
-  st.layer = lg;
+
+  // マーク無し → 原本URLに戻して終了
+  if (!st.marks || st.marks.length === 0) {
+    if (currentOverlayLayer._image) {
+      currentOverlayLayer._image.src = _eraserBaseCanvas._sourceUrl;
+    } else if (typeof currentOverlayLayer.setUrl === 'function') {
+      currentOverlayLayer.setUrl(_eraserBaseCanvas._sourceUrl);
+    }
+    return;
+  }
+
+  // 原本コピー → マーク適用 → dataURL
+  const src = _eraserBaseCanvas;
+  const workCv = document.createElement('canvas');
+  workCv.width = src.width;
+  workCv.height = src.height;
+  const ctx = workCv.getContext('2d');
+  ctx.drawImage(src, 0, 0);
+  ctx.fillStyle = '#ffffff';
+
+  for (const m of st.marks) {
+    if (!m || m.type !== 'rect' || !m.tl || !m.br) continue;
+    const corners = [
+      { lat: m.tl.lat, lng: m.tl.lng },
+      { lat: m.tl.lat, lng: m.br.lng },
+      { lat: m.br.lat, lng: m.br.lng },
+      { lat: m.br.lat, lng: m.tl.lng },
+    ];
+    const px = corners.map(c => mapPointToImagePixel(c, currentOverlayLayer, currentOverlay));
+    if (px.some(c => !c)) continue;
+    ctx.beginPath();
+    ctx.moveTo(px[0].x, px[0].y);
+    for (let i = 1; i < 4; i++) ctx.lineTo(px[i].x, px[i].y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  const dataUrl = workCv.toDataURL('image/png');
+  if (currentOverlayLayer._image) {
+    currentOverlayLayer._image.src = dataUrl;
+  } else if (typeof currentOverlayLayer.setUrl === 'function') {
+    currentOverlayLayer.setUrl(dataUrl);
+  }
 }
 
 /**
