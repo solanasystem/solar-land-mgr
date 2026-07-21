@@ -2,6 +2,7 @@
 <!-- BUILD: main v20260622g / ステータスバッジ(LETTER/LTR済)の最終発信日表示を改善：紫の補色=黄緑(#bef264)で太字大きめ・position:absoluteでバッジ右端内側に重ねるためバッジ幅は不変(min-width:92px維持)。 -->
 <!-- BUILD: main v20260707b / 3マスターの操作メニューに「🎨 CADで開く」追加(cad-editor.html?case_id=を別タブ)。前:v20260707a -->
 <!-- BUILD: main v20260709i / HEIC/HEIF 受入対応(heic2anyで自動JPEG変換)。iPhone撮影のHEICを直接ドロップ可能に。前:v20260709h -->
+<!-- BUILD: main v20260721a / 案件詳細モーダルの垂直積雪量表示を land_info.snow_load_cm 優先に変更(値があればそれを表示、無い自治体はsnow_load_master動的引当にフォールバック)。びわこの森164案件で高島市の引当空振り(— cm)を解消。前:v20260709i -->
 <!-- v20260528a: ステータスバッジ(.status-badge)の帯を統一。min-width:92px + justify-content:center で全ステータス(NOT VISITED/LTR済/OK等)の帯長を揃える。文字数依存の不揃いを解消。全マスター(案件/地権者/土地情報/不動産会社)共通で適用 -->
 <html lang="ja">
 <head>
@@ -2329,7 +2330,11 @@ async function loadLandDetail(caseId){
   const html = multiTbl + detailTbl;
   document.getElementById('landInfoMain').innerHTML=html;
   document.getElementById('landInfoCollapse').innerHTML=html;
-  if(data&&data.location){
+  // v20260721a: 保存済み land_info.snow_load_cm を最優先で表示。無い自治体のみ従来の snow_load_master 動的引当にフォールバック（他自治体の挙動は不変）
+  if(data&&data.snow_load_cm!=null&&String(data.snow_load_cm).trim()!==''){
+    const display=`${data.snow_load_cm} cm`;
+    document.querySelectorAll('.snow-load-value').forEach(el=>{el.textContent=display;});
+  }else if(data&&data.location){
     const display=await fetchSnowLoad(data.location);
     document.querySelectorAll('.snow-load-value').forEach(el=>{el.textContent=display;});
   }
