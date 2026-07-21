@@ -35,7 +35,7 @@
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
 
   // v1.2: 許可ロール一覧（externalを追加）
-  var ALLOWED_ROLES = ['admin', 'manager', 'viewer', 'external'];
+  var ALLOWED_ROLES = ['admin', 'manager', 'viewer', 'external', 'partner'];
 
   // ============================================================
   // ヘルパー
@@ -90,6 +90,7 @@
     isManager:      function() { return profile.role === 'manager'; },
     isViewer:       function() { return profile.role === 'viewer'; },
     isExternal:     function() { return profile.role === 'external'; },
+    isPartner:      function() { return profile.role === 'partner'; },
     canEdit:        function() { return profile.role === 'admin' || profile.role === 'manager'; },
     canDelete:      function() { return profile.role === 'admin' || profile.role === 'manager'; },
     canManageUsers: function() { return profile.role === 'admin'; },

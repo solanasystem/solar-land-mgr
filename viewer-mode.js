@@ -16,9 +16,9 @@
 (function() {
   'use strict';
 
-  // common-auth.js が動いていない、または viewer 以外なら何もしない
+  // common-auth.js が動いていない、または viewer/partner 以外なら何もしない
   if (!window.__auth || typeof window.__auth.isViewer !== 'function') return;
-  if (!window.__auth.isViewer()) return;
+  if (!(window.__auth.isViewer() || (typeof window.__auth.isPartner === 'function' && window.__auth.isPartner()))) return;
 
   // ============================================================
   // Step 1: Supabase クライアントの write メソッドを hook
