@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: field-survey v20260727a / モーダル「地図」ボタン不動の修正: land.google_map を onclick に直埋めしていたため、度分秒表記URL(例 34°39'20.3"N の ' )でJS文字列が壊れボタン無反応だった。_escUrlAttr()でエスケープしてから window.open するよう変更(該当1箇所のみ・見た目/他ボタン不変)。google_map利用はfield-surveyのみのため他マップ波及なし。前:v20260711A -->
 <!-- BUILD: field-survey v20260711A / 都市計画区域(XKT001)の実効表示閾値をズーム15→12に緩和。タイル数上限を36→128に引き上げてズーム12のワイド視野でも取得可能に(zoom>=11のprimaryチェックは維持)。トースト文言も更新。3マップ共通ロジックのためfarmland-tracker v20260711Gと同じ修正。前:v20260710B -->
 <!-- BUILD: field-survey v20260710A / 全ステータス緑フラグ化(視覚確認優先): 未判定・使用可・検討・使用不可の全4状態を#22c55e緑で統一。NG除外は業務パイプライン側で維持、地図表示のみ視認性優先。CSS4行変更、JSロジック無変更。前:v20260707b -->
 <!-- BUILD: field-survey v20260707b / 現在地区画ポップアップを非表示(邪魔なため)、ハイライトは維持。前:v20260707a -->
@@ -2021,7 +2022,7 @@ function buildPopup(c, land, survey, landowner) {
       <div class="popup-actions" style="flex-direction:column;gap:6px">
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           ${(surveyMode && land?.lat && land?.lng) ? `<button class="popup-btn" onclick="startNav(${land.lat},${land.lng})" style="background:var(--blue);border-color:var(--blue);color:#fff;font-weight:700;flex:1 1 100%">\ud83d\uddfa \u30ca\u30d3\u958b\u59cb</button>` : ''}
-          ${land?.google_map ? `<button class="popup-btn" onclick="window.open('${land.google_map}','_blank')">\ud83d\uddfa \u5730\u56f3</button>` : ''}
+          ${land?.google_map ? `<button class="popup-btn" onclick="window.open('${_escUrlAttr(land.google_map)}','_blank')">\ud83d\uddfa \u5730\u56f3</button>` : ''}
           ${land?.lat && land?.lng ? `<button class="popup-btn" onclick="window.open('https://map.maff.go.jp/?zoom=17&lat=${land.lat}&lng=${land.lng}','_blank')" style="border-color:var(--green);color:var(--green)">\ud83c\udf3e \u8fb2\u5730\u30ca\u30d3</button>` : ''}
           ${confirmed
             ? `<button class="popup-btn confirmed-label" style="flex:1">\u2713 \u78ba\u8a8d\u6e08\u307f</button><button class="popup-btn" style="flex:1;border-color:var(--red);color:var(--red)" onclick="unConfirm('${c.id}')">\ud83d\udd04 \u89e3\u9664</button>`
@@ -4015,6 +4016,9 @@ function _updateGpsHighlight(lat, lng){
 }
 
 function _esc(s){if(s==null)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// v20260727a: onclick="window.open('URL')" に保存URLを安全に埋め込むためのエスケープ
+// (' はJS文字列を壊す→\' に、" はHTML属性を壊す→&quot; に、\ と改行も処理)
+function _escUrlAttr(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/[\r\n]/g,'');}
 
 // ============================================================
 // GPS疑似テストモード (v20260702s)
