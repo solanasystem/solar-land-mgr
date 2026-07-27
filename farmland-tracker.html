@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260727c / 衛星(Esri)・地理院ベースを高ズーム対応: 地図maxZoom 18→22、ベース(map/satellite/esri)は maxNativeZoom=18のまま maxZoom 18→22(18超は引き伸ばし表示＝「Map data not yet available」解消・さらに拡大可)。ハザード/土砂もmaxZoom→22で追随。データ限定(森林/XKT001)は現状維持。前:v20260727b -->
 <!-- BUILD: farmland-tracker v20260727b / 農振農用地(noshin)を全国化。北海道・四国・沖縄を除く全41県のうち新規30県をNOSHIN_PREF_BOUNDSに追加(全てR2配信 /r2/noshin_<県>.geojson・A12 LAYER_NO=6農用地区域由来・既存スキーマ{city,area}互換)。既存11県(愛知/兵庫=R2, 栃木群馬埼玉千葉長野岐阜静岡三重滋賀=GitHub)は不変。表示レイヤーのみ拡張(自動青地除外判定への配線は別途)。前:v20260727a -->
 <!-- BUILD: farmland-tracker v20260727a / ⚡空容量レイヤーに連系可能性フィルタを追加。capLegendの🟢連系可能/🟡条件付き/🔴連系不可の3行をタップ式トグル化(_capCat()で分類・_toggleCapFilter()で状態切替・_renderCapacitySubstations()で非選択カテゴリを間引き、既定は全ON)。分類は既存_capStatusColorと同一ロジックに集約。変電所/空容量はtracker単独機能のため他マップへの波及なし。前:v20260711G -->
 <!-- BUILD: farmland-tracker v20260711G / 都市計画区域(XKT001)の実効表示閾値をズーム15→12に緩和。タイル数上限を36→128に引き上げてズーム12のワイド視野でも取得できるようにする(zoom>=11のprimaryチェックは維持)。トースト文言も更新。3マップ共通ロジックのため他2ファイルにも同じ修正必須。前:v20260711F -->
@@ -1080,9 +1081,9 @@ var baseLayer=null;
 var currentGIS='map';
 var BASE_TILES={map:'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',satellite:'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',esri:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'};
 var BASE_TILE_OPTS={
-  map:{attribution:'\u00a9 \u56fd\u571f\u5730\u7406\u9662',maxZoom:18,maxNativeZoom:18,opacity:0.9},
-  satellite:{attribution:'\u00a9 \u56fd\u571f\u5730\u7406\u9662',maxZoom:18,maxNativeZoom:18,opacity:0.9},
-  esri:{attribution:'Tiles \u00a9 Esri \u2014 Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',maxZoom:18,maxNativeZoom:18,opacity:0.95}
+  map:{attribution:'\u00a9 \u56fd\u571f\u5730\u7406\u9662',maxZoom:22,maxNativeZoom:18,opacity:0.9},
+  satellite:{attribution:'\u00a9 \u56fd\u571f\u5730\u7406\u9662',maxZoom:22,maxNativeZoom:18,opacity:0.9},
+  esri:{attribution:'Tiles \u00a9 Esri \u2014 Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',maxZoom:22,maxNativeZoom:18,opacity:0.95}
 };
 // === NG\u5224\u5b9a\u7ba1\u7406\u7528\u30b0\u30ed\u30fc\u30d0\u30eb\u5909\u6570 ===
 var ngFeatureIds={};
@@ -1145,7 +1146,7 @@ function switchGIS(mode){
   if(currentGIS===mode)return;
   currentGIS=mode;
   if(baseLayer){map.removeLayer(baseLayer);}
-  var opts=BASE_TILE_OPTS[mode]||{attribution:'',maxZoom:18,maxNativeZoom:18,opacity:0.9};
+  var opts=BASE_TILE_OPTS[mode]||{attribution:'',maxZoom:22,maxNativeZoom:18,opacity:0.9};
   baseLayer=L.tileLayer(BASE_TILES[mode],opts);
   baseLayer.addTo(map);
   baseLayer.bringToBack();
@@ -1230,7 +1231,7 @@ function toggleForest5jou(){
   if(legend)legend.classList.add('show');
   showToast('\u68ee\u6797\u8a08\u753b\u5bfe\u8c61\u68ee\u6797 \u8868\u793a\u4e2d\uff08\u30ba\u30fc\u30e012\u4ee5\u4e0a\u3067\u30af\u30ea\u30c3\u30af\u3057\u3066\u9762\u7a4d\u8868\u793a\uff09','success');
 }
-function toggleHazard(type){var btnId='hz'+type.charAt(0).toUpperCase()+type.slice(1);var btn=document.getElementById(btnId);if(hazardLayers[type]){map.removeLayer(hazardLayers[type]);delete hazardLayers[type];btn.classList.remove('active');}else{var layer=L.tileLayer(HAZARD_URLS[type],{opacity:0.7,maxZoom:18,maxNativeZoom:17,attribution:'\u56fd\u571f\u4ea4\u901a\u7701'});layer.addTo(map);layer.bringToFront();hazardLayers[type]=layer;btn.classList.add('active');if(markersLayer)markersLayer.bringToFront();}}
+function toggleHazard(type){var btnId='hz'+type.charAt(0).toUpperCase()+type.slice(1);var btn=document.getElementById(btnId);if(hazardLayers[type]){map.removeLayer(hazardLayers[type]);delete hazardLayers[type];btn.classList.remove('active');}else{var layer=L.tileLayer(HAZARD_URLS[type],{opacity:0.7,maxZoom:22,maxNativeZoom:17,attribution:'\u56fd\u571f\u4ea4\u901a\u7701'});layer.addTo(map);layer.bringToFront();hazardLayers[type]=layer;btn.classList.add('active');if(markersLayer)markersLayer.bringToFront();}}
 // ========== 土砂災害警戒区域: 国土地理院公式タイル方式 (v20260702m) ==========
 // 「重ねるハザードマップ」と100%同一のタイル配信を利用。
 // Supabase A33ポリゴン方式(row_limit=300で欠落)を廃止。
@@ -1262,7 +1263,7 @@ function _loadDosyaTiles(){
   keys.forEach(function(k){
     var layer=L.tileLayer(DOSYA_TILE_URLS[k],{
       opacity:0.75,
-      minZoom:2,maxZoom:19,maxNativeZoom:17,
+      minZoom:2,maxZoom:22,maxNativeZoom:17,
       attribution:DOSYA_ATTRIBUTION,
       pane:'hazardTilePane'
     });
@@ -2464,7 +2465,7 @@ function updateBlockLabelScale(){
   if(s>1)s=1; if(s<0.34)s=0.34;
   document.documentElement.style.setProperty('--blk-scale', s.toFixed(3));
 }
-function initMap(){map=L.map('map',{zoomControl:false,maxZoom:18}).setView([36.5,138],5);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();onZoomChangeForDouro();updateBlockLabelScale();});updateBlockLabelScale();_addCadEditorControl();}
+function initMap(){map=L.map('map',{zoomControl:false,maxZoom:22}).setView([36.5,138],5);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();onZoomChangeForDouro();updateBlockLabelScale();});updateBlockLabelScale();_addCadEditorControl();}
 
 /* v20260707a: CADエディタを別タブで開くフローティングコントロール（地図中心座標を引継ぎ） */
 function _addCadEditorControl(){

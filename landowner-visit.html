@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: landowner-visit v20260727a / 衛星(Esri)・地理院ベースを高ズーム対応: 地図maxZoom=22、Esri/地理院は maxNativeZoom=18・maxZoom=22(18超は引き伸ばし表示＝「Map data not yet available」解消・さらに拡大可)。ハザード/土砂もmaxZoom=22で追随。前:v20260711A -->
 <!-- BUILD: landowner-visit v20260711A / 都市計画区域(XKT001)の実効表示閾値をズーム15→12に緩和。タイル数上限を36→128に引き上げてズーム12のワイド視野でも取得可能に(zoom>=11のprimaryチェックは維持)。トースト文言も更新。3マップ共通ロジックのためfarmland-tracker v20260711G / field-survey v20260711Aと同じ修正。前:v20260702m -->
 <!-- v20260626c: ポップアップにGoogle地図・ストリートビューボタン追加
 <!-- v20260626a: 別荘地候補レイヤー追加（villa_place_names 16件・v_villa_places_map ビュー経由）。🏘️別荘地候補トグル+パターン別色分け凡例（別荘地#7c3aed/ハイランド・リゾート#c026d3/高原#a855f7）。villaPane(zIndex640)+canvas。3マップ同期実装。 -->
@@ -690,7 +691,7 @@ function toggleHazard(type){
   if(hazardLayers[type]){
     map.removeLayer(hazardLayers[type]); delete hazardLayers[type]; btn.classList.remove('active');
   } else {
-    var layer=L.tileLayer(HAZARD_URLS[type],{opacity:0.7,maxZoom:18,attribution:'\u56fd\u571f\u4ea4\u901a\u7701'});
+    var layer=L.tileLayer(HAZARD_URLS[type],{opacity:0.7,maxZoom:22,maxNativeZoom:17,attribution:'\u56fd\u571f\u4ea4\u901a\u7701'});
     layer.addTo(map); layer.bringToFront(); hazardLayers[type]=layer; btn.classList.add('active');
   }
 }
@@ -891,7 +892,7 @@ function _loadDosyaTiles(){
   ['dosekiryu','kyukeisha','jisuberi'].forEach(function(k){
     var layer=L.tileLayer(DOSYA_TILE_URLS[k],{
       opacity:0.75,
-      minZoom:2,maxZoom:19,maxNativeZoom:17,
+      minZoom:2,maxZoom:22,maxNativeZoom:17,
       attribution:DOSYA_ATTRIBUTION,
       pane:'hazardTilePane'
     });
@@ -1111,10 +1112,10 @@ async function _fetchAndRenderCityPlan(){
   cityPlanLayer.bringToBack();
 }
 function initMap() {
-  map = L.map('map', { zoomControl: false }).setView([36.5, 138], 5);
-  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18 }).addTo(map);
-  gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 18, opacity: 0.85, zIndex: 1 });
-  esriLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles \u00a9 Esri \u2014 Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community', maxZoom: 19, opacity: 0.9, zIndex: 2 });
+  map = L.map('map', { zoomControl: false, maxZoom: 22 }).setView([36.5, 138], 5);
+  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 22, maxNativeZoom: 18 }).addTo(map);
+  gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 22, maxNativeZoom: 18, opacity: 0.85, zIndex: 1 });
+  esriLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles \u00a9 Esri \u2014 Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community', maxZoom: 22, maxNativeZoom: 18, opacity: 0.9, zIndex: 2 });
   parcelLayer = protomapsL.leafletLayer({
     url: 'https://data.source.coop/smartmaps/amx-2024-04/MojMap_amx_2024.pmtiles',
     maxDataZoom: 16, // AMX fude レイヤは z14-16 で生成されているため、z17以上はオーバーズーム
