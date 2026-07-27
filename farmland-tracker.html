@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260727a / ⚡空容量レイヤーに連系可能性フィルタを追加。capLegendの🟢連系可能/🟡条件付き/🔴連系不可の3行をタップ式トグル化(_capCat()で分類・_toggleCapFilter()で状態切替・_renderCapacitySubstations()で非選択カテゴリを間引き、既定は全ON)。分類は既存_capStatusColorと同一ロジックに集約。変電所/空容量はtracker単独機能のため他マップへの波及なし。前:v20260711G -->
 <!-- BUILD: farmland-tracker v20260711G / 都市計画区域(XKT001)の実効表示閾値をズーム15→12に緩和。タイル数上限を36→128に引き上げてズーム12のワイド視野でも取得できるようにする(zoom>=11のprimaryチェックは維持)。トースト文言も更新。3マップ共通ロジックのため他2ファイルにも同じ修正必須。前:v20260711F -->
 <html lang="ja">
 <head>
@@ -684,7 +685,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260711G</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260727a</span>
   </div>
   <div style="display:flex;align-items:center;gap:8px;">
     <a href="farmland-candidates.html" class="btn btn-ghost">&#128203; 開拓候補</a>
@@ -952,10 +953,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <button class="hazard-btn" id="hzCapacity" onclick="toggleCapacitySubstations()">&#9889; 空容量</button>
     <div id="capLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
       <div style="font-size:10px;line-height:1.7;">
-        <div style="font-weight:600;margin-bottom:2px">塗り＝連系可能性</div>
-        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;border:1px solid #333;margin-right:5px"></span>🟢 連系可能（容量・制約ともOK）</div>
-        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#fb923c;border:1px solid #333;margin-right:5px"></span>🟡 条件付き（出力抑制/N-1不可等）</div>
-        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#dc2626;border:1px solid #333;margin-right:5px"></span>🔴 連系不可（空容量=0）</div>
+        <div style="font-weight:600;margin-bottom:2px">塗り＝連系可能性 <span style="color:var(--text-dim);font-weight:400;font-size:9px">（行タップで絞込）</span></div>
+        <div id="capF_ok" onclick="_toggleCapFilter('ok')" style="cursor:pointer;user-select:none;border-radius:4px;padding:1px 3px"><span class="capF_mark" style="margin-right:3px">☑</span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;border:1px solid #333;margin-right:5px"></span>🟢 連系可能（容量・制約ともOK）</div>
+        <div id="capF_cond" onclick="_toggleCapFilter('cond')" style="cursor:pointer;user-select:none;border-radius:4px;padding:1px 3px"><span class="capF_mark" style="margin-right:3px">☑</span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#fb923c;border:1px solid #333;margin-right:5px"></span>🟡 条件付き（出力抑制/N-1不可等）</div>
+        <div id="capF_ng" onclick="_toggleCapFilter('ng')" style="cursor:pointer;user-select:none;border-radius:4px;padding:1px 3px"><span class="capF_mark" style="margin-right:3px">☑</span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#dc2626;border:1px solid #333;margin-right:5px"></span>🔴 連系不可（空容量=0）</div>
         <div style="font-weight:600;margin-top:4px;margin-bottom:2px">輪郭＝座標信頼度</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #36d399;margin-right:5px"></span>OSM一致(≤100m)</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #facc15;margin-right:5px"></span>OSM近接(100-500m)</div>
@@ -5505,6 +5506,7 @@ function _renderSubstations(){
 
 // ======== v20260530a: 配電用変電所(空容量)レイヤー ========
 var capEnabled=false, capLoading=false, capLayer=null, capCache=null;
+var capFilter={ok:true,cond:true,ng:true}; // v20260727a: 連系可能性フィルタ（凡例トグルで切替）
 function _capColor(c){
   if(c==null||c<=0) return '#5b6b7e';
   if(c>=50) return '#36d399';  // v20260530b: 主力(50MW以上)
@@ -5512,14 +5514,18 @@ function _capColor(c){
   return '#fb7185';            // 小規模(0超-20MW)
 }
 // v20260626f: マーカー塗り色を実務判定（🟢🟡🔴）と連動。空容量数値の色は_capColor()のまま。
-function _capStatusColor(p){
+// v20260727a: 分類を _capCat() に集約（塗り色・フィルタ・popupバッジ判定を単一ソース化）。
+function _capCat(p){
   var cap = p.cap;
-  if(cap==null||cap<=0) return '#dc2626';  // 🔴 連系不可
+  if(cap==null||cap<=0) return 'ng';  // 🔴 連系不可
   var heijoRisk = (p.heijo_kanou && (p.heijo_kanou==='有り'||p.heijo_kanou==='有'));
   var kamiRisk = (p.kami==='対象');
   var n1Risk = (p.n1_kahi && String(p.n1_kahi).indexOf('不可')>=0);
-  if(heijoRisk||kamiRisk||n1Risk) return '#fb923c';  // 🟡 条件付き
-  return '#22c55e';  // 🟢 連系可能
+  if(heijoRisk||kamiRisk||n1Risk) return 'cond';  // 🟡 条件付き
+  return 'ok';  // 🟢 連系可能
+}
+function _capStatusColor(p){
+  return ({ok:'#22c55e',cond:'#fb923c',ng:'#dc2626'})[_capCat(p)];
 }
 function _capTierColor(t){
   return ({high:'#36d399',med:'#facc15',review:'#fb923c',google:'#fb7185'})[t]||'#888';
@@ -5527,6 +5533,16 @@ function _capTierColor(t){
 // v20260626s: ズーム連動を完全撤去。両レイヤー固定4px。setRadius関連の不具合を排除
 function _zoomRadius(){ return 4; }
 function _capRadius(c){ return 4; }
+// v20260727a: 連系可能性フィルタのトグル。凡例(capLegend)の🟢🟡🔴行タップで呼ばれる。
+function _toggleCapFilter(cat){
+  capFilter[cat]=!capFilter[cat];
+  var el=document.getElementById('capF_'+cat);
+  if(el){
+    el.style.opacity = capFilter[cat] ? '1' : '0.4';
+    var mk=el.querySelector('.capF_mark'); if(mk) mk.textContent = capFilter[cat] ? '☑' : '☐';
+  }
+  if(capEnabled && capCache) _renderCapacitySubstations();
+}
 function toggleCapacitySubstations(){
   var btn=document.getElementById('hzCapacity'); var lg=document.getElementById('capLegend');
   capEnabled=!capEnabled;
@@ -5574,6 +5590,8 @@ function _renderCapacitySubstations(){
     // v20260626g: 基幹系（kv2≥77kV）は蓄電池/太陽光の直接連系対象外のため非表示
     var kv2num = parseFloat(p.kv2);
     if(!isNaN(kv2num) && kv2num >= 77) return;
+    // v20260727a: 連系可能性フィルタ（凡例トグルで非選択カテゴリを間引く）
+    if(!capFilter[_capCat(p)]) return;
     var has=p.cap!=null && p.cap>0;
     if(has)capSum+=p.cap;
     var m=L.circleMarker([lat,lng],{
