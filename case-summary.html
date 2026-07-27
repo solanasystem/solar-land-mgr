@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- BUILD: case-summary v20260707a / Supabase接続フォールバック復元(v20260516z再挿入) / localStorage空でも初回設定フォーム不要 -->
+<!-- BUILD: case-summary v20260721b / render()末尾の同期サブ描画(位置図/衛星/公図/ハザード周辺図/手入力UI/現地写真等)を個別try/catchで隔離。非中部(滋賀等)で地域依存サブ処理が同期throwし概要書全体が非表示になる不具合を解消。ロジック不変・囲うだけ。前:v20260707a -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -2271,10 +2272,10 @@ function render(c, land, owner, snowDepth, extraLands, survey) {
   setText('d-guideline', guideline);
 
   // ハザード（フラグベース）
-  applyHazardFlags(land);
+  try { applyHazardFlags(land); } catch(e){ console.warn('[render] applyHazardFlags例外:', e); }
 
   // 申請・届出
-  applyApplicationNotification(land);
+  try { applyApplicationNotification(land); } catch(e){ console.warn('[render] applyApplicationNotification例外:', e); }
 
   // 備考
   setText('d-bikou', bikou);
@@ -2284,32 +2285,33 @@ function render(c, land, owner, snowDepth, extraLands, survey) {
   setText('d-pole-c-cap', `(中央)${safe(poleC)}`);
   setText('d-pole-r-cap', `(右側)${safe(poleR)}`);
 
+  // v20260721b: 各サブ描画を個別に try/catch で隔離。特定地域(非中部等)でサブ処理が同期throwしても概要書本体の表示を止めない。失敗箇所はconsoleに関数名を出力
   // ===== Phase 3-4: 位置図描画 =====
-  renderLocationMap(lat, lng);
+  try { renderLocationMap(lat, lng); } catch(e){ console.warn('[render] renderLocationMap例外:', e); }
 
   // ===== Phase 3-5+: 衛星写真描画（電柱情報含む） =====
-  renderSatelliteMap(lat, lng, land);
+  try { renderSatelliteMap(lat, lng, land); } catch(e){ console.warn('[render] renderSatelliteMap例外:', e); }
 
   // ===== Phase 3-3a+b: 公図表示 =====
-  loadCadastralMap(land);
+  try { loadCadastralMap(land); } catch(e){ console.warn('[render] loadCadastralMap例外:', e); }
 
   // ===== v20260519a: field_survey_status 写真の差し込み =====
-  applyFieldSurveyPhotos(survey);
+  try { applyFieldSurveyPhotos(survey); } catch(e){ console.warn('[render] applyFieldSurveyPhotos例外:', e); }
 
   // ===== v20260519d: 手入力UI（contenteditable + 自動保存） =====
-  setupEditableCells(c, land);
+  try { setupEditableCells(c, land); } catch(e){ console.warn('[render] setupEditableCells例外:', e); }
 
-  // ===== v20260519f: P2 道路幅員自動取得 =====
-  applyRoadWidthAuto(land);
+  // ===== v20260519f: P2 道路幅員自動取得（async・rejectも捕捉） =====
+  try { Promise.resolve(applyRoadWidthAuto(land)).catch(e=>console.warn('[render] applyRoadWidthAuto例外:', e)); } catch(e){ console.warn('[render] applyRoadWidthAuto例外:', e); }
 
-  // ===== v20260519m: P3 公図接道判定 =====
-  applyTouriSetsudoAuto(land);
+  // ===== v20260519m: P3 公図接道判定（async・rejectも捕捉） =====
+  try { Promise.resolve(applyTouriSetsudoAuto(land)).catch(e=>console.warn('[render] applyTouriSetsudoAuto例外:', e)); } catch(e){ console.warn('[render] applyTouriSetsudoAuto例外:', e); }
 
   // ===== v20260519n: P4 ハザード周辺マップ（disaportal埋込＋拡大縮小） =====
-  applyHazardMap(land);
+  try { applyHazardMap(land); } catch(e){ console.warn('[render] applyHazardMap例外:', e); }
 
   // ===== セル内テキスト自動フィット =====
-  setTimeout(applyTextFitToCells, 50);
+  try { setTimeout(applyTextFitToCells, 50); } catch(e){ console.warn('[render] applyTextFitToCells例外:', e); }
 }
 
 // ============================================================

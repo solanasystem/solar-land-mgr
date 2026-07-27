@@ -4,6 +4,7 @@
 <!-- BUILD: main v20260709i / HEIC/HEIF 受入対応(heic2anyで自動JPEG変換)。iPhone撮影のHEICを直接ドロップ可能に。前:v20260709h -->
 <!-- BUILD: main v20260721a / 案件詳細モーダルの垂直積雪量表示を land_info.snow_load_cm 優先に変更(値があればそれを表示、無い自治体はsnow_load_master動的引当にフォールバック)。びわこの森164案件で高島市の引当空振り(— cm)を解消。前:v20260709i -->
 <!-- BUILD: main v20260721b / 発電区分バッジ「高圧蓄電池」を青(#58a6ff)→紫(#c084fc)に変更。低圧蓄電池(水色#7dd3fc)との視認差を確保。CSS .badge-kouatsu-battery のみ変更。前:v20260721a -->
+<!-- BUILD: main v20260721c / 案件マスター・土地情報マスターの一覧で、案件番号セル直下に地番(land_info.chiban)を紫で併記(複数筆は「、」連結・省略時tooltip)。列は増やさず既存グリッド不変。案件マスターは_fetchChibanMap()でland_info全件ページング取得。前:v20260721b -->
 <!-- v20260528a: ステータスバッジ(.status-badge)の帯を統一。min-width:92px + justify-content:center で全ステータス(NOT VISITED/LTR済/OK等)の帯長を揃える。文字数依存の不揃いを解消。全マスター(案件/地権者/土地情報/不動産会社)共通で適用 -->
 <html lang="ja">
 <head>
@@ -1475,16 +1476,32 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('stickyZone').style.top=(hh+nh)+'px';
 });
 
+/* v20260721c: 案件一覧に地番併記するため land_info.chiban を全件取得(1000行制限対策のページング)。case_id→地番配列(重複除去) */
+async function _fetchChibanMap(){
+  const map={}; let from=0; const size=1000;
+  while(true){
+    const{data,error}=await db.from('land_info').select('case_id,chiban').range(from,from+size-1);
+    if(error||!data||!data.length)break;
+    data.forEach(li=>{
+      if(!li.case_id)return; const cb=(li.chiban||'').toString().trim(); if(!cb)return;
+      if(!map[li.case_id])map[li.case_id]=[];
+      if(map[li.case_id].indexOf(cb)===-1)map[li.case_id].push(cb);
+    });
+    if(data.length<size)break; from+=size;
+  }
+  return map;
+}
 async function loadCases(){
   try{
-    const[casesRes,losRes]=await Promise.all([
+    const[casesRes,losRes,chibanMap]=await Promise.all([
       db.from('cases').select('*').order('created_at',{ascending:false}),
-      db.from('landowner_info').select('case_id,name')
+      db.from('landowner_info').select('case_id,name'),
+      _fetchChibanMap()
     ]);
     if(casesRes.error){showToast('データ読み込みエラー: '+casesRes.error.message,'error');document.getElementById('casesList').innerHTML='<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">'+casesRes.error.message+'</div></div>';return;}
     const loMap={};
     (losRes.data||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
-    allCases=sortCasesByParentChild((casesRes.data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''})));
+    allCases=sortCasesByParentChild((casesRes.data||[]).map(c=>({...c,landowner_name:loMap[c.id]||'',chiban_display:(chibanMap[c.id]||[]).join('、')})));
     renderPowerCompanyTabs();populateAreaDropdowns();
     // v20260516zg: 初期表示時もフィルタ(NGブラインド・電力会社・区分・ステータス)を適用
     filterCases();updateStats(allCases);
@@ -1716,7 +1733,7 @@ function renderCases(cases){
     const escapedCaseNo=(c.case_no||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
     return `<div class="case-row" style="grid-template-columns:50px 120px 40px 140px 140px 140px 150px 80px 130px 1fr 160px;animation-delay:${i*.03}s">
       <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">${i+1}</div>
-      <div class="case-no"${isChild?' style="padding-left:8px"':''}>${caseNoHtml}</div>
+      <div class="case-no"${isChild?' style="padding-left:8px"':''}>${caseNoHtml}${c.chiban_display?`<div style="font-size:11px;color:#a371f7;font-family:var(--font-mono);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="地番: ${_escHtml(c.chiban_display)}">地番 ${highlightText(c.chiban_display,q)}</div>`:''}</div>
       <div style="text-align:center">${branchHtml}</div>
       <div style="text-align:center">${kubunBadgeInline(c.id,c.kubun)}</div>
       <div style="text-align:center">${statusBadgeInline(c.id,c.status,c.last_letter_sent_at)}</div>
@@ -2558,7 +2575,7 @@ function renderLands(lands){
     const caseNoHl=caseDisplayNoHtml(land.cases,q);
     return `<div class="case-row" style="grid-template-columns:50px 120px 110px 140px 1fr 120px 100px 150px 150px 60px 80px;animation-delay:${i*.03}s">
       <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">${i+1}</div>
-      <div class="case-no" style="cursor:pointer;text-decoration:underline;text-decoration-color:rgba(163,113,247,.4);" onclick="openDetail('${land.case_id}','land')">${caseNoHl}</div>
+      <div class="case-no" style="cursor:pointer;text-decoration:underline;text-decoration-color:rgba(163,113,247,.4);" onclick="openDetail('${land.case_id}','land')">${caseNoHl}${land.chiban?`<div style="font-size:11px;color:#a371f7;font-family:var(--font-mono);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="地番: ${_escHtml(String(land.chiban))}">地番 ${highlightText(String(land.chiban),q)}</div>`:''}</div>
       <div style="text-align:center">${statusBadgeInline(land.case_id, land.cases?.status, land.cases?.last_letter_sent_at)}</div>
       <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${land.landowner_name?highlightText(land.landowner_name,q):'—'}</div>
       <div style="font-size:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${soZai==='—'?'—':highlightText(soZai,q)}</div>
