@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: landowner-visit v20260729a / 地番検索欄の都道府県対応(farmland v20260729aと共通): 47都道府県名の完全一致判定を追加し県名検索を開通。県境を赤い点線表示に(#ec4899→#ef4444,dash 6,6)。前:v20260727a -->
 <!-- BUILD: landowner-visit v20260727a / 衛星(Esri)・地理院ベースを高ズーム対応: 地図maxZoom=22、Esri/地理院は maxNativeZoom=18・maxZoom=22(18超は引き伸ばし表示＝「Map data not yet available」解消・さらに拡大可)。ハザード/土砂もmaxZoom=22で追随。前:v20260711A -->
 <!-- BUILD: landowner-visit v20260711A / 都市計画区域(XKT001)の実効表示閾値をズーム15→12に緩和。タイル数上限を36→128に引き上げてズーム12のワイド視野でも取得可能に(zoom>=11のprimaryチェックは維持)。トースト文言も更新。3マップ共通ロジックのためfarmland-tracker v20260711G / field-survey v20260711Aと同じ修正。前:v20260702m -->
 <!-- v20260626c: ポップアップにGoogle地図・ストリートビューボタン追加
@@ -1885,7 +1886,9 @@ async function _searchChiban(q, res) {
   _boundaryCache = [];
   let html = '';
   /* ===== 1) 行政境界検索（市町村区郡を含む場合はそのまま、含まない場合はサフィックス自動補完） ===== */
-  const hasAdminSuffix = /[\u5e02\u753a\u6751\u533a\u90e1]/.test(q);
+  const __PREFS = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県'];
+  const __isPref = __PREFS.indexOf(q) !== -1;
+  const hasAdminSuffix = /[\u5e02\u753a\u6751\u533a\u90e1]/.test(q) || __isPref;
   const queriesToTry = hasAdminSuffix
     ? [q]
     : [q + '\u5e02', q + '\u753a', q + '\u6751'];  /* 市・町・村を順次試す */
@@ -2003,7 +2006,7 @@ function jumpToBoundary(idx, label) {
   if (!geojson) return;
   if (_boundaryLayer) { map.removeLayer(_boundaryLayer); }
   _boundaryLayer = L.geoJSON(geojson, {
-    style: { color: '#ec4899', weight: 3.5, dashArray: '12, 6', fillColor: '#ec4899', fillOpacity: 0.12, className: 'boundary-pulse' }
+    style: { color: '#ef4444', weight: 3.5, dashArray: '6, 6', fillColor: '#ef4444', fillOpacity: 0.12, className: 'boundary-pulse' }
   }).addTo(map);
   map.fitBounds(_boundaryLayer.getBounds(), { padding: [40, 40] });
   document.getElementById('chibanResults').style.display = 'none';
