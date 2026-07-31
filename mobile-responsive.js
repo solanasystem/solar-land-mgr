@@ -14,6 +14,29 @@
 (function() {
   'use strict';
 
+  // ============================================================
+  // PC版強制表示（v20260731a）
+  //   iPhone/iPadでも「PC版そのまま」を表示するため、
+  //   viewportをPC幅(1400)に固定し、<html>に pc-force クラスを付与、
+  //   1400>1366のためモバイル@media(max-width:1366/1024/480)は全て不発火、
+  //   モバイル変形処理は一切実行しない(即return)。
+  //   CSS側は html.pc-force で全モバイル@mediaを無効化。
+  //   ※通常運用でPC版強制を止めたい場合は、この1ブロックを削除するだけ。
+  // ============================================================
+  (function forcePcLayout(){
+    var PC_WIDTH = 1400;  // 1366(iPad判定)より大きくしモバイル@media(max-width:1366/1024/480)を全て不発火に
+    var vp = document.querySelector('meta[name="viewport"]');
+    if (!vp) {
+      vp = document.createElement('meta');
+      vp.setAttribute('name','viewport');
+      (document.head||document.documentElement).appendChild(vp);
+    }
+    vp.setAttribute('content','width='+PC_WIDTH);
+    var de = document.documentElement;
+    if (de && de.classList) de.classList.add('pc-force');
+  })();
+  return; // PC版強制のため、以下のモバイル変形処理は全てスキップ
+
   // PC版では何もしない
   // タッチデバイス（iPad等）は1366px以下まで動作させる（iPad全機種カバー）
   // 非タッチデバイス（マウス操作PC）は従来どおり1024px以下のみ動作
