@@ -633,19 +633,22 @@
       ? '<div class="cc-popup-memo-block">' + _escapeHtml(rec.memo) + '</div>'
       : '<div class="cc-popup-memo-block" style="color:var(--text-muted);font-style:italic">(メモなし)</div>';
 
-    return ''
-      + '<div class="cc-popup">'
-      +   '<div class="cc-popup-title">📍 案件候補</div>'
-      +   memoBlock
-      +   '<div class="cc-popup-row"><span class="cc-popup-label">状態</span><span class="cc-popup-val">' + statusLabel + '</span></div>'
-      +   '<div class="cc-popup-row"><span class="cc-popup-label">記録日時</span><span class="cc-popup-val">' + dateStr + '</span></div>'
-      +   '<div class="cc-popup-row"><span class="cc-popup-label">記録元</span><span class="cc-popup-val">' + sourceLabel + '</span></div>'
-      +   '<div class="cc-popup-row"><span class="cc-popup-label">記録画面</span><span class="cc-popup-val">' + (rec.source_page || '—') + '</span></div>'
-      +   '<div class="cc-popup-row"><span class="cc-popup-label">緯度経度</span><span class="cc-popup-val" style="font-family:monospace;font-size:11px">' + Number(rec.latitude).toFixed(6) + ', ' + Number(rec.longitude).toFixed(6) + '</span></div>'
-      +   '<div class="cc-popup-actions">'
-      +     '<button class="cc-popup-btn" onclick="CaseCandidatesRecorder._updateStatus(\'' + rec.id + '\', \'adopted\')">✅ 採用</button>'
-      +     '<button class="cc-popup-btn cc-danger" onclick="CaseCandidatesRecorder._delete(\'' + rec.id + '\')">🗑 削除</button>'
-      +   '</div>'
+    var _ll = Number(rec.latitude) + ',' + Number(rec.longitude);
+    return '<div style="font-size:12px;line-height:1.7;min-width:190px;">'
+      + '<b>\u2605 \u8015\u4f5c\u653e\u68c4\u306e\u53ef\u80fd\u6027\u3042\u308a</b><br>'
+      + '\u533a\u5206: \u76ee\u8996\u30d4\u30c3\u30af\uff08' + _escapeHtml(rec.memo || '-') + '\uff09<br>'
+      + '\u6240\u5728\u5730: -<br>'
+      + '\u9762\u7a4d: -<br>'
+      + '\u63a5\u9053: -<br>'
+      + '<div style="margin-top:6px;display:flex;gap:6px;">'
+      + '<a href="https://www.google.com/maps?q=' + _ll + '" target="_blank" rel="noopener" '
+      + 'style="flex:1;text-align:center;padding:5px 4px;background:#1a73e8;color:#fff;'
+      + 'border-radius:4px;text-decoration:none;font-size:11px;">\ud83d\uddfa \u5730\u56f3</a>'
+      + '<a href="https://www.google.com/maps?q=&layer=c&cbll=' + _ll + '" target="_blank" rel="noopener" '
+      + 'style="flex:1;text-align:center;padding:5px 4px;background:#34a853;color:#fff;'
+      + 'border-radius:4px;text-decoration:none;font-size:11px;">\ud83d\udcf7 \u30b9\u30c8\u30ea\u30fc\u30c8\u30d3\u30e5\u30fc</a>'
+      + '</div>'
+      + '<button class="cc-popup-btn cc-danger" style="margin-top:6px;width:100%;" onclick="CaseCandidatesRecorder._delete(\'' + rec.id + '\')">\u2716 \u3053\u306e\u7b46\u3092\u9664\u5916</button>'
       + '</div>';
   }
 
