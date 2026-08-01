@@ -1,4 +1,8 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260801b / 📌ピック地(目視・case_candidates)レイヤを新規追加。source_page='farmland-tracker'のピック筆を黄緑マーカーで独立表示(衛星★/△・開拓候補とは別レイヤ・別pane zIndex642)。トグルhzPicks/凡例picksLegend/togglePicks・_loadPicks・_renderPicks追加、partner非表示リストにも追加。既存の衛星verdict/開拓候補/連系除外/他レイヤ/他マップは無変更。tracker固有につき3マップ同期不要。前:v20260801a -->
+<!-- BUILD: farmland-tracker v20260801a / 🎯開拓候補レイヤに連系(grid_status)フィルタを追加。grid_status='ng'(建物300m超かつ配電線100m超＝山奥・連系不能)を候補から自動除外。pass/未判定(unknown/null)は表示維持。変更4点=_loadCandidatesのCOLSにgrid_status追加/candCacheフィルタにgrid_status!=='ng'追加/凡例に注記1行/ポップアップに連系行。他レイヤ(衛星verdict/ハザード/農振/空容量)・他マップ(landowner/field-survey)・他機能は無変更。開拓候補はtracker固有につき3マップ同期不要。連系判定はfarmland_snapshots.grid_status(SQL UPDATE済:五條/大淀の距離計算済10,945件のみpass5,223/ng5,722・NULL13万はunknown保留)。前:v20260731b -->
+<!-- BUILD: farmland-tracker v20260731b / 衛星verdictフラグの配色をハザード暖色と衝突回避に変更: ★(ABANDONED_LIKELY)オレンジ#f97316→マゼンタ#ec4899、△(UNCERTAIN)黄#eab308→シアン#06b6d4。地図色定義(SAT_VERDICT_STYLE 6798/6799)と凡例マーカー(1040/1041)の4箇所のみ変更。土砂ハザードの黄橙赤と埋没していた問題を解消。他verdict(★★赤/○緑)・他レイヤ(農振/採草/浸水/空容量の#eab308,#f97316)・他マップ・他機能は無変更。前:v20260731a -->
+<!-- BUILD: farmland-tracker v20260731a / (1)農振農用地レイヤに interactive:false 追加＝クリック透過。農振ON時も下の筆ピンが常にクリック可能に(従来bringToFront()で農振がピンのクリックを奪っていた)。ツールチップは維持。(2)SAT_MIN_ZOOM 15→12。衛星verdictを俯瞰ズーム(12)でも表示(全体確認用)。変更は該当2行のみ・他レイヤ/他マップ/他機能は無変更。前:v20260730c -->
 <!-- BUILD: farmland-tracker v20260730c / 衛星凡例から緑「○ 耕作中の可能性」行(satCntCultivated)を削除。VIEW v_satellite_analysis_map で緑CULTIVATED_STRONG/LIKELYを地図非表示化済=凡例上も常に0のため。削除は凡例のHTML1行のみ。JS(_updateSatCounters/SAT_VERDICT色設定)・SAT_MIN_ZOOM・他レイヤ・他マップ・他機能は無変更(_setはnull安全のためsatCntCultivated参照は無害)。衛星レイヤはトラッカー固有につき3マップ同期不要。※本ファイルはGitHub現物v20260729bを土台に作成。引継書のv20260730a(SAT_MIN_ZOOM 15→12/ズーム12-14間引き)はGitHub未反映のため本ファイルはSAT_MIN_ZOOM=15のまま=要別途判断。前:v20260729b -->
 <!-- BUILD: farmland-tracker v20260729b / 開拓候補レイヤーに emaff_solar 限定フィルタ追加: source_type='emaff_solar' の筆は不可侵CLEAR(hazard=CLEAR かつ noshin=CLEAR かつ dedup=NEW)のみ表示。他ソース(pubH_/emaffN_等)・他機能・他マップは無変更。_loadCandidates の COLSに source_type/hazard_status/noshin_status/dedup_status を追加＋snapsフィルタに1条件追加のみ。前:v20260729a -->
 <!-- BUILD: farmland-tracker v20260729a / 地番検索欄の都道府県対応: サフィックス補完が県/府/都/道を認識せず『奈良県』を『奈良県市/町/村』と誤補完し県名検索が0件だった件を修正。47都道府県名の完全一致判定(__PREFS)を追加し都道府県入力時はそのまま行政境界を検索。県境ポリゴンを赤い点線表示に(#ec4899桃→#ef4444赤,dash 12,6→6,6)。3マップ共通のためlandowner/field-surveyにも同修正。前:v20260727c -->
@@ -72,7 +76,7 @@
   function apply(){
     if(!(window.__auth && typeof window.__auth.isPartner==='function')){ setTimeout(apply,50); return; }
     if(!window.__auth.isPartner()) return;
-    ['hzCandidates','candLegend'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
+    ['hzCandidates','candLegend','hzPicks','picksLegend'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
     var link=document.querySelector('a[href="farmland-candidates.html"]'); if(link) link.style.display='none';
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',apply); else apply();
@@ -690,7 +694,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260730c</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260801b</span>
   </div>
   <div style="display:flex;align-items:center;gap:8px;">
     <a href="farmland-candidates.html" class="btn btn-ghost">&#128203; 開拓候補</a>
@@ -820,6 +824,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     </button>
     <div id="candLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
       <div style="display:flex;align-items:center;gap:6px;font-size:10px;white-space:nowrap;"><span style="width:11px;height:11px;border-radius:50%;background:#fff;border:3px solid #0891b2;flex-shrink:0;display:inline-block"></span>開拓候補（NG/昇格済 除外）</div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:3px;line-height:1.3;">⚡連系NG（山奥・連系不能）は非表示<br>※連系未判定の筆は表示</div>
+    </div>
+    <!-- ピック地（目視選択・case_candidates） v20260801b -->
+    <button class="hazard-toggle-btn" id="hzPicks" onclick="togglePicks()">
+      <span class="hazard-toggle-dot"></span>📌 ピック地（目視）
+    </button>
+    <div id="picksLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;white-space:nowrap;"><span style="width:11px;height:11px;border-radius:50%;background:#a3e635;border:3px solid #4d7c0f;flex-shrink:0;display:inline-block"></span>目視ピック（栗本さん選択）</div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:3px;line-height:1.3;">case_candidates を衛星フラグと併記表示</div>
     </div>
     <!-- 別荘地候補（villa_candidates、目視判定用） v20260630a -->
     <button class="hazard-toggle-btn" id="hzVilla" onclick="toggleVilla()">
@@ -1036,8 +1049,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
       <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">耕作放棄判定</div>
       <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">
         <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#dc2626;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div><span style="flex:1">★★ 耕作放棄の可能性・強</span><span id="satCntStrong" style="font-weight:700;font-variant-numeric:tabular-nums;">-</span></div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#f97316;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div><span style="flex:1">★ 耕作放棄の可能性あり</span><span id="satCntLikely" style="font-weight:700;font-variant-numeric:tabular-nums;">-</span></div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#eab308;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div><span style="flex:1">△ 要目視確認</span><span id="satCntUncertain" style="font-weight:700;font-variant-numeric:tabular-nums;">-</span></div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#ec4899;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div><span style="flex:1">★ 耕作放棄の可能性あり</span><span id="satCntLikely" style="font-weight:700;font-variant-numeric:tabular-nums;">-</span></div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#06b6d4;border:1px solid rgba(0,0,0,0.5);border-radius:50%;flex-shrink:0"></div><span style="flex:1">△ 要目視確認</span><span id="satCntUncertain" style="font-weight:700;font-variant-numeric:tabular-nums;">-</span></div>
       </div>
       <div style="display:flex;align-items:center;gap:5px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-size:10px;font-weight:700;"><span style="flex:1">合計</span><span id="satCntTotal" style="font-variant-numeric:tabular-nums;">-</span></div>
       <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.3;">※ 面=筆ポリゴンあり / 点=筆ポリゴンなし<br>※ 出典: 衛星時系列分析 v4.7.1</div>
@@ -1448,6 +1461,7 @@ function _renderNoshinInView(){
   if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}
   if(visibleFeatures.length===0)return;
   noshinLayer=L.geoJSON({type:'FeatureCollection',features:visibleFeatures},{
+    interactive:false,
     style:{color:'#eab308',weight:2,fillColor:'#fef08a',fillOpacity:0.35,dashArray:'6,4'},
     onEachFeature:function(feature,layer){
       var c=feature.properties&&feature.properties.city;
@@ -3665,6 +3679,61 @@ async function _fetchAndRenderCityPlan() {
 // 母集団：farmland_snapshots(最新日, 全件) ∪ pubH_/emaffN_(全日付) を feature_id で最新優先マージ →
 //         pub_(低精度)除外 → farmland_ng_list 除外 → farmland_promoted(昇格済)除外。
 // ※候補ページが行う「アプローチ済の自動昇格(DB書込)」は副作用のため本トグルでは実施しない（読取専用）。
+// === ピック地（目視選択・case_candidates） v20260801b ===
+var picksEnabled=false, picksLoading=false, picksLayer=null, picksCache=null, picksRenderer=null;
+function togglePicks(){
+  var btn=document.getElementById('hzPicks');
+  var lg=document.getElementById('picksLegend');
+  picksEnabled=!picksEnabled;
+  if(!picksEnabled){
+    if(picksLayer){map.removeLayer(picksLayer);picksLayer=null;}
+    if(btn)btn.classList.remove('active');
+    if(lg)lg.style.display='none';
+    return;
+  }
+  if(btn)btn.classList.add('active');
+  if(lg)lg.style.display='block';
+  if(picksCache){_renderPicks();return;}
+  _loadPicks();
+}
+async function _loadPicks(){
+  if(picksLoading)return;
+  picksLoading=true;
+  showToast('ピック地を読み込み中...','success');
+  try{
+    var res=await db.from('case_candidates')
+      .select('memo,latitude,longitude')
+      .eq('organization_id','00000000-0000-0000-0000-000000000001')
+      .eq('source_page','farmland-tracker')
+      .not('latitude','is',null).not('longitude','is',null);
+    if(res.error)throw new Error(res.error.message);
+    picksCache=(res.data||[]).filter(function(p){return p.latitude!=null&&p.longitude!=null;});
+    picksLoading=false;
+    if(picksEnabled)_renderPicks();
+  }catch(e){
+    picksLoading=false; picksEnabled=false;
+    var btn=document.getElementById('hzPicks'); if(btn)btn.classList.remove('active');
+    var lg=document.getElementById('picksLegend'); if(lg)lg.style.display='none';
+    showToast('ピック地の読み込みに失敗: '+e.message,'error');
+  }
+}
+function _renderPicks(){
+  if(!picksEnabled||!picksCache)return;
+  if(picksLayer){map.removeLayer(picksLayer);picksLayer=null;}
+  if(!map.getPane('picksPane')){var p=map.createPane('picksPane');p.style.zIndex=642;}
+  if(!picksRenderer)picksRenderer=L.canvas({pane:'picksPane',padding:0.5});
+  picksLayer=L.layerGroup([],{pane:'picksPane'});
+  var n=0;
+  picksCache.forEach(function(c){
+    var lat=Number(c.latitude),lng=Number(c.longitude);
+    if(isNaN(lat)||isNaN(lng))return;
+    var m=L.circleMarker([lat,lng],{renderer:picksRenderer,pane:'picksPane',radius:8,color:'#4d7c0f',weight:3,fillColor:'#a3e635',fillOpacity:1,opacity:1});
+    m.bindPopup('<div class="popup-body"><div class="popup-case-no" style="color:#4d7c0f;font-size:13px;margin-bottom:10px">📌 ピック地（目視）</div><div class="popup-info"><div class="popup-row"><span class="popup-label">メモ</span><span class="popup-value">'+_esc(c.memo||'—')+'</span></div><div class="popup-row"><span class="popup-label">座標</span><span class="popup-value">'+lat.toFixed(6)+', '+lng.toFixed(6)+'</span></div></div></div>',{maxWidth:280,minWidth:200});
+    picksLayer.addLayer(m); n++;
+  });
+  picksLayer.addTo(map);
+  showToast(n+'件のピック地を表示','success');
+}
 var candEnabled=false, candLoading=false, candLayer=null, candCache=null, candRenderer=null;
 var subEnabled=false, subLoading=false, subLayer=null, subCache=null, subRenderer=null;
 var measureMode=false, measureLayer=null, measureClickHandler=null;
@@ -3696,7 +3765,7 @@ async function _loadCandidates(){
   try{
     var dRes=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1);
     var latestDate=(dRes.data&&dRes.data[0])?dRes.data[0].snapshot_date:null;
-    var COLS='feature_id,city,address,lat,lng,area_sqm,intent,price,snapshot_date,source_type,hazard_status,noshin_status,dedup_status';
+    var COLS='feature_id,city,address,lat,lng,area_sqm,intent,price,snapshot_date,source_type,hazard_status,noshin_status,dedup_status,grid_status';
     var results=await Promise.all([
       // PBF系含む最新日の全件（pubH_/emaffN_が最新日にあっても下のマージで重複解消）
       _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS).eq('snapshot_date',latestDate);}),
@@ -3715,7 +3784,7 @@ async function _loadCandidates(){
     _buildNgGrid(results[2].data||[]); // NG地点の座標グリッド（15m近傍除外用）
     var prSet={}; (results[3].data||[]).forEach(function(d){prSet[d.feature_id]=true;});
     var stMap={}; (results[4].data||[]).forEach(function(d){stMap[d.feature_id]=d.status;});
-    candCache=snaps.filter(function(s){return !ngSet[s.feature_id]&&!prSet[s.feature_id]&&s.lat!=null&&s.lng!=null&&!_isNearNg(s.lat,s.lng);})
+    candCache=snaps.filter(function(s){return !ngSet[s.feature_id]&&!prSet[s.feature_id]&&s.lat!=null&&s.lng!=null&&!_isNearNg(s.lat,s.lng)&&s.grid_status!=='ng';})
                    .map(function(s){return Object.assign({},s,{status:stMap[s.feature_id]||null});});
     candLoading=false;
     if(candEnabled)_renderCandidates();
@@ -3740,9 +3809,10 @@ function _renderCandidates(){
     var m=L.circleMarker([lat,lng],{renderer:candRenderer,pane:'candPane',radius:7,color:'#0891b2',weight:3,fillColor:'#ffffff',fillOpacity:1,opacity:1});
     m._fid=c.feature_id;
     var area=(c.area_sqm!=null&&c.area_sqm!=='')?(Math.round(Number(c.area_sqm))+'㎡'):'—';
+    var gs=(c.grid_status==='pass')?'⚡連系可（建物300m/配電線100m内）':'連系未判定';
     var st=c.status?('<div class="popup-row"><span class="popup-label">ステータス</span><span class="popup-value">'+_esc(c.status)+'</span></div>'):'';
     var exBtn='<button onclick="excludeCandidate(&quot;'+_esc(c.feature_id)+'&quot;)" style="margin-top:10px;width:100%;padding:6px 8px;border:1px solid #B71C1C;background:#3a1414;color:#ff8a80;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">⛔ 候補から除外（NG登録）</button>';
-    m.bindPopup('<div class="popup-body"><div class="popup-case-no" style="color:#0891b2;font-size:13px;margin-bottom:10px">🎯 開拓候補</div><div class="popup-info"><div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">'+_esc(c.city||'—')+'</span></div><div class="popup-row"><span class="popup-label">所在</span><span class="popup-value">'+_esc(c.address||'—')+'</span></div><div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">'+area+'</span></div><div class="popup-row"><span class="popup-label">意向</span><span class="popup-value">'+_esc(c.intent||'—')+'</span></div>'+st+'</div>'+exBtn+'</div>',{maxWidth:280,minWidth:220});
+    m.bindPopup('<div class="popup-body"><div class="popup-case-no" style="color:#0891b2;font-size:13px;margin-bottom:10px">🎯 開拓候補</div><div class="popup-info"><div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">'+_esc(c.city||'—')+'</span></div><div class="popup-row"><span class="popup-label">所在</span><span class="popup-value">'+_esc(c.address||'—')+'</span></div><div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">'+area+'</span></div><div class="popup-row"><span class="popup-label">意向</span><span class="popup-value">'+_esc(c.intent||'—')+'</span></div><div class="popup-row"><span class="popup-label">連系</span><span class="popup-value">'+gs+'</span></div>'+st+'</div>'+exBtn+'</div>',{maxWidth:280,minWidth:220});
     candLayer.addLayer(m); n++;
   });
   candLayer.addTo(map);
@@ -6790,11 +6860,11 @@ window.toggleOwnerColorMode=function(){
 var satAnalysisEnabled=false;
 var satAnalysisLayer=null;
 var _satData=null;            // VIEWから取得した全件キャッシュ
-var SAT_MIN_ZOOM=15;          // この倍率未満では描画しない
+var SAT_MIN_ZOOM=12;          // この倍率未満では描画しない（v20260731a: 15→12 俯瞰確認用）
 var SAT_VERDICT_STYLE={
   'ABANDONED_STRONG' :{c:'#dc2626',label:'★★ 耕作放棄の可能性・強'},
-  'ABANDONED_LIKELY' :{c:'#f97316',label:'★ 耕作放棄の可能性あり'},
-  'UNCERTAIN'        :{c:'#eab308',label:'△ 要目視確認'},
+  'ABANDONED_LIKELY' :{c:'#ec4899',label:'★ 耕作放棄の可能性あり'},
+  'UNCERTAIN'        :{c:'#06b6d4',label:'△ 要目視確認'},
   'CULTIVATED_LIKELY':{c:'#22c55e',label:'○ 耕作中の可能性'},
   'CULTIVATED_STRONG':{c:'#15803d',label:'○○ 耕作中の可能性・強'}
 };
