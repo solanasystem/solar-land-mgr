@@ -18,7 +18,7 @@
         - sourcePage: 'field-survey' | 'landowner-visit' | 'farmland-tracker'
 
    ステータス色分け:
-     - new (デフォルト): 赤 #f85149
+     - new (デフォルト): マゼンタ #ec4899 (変遷分析★と同色・v20260801a)
      - reviewed:        黄 #f0b429
      - adopted:         緑 #3fb950
      - ng:              グレー #6e7681 (半透明)
@@ -590,12 +590,12 @@
     // v20260702m3: divIcon(涙滴形+rotate)は位置ズレの原因になるため廃止。
     // Leaflet標準の L.circleMarker で確実に緯度経度=中心に描画。
     const statusColors = {
-      new:      '#f85149',
+      new:      '#ec4899',
       reviewed: '#f0b429',
       adopted:  '#3fb950',
       ng:       '#6e7681'
     };
-    const fillColor = statusColors[status] || '#f85149';
+    const fillColor = statusColors[status] || '#ec4899';
     const marker = L.circleMarker([lat, lng], {
       pane: 'candidatePane',
       radius: 5,             // v20260702m4: 9→5 (見た目サイズを1/2に)
@@ -696,7 +696,7 @@
         entry.record = data[0];
         // v20260702m3: circleMarker.setStyle で色を切り替え
         const statusColors = {
-          new:      '#f85149',
+          new:      '#ec4899',
           reviewed: '#f0b429',
           adopted:  '#3fb950',
           ng:       '#6e7681'
