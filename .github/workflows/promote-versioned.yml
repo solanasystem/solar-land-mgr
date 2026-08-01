@@ -1,15 +1,15 @@
 name: Promote versioned files to served names
 
-# 配信名マーカー "<name>__v<token>.<ext>" のファイルが push されると、
+# 配信名マーカー "<name>_v<token>.<ext>" または "<name>__v<token>.<ext>" が push されると、
 # "<name>.<ext>"(配信名) へ自動コピーし、版名ファイルを削除する。
+# アンダースコア1本でも2本でも動く（DL時に __ が _ に化けても昇格する）。
 # 全ファイル共通。人間はリネーム/削除を一切しない。
-# 手動実行(workflow_dispatch)も可。ループは [skip ci] で防止。
 
 on:
   push:
     branches: [ main ]
     paths:
-      - '*__v*'
+      - '*_v*'
   workflow_dispatch: {}
 
 permissions:
@@ -28,8 +28,8 @@ jobs:
         run: |
           set -e
           changed=0
-          for f in $(ls -1 2>/dev/null | grep -E '__v[0-9A-Za-z]+\.[^.]+$' | sort); do
-            canonical="$(echo "$f" | sed -E 's/__v[0-9A-Za-z]+(\.[^.]+)$/\1/')"
+          for f in $(ls -1 2>/dev/null | grep -E '_+v[0-9A-Za-z]+\.[^.]+$' | sort); do
+            canonical="$(echo "$f" | sed -E 's/_+v[0-9A-Za-z]+(\.[^.]+)$/\1/')"
             if [ "$canonical" = "$f" ] || [ -z "$canonical" ]; then continue; fi
             echo "promote: $f -> $canonical"
             cp -f "$f" "$canonical"
