@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260803a / 🛟開拓候補が「無言で全消え」する不具合を堅牢化。原因=v20260802jで候補ローダの最新日巨大取得(64,034件=65ページ)の上限を撤廃した結果、_fetchAllPagedが途中1ページでも通信エラーだとnull返却→_loadCandidatesが`results[0].data||[]`で無言に空扱い→emaff_solar候補が丸ごと消失(特に手動除外→候補再読込のたびに巨大取得が走り発生)。対策(2点):①_fetchAllPagedに各ページ最大3回リトライ(400ms×回数バックオフ)を追加=一過性エラーを吸収。②_loadCandidatesでresults[0/1/2]のerrorを検出したらthrowし、catchで明示トースト表示=二度と無言でゼロにしない(再読込を促す)。候補データ自体は無事(DB上12,329件現存)。判定ロジック/フィルタ/他レイヤ/他機能は無変更。前:v20260802j -->
 <!-- BUILD: farmland-tracker v20260802j / 🛡️除外筆の「復活」不具合を根治。原因は_fetchAllPagedのRangeページングが①ORDER BY未指定で境界の行が飛ぶ②30ページ(30,000行)で黙って頭打ち——の二重欠陥。母集団70,727件やNGリスト(16,000件超・増加中)が取りこぼされ、除外済み筆がngSetから漏れて候補に復活していた。対策:_fetchAllPagedにorder列引数を追加しfeature_id昇順で安定化、上限を1000ページ(100万行)へ拡大し到達時warn。除外/候補に関わる全読込(候補ローダのsnapshots×2/farmland_ng_list/promoted/status、loadNgList、近傍NG用snapshots×2、status)にfeature_id順を付与。手動除外(manual_rect等約4,120件)もこれで恒久的に非表示。判定ロジック・DB書込は無変更。前:v20260802i -->
 <!-- BUILD: farmland-tracker v20260802i / 🎯開拓候補に接道フィルタを反映。infra_status='FAIL'(接道なし=最寄り道路30m超)を候補から自動除外(grid_status='ng'除外と同方式)。_loadCandidatesのCOLSにinfra_status追加/candCacheに`infra_status!=='FAIL'`追加/ポップアップに接道行(PASS=接道あり幅員3m+/PENDING=幅員3m未満2.5m要確認/FAIL=接道なし)。接道判定は国土数値情報N13道路(幅員)によるbatch_road_filter結果。他レイヤ/他機能は無変更。前:v20260802h -->
 <!-- BUILD: farmland-tracker v20260802h / 🛰衛星verdictフラグのクリックで情報が出ない不具合を修正。原因=v20260802dでピン(pPins610)・筆(450)・候補(640)を上位paneへ移した結果、overlayPane(400)の衛星マーカーがそれらに覆われクリックを奪われていた。対策=衛星マーカー/ポリゴンを専用pane'pSat'(zIndex648=候補640・ピン610より上/tooltip650より下)へ描画(circleMarker/geoJSONにpane指定＋pane生成)。ポップアップ内容は無変更で正常表示に復帰。前:v20260802g -->
@@ -3167,7 +3168,7 @@ function showCaseSyncReport(d){
 }
 // === paging fetch helper（Supabase max-rows=1000 制限を回避）===
 /* v20260802j: ①order列を渡せる様にし、Rangeページングを安定化（順序未指定だと境界で行が飛び、除外筆が候補に復活する不具合の根治）。②上限を30→1000ページ(=100万行)に拡大し、母集団70,727件やNGリストが黙って30,000件で頭打ちになる事故を根絶。上限到達時はconsole.warn。 */
-async function _fetchAllPaged(buildQuery,orderCol){var all=[];var MAXP=1000;for(var page=0;page<MAXP;page++){var from=page*1000,to=from+999;var q=buildQuery();if(orderCol)q=q.order(orderCol,{ascending:true});var res=await q.range(from,to);if(res.error)return{data:null,error:res.error};var rows=res.data||[];if(!rows.length)break;all=all.concat(rows);if(rows.length<1000)break;if(page===MAXP-1)console.warn('_fetchAllPaged: '+MAXP+'ページ上限に到達。取りこぼしの可能性あり（orderCol='+(orderCol||'なし')+'）');}return{data:all,error:null};}
+async function _fetchAllPaged(buildQuery,orderCol){var all=[];var MAXP=1000;for(var page=0;page<MAXP;page++){var from=page*1000,to=from+999;var res=null;for(var att=0;att<3;att++){var q=buildQuery();if(orderCol)q=q.order(orderCol,{ascending:true});res=await q.range(from,to);if(!res.error)break;await new Promise(function(r){setTimeout(r,400*(att+1));});}if(res.error)return{data:null,error:res.error};var rows=res.data||[];if(!rows.length)break;all=all.concat(rows);if(rows.length<1000)break;if(page===MAXP-1)console.warn('_fetchAllPaged: '+MAXP+'ページ上限に到達。取りこぼしの可能性あり（orderCol='+(orderCol||'なし')+'）');}return{data:all,error:null};}
 async function loadDates(){var res=await db.rpc('get_snapshot_dates');if(res.error){showToast('DB\u63a5\u7d9a\u30a8\u30e9\u30fc: '+res.error.message,'error');return;}if(!res.data||res.data.length===0){loadDiff();return;}var dates=[];res.data.forEach(function(d){if(d.snapshot_date)dates.push(d.snapshot_date);});dates.sort().reverse();var fe=document.getElementById('dateFrom');fe.innerHTML='<option value="">\u306a\u3057\uff08\u5168\u4ef6\u300c\u65e2\u5b58\u300d\u8868\u793a\uff09</option>';dates.forEach(function(d){fe.innerHTML+='<option value="'+d+'">'+d+' \u4ee5\u964d\u3092\u65b0\u898f\u30cf\u30a4\u30e9\u30a4\u30c8</option>';});loadDiff();}
 async function loadDiff(){
   /* v20260521b: 紫マーカー(変更状況レイヤー)は表示廃止。
@@ -3757,6 +3758,9 @@ async function _loadCandidates(){
       _fetchAllPaged(function(){return db.from('farmland_promoted').select('feature_id');},'feature_id'),
       _fetchAllPaged(function(){return db.from('farmland_status').select('feature_id,status');},'feature_id')
     ]);
+    // v20260803a: 巨大取得が途中失敗しても無言で「候補ゼロ」にせず、明示エラーで気付ける様にする
+    var _cErr=(results[0]&&results[0].error)||(results[1]&&results[1].error)||(results[2]&&results[2].error);
+    if(_cErr)throw new Error('候補データ取得に失敗しました。少し待って再読込してください（'+(_cErr.message||_cErr)+'）');
     var combined=(results[0].data||[]).concat(results[1].data||[]);
     var byFid={};
     combined.forEach(function(s){var fid=s.feature_id;if(!fid)return;var ex=byFid[fid];if(!ex||(s.snapshot_date||'')>(ex.snapshot_date||''))byFid[fid]=s;});
