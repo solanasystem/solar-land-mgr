@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260803b / ⚡開拓候補の再作図を高速化＋衛星分析前の面積絞り込みを追加。(1)ポップアップHTMLを遅延生成化: 従来は約12,000件分のポップアップHTML文字列を描画時に一括構築していた→_candPopupHtml(c,u)に切り出しbindPopup(関数)でクリック時のみ構築=再作図が大幅高速化(マーカーはcanvas描画のまま)。(2)面積フィルタ「800㎡未満を隠す」トグル(btnCandMinArea/toggleCandMinArea/candMinArea)を候補凡例に追加=_renderCandidatesがarea_sqm<candMinAreaをスキップ。ロードマップ準拠(≤800㎡は衛星分析後回し)で表示を約2,500件に絞り込み描画も軽量化。非破壊(データ削除なし・トグルで元に戻る)。判定ロジック/DB/他レイヤは無変更。前:v20260803a -->
 <!-- BUILD: farmland-tracker v20260803a / 🛟開拓候補が「無言で全消え」する不具合を堅牢化。原因=v20260802jで候補ローダの最新日巨大取得(64,034件=65ページ)の上限を撤廃した結果、_fetchAllPagedが途中1ページでも通信エラーだとnull返却→_loadCandidatesが`results[0].data||[]`で無言に空扱い→emaff_solar候補が丸ごと消失(特に手動除外→候補再読込のたびに巨大取得が走り発生)。対策(2点):①_fetchAllPagedに各ページ最大3回リトライ(400ms×回数バックオフ)を追加=一過性エラーを吸収。②_loadCandidatesでresults[0/1/2]のerrorを検出したらthrowし、catchで明示トースト表示=二度と無言でゼロにしない(再読込を促す)。候補データ自体は無事(DB上12,329件現存)。判定ロジック/フィルタ/他レイヤ/他機能は無変更。前:v20260802j -->
 <!-- BUILD: farmland-tracker v20260802j / 🛡️除外筆の「復活」不具合を根治。原因は_fetchAllPagedのRangeページングが①ORDER BY未指定で境界の行が飛ぶ②30ページ(30,000行)で黙って頭打ち——の二重欠陥。母集団70,727件やNGリスト(16,000件超・増加中)が取りこぼされ、除外済み筆がngSetから漏れて候補に復活していた。対策:_fetchAllPagedにorder列引数を追加しfeature_id昇順で安定化、上限を1000ページ(100万行)へ拡大し到達時warn。除外/候補に関わる全読込(候補ローダのsnapshots×2/farmland_ng_list/promoted/status、loadNgList、近傍NG用snapshots×2、status)にfeature_id順を付与。手動除外(manual_rect等約4,120件)もこれで恒久的に非表示。判定ロジック・DB書込は無変更。前:v20260802i -->
 <!-- BUILD: farmland-tracker v20260802i / 🎯開拓候補に接道フィルタを反映。infra_status='FAIL'(接道なし=最寄り道路30m超)を候補から自動除外(grid_status='ng'除外と同方式)。_loadCandidatesのCOLSにinfra_status追加/candCacheに`infra_status!=='FAIL'`追加/ポップアップに接道行(PASS=接道あり幅員3m+/PENDING=幅員3m未満2.5m要確認/FAIL=接道なし)。接道判定は国土数値情報N13道路(幅員)によるbatch_road_filter結果。他レイヤ/他機能は無変更。前:v20260802h -->
@@ -840,6 +841,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
       <div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-top:2px;"><span style="width:11px;height:11px;border-radius:50%;background:#cbd5e1;border:2px solid #64748b;flex-shrink:0;display:inline-block"></span>連系未判定（分類保留）</div>
       <div style="font-size:9px;color:var(--text-muted);margin-top:3px;line-height:1.3;">※用途は<b>暫定分類</b>（日照④・接道⑤ 未反映／後日精緻化）<br>⚡連系NG（連系不能）は非表示</div>
       <button id="btnCandHidePending" onclick="toggleCandHidePending()" style="margin-top:6px;width:100%;padding:5px 6px;border:1px solid var(--border);background:var(--surface3);color:var(--text-muted);border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">🔘 連系未判定(グレー)を隠す</button>
+      <button id="btnCandMinArea" onclick="toggleCandMinArea()" style="margin-top:4px;width:100%;padding:5px 6px;border:1px solid var(--border);background:var(--surface3);color:var(--text-muted);border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">🔲 800㎡未満を隠す（衛星分析前の絞り込み）</button>
     </div>
     <!-- 別荘地候補（villa_candidates、目視判定用） v20260630a -->
     <button class="hazard-toggle-btn" id="hzVilla" onclick="toggleVilla()">
@@ -3717,7 +3719,7 @@ async function _fetchAndRenderCityPlan() {
 // 母集団：farmland_snapshots(最新日, 全件) ∪ pubH_/emaffN_(全日付) を feature_id で最新優先マージ →
 //         pub_(低精度)除外 → farmland_ng_list 除外 → farmland_promoted(昇格済)除外。
 // ※候補ページが行う「アプローチ済の自動昇格(DB書込)」は副作用のため本トグルでは実施しない（読取専用）。
-var candEnabled=false, candLoading=false, candLayer=null, candCache=null, candRenderer=null, candHidePending=false;
+var candEnabled=false, candLoading=false, candLayer=null, candCache=null, candRenderer=null, candHidePending=false, candMinArea=0;
 var subEnabled=false, subLoading=false, subLayer=null, subCache=null, subRenderer=null;
 var measureMode=false, measureLayer=null, measureClickHandler=null;
 // ===== NG地点（座標）近傍判定：過去にNG除外した地点の半径15m以内は feature_id が違っても除外（再表示防止） =====
@@ -3790,12 +3792,28 @@ function toggleCandHidePending(){
   if(b){ b.textContent=candHidePending?'⚪ 連系未判定を表示する':'🔘 連系未判定(グレー)を隠す'; b.classList.toggle('active',candHidePending); }
   if(candEnabled&&candCache)_renderCandidates();
 }
+// v20260803b: 面積で候補表示を絞る（≤800㎡=衛星分析後回し。ロードマップ準拠・非破壊/表示のみ）
+function toggleCandMinArea(){
+  candMinArea=candMinArea>0?0:800;
+  var b=document.getElementById('btnCandMinArea');
+  if(b){ b.textContent=candMinArea>0?('⬜ '+candMinArea+'㎡未満も表示する'):'🔲 800㎡未満を隠す（衛星分析前の絞り込み）'; b.classList.toggle('active',candMinArea>0); }
+  if(candEnabled&&candCache)_renderCandidates();
+}
 function _candUse(c){
   var pass=(c.grid_status==='pass');
   var area=Number(c.area_sqm)||0;
   if(!pass) return {key:'pending',color:'#64748b',fill:'#cbd5e1',label:'連系未判定（分類保留）'};
   if(area>=1000) return {key:'solar',color:'#a21caf',fill:'#e879f9',label:'☀ 太陽光候補（暫定）'};
   return {key:'batt',color:'#1d4ed8',fill:'#60a5fa',label:'🔋 蓄電池候補（暫定）'};
+}
+// v20260803b: 候補ポップアップHTMLを遅延生成（クリック時のみ構築＝12,000件分の事前構築を廃止し再作図を高速化）
+function _candPopupHtml(c,u){
+  var area=(c.area_sqm!=null&&c.area_sqm!=='')?(Math.round(Number(c.area_sqm))+'㎡'):'—';
+  var gs=(c.grid_status==='pass')?'⚡連系可（建物300m/配電線100m内）':'連系未判定';
+  var ia={PASS:'✅ 接道あり（幅員3m以上）',PENDING:'接道あり（幅員3m未満・入口2.5m要確認）',FAIL:'❌ 接道なし'}[c.infra_status]||'接道 未判定';
+  var st=c.status?('<div class="popup-row"><span class="popup-label">ステータス</span><span class="popup-value">'+_esc(c.status)+'</span></div>'):'';
+  var exBtn='<button onclick="excludeCandidate(&quot;'+_esc(c.feature_id)+'&quot;)" style="margin-top:10px;width:100%;padding:6px 8px;border:1px solid #B71C1C;background:#3a1414;color:#ff8a80;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">⛔ 候補から除外（NG登録）</button>';
+  return '<div class="popup-body"><div class="popup-case-no" style="color:#0891b2;font-size:13px;margin-bottom:10px">🎯 開拓候補</div><div class="popup-info"><div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">'+_esc(c.city||'—')+'</span></div><div class="popup-row"><span class="popup-label">所在</span><span class="popup-value">'+_esc(c.address||'—')+'</span></div><div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">'+area+'</span></div><div class="popup-row"><span class="popup-label">意向</span><span class="popup-value">'+_esc(c.intent||'—')+'</span></div><div class="popup-row"><span class="popup-label">連系</span><span class="popup-value">'+gs+'</span></div><div class="popup-row"><span class="popup-label">接道</span><span class="popup-value">'+ia+'</span></div><div class="popup-row"><span class="popup-label">用途(暫定)</span><span class="popup-value">'+(u&&u.label||'—')+'</span></div>'+st+'</div>'+exBtn+'</div>';
 }
 function _renderCandidates(){
   if(!candEnabled||!candCache)return;
@@ -3809,14 +3827,10 @@ function _renderCandidates(){
     if(isNaN(lat)||isNaN(lng))return;
     var u=_candUse(c);
     if(candHidePending&&u.key==='pending')return;
+    if(candMinArea>0&&(Number(c.area_sqm)||0)<candMinArea)return;
     var m=L.circleMarker([lat,lng],{renderer:candRenderer,pane:'candPane',radius:7,color:u.color,weight:2,fillColor:u.fill,fillOpacity:0.95,opacity:1});
-    m._fid=c.feature_id;
-    var area=(c.area_sqm!=null&&c.area_sqm!=='')?(Math.round(Number(c.area_sqm))+'㎡'):'—';
-    var gs=(c.grid_status==='pass')?'⚡連系可（建物300m/配電線100m内）':'連系未判定';
-    var ia={PASS:'✅ 接道あり（幅員3m以上）',PENDING:'接道あり（幅員3m未満・入口2.5m要確認）',FAIL:'❌ 接道なし'}[c.infra_status]||'接道 未判定';
-    var st=c.status?('<div class="popup-row"><span class="popup-label">ステータス</span><span class="popup-value">'+_esc(c.status)+'</span></div>'):'';
-    var exBtn='<button onclick="excludeCandidate(&quot;'+_esc(c.feature_id)+'&quot;)" style="margin-top:10px;width:100%;padding:6px 8px;border:1px solid #B71C1C;background:#3a1414;color:#ff8a80;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">⛔ 候補から除外（NG登録）</button>';
-    m.bindPopup('<div class="popup-body"><div class="popup-case-no" style="color:#0891b2;font-size:13px;margin-bottom:10px">🎯 開拓候補</div><div class="popup-info"><div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">'+_esc(c.city||'—')+'</span></div><div class="popup-row"><span class="popup-label">所在</span><span class="popup-value">'+_esc(c.address||'—')+'</span></div><div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">'+area+'</span></div><div class="popup-row"><span class="popup-label">意向</span><span class="popup-value">'+_esc(c.intent||'—')+'</span></div><div class="popup-row"><span class="popup-label">連系</span><span class="popup-value">'+gs+'</span></div><div class="popup-row"><span class="popup-label">接道</span><span class="popup-value">'+ia+'</span></div><div class="popup-row"><span class="popup-label">用途(暫定)</span><span class="popup-value">'+u.label+'</span></div>'+st+'</div>'+exBtn+'</div>',{maxWidth:280,minWidth:220});
+    m._fid=c.feature_id; m._c=c; m._u=u;
+    m.bindPopup(function(){return _candPopupHtml(m._c,m._u);},{maxWidth:280,minWidth:220}); // 遅延生成=再作図高速化
     candLayer.addLayer(m); n++;
   });
   candLayer.addTo(map);
