@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260802d / レイヤ重なり順を根本対処=「後からONにしたレイヤが下を隠す」問題を全レイヤで解消。(1)中央関数enforceZOrder()を新設しmap'layeradd'で自動適用: overlayPane層(森林/土砂/ハザード/農振/用途XKT002/区域XKT001/都市計画道路/TrackB/衛星)を固定順(塗り→線/データ)でbringToFrontし直す→トグル順非依存。(2)ピン(markersLayer circleMarker)を専用pane'pPins'(zIndex610/canvas)へ=筆ポリゴン(450)より上に固定しクリック奪取も防止。筆(450)/開拓候補(640)/別荘(645)/ラベル等は既に専用paneで対象外。既存のbringToFront/Back呼出はenforceZOrderが上書きし無害。他機能・データ取得は無変更。前:v20260802c -->
 <!-- BUILD: farmland-tracker v20260802c / 🌾筆ポリゴンが都市計画区域(XKT001/XKT002)をONにすると隠れる不具合を修正。原因=都市計画区域はbringToFront・筆ポリゴンはbringToBackで最背面のため塗りに覆われていた。対策=筆ポリゴンを専用pane'agriFudePane'(zIndex450=overlayPane/都市計画区域より上・markerPane600より下)に描画(canvas/geoJSONにpane指定)＋bringToBack廃止。ピンは従来通り最前面。面積表示・z15・Canvasは維持。他レイヤ/他マップ/他機能・データ取得は無変更。前:v20260802b -->
 <!-- BUILD: farmland-tracker v20260802b / 🌾筆ポリゴン(AgriFude)の表示開始ズームを12→15に戻す(_doRenderAgriFudeのしきい値1行のみ)。z12は視野が広くget_fude_in_bboxの約1000件上限で南に偏り全面表示できないため、実用上z15を採用。v20260802aの面積表示(turf.area)・Canvas描画は維持。他レイヤ/他マップ/他機能・データ取得は無変更。前:v20260802a -->
 <!-- BUILD: farmland-tracker v20260802a / 🌾筆ポリゴン(AgriFude)を3点変更。(1)クリックポップアップに「面積」行を追加(turf.area()でGeoJSON面積㎡を算出・土地種別の下に1行・算出不可時は非表示)。(2)表示開始ズームを15→12に緩和(_doRenderAgriFudeのしきい値1行)。(3)描画をSVG既定→専用Canvas(agriFudeCanvas=L.canvas)に変更し低ズームの多数ポリゴン描画を高速化(他レイヤと同方式)。※z12はget_fude_in_bboxのrow_limit=2000上限のため一部のみ表示。変更は_fetchAndRenderAgriFude(canvas生成1行＋renderer指定1行＋onEachFeature面積2行＋行1挿入)/_doRenderAgriFudeの1行/agriFudeCanvas宣言1行のみ。他レイヤ/他マップ/他機能・データ取得は無変更。前:v20260801d -->
@@ -1085,7 +1086,7 @@ window.addEventListener('storage',function(e){
 });
 /* ===== ===== */
 
-var map,markersLayer=null;
+var map,markersLayer=null,pinsRenderer=null;
 var ZOOM=14;
 var baseLayer=null;
 var currentGIS='map';
@@ -2484,7 +2485,21 @@ function updateBlockLabelScale(){
   if(s>1)s=1; if(s<0.34)s=0.34;
   document.documentElement.style.setProperty('--blk-scale', s.toFixed(3));
 }
-function initMap(){map=L.map('map',{zoomControl:false,maxZoom:22}).setView([36.5,138],5);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();onZoomChangeForDouro();updateBlockLabelScale();});updateBlockLabelScale();_addCadEditorControl();}
+/* ===== レイヤ重なり順の中央制御(v20260802d) =====
+   後からONにしたレイヤが下を隠す問題を根絶。overlayPane層を固定順(塗り→線/データ)でbringToFrontし直す。
+   筆ポリゴン(pane450)/ピン(pPins610)/開拓候補(candPane640)等は専用paneで常に上=対象外。 */
+function enforceZOrder(){
+  if(typeof map==='undefined'||!map) return;
+  var names=['forest5jouLayer','forest5jouVectorLayer','dosyaTileLayers','hazardLayers','noshinLayer','urbanLayer','cityPlanLayer','douroLayer','trackbLayer','satAnalysisLayer'];
+  names.forEach(function(nm){
+    var Ly=window[nm]; if(!Ly) return;
+    if(typeof Ly.bringToFront==='function'){ try{ if(map.hasLayer(Ly)) Ly.bringToFront(); }catch(e){} }
+    else { for(var k in Ly){ var o=Ly[k]; try{ if(o&&typeof o.bringToFront==='function'&&map.hasLayer(o)) o.bringToFront(); }catch(e){} } }
+  });
+}
+var _zTimer=null;
+function _scheduleZOrder(){ if(_zTimer)clearTimeout(_zTimer); _zTimer=setTimeout(enforceZOrder,80); }
+function initMap(){map=L.map('map',{zoomControl:false,maxZoom:22}).setView([36.5,138],5);map.on('layeradd',_scheduleZOrder);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();onZoomChangeForDouro();updateBlockLabelScale();});updateBlockLabelScale();_addCadEditorControl();}
 
 /* v20260707a: CADエディタを別タブで開くフローティングコントロール（地図中心座標を引継ぎ） */
 function _addCadEditorControl(){
@@ -3188,6 +3203,8 @@ async function loadDiff(){
     document.getElementById('statNew').textContent=newCount;
     document.getElementById('statExisting').textContent=existingCount;
     rebuildOwnerColorMap(markers.map(function(m){return m.item;}));
+    if(!map.getPane('pPins')){var _pp=map.createPane('pPins');_pp.style.zIndex=610;}
+    if(!pinsRenderer)pinsRenderer=L.canvas({pane:'pPins',padding:0.5});
     var lm=markers.map(function(m){
       var hasComment=!!farmlandComments[m.item.feature_id];
       var isEmaffN=String(m.item.feature_id||'').indexOf('emaffN_')===0;
@@ -3198,7 +3215,7 @@ async function loadDiff(){
       var wt=2;
       if(isEmaffN){var _oc=getOwnerColorForItem(m.item);c=_oc||'#0ea5e9';bc='#fff';op=0.95;}
       if(hasComment){bc='#3b82f6';wt=3;}
-      var mk=L.circleMarker([m.item.lat,m.item.lng],{radius:sz,fillColor:c,color:bc,weight:wt,fillOpacity:op});
+      var mk=L.circleMarker([m.item.lat,m.item.lng],{radius:sz,fillColor:c,color:bc,weight:wt,fillOpacity:op,pane:'pPins',renderer:pinsRenderer});
       mk._featureId=m.item.feature_id;
       mk._changeType=m.changeType;
       mk._item=m.item;
