@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260802h / 🛰衛星verdictフラグのクリックで情報が出ない不具合を修正。原因=v20260802dでピン(pPins610)・筆(450)・候補(640)を上位paneへ移した結果、overlayPane(400)の衛星マーカーがそれらに覆われクリックを奪われていた。対策=衛星マーカー/ポリゴンを専用pane'pSat'(zIndex648=候補640・ピン610より上/tooltip650より下)へ描画(circleMarker/geoJSONにpane指定＋pane生成)。ポップアップ内容は無変更で正常表示に復帰。前:v20260802g -->
 <!-- BUILD: farmland-tracker v20260802g / 🎯開拓候補に「連系未判定(グレー)を隠す」トグルを追加。凡例内ボタンで candHidePending を切替→_renderCandidatesが _candUse().key==='pending'(連系未判定)の筆を描画スキップ。非破壊(データ削除なし・再表示可)で分類済み(☀太陽光/🔋蓄電池)のみ表示=画面をすっきり。候補母集団/NG判定/他機能・データ取得は無変更。前:v20260802f -->
 <!-- BUILD: farmland-tracker v20260802f / 🤖AI自動判定(runAutoNgJudgment)に土砂災害3種を追加。従来の農振＋浸水/内水/高潮/津波に加え、土石流(dosekiryu)/急傾斜(kyukeisha)/地すべり(jisuberi)のGSIタイル(DOSYA_TILE_URLS全国版)を_isInHazardTileで判定→該当はauto_hazard_dosekiryu/kyukeisha/jisuberiでfarmland_ng_listにupsert。_judgeOneFarmlandに3分岐＋breakdown/結果メッセージ/確認ダイアログに土砂反映。判定パラメータ(zoom15/閾値50%)・他機能は無変更。※既存のNG登録は再判定時に土砂分が追加される。前:v20260802e -->
 <!-- BUILD: farmland-tracker v20260802e / 🎯開拓候補フラグを用途別に配色(色相=用途)。☀太陽光=マゼンタ(枠#a21caf/塗#e879f9)、🔋蓄電池=青(#1d4ed8/#60a5fa)、連系未判定=グレー。※日照④・接道⑤が未実装のため暫定分類=連系pass×面積(≥1000㎡→太陽光/未満→蓄電池、連系未判定→保留)。_renderCandidatesの配色＋_candUse()追加＋ポップアップに用途(暫定)行＋凡例を用途別3色に更新。候補母集団/NGフィルタ/他レイヤは無変更。④⑤導入後に精緻化。前:v20260802d -->
@@ -6952,6 +6953,7 @@ function _renderSatInView(){
   if(!_satData||!_satData.length)return;
   if(map.getZoom()<SAT_MIN_ZOOM)return;   // ズーム不足。描画しない
   var b=map.getBounds();
+  if(!map.getPane('pSat')){var _sp=map.createPane('pSat');_sp.style.zIndex=648;}
   satAnalysisLayer=L.featureGroup();
   _satData.forEach(function(r){
     if(r.lat==null||r.lng==null)return;
@@ -6980,9 +6982,9 @@ function _renderSatInView(){
       +'</div>';
     var lyr;
     if(r.has_polygon&&r.polygon_geojson){
-      lyr=L.geoJSON(r.polygon_geojson,{style:{color:st.c,weight:2,fillColor:st.c,fillOpacity:0.45}});
+      lyr=L.geoJSON(r.polygon_geojson,{pane:'pSat',style:{color:st.c,weight:2,fillColor:st.c,fillOpacity:0.45}});
     }else{
-      lyr=L.circleMarker([r.lat,r.lng],{radius:7,fillColor:st.c,color:'#1f2937',weight:1,fillOpacity:0.9});
+      lyr=L.circleMarker([r.lat,r.lng],{pane:'pSat',radius:7,fillColor:st.c,color:'#1f2937',weight:1,fillOpacity:0.9});
     }
     lyr.bindPopup(popup);
     satAnalysisLayer.addLayer(lyr);
