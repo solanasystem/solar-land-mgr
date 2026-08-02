@@ -1,0 +1,1892 @@
+<!DOCTYPE html>
+<!-- BUILD: settings v20260803a / 🛰️管理者用「衛星分析」タブを新設(母集団パイプライン⑤の管理盤)。①〜④全通過候補数/現母集団の分析済・未分析/verdict内訳(耕作放棄強・可能性/不確実/耕作中)/カバレッジ進捗バーを表示。実行エンジンはPC Python(batch_satellite_v4_7_1.py ~55秒/筆)のためブラウザ直起動は不可→PC実行コマンドをワンクリックコピーで橋渡し。絶対条件(対象は①〜④全通過筆のみ)を明示。追加はタブ1個+パネル+JS(loadSatellitePanel/copySatCmd)のみ、既存タブ(共有範囲/色設定/権限/ステータス色)・機能は無改変。DDL不要・既存テーブル(farmland_snapshots/satellite_analysis)のcount照会のみ。 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0,user-scalable=yes">
+<!-- 強制リロード不要化：HTML自体は毎回再取得 -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<!-- 外部JS/CSS はキャッシュバスター付きで動的に読み込む（強制リロード不要） -->
+<script>
+(function(){
+  var bust = 'v=' + Date.now();
+  function load(tagName, attrs){
+    var el = document.createElement(tagName);
+    Object.keys(attrs).forEach(function(k){ el.setAttribute(k, attrs[k]); });
+    if (tagName === 'script') el.async = false; // 順序保証
+    document.write(el.outerHTML);
+  }
+  load('script', { src: 'common-auth.js?' + bust });
+  load('link',   { rel: 'stylesheet', href: 'viewer-mode.css?' + bust });
+  load('script', { src: 'viewer-mode.js?' + bust });
+})();
+</script>
+<title>設定 - GRID LAND MGR</title>
+<link rel="icon" href="data:,">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-1: #06080c;
+    --bg-2: #0a0e16;
+    --bg-3: #0e131e;
+    --surface: rgba(255, 255, 255, 0.04);
+    --surface-2: rgba(255, 255, 255, 0.06);
+    --accent: #00d4ff;
+    --accent-2: #4ade80;
+    --text-1: #e2e8f0;
+    --text-2: #94a3b8;
+    --text-3: #64748b;
+    --border: rgba(0, 212, 255, 0.2);
+    --border-soft: rgba(255, 255, 255, 0.08);
+    --error: #ff5252;
+    --warning: #fbbf24;
+    --success: #4ade80;
+  }
+
+  body {
+    font-family: 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'Meiryo', sans-serif;
+    background: linear-gradient(135deg, var(--bg-1) 0%, var(--bg-2) 50%, var(--bg-3) 100%) fixed;
+    color: var(--text-1);
+    min-height: 100vh;
+    padding-bottom: 100px;
+    position: relative;
+  }
+
+  /* ===== CNT背景 (Carbon Nanotube 3D Simulation) ===== */
+  #cnt-bg {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.08;
+    mix-blend-mode: screen;
+    will-change: contents;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #cnt-bg { opacity: 0.04; }
+  }
+  /* メインコンテンツを CNT 背景の上に配置 */
+  .topbar, main, .save-bar { position: relative; z-index: 2; }
+
+  /* ===== Topbar (user-management.html と統一) ===== */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 18px;
+    background: rgba(10, 22, 40, 0.6);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; }
+  .brand-icon { font-size: 15px; }
+  .brand h1 {
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.5px;
+  }
+  .user-info { display: flex; align-items: center; gap: 7px; font-size: 10.5px; }
+  .user-info .name { color: var(--text-1); font-weight: 600; }
+  .role-badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 9px;
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .role-admin    { background: rgba(239, 68, 68, 0.2);  color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); }
+  .role-manager  { background: rgba(0, 212, 255, 0.2);  color: var(--accent); border: 1px solid rgba(0, 212, 255, 0.4); }
+  .role-viewer   { background: rgba(148, 163, 184, 0.2);color: var(--text-2); border: 1px solid rgba(148, 163, 184, 0.4); }
+  .role-external { background: rgba(251, 191, 36, 0.2); color: var(--warning); border: 1px solid rgba(251, 191, 36, 0.4); }
+  .topbar-btn {
+    padding: 3px 10px;
+    background: var(--surface);
+    color: var(--text-1);
+    border: 1px solid var(--border-soft);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 10px;
+    text-decoration: none;
+    font-family: inherit;
+  }
+  .topbar-btn:hover { background: var(--surface-2); border-color: var(--border); }
+  .topbar-btn.danger { color: var(--error); border-color: rgba(255, 82, 82, 0.4); }
+  .topbar-btn.danger:hover { background: rgba(255, 82, 82, 0.1); }
+
+  main {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 6px 14px 55px;
+  }
+
+  /* 旧ユーザー選択UI（廃止） */
+  .user-selector { display: none !important; }
+
+  /* 旧ツールバー（廃止） */
+  .toolbar { display: none !important; }
+
+  /* ===== Info Box ===== */
+  .info-box {
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    color: var(--warning);
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  /* ===== Tabs ===== */
+  .tabs {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .tab {
+    padding: 5px 12px;
+    background: transparent;
+    color: var(--text-3);
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    font-size: 11.5px;
+    font-family: inherit;
+  }
+  .tab:hover { color: var(--text-1); }
+  .tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+  }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ===== 統合コントロールバー（タブ + ユーザー選択 + フィルタ）===== */
+  .ctrl-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 0;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+    min-height: 32px;
+  }
+  .ctrl-user {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .ctrl-user.show { display: inline-flex; }
+  .ctrl-user label {
+    font-size: 10.5px;
+    color: var(--text-2);
+    font-weight: 600;
+  }
+  .ctrl-user select {
+    padding: 3px 7px;
+    background: var(--bg-2);
+    color: var(--text-1);
+    border: 1px solid var(--border-soft);
+    border-radius: 3px;
+    min-width: 180px;
+    font-size: 10.5px;
+    font-family: inherit;
+  }
+  .ctrl-filters {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    flex-wrap: wrap;
+  }
+
+  /* ===== Category Group ===== */
+  /* ===== 新カードグリッド v6 - 読みやすさ重視 ===== */
+  .cat-section {
+    margin-bottom: 8px;
+  }
+  .cat-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0 3px;
+    border-bottom: 1px solid var(--border-soft);
+    margin-bottom: 5px;
+    position: relative;
+  }
+  .cat-header::before {
+    content: '';
+    position: absolute;
+    left: 0; bottom: -1px;
+    width: 48px; height: 1.5px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+  }
+  .cat-icon { font-size: 12px; }
+  .cat-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.7px;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    text-transform: uppercase;
+  }
+  .cat-count {
+    font-size: 9px;
+    color: var(--text-3);
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.3px;
+    padding: 1px 7px;
+    background: rgba(0, 212, 255, 0.07);
+    border-radius: 8px;
+  }
+  .cat-actions { margin-left: auto; }
+  .cat-toggle-btn {
+    font-size: 9.5px;
+    color: var(--accent);
+    background: transparent;
+    border: 1px solid var(--accent);
+    padding: 2px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    letter-spacing: 0.3px;
+    transition: all 0.15s ease;
+  }
+  .cat-toggle-btn:hover {
+    background: var(--accent);
+    color: var(--bg-1);
+  }
+
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 4px;
+  }
+
+  .item-card {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-left: 3px solid transparent;
+    border-radius: 3px;
+    padding: 5px 8px 5px 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 30px;
+    transition: transform 0.12s ease, background 0.15s ease, box-shadow 0.15s ease;
+  }
+  .item-card:hover {
+    background: var(--surface-2);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 10px rgba(0, 212, 255, 0.12);
+  }
+
+  .item-card.is-master {
+    border-left-color: var(--accent-2);
+  }
+  .item-card.is-slave {
+    border-left-color: rgba(148, 163, 184, 0.5);
+    opacity: 0.55;
+  }
+  .item-card.is-slave:hover { opacity: 0.9; }
+  .item-card.is-standalone {
+    border-left-color: rgba(0, 212, 255, 0.3);
+  }
+
+  .item-card.is-checked.is-master {
+    background: rgba(74, 222, 128, 0.06);
+    box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.18);
+  }
+  .item-card.is-checked.is-standalone {
+    background: rgba(0, 212, 255, 0.04);
+  }
+
+  .card-no {
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 9.5px;
+    color: var(--text-2);
+    font-weight: 700;
+    background: rgba(0, 212, 255, 0.12);
+    padding: 1px 5px;
+    border-radius: 2px;
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
+  }
+  .card-sync-mark {
+    font-size: 10.5px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .card-check {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--accent);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .card-check:disabled { cursor: not-allowed; opacity: 0.45; }
+
+  /* 項目名：横並びで1行省略 */
+  .card-name {
+    flex: 1;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #f1f5f9;
+    line-height: 1.2;
+    letter-spacing: 0.1px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  /* メタ情報は完全非表示（ツールチップで補完） */
+  .card-meta { display: none; }
+
+  /* 色設定タブ用：ピッカー兼プレビュー（コンパクト一体型） */
+  .color-picker-inline {
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--border-soft);
+    border-radius: 3px;
+    cursor: pointer;
+    padding: 0;
+    background: transparent;
+    flex-shrink: 0;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .color-picker-inline::-webkit-color-swatch-wrapper { padding: 0; }
+  .color-picker-inline::-webkit-color-swatch { border: none; border-radius: 2px; }
+  .color-picker-inline::-moz-color-swatch { border: none; border-radius: 2px; }
+  .color-picker-inline:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* 旧スタイル（共有範囲タブ用 color-preview/color-input-miniは保持） */
+  .color-preview {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    border: 1px solid rgba(255,255,255,0.18);
+    flex-shrink: 0;
+  }
+  .color-input-mini {
+    width: 60px;
+    height: 18px;
+    border: 1px solid var(--border-soft);
+    border-radius: 2px;
+    cursor: pointer;
+    padding: 1px;
+    background: var(--bg-1);
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+  .color-input-mini:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* 検索・フィルタバー */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 3px;
+    margin-bottom: 5px;
+    flex-wrap: wrap;
+  }
+  .toolbar-search {
+    flex: 1;
+    min-width: 170px;
+    padding: 3px 9px;
+    background: var(--bg-1);
+    border: 1px solid var(--border-soft);
+    border-radius: 3px;
+    color: var(--text-1);
+    font-size: 10.5px;
+    font-family: inherit;
+  }
+  .toolbar-search:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .toolbar-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: var(--bg-1);
+    border: 1px solid var(--border-soft);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 9.5px;
+    color: var(--text-2);
+    font-family: 'JetBrains Mono', monospace;
+    transition: all 0.15s ease;
+    letter-spacing: 0.2px;
+  }
+  .toolbar-filter:hover { border-color: var(--accent); color: var(--text-1); }
+  .toolbar-filter.active {
+    background: rgba(0, 212, 255, 0.14);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .toolbar-stats {
+    font-size: 9px;
+    color: var(--text-3);
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.3px;
+    margin-left: auto;
+  }
+  .item-card.filtered-out { display: none; }
+  .cat-section.empty { display: none; }
+
+  .checkbox-input {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
+  .checkbox-input:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .color-input {
+    width: 50px;
+    height: 30px;
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 2px;
+    background: var(--bg-1);
+  }
+  .color-input:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .color-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: middle;
+    border: 1px solid rgba(255,255,255,0.2);
+  }
+
+  /* ===== Status Color Grid ===== */
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  .status-card {
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .status-card-label { font-weight: 600; font-size: 13px; }
+  .status-card-key {
+    font-size: 10px;
+    color: var(--text-3);
+    font-family: 'JetBrains Mono', monospace;
+    margin-top: 2px;
+  }
+  .status-preview {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    margin-top: 6px;
+  }
+
+  /* ===== Save Bar ===== */
+  .save-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: rgba(10, 22, 40, 0.95);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border);
+    padding: 5px 16px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 7px;
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.4);
+    z-index: 50;
+  }
+  .save-info { margin-right: auto; font-size: 10px; color: var(--text-2); }
+  .btn {
+    padding: 5px 16px;
+    border-radius: 3px;
+    border: none;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: inherit;
+    letter-spacing: 0.3px;
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), #0ea5e9);
+    color: var(--bg-1);
+    transition: background 0.25s ease, color 0.2s ease, filter 0.15s ease, transform 0.1s ease;
+  }
+  .btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
+  /* 保存中: イエロー＋パルス */
+  .btn-primary.saving {
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    color: #1a1a1a;
+    opacity: 1;
+    animation: btnPulse 1.2s ease-in-out infinite;
+  }
+  @keyframes btnPulse {
+    0%, 100% { filter: brightness(1); }
+    50%      { filter: brightness(1.25); }
+  }
+  /* 保存完了: グリーン */
+  .btn-primary.saved {
+    background: linear-gradient(135deg, #4ade80, #22c55e);
+    color: #082014;
+    opacity: 1;
+  }
+  /* エラー: レッド */
+  .btn-primary.errored {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    color: #fff;
+    opacity: 1;
+  }
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--text-1);
+    border: 1px solid var(--border-soft);
+  }
+  .btn-secondary:hover:not(:disabled) { background: var(--surface-2); }
+  .btn-danger {
+    background: transparent;
+    color: var(--error);
+    border: 1px solid rgba(255, 82, 82, 0.4);
+  }
+  .btn-danger:hover:not(:disabled) { background: rgba(255, 82, 82, 0.1); }
+
+  /* ===== Toast ===== */
+  .toast {
+    position: fixed;
+    bottom: 80px; right: 28px;
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--success);
+    border: 1px solid rgba(74, 222, 128, 0.4);
+    padding: 11px 22px;
+    border-radius: 6px;
+    backdrop-filter: blur(12px);
+    transform: translateY(80px); opacity: 0;
+    transition: all 0.25s ease;
+    z-index: 200;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.error {
+    background: rgba(255, 82, 82, 0.15);
+    color: var(--error);
+    border-color: rgba(255, 82, 82, 0.4);
+  }
+
+  .loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-3);
+    font-size: 13px;
+  }
+
+  /* ===== レスポンシブ ===== */
+  @media (max-width: 768px) {
+    main { padding: 16px; padding-bottom: 100px; }
+    .topbar { padding: 12px 16px; }
+    .brand h1 { font-size: 13px; }
+    .item-row { padding: 8px 12px; }
+    .cards-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+    .item-card { padding: 8px 10px 8px 12px; min-height: 72px; }
+    .card-name { font-size: 11.5px; }
+    .toolbar-search { min-width: 100%; }
+    .tab { padding: 9px 12px; font-size: 12px; }
+    .user-selector select { min-width: 200px; }
+    .save-bar { padding: 10px 14px; }
+    .btn { padding: 8px 14px; font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== CNT (Carbon Nanotube) 3D 構造体背景 ===== -->
+<svg id="cnt-bg" viewBox="-12 -10 24 20" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  <defs>
+    <radialGradient id="atom-near" cx="35%" cy="32%" r="65%">
+      <stop offset="0%"   stop-color="#ffffff"  stop-opacity="1"/>
+      <stop offset="22%"  stop-color="#e0f2fe"  stop-opacity="0.98"/>
+      <stop offset="55%"  stop-color="#7dd3fc"  stop-opacity="0.85"/>
+      <stop offset="85%"  stop-color="#1e3a8a"  stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#0c1733"  stop-opacity="0.2"/>
+    </radialGradient>
+    <radialGradient id="atom-far" cx="35%" cy="32%" r="65%">
+      <stop offset="0%"   stop-color="#cbd5e1"  stop-opacity="0.7"/>
+      <stop offset="40%"  stop-color="#64748b"  stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#1e293b"  stop-opacity="0.1"/>
+    </radialGradient>
+    <linearGradient id="bond-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#dbeafe" stop-opacity="0.9"/>
+      <stop offset="50%"  stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#dbeafe" stop-opacity="0.9"/>
+    </linearGradient>
+    <filter id="atom-glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="0.04"/>
+    </filter>
+  </defs>
+  <g id="cnt-group"></g>
+</svg>
+
+<!-- ===== Topbar ===== -->
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-icon">⚙️</span>
+    <h1>GRID LAND MGR / SETTINGS</h1>
+  </div>
+  <div class="user-info">
+    <span>ログイン中:</span>
+    <span class="name" id="loginUserName">…</span>
+    <span class="role-badge" id="loginUserRole">…</span>
+    <a href="index.html" class="topbar-btn">← システムへ戻る</a>
+    <button type="button" class="topbar-btn danger" id="logoutBtn">ログアウト</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- 旧 user-selector（display:noneで非表示、互換用） -->
+  <div class="user-selector" id="userSelector" style="display:none;">
+    <select id="targetUser" onchange="onTargetUserChange()" style="display:none;">
+      <option value="">読込中...</option>
+    </select>
+    <span id="targetUserRoleBadge" style="display:none;"></span>
+  </div>
+
+  <!-- 一般ユーザー向け情報 -->
+  <div class="info-box" id="generalUserInfo" style="display:none;">
+    🔍 閲覧モード: あなたの設定を表示しています。
+    「共有範囲」「色変更権限」は管理者のみが変更できます。
+    「色設定」は権限が付与された項目のみ変更可能です。
+  </div>
+
+  <!-- 統合コントロールバー -->
+  <div class="ctrl-bar">
+    <div class="tabs">
+      <button type="button" class="tab active"     data-tab="visibility"  onclick="switchTab('visibility')">📋 共有範囲</button>
+      <button type="button" class="tab"            data-tab="colors"      onclick="switchTab('colors')">🎨 色設定</button>
+      <button type="button" class="tab admin-only" data-tab="permissions" onclick="switchTab('permissions')" style="display:none;">🔐 色変更権限</button>
+      <button type="button" class="tab admin-only" data-tab="status"      onclick="switchTab('status')"      style="display:none;">🏷️ ステータス色</button>
+      <button type="button" class="tab admin-only" data-tab="satellite"   onclick="switchTab('satellite')"   style="display:none;">🛰️ 衛星分析</button>
+    </div>
+    <div class="ctrl-user" id="ctrlUser">
+      <label>編集:</label>
+      <select id="ctrlTargetUser" onchange="onCtrlUserChange()"></select>
+      <span id="ctrlUserRoleBadge"></span>
+    </div>
+    <div class="ctrl-filters" id="ctrlFilters">
+      <!-- 動的に生成（タブ別フィルタ）-->
+    </div>
+  </div>
+
+  <!-- タブ1: 共有範囲 -->
+  <div class="tab-content active" id="tab-visibility">
+    <div id="visibilityList" class="loading">読込中...</div>
+  </div>
+
+  <!-- タブ2: 色設定 -->
+  <div class="tab-content" id="tab-colors">
+    <div id="colorsList" class="loading">読込中...</div>
+  </div>
+
+  <!-- タブ3: 色変更権限（admin のみ） -->
+  <div class="tab-content" id="tab-permissions">
+    <div id="permissionsList" class="loading">読込中...</div>
+  </div>
+
+  <!-- タブ4: ステータス色（admin のみ） -->
+  <div class="tab-content" id="tab-status">
+    <div id="statusList" class="loading">読込中...</div>
+  </div>
+
+  <!-- タブ5: 衛星分析（admin のみ）- 母集団パイプライン⑤ 耕作放棄判定の管理盤 -->
+  <div class="tab-content" id="tab-satellite">
+    <div id="satellitePanel" class="loading">読込中...</div>
+  </div>
+
+</main>
+
+<!-- 保存バー -->
+<div class="save-bar">
+  <div class="save-info" id="saveInfo"></div>
+  <button type="button" class="btn btn-danger"    id="btnReset" onclick="resetToDefaults()">デフォルトに戻す</button>
+  <button type="button" class="btn btn-primary"   id="btnSave"  onclick="saveAll()">💾 保存</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Supabase UMD SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+
+<script>
+// ============================================
+// 認証情報を topbar に表示
+// ============================================
+(function fillTopbar() {
+  if (!window.__auth) return;
+  var name = (window.__auth.profile && window.__auth.profile.display_name) || '?';
+  var role = window.__auth.role || '?';
+  var nameEl = document.getElementById('loginUserName');
+  var roleEl = document.getElementById('loginUserRole');
+  if (nameEl) nameEl.textContent = name;
+  if (roleEl) {
+    roleEl.textContent = role;
+    roleEl.className = 'role-badge role-' + role;
+  }
+})();
+
+// ログアウトボタン
+document.getElementById('logoutBtn').addEventListener('click', function() {
+  if (confirm('ログアウトしますか？')) {
+    window.__auth.logout();
+  }
+});
+
+// ============================================
+// 状態管理
+// ============================================
+let SB             = null; // Supabase クライアント（DOMContentLoaded 後にセット）
+let ITEMS          = [];
+let currentUserId  = null;
+let currentRole    = null;
+let currentOrgId   = null;
+let currentName    = '';
+let targetUserId   = null;
+let targetRole     = null;
+let targetName     = '';
+let allUsersList   = [];
+let visibilityData = {};
+let colorData      = {};
+let permissionData = {};
+let statusColorData= {};
+let SYNC_MASTERS   = {}; // { sync_group: master_item_key } 各グループの主項目
+
+// ============================================
+// 初期化
+// ============================================
+window.addEventListener('DOMContentLoaded', init);
+
+async function init() {
+  // common-auth.js から認証情報を取得
+  if (!window.__auth) {
+    showToast('認証情報が取得できません', true);
+    return;
+  }
+
+  // Supabase クライアント取得（UMD ロード完了後）
+  if (typeof supabase === 'undefined') {
+    showToast('Supabase SDK 読み込み失敗', true);
+    return;
+  }
+
+  SB = window.__auth.sb; // common-auth.js が遅延初期化したクライアント
+  if (!SB) {
+    showToast('Supabase クライアント初期化失敗', true);
+    return;
+  }
+
+  currentUserId = window.__auth.profile.id;
+  currentRole   = window.__auth.role;
+  currentOrgId  = window.__auth.organizationId;
+  currentName   = window.__auth.profile.display_name || '';
+  targetUserId  = currentUserId;
+  targetRole    = currentRole;
+  targetName    = currentName;
+
+  try {
+    // 項目マスター
+    const { data: items, error: iErr } = await SB
+      .from('setting_items_master')
+      .select('*')
+      .order('display_order');
+    if (iErr) {
+      showToast('項目マスター取得失敗: ' + iErr.message, true);
+      return;
+    }
+    ITEMS = items || [];
+
+    // 同期グループの主項目を計算（各グループ内で display_order 最小の項目）
+    SYNC_MASTERS = {};
+    ITEMS.forEach(it => {
+      if (!it.sync_group) return;
+      const cur = SYNC_MASTERS[it.sync_group];
+      if (!cur) {
+        SYNC_MASTERS[it.sync_group] = it.item_key;
+      } else {
+        const curItem = ITEMS.find(x => x.item_key === cur);
+        if (curItem && it.display_order < curItem.display_order) {
+          SYNC_MASTERS[it.sync_group] = it.item_key;
+        }
+      }
+    });
+
+    if (window.__auth.isAdmin()) {
+      // admin専用 UI: ctrl-bar のユーザー選択を表示
+      document.getElementById('ctrlUser').classList.add('show');
+      document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
+
+      // 同じ組織内の全ユーザー
+      const { data: users } = await SB
+        .from('profiles')
+        .select('id, role, display_name, email')
+        .eq('organization_id', currentOrgId)
+        .order('role');
+      allUsersList = users || [];
+
+      const optsHtml = allUsersList.map(u => {
+        const label = (u.display_name || u.email || u.id.substring(0,8) + '…') + ' (' + u.role + ')';
+        return `<option value="${u.id}" ${u.id === currentUserId ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+      }).join('');
+      // 旧hidden select と新ctrl-bar select の両方にセット
+      const oldSel = document.getElementById('targetUser');
+      const newSel = document.getElementById('ctrlTargetUser');
+      if (oldSel) oldSel.innerHTML = optsHtml;
+      if (newSel) newSel.innerHTML = optsHtml;
+    } else {
+      // 一般ユーザー
+      document.getElementById('generalUserInfo').style.display = 'block';
+      document.getElementById('btnReset').style.display = 'none';
+    }
+
+    await loadTargetUserSettings();
+    render();
+    updateSaveInfo();
+    renderCtrlFilters('visibility'); // 初期フィルタバー描画
+  } catch (e) {
+    console.error(e);
+    showToast('初期化失敗: ' + e.message, true);
+  }
+}
+
+// ============================================
+// 対象ユーザーの設定をロード
+// ============================================
+async function loadTargetUserSettings() {
+  const u = allUsersList.find(x => x.id === targetUserId);
+  if (u) {
+    targetRole = u.role;
+    targetName = u.display_name || u.email || '';
+  } else {
+    targetRole = currentRole;
+    targetName = currentName;
+  }
+
+  const roleBadge = document.getElementById('targetUserRoleBadge');
+  if (targetRole && roleBadge) {
+    roleBadge.innerHTML = `<span class="role-badge role-${targetRole}">${targetRole}</span>`;
+  }
+
+  console.log('[loadTargetUserSettings] targetUserId:', targetUserId, 'role:', targetRole);
+
+  // visibility
+  const { data: vis, error: visErr } = await SB
+    .from('user_visibility_settings')
+    .select('item_key, is_visible')
+    .eq('user_id', targetUserId);
+  if (visErr) console.error('[loadTargetUserSettings] visibility読込エラー:', visErr);
+  visibilityData = {};
+  (vis || []).forEach(v => visibilityData[v.item_key] = v.is_visible);
+  console.log('[loadTargetUserSettings] visibility:', (vis || []).length, '件');
+
+  // colors + permissions
+  const { data: cols, error: colsErr } = await SB
+    .from('user_color_settings')
+    .select('item_key, color_hex, can_edit_color')
+    .eq('user_id', targetUserId);
+  if (colsErr) console.error('[loadTargetUserSettings] colors読込エラー:', colsErr);
+  colorData = {};
+  permissionData = {};
+  (cols || []).forEach(c => {
+    colorData[c.item_key]      = c.color_hex;
+    permissionData[c.item_key] = c.can_edit_color;
+  });
+  console.log('[loadTargetUserSettings] colors:', (cols || []).length, '件');
+
+  // status colors（組織共通）
+  const { data: sts, error: stsErr } = await SB
+    .from('org_status_colors')
+    .select('status_key, status_label_ja, color_hex, display_order')
+    .eq('organization_id', currentOrgId)
+    .order('display_order');
+  if (stsErr) console.error('[loadTargetUserSettings] status_colors読込エラー:', stsErr);
+  statusColorData = {};
+  (sts || []).forEach(s => statusColorData[s.status_key] = {
+    color: s.color_hex, label: s.status_label_ja, order: s.display_order
+  });
+  console.log('[loadTargetUserSettings] status_colors:', (sts || []).length, '件');
+}
+
+// ============================================
+// レンダリング
+// ============================================
+function render() {
+  renderVisibility();
+  renderColors();
+  renderPermissions();
+  renderStatusColors();
+}
+
+function groupByCategory(items) {
+  const out = {};
+  items.forEach(it => {
+    const k = it.category_large || 'その他';
+    (out[k] = out[k] || []).push(it);
+  });
+  return out;
+}
+
+// カテゴリアイコンマップ
+const CATEGORY_ICONS = {
+  '地権者情報':       '👤',
+  '土地情報':         '🗾',
+  '地権者マスター':   '📇',
+  '土地情報マスター': '🗃️',
+  '案件マスタ':       '📂',
+  '農地変化トラッカー': '🌱',
+  '現地調査モード':   '🔍',
+};
+
+function renderVisibility() {
+  const isAdmin = window.__auth.isAdmin();
+  const groups  = groupByCategory(ITEMS);
+  const parts   = [];
+
+  Object.entries(groups).forEach(([cat, items]) => {
+    const icon = CATEGORY_ICONS[cat] || '📄';
+    parts.push(`<section class="cat-section" data-category="${escapeHtml(cat)}">
+      <header class="cat-header">
+        <span class="cat-icon">${icon}</span>
+        <span class="cat-title">${escapeHtml(cat)}</span>
+        <span class="cat-count">${items.length} ITEMS</span>
+        <div class="cat-actions">
+          ${isAdmin ? `<button type="button" class="cat-toggle-btn" onclick="toggleCategory('visibility','${escapeHtml(cat)}')">一括切替</button>` : ''}
+        </div>
+      </header>
+      <div class="cards-grid">`);
+
+    items.forEach(it => {
+      const checked  = visibilityData[it.item_key] !== false;
+      const isSync   = !!it.sync_group;
+      const isMaster = isSync && SYNC_MASTERS[it.sync_group] === it.item_key;
+      const isSlave  = isSync && !isMaster;
+
+      let stateClass = 'is-standalone';
+      let syncMark   = '';
+      let tooltip    = '';
+      if (isMaster) {
+        stateClass = 'is-master';
+        const groupItems = ITEMS.filter(x => x.sync_group === it.sync_group)
+          .filter(x => x.item_key !== it.item_key)
+          .map(x => x.display_order + '.' + x.display_name_ja);
+        syncMark = '🔗';
+        tooltip = '連動元 · ' + groupItems.length + '項目と連動: ' + groupItems.join(', ');
+      } else if (isSlave) {
+        stateClass = 'is-slave';
+        const masterItem = ITEMS.find(x => x.item_key === SYNC_MASTERS[it.sync_group]);
+        const masterLabel = masterItem ? (masterItem.display_order + '. ' + masterItem.display_name_ja) : '?';
+        syncMark = '⛓️';
+        tooltip = masterLabel + ' と連動 (連動元の操作で同期)';
+      }
+
+      const canOperate = isAdmin && !isSlave;
+      const checkedClass = checked ? 'is-checked' : '';
+      const searchKey = (it.display_name_ja + ' ' + (it.category_mid || '') + ' ' + (it.category_small || '')).toLowerCase();
+
+      parts.push(`<div class="item-card ${stateClass} ${checkedClass}"
+                       data-item-key="${it.item_key}"
+                       data-search="${escapeHtml(searchKey)}"
+                       data-is-sync="${isSync ? '1' : '0'}"
+                       data-is-checked="${checked ? '1' : '0'}"
+                       title="${escapeHtml(tooltip || it.display_name_ja)}">
+        <span class="card-no">${String(it.display_order).padStart(2, '0')}</span>
+        ${syncMark ? `<span class="card-sync-mark">${syncMark}</span>` : ''}
+        <span class="card-name">${escapeHtml(it.display_name_ja)}</span>
+        <input type="checkbox" class="card-check"
+               data-item-key="${it.item_key}" data-field="visibility"
+               data-sync-group="${it.sync_group || ''}"
+               data-sync-role="${isMaster ? 'master' : (isSlave ? 'slave' : 'none')}"
+               ${checked ? 'checked' : ''} ${canOperate ? '' : 'disabled'}
+               onchange="onVisibilityChange(this)">
+      </div>`);
+    });
+    parts.push('</div></section>');
+  });
+  document.getElementById('visibilityList').innerHTML = parts.join('');
+  applyFilter('visibility');
+}
+
+function renderColors() {
+  const isAdmin = window.__auth.isAdmin();
+  const groups  = groupByCategory(ITEMS);
+  const parts   = [];
+
+  Object.entries(groups).forEach(([cat, items]) => {
+    const icon = CATEGORY_ICONS[cat] || '📄';
+    parts.push(`<section class="cat-section" data-category="${escapeHtml(cat)}">
+      <header class="cat-header">
+        <span class="cat-icon">${icon}</span>
+        <span class="cat-title">${escapeHtml(cat)}</span>
+        <span class="cat-count">${items.length} ITEMS</span>
+      </header>
+      <div class="cards-grid">`);
+
+    items.forEach(it => {
+      const color   = colorData[it.item_key] || '#3B82F6';
+      const canEdit = isAdmin || permissionData[it.item_key] === true;
+      const searchKey = (it.display_name_ja + ' ' + (it.category_mid || '')).toLowerCase();
+
+      parts.push(`<div class="item-card is-standalone is-checked"
+                       data-item-key="${it.item_key}"
+                       data-search="${escapeHtml(searchKey)}"
+                       data-is-editable="${canEdit ? '1' : '0'}"
+                       title="${escapeHtml(it.display_name_ja)}">
+        <span class="card-no">${String(it.display_order).padStart(2, '0')}</span>
+        <input type="color" class="color-picker-inline"
+               data-item-key="${it.item_key}" data-field="color"
+               value="${color}" ${canEdit ? '' : 'disabled'}
+               onchange="onColorChange(this)"
+               title="クリックで色を変更">
+        <span class="card-name" style="color:${color};">${escapeHtml(it.display_name_ja)}</span>
+        ${!canEdit ? '<span class="card-sync-mark" title="色変更権限なし">🔒</span>' : ''}
+      </div>`);
+    });
+    parts.push('</div></section>');
+  });
+  document.getElementById('colorsList').innerHTML = parts.join('');
+  applyFilter('colors');
+}
+
+function renderPermissions() {
+  if (!window.__auth.isAdmin()) return;
+  const groups = groupByCategory(ITEMS);
+  const parts  = [];
+
+  Object.entries(groups).forEach(([cat, items]) => {
+    const icon = CATEGORY_ICONS[cat] || '📄';
+    parts.push(`<section class="cat-section" data-category="${escapeHtml(cat)}">
+      <header class="cat-header">
+        <span class="cat-icon">${icon}</span>
+        <span class="cat-title">${escapeHtml(cat)}</span>
+        <span class="cat-count">${items.length} ITEMS</span>
+        <div class="cat-actions">
+          <button type="button" class="cat-toggle-btn" onclick="toggleCategory('permission','${escapeHtml(cat)}')">一括切替</button>
+        </div>
+      </header>
+      <div class="cards-grid">`);
+
+    items.forEach(it => {
+      const checked = permissionData[it.item_key] === true;
+      const checkedClass = checked ? 'is-checked' : '';
+      const searchKey = (it.display_name_ja + ' ' + (it.category_mid || '')).toLowerCase();
+
+      parts.push(`<div class="item-card is-standalone ${checkedClass}"
+                       data-item-key="${it.item_key}"
+                       data-search="${escapeHtml(searchKey)}"
+                       data-is-checked="${checked ? '1' : '0'}"
+                       title="${escapeHtml(it.display_name_ja)}">
+        <span class="card-no">${String(it.display_order).padStart(2, '0')}</span>
+        <span class="card-name">${escapeHtml(it.display_name_ja)}</span>
+        <input type="checkbox" class="card-check"
+               data-item-key="${it.item_key}" data-field="permission"
+               ${checked ? 'checked' : ''}>
+      </div>`);
+    });
+    parts.push('</div></section>');
+  });
+  document.getElementById('permissionsList').innerHTML = parts.join('');
+  applyFilter('permissions');
+}
+
+function renderStatusColors() {
+  if (!window.__auth.isAdmin()) return;
+  const entries = Object.entries(statusColorData)
+    .sort((a,b) => (a[1].order || 0) - (b[1].order || 0));
+  const html = `<div class="status-grid">` + entries.map(([key, val]) => `
+    <div class="status-card">
+      <div>
+        <div class="status-card-label">${escapeHtml(val.label)}</div>
+        <div class="status-card-key">${escapeHtml(key)}</div>
+        <div class="status-preview" data-preview="${key}" style="background:${val.color};">${escapeHtml(val.label)}</div>
+      </div>
+      <input type="color" class="color-input"
+             data-status-key="${key}" data-field="status"
+             data-status-label-ja="${escapeHtml(val.label || '')}"
+             value="${val.color}" onchange="onStatusColorChange(this)">
+    </div>
+  `).join('') + `</div>`;
+  document.getElementById('statusList').innerHTML = html;
+}
+
+// ============================================
+// イベント
+// ============================================
+// タブ別フィルタ定義（ctrl-bar に動的描画）
+const TAB_FILTERS = {
+  visibility:  [
+    { id: 'all',         label: 'ALL' },
+    { id: 'sync',        label: '🔗 連動' },
+    { id: 'standalone',  label: '独立' },
+    { id: 'checked',     label: '✓ ON' },
+    { id: 'unchecked',   label: '✗ OFF' },
+  ],
+  colors:      [
+    { id: 'all',      label: 'ALL' },
+    { id: 'editable', label: '編集可' },
+    { id: 'locked',   label: '🔒 編集不可' },
+  ],
+  permissions: [
+    { id: 'all',       label: 'ALL' },
+    { id: 'checked',   label: '✓ 編集可' },
+    { id: 'unchecked', label: '✗ 編集不可' },
+  ],
+  status:      [], // ステータス色タブはフィルタなし
+};
+
+function renderCtrlFilters(tab) {
+  const bar = document.getElementById('ctrlFilters');
+  if (!bar) return;
+  const filters = TAB_FILTERS[tab] || [];
+  const active = FILTER_STATE[tab] || 'all';
+  bar.innerHTML = filters.map(f =>
+    `<button type="button" class="toolbar-filter ${active === f.id ? 'active' : ''}" data-filter="${f.id}" onclick="setFilter('${tab}','${f.id}')">${f.label}</button>`
+  ).join('') + (filters.length ? `<span class="toolbar-stats" id="ctrlStats"></span>` : '');
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  const t = document.querySelector(`.tab[data-tab="${name}"]`);
+  if (t) t.classList.add('active');
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  const c = document.getElementById(`tab-${name}`);
+  if (c) c.classList.add('active');
+  if (name === 'satellite') { loadSatellitePanel(); return; } // 衛星分析タブは項目フィルタ対象外
+  renderCtrlFilters(name);
+  applyFilter(name);
+}
+
+// ============================================
+// 衛星分析タブ（母集団パイプライン⑤ 耕作放棄判定の管理盤）
+//   実行エンジンはPC Python(batch_satellite_v4_7_1.py ~55秒/筆)のため、
+//   ここはステータス可視化＋実行コマンド生成の橋渡し。対象は①〜④全通過筆のみ。
+// ============================================
+const SAT_SOURCE_TYPE = 'emaff_solar'; // 現母集団(奈良)。新エリアはsource_typeを変えて運用。
+const SAT_VERDICTS = [
+  { key: 'ABANDONED_STRONG', label: '★★ 耕作放棄・強', color: '#dc2626' },
+  { key: 'ABANDONED_LIKELY', label: '★ 耕作放棄の可能性', color: '#ec4899' },
+  { key: 'UNCERTAIN',        label: '△ 不確実',          color: '#06b6d4' },
+  { key: 'CULTIVATED_LIKELY',label: '○ 耕作中の可能性',   color: '#22c55e' },
+  { key: 'CULTIVATED_STRONG',label: '○○ 耕作中・強',      color: '#15803d' },
+];
+
+async function _satCount(table, apply) {
+  let q = SB.from(table).select('id', { count: 'exact', head: true });
+  if (apply) q = apply(q);
+  const { count, error } = await q;
+  return error ? -1 : (count || 0);
+}
+
+async function loadSatellitePanel() {
+  const el = document.getElementById('satellitePanel');
+  if (!el) return;
+  if (!window.__auth || !window.__auth.isAdmin()) { el.innerHTML = '<div style="padding:20px;color:#dc2626">管理者のみ利用できます。</div>'; return; }
+  el.className = '';
+  el.innerHTML = '<div class="loading" style="padding:24px">衛星分析ステータスを集計中...</div>';
+  try {
+    // ①〜④全通過の候補（絶対条件：この筆だけが衛星分析の対象）
+    const cand = await _satCount('farmland_snapshots', q => q
+      .eq('source_type', SAT_SOURCE_TYPE)
+      .eq('hazard_status', 'CLEAR').eq('noshin_status', 'CLEAR').eq('dedup_status', 'NEW')
+      .neq('grid_status', 'ng').neq('infra_status', 'FAIL'));
+    // 衛星分析 実施済（累計）＋ verdict内訳
+    const analyzedTotal = await _satCount('satellite_analysis');
+    const vc = {};
+    for (const v of SAT_VERDICTS) vc[v.key] = await _satCount('satellite_analysis', q => q.eq('verdict', v.key));
+    const abandoned = (vc.ABANDONED_STRONG || 0) + (vc.ABANDONED_LIKELY || 0);
+    // 現母集団(emaff_solar)側の分析済（feature_idプレフィックス emaff で近似）
+    const analyzedEmaff = await _satCount('satellite_analysis', q => q.ilike('feature_id', 'emaff%'));
+    const pending = Math.max(0, cand - analyzedEmaff);
+    const pct = cand > 0 ? Math.min(100, Math.round(analyzedEmaff / cand * 100)) : 0;
+    const estMin = Math.round(pending * 55 / 60);
+
+    const card = (label, val, color) =>
+      `<div style="flex:1;min-width:140px;background:rgba(127,127,127,0.08);border:1px solid rgba(127,127,127,0.25);border-radius:10px;padding:14px 16px">
+        <div style="font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#8a8a8a;margin-bottom:6px">${label}</div>
+        <div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;color:${color || 'inherit'}">${val.toLocaleString()}</div>
+      </div>`;
+
+    const verdictRows = SAT_VERDICTS.map(v =>
+      `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(127,127,127,0.12)">
+        <span style="width:12px;height:12px;border-radius:50%;background:${v.color};flex-shrink:0;border:1px solid rgba(0,0,0,.35)"></span>
+        <span style="flex:1">${v.label}</span>
+        <span style="font-weight:700;font-variant-numeric:tabular-nums">${(vc[v.key] || 0).toLocaleString()}</span>
+      </div>`).join('');
+
+    const cmd = 'cd D:\\solar-land-mgr\\satellite\npython batch_satellite_v4_7_1.py';
+
+    el.innerHTML = `
+      <div style="max-width:920px">
+        <div style="background:rgba(37,99,235,0.10);border:1px solid rgba(37,99,235,0.35);border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;line-height:1.6">
+          🛰️ <b>衛星分析（耕作放棄判定 v4.7.1）</b>は母集団パイプラインの<b>最終工程⑤</b>です。
+          <b>①農振②ハザード③連系④接道を全通過した筆のみ</b>が対象（＝非通過は対象外）。重い処理（約55秒/筆）のため必ず事前フィルタで母数を絞ってから実行します。
+        </div>
+
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+          ${card('①〜④通過 候補', cand, '#2563eb')}
+          ${card('分析済（現母集団）', analyzedEmaff)}
+          ${card('未分析（要実行）', pending, pending > 0 ? '#d97706' : '#16a34a')}
+          ${card('耕作放棄（強+可能性）', abandoned, '#dc2626')}
+        </div>
+
+        <div style="margin-bottom:6px;font-size:12px;color:#8a8a8a;display:flex;justify-content:space-between">
+          <span>現母集団の分析カバレッジ</span><span>${pct}%（${analyzedEmaff.toLocaleString()} / ${cand.toLocaleString()}）</span>
+        </div>
+        <div style="height:12px;border-radius:6px;background:rgba(127,127,127,0.2);overflow:hidden;margin-bottom:20px">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#2563eb,#22c55e)"></div>
+        </div>
+
+        <div style="display:flex;gap:24px;flex-wrap:wrap">
+          <div style="flex:1;min-width:280px">
+            <div style="font-weight:700;margin-bottom:8px">判定内訳（累計 ${analyzedTotal.toLocaleString()}件）</div>
+            ${verdictRows}
+          </div>
+          <div style="flex:1;min-width:280px">
+            <div style="font-weight:700;margin-bottom:8px">実行（PC）</div>
+            <div style="font-size:12px;color:#8a8a8a;margin-bottom:8px;line-height:1.6">
+              解析エンジンはPC上のPythonバッチです（ブラウザからは起動できません）。下記コマンドをPCで実行し、対話プロンプトで<b>範囲=奈良／モード=未分析のみ</b>を選択してください。未分析 ${pending.toLocaleString()}件で概算 <b>約${estMin.toLocaleString()}分</b>。
+            </div>
+            <pre id="satCmd" style="background:#0b0f14;color:#d1fae5;border:1px solid rgba(127,127,127,0.3);border-radius:8px;padding:12px;font-size:12px;white-space:pre-wrap;word-break:break-all;margin:0 0 8px">${cmd}</pre>
+            <div style="display:flex;gap:8px">
+              <button type="button" class="btn btn-primary" onclick="copySatCmd()">📋 コマンドをコピー</button>
+              <button type="button" class="btn" onclick="loadSatellitePanel()">🔄 更新</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:18px;font-size:11px;color:#8a8a8a;line-height:1.6">
+          ※ 対象母集団: <code>source_type='${SAT_SOURCE_TYPE}'</code>。新エリアは母集団のsource_typeに合わせて運用。<br>
+          ※ 「分析済（現母集団）」は feature_id プレフィックス <code>emaff</code> による近似。厳密な突合はバッチ側VIEW（未分析筆のみ抽出）で担保されます。
+        </div>
+      </div>`;
+  } catch (e) {
+    el.innerHTML = '<div style="padding:20px;color:#dc2626">集計に失敗しました: ' + escapeHtml(e.message || String(e)) + '</div>';
+  }
+}
+
+function copySatCmd() {
+  const t = (document.getElementById('satCmd') || {}).textContent || '';
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).then(() => showToast('コマンドをコピーしました')).catch(() => showToast('コピー失敗', true));
+  } else {
+    const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); showToast('コマンドをコピーしました'); } catch (_) { showToast('コピー失敗', true); }
+    document.body.removeChild(ta);
+  }
+}
+
+async function onTargetUserChange() {
+  // 旧targetUser select（hidden）と同期
+  const oldSel = document.getElementById('targetUser');
+  const newSel = document.getElementById('ctrlTargetUser');
+  if (newSel && oldSel) oldSel.value = newSel.value;
+  targetUserId = (newSel && newSel.value) || (oldSel && oldSel.value);
+  await loadTargetUserSettings();
+  render();
+  updateSaveInfo();
+  showToast('対象ユーザーを切替えました');
+}
+
+// 互換: ctrl-bar からの呼び出し
+async function onCtrlUserChange() {
+  await onTargetUserChange();
+}
+
+function toggleCategory(field, cat) {
+  const items = ITEMS.filter(i => (i.category_large || 'その他') === cat);
+  const inputs = items
+    .map(i => document.querySelector(`input[data-field="${field}"][data-item-key="${i.item_key}"]`))
+    .filter(Boolean)
+    .filter(inp => !inp.disabled);
+  const allChecked = inputs.every(i => i.checked);
+  inputs.forEach(i => {
+    i.checked = !allChecked;
+    if (field === 'visibility') onVisibilityChange(i);
+  });
+}
+
+// ============================================
+// フィルタ
+// ============================================
+const FILTER_STATE = { visibility: 'all', colors: 'all', permissions: 'all', status: 'all' };
+
+function setFilter(tab, filterName) {
+  FILTER_STATE[tab] = filterName;
+  // ctrl-bar 内のフィルタボタン状態を更新
+  document.querySelectorAll('#ctrlFilters .toolbar-filter').forEach(b => {
+    b.classList.toggle('active', b.dataset.filter === filterName);
+  });
+  applyFilter(tab);
+}
+
+function applyFilter(tab) {
+  const tabContent = document.getElementById('tab-' + tab);
+  if (!tabContent) return;
+  const filter   = FILTER_STATE[tab] || 'all';
+
+  const cards = tabContent.querySelectorAll('.item-card');
+  let shown = 0, total = cards.length;
+
+  cards.forEach(card => {
+    let match = true;
+
+    if (filter !== 'all') {
+      if (tab === 'visibility') {
+        const isSync = card.dataset.isSync === '1';
+        const isChk  = card.dataset.isChecked === '1';
+        if (filter === 'sync'        && !isSync) match = false;
+        if (filter === 'standalone'  &&  isSync) match = false;
+        if (filter === 'checked'     && !isChk)  match = false;
+        if (filter === 'unchecked'   &&  isChk)  match = false;
+      } else if (tab === 'colors') {
+        const isEditable = card.dataset.isEditable === '1';
+        if (filter === 'editable' && !isEditable) match = false;
+        if (filter === 'locked'   &&  isEditable) match = false;
+      } else if (tab === 'permissions') {
+        const isChk = card.dataset.isChecked === '1';
+        if (filter === 'checked'   && !isChk) match = false;
+        if (filter === 'unchecked' &&  isChk) match = false;
+      }
+    }
+
+    card.classList.toggle('filtered-out', !match);
+    if (match) shown++;
+  });
+
+  tabContent.querySelectorAll('.cat-section').forEach(sec => {
+    const visible = sec.querySelectorAll('.item-card:not(.filtered-out)').length;
+    sec.classList.toggle('empty', visible === 0);
+  });
+
+  // ctrl-bar 統計
+  const stats = document.getElementById('ctrlStats');
+  if (stats) stats.textContent = `${shown}/${total}`;
+}
+
+function onColorChange(input) {
+  const card = input.closest('.item-card');
+  if (!card) return;
+  const c = input.value;
+  const key = input.dataset.itemKey;
+  if (!key) return;
+
+  // 変更された項目自身を更新
+  applyColorToCard(card, c);
+  colorData[key] = c;
+
+  // ★ 同期グループ連動：同じ sync_group の項目すべてに同じ色を反映
+  const targetItem = ITEMS.find(x => x.item_key === key);
+  if (targetItem && targetItem.sync_group) {
+    const groupKey = targetItem.sync_group;
+    const groupItems = ITEMS.filter(x => x.sync_group === groupKey && x.item_key !== key);
+    let syncCount = 0;
+    groupItems.forEach(it => {
+      colorData[it.item_key] = c;
+      // 色設定タブの他カードを直接更新（DOMから探す）
+      const otherCard = document.querySelector(`#colorsList .item-card[data-item-key="${it.item_key}"]`);
+      if (otherCard) {
+        applyColorToCard(otherCard, c);
+        // 色入力ボックス自体の値も更新
+        const otherInput = otherCard.querySelector('input[data-field="color"]');
+        if (otherInput) otherInput.value = c;
+        syncCount++;
+      }
+    });
+    if (syncCount > 0) {
+      console.log(`[onColorChange] sync_group=${groupKey} で ${syncCount}項目を連動更新（自身含めて${syncCount + 1}項目）`);
+    }
+  }
+}
+
+// カードに色を適用（項目名・プレビュー・ドット）
+function applyColorToCard(card, c) {
+  const name = card.querySelector('.card-name');
+  if (name) name.style.color = c;
+  const preview = card.querySelector('.color-preview');
+  if (preview) preview.style.background = c;
+  const dot = card.querySelector('.color-dot');
+  if (dot) dot.style.background = c;
+}
+
+// 同期グループの主項目が変更されたら、従項目のチェックボックスも追従
+function onVisibilityChange(input) {
+  // 自分のカードの視覚状態を更新
+  const card = input.closest('.item-card');
+  if (card) {
+    card.dataset.isChecked = input.checked ? '1' : '0';
+    card.classList.toggle('is-checked', input.checked);
+  }
+
+  const syncGroup = input.dataset.syncGroup;
+  const syncRole  = input.dataset.syncRole;
+  if (syncGroup && syncRole === 'master') {
+    document.querySelectorAll(
+      `input[data-field="visibility"][data-sync-group="${syncGroup}"][data-sync-role="slave"]`
+    ).forEach(slave => {
+      slave.checked = input.checked;
+      const sCard = slave.closest('.item-card');
+      if (sCard) {
+        sCard.dataset.isChecked = input.checked ? '1' : '0';
+        sCard.classList.toggle('is-checked', input.checked);
+      }
+    });
+  }
+
+  // フィルタを再適用（チェック状態フィルタ反映）
+  applyFilter('visibility');
+}
+
+function onStatusColorChange(input) {
+  const card = input.closest('.status-card');
+  const prev = card && card.querySelector('.status-preview');
+  if (prev) prev.style.background = input.value;
+}
+
+function updateSaveInfo() {
+  const isSelf = (targetUserId === currentUserId);
+  const label = isSelf ? '自分' : (targetName || '対象ユーザー');
+  document.getElementById('saveInfo').textContent = '編集対象: ' + label + '（' + (targetRole || '?') + '）';
+}
+
+// ============================================
+// 保存
+// ============================================
+async function saveAll() {
+  const btn = document.getElementById('btnSave');
+  const originalText = '💾 保存';
+  btn.disabled = true;
+  btn.classList.remove('saved', 'errored');
+  btn.classList.add('saving');
+  btn.textContent = '⏳ 保存中…';
+
+  console.log('=== [saveAll] 保存開始 ===');
+  console.log('targetUserId:', targetUserId);
+  console.log('currentOrgId:', currentOrgId);
+  console.log('isAdmin:', window.__auth && window.__auth.isAdmin());
+
+  // 事前チェック：必須情報の有無
+  if (!SB) {
+    btn.classList.remove('saving'); btn.classList.add('errored');
+    btn.textContent = '✗ 認証未初期化';
+    showToast('Supabase未初期化です。再ログインしてください。', true);
+    setTimeout(() => { btn.classList.remove('errored'); btn.disabled = false; btn.textContent = originalText; }, 4000);
+    return;
+  }
+  if (!targetUserId) {
+    btn.classList.remove('saving'); btn.classList.add('errored');
+    btn.textContent = '✗ ユーザー未選択';
+    showToast('対象ユーザーが取得できません。再ログインしてください。', true);
+    setTimeout(() => { btn.classList.remove('errored'); btn.disabled = false; btn.textContent = originalText; }, 4000);
+    return;
+  }
+  if (!currentOrgId) {
+    btn.classList.remove('saving'); btn.classList.add('errored');
+    btn.textContent = '✗ 組織ID未取得';
+    showToast('organization_id が取得できません。profilesを確認してください。', true);
+    setTimeout(() => { btn.classList.remove('errored'); btn.disabled = false; btn.textContent = originalText; }, 4000);
+    return;
+  }
+
+  let visCount = 0, colorCount = 0, statusCount = 0;
+
+  try {
+    const nowISO = new Date().toISOString();
+
+    // ① 共有範囲（admin のみ）
+    if (window.__auth.isAdmin()) {
+      // 保存前に従項目を主項目と完全同期（連動の整合性保証）
+      ITEMS.forEach(it => {
+        if (!it.sync_group) return;
+        const masterKey = SYNC_MASTERS[it.sync_group];
+        if (it.item_key === masterKey) return;
+        const masterInput = document.querySelector(`input[data-field="visibility"][data-item-key="${masterKey}"]`);
+        const slaveInput  = document.querySelector(`input[data-field="visibility"][data-item-key="${it.item_key}"]`);
+        if (masterInput && slaveInput) slaveInput.checked = masterInput.checked;
+      });
+
+      const visRows = Array.from(document.querySelectorAll('input[data-field="visibility"]')).map(input => ({
+        user_id:         targetUserId,
+        organization_id: currentOrgId,
+        item_key:        input.dataset.itemKey,
+        is_visible:      input.checked,
+        updated_at:      nowISO,
+      }));
+      console.log('[saveAll] visRows:', visRows.length, '件');
+      if (visRows.length > 0) {
+        const { data: visData, error: visErr } = await SB
+          .from('user_visibility_settings')
+          .upsert(visRows, { onConflict: 'user_id,item_key' })
+          .select();
+        if (visErr) {
+          console.error('[saveAll] 共有範囲エラー:', visErr);
+          throw new Error('共有範囲: ' + (visErr.message || JSON.stringify(visErr)));
+        }
+        visCount = (visData && visData.length) || visRows.length;
+        console.log('[saveAll] 共有範囲 保存OK:', visCount, '件');
+      }
+    }
+
+    // ② 色設定 + ③ 色変更権限 を upsert で同時保存（同じテーブル）
+    const colorByKey = {};
+    const permByKey  = {};
+    Array.from(document.querySelectorAll('input[data-field="color"]')).forEach(input => {
+      if (!input.disabled) colorByKey[input.dataset.itemKey] = input.value;
+    });
+    Array.from(document.querySelectorAll('input[data-field="permission"]')).forEach(input => {
+      permByKey[input.dataset.itemKey] = input.checked;
+    });
+
+    // ★ 色設定の sync_group 連動：グループ内で1つでも変更されたら、全項目同じ色にする
+    // （色変更時に onColorChange で UI を同期させているが、保存時にもう一度整合性を保証）
+    ITEMS.forEach(it => {
+      if (!it.sync_group) return;
+      // グループ内で colorByKey に値があるものから、最も主項目に近いものを優先
+      const masterKey = SYNC_MASTERS[it.sync_group];
+      const groupItems = ITEMS.filter(x => x.sync_group === it.sync_group);
+      let syncColor = colorByKey[masterKey];
+      if (!syncColor) {
+        // マスタが未定義なら、グループ内で最初に見つかった色を使う
+        for (const g of groupItems) {
+          if (colorByKey[g.item_key]) { syncColor = colorByKey[g.item_key]; break; }
+        }
+      }
+      if (syncColor) {
+        groupItems.forEach(g => { colorByKey[g.item_key] = syncColor; });
+      }
+    });
+    console.log('[saveAll] colorByKey:', Object.keys(colorByKey).length, '件 / permByKey:', Object.keys(permByKey).length, '件');
+
+    // 編集対象になりうるすべての item_key をマージ
+    const allKeys = new Set([...Object.keys(colorByKey), ...Object.keys(permByKey)]);
+    if (allKeys.size > 0) {
+      const colorRows = Array.from(allKeys).map(itemKey => ({
+        user_id:         targetUserId,
+        organization_id: currentOrgId,
+        item_key:        itemKey,
+        color_hex:       colorByKey[itemKey] !== undefined ? colorByKey[itemKey] : (colorData[itemKey] || '#3B82F6'),
+        can_edit_color:  permByKey[itemKey] !== undefined ? permByKey[itemKey]  : (permissionData[itemKey] !== false),
+        updated_at:      nowISO,
+      }));
+      console.log('[saveAll] colorRows サンプル(先頭3件):', colorRows.slice(0, 3));
+      const { data: colorRes, error: colorErr } = await SB
+        .from('user_color_settings')
+        .upsert(colorRows, { onConflict: 'user_id,item_key' })
+        .select();
+      if (colorErr) {
+        console.error('[saveAll] 色設定エラー:', colorErr);
+        throw new Error('色設定: ' + (colorErr.message || JSON.stringify(colorErr)));
+      }
+      colorCount = (colorRes && colorRes.length) || colorRows.length;
+      console.log('[saveAll] 色設定 保存OK:', colorCount, '件');
+    }
+
+    // ④ ステータス色（admin のみ）
+    if (window.__auth.isAdmin()) {
+      const stInputs = Array.from(document.querySelectorAll('input[data-field="status"]'));
+      if (stInputs.length > 0) {
+        const stRows = stInputs.map(input => {
+          const key = input.dataset.statusKey;
+          // 既存ラベルを必ず含める（NOT NULL制約のため）
+          // 1) statusColorData から取得  2) data-status-label-ja  3) status-key を最終フォールバック
+          const labelFromState = (statusColorData[key] && statusColorData[key].label) || null;
+          const labelFromAttr  = input.dataset.statusLabelJa || null;
+          return {
+            organization_id: currentOrgId,
+            status_key:      key,
+            status_label_ja: labelFromState || labelFromAttr || key,
+            color_hex:       input.value,
+            updated_at:      nowISO,
+          };
+        });
+        console.log('[saveAll] stRows サンプル(先頭3件):', stRows.slice(0, 3));
+        const { data: stRes, error: stErr } = await SB
+          .from('org_status_colors')
+          .upsert(stRows, { onConflict: 'organization_id,status_key' })
+          .select();
+        if (stErr) {
+          console.error('[saveAll] ステータス色エラー:', stErr);
+          throw new Error('ステータス色: ' + (stErr.message || JSON.stringify(stErr)));
+        }
+        statusCount = (stRes && stRes.length) || stRows.length;
+        console.log('[saveAll] ステータス色 保存OK:', statusCount, '件');
+      }
+    }
+
+    // ----- 保存成功 -----
+    btn.classList.remove('saving');
+    btn.classList.add('saved');
+    btn.textContent = `✓ 保存完了 (色${colorCount}件)`;
+    const summary = [];
+    if (visCount > 0)    summary.push(`共有範囲 ${visCount}件`);
+    if (colorCount > 0)  summary.push(`色設定 ${colorCount}件`);
+    if (statusCount > 0) summary.push(`ステータス色 ${statusCount}件`);
+    showToast(`✅ 保存成功： ${summary.join(' / ') || '0件'}`);
+    console.log('=== [saveAll] 保存完了 ===', { visCount, colorCount, statusCount });
+
+    await loadTargetUserSettings();
+    render();
+
+    // 4秒後にボタンを元に戻す（ユーザーが視覚確認できる十分な時間）
+    setTimeout(() => {
+      btn.classList.remove('saved');
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }, 4000);
+
+  } catch (e) {
+    console.error('=== [saveAll] 保存失敗 ===', e);
+    btn.classList.remove('saving');
+    btn.classList.add('errored');
+    btn.textContent = '✗ エラー（詳細はトースト）';
+    const msg = (e && e.message) || String(e);
+    showToast('❌ 保存失敗: ' + msg, true);
+    // 念のため alert でも通知（ユーザーが見逃さないため）
+    alert('保存に失敗しました：\n\n' + msg + '\n\n（コンソールに詳細ログがあります）');
+    setTimeout(() => {
+      btn.classList.remove('errored');
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }, 5000);
+  }
+}
+
+// ============================================
+// リセット（admin のみ）
+// ============================================
+async function resetToDefaults() {
+  if (!window.__auth.isAdmin()) return;
+  if (!confirm('対象ユーザーの設定をデフォルトに戻します。\n・全54項目 共有OK\n・全項目 色 = #3B82F6\n・全項目 色変更可\n\n実行しますか？')) return;
+
+  try {
+    const nowISO = new Date().toISOString();
+    await SB.from('user_visibility_settings')
+      .update({ is_visible: true, updated_at: nowISO })
+      .eq('user_id', targetUserId);
+    await SB.from('user_color_settings')
+      .update({ color_hex: '#3B82F6', can_edit_color: true, updated_at: nowISO })
+      .eq('user_id', targetUserId);
+
+    await loadTargetUserSettings();
+    render();
+    showToast('✅ デフォルトに戻しました');
+  } catch (e) {
+    showToast('リセット失敗: ' + e.message, true);
+  }
+}
+
+// ============================================
+// ユーティリティ
+// ============================================
+function showToast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.toggle('error', !!isError);
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// グローバル公開（onclick用）
+window.switchTab           = switchTab;
+window.onTargetUserChange  = onTargetUserChange;
+window.onCtrlUserChange    = onCtrlUserChange;
+window.toggleCategory      = toggleCategory;
+window.onColorChange       = onColorChange;
+window.onVisibilityChange  = onVisibilityChange;
+window.onStatusColorChange = onStatusColorChange;
+window.saveAll             = saveAll;
+window.resetToDefaults     = resetToDefaults;
+window.setFilter           = setFilter;
+window.applyFilter         = applyFilter;
+</script>
+
+<!-- ===== CNT (Carbon Nanotube) 3D 構造体レンダリング ===== -->
+<script>
+(function initCNTBackground() {
+  const svg = document.getElementById('cnt-bg');
+  const grp = document.getElementById('cnt-group');
+  if (!svg || !grp) return;
+
+  const SQRT3 = Math.sqrt(3);
+  const N_CIRC   = 16;
+  const CIRC     = N_CIRC * SQRT3;
+  const R        = CIRC / (2 * Math.PI);
+  const NUM_ROWS = 2;
+  const Y_OFFSET = -1.25;
+
+  // ---- 原子座標生成（zigzag CNT (16,0) のハニカム展開）----
+  const atoms = [];
+  for (let j = -NUM_ROWS; j <= NUM_ROWS; j++) {
+    for (let i = 0; i < N_CIRC; i++) {
+      const uA = i * SQRT3;
+      const thA = uA / R;
+      atoms.push([R * Math.cos(thA), j * 3 + Y_OFFSET, R * Math.sin(thA)]);
+      atoms.push([R * Math.cos(thA), j * 3 + 1 + Y_OFFSET, R * Math.sin(thA)]);
+      const uC = (i + 0.5) * SQRT3;
+      const thC = uC / R;
+      atoms.push([R * Math.cos(thC), j * 3 + 1.5 + Y_OFFSET, R * Math.sin(thC)]);
+      atoms.push([R * Math.cos(thC), j * 3 + 2.5 + Y_OFFSET, R * Math.sin(thC)]);
+    }
+  }
+
+  // ---- C-C 結合検出 ----
+  const bonds = [];
+  for (let i = 0; i < atoms.length; i++) {
+    for (let j = i + 1; j < atoms.length; j++) {
+      const d = Math.hypot(
+        atoms[i][0] - atoms[j][0],
+        atoms[i][1] - atoms[j][1],
+        atoms[i][2] - atoms[j][2]
+      );
+      if (d > 0.85 && d < 1.15) bonds.push([i, j]);
+    }
+  }
+  console.log(`[CNT-BG] atoms=${atoms.length}, bonds=${bonds.length}`);
+
+  // ---- SVG要素生成（軽量1層レンダリング: コアのみ・フィルター無し）----
+  const ns = 'http://www.w3.org/2000/svg';
+
+  const bondCores = bonds.map(() => {
+    const l = document.createElementNS(ns, 'line');
+    l.setAttribute('stroke', 'url(#bond-grad)');
+    l.setAttribute('stroke-width', '0.04');
+    l.setAttribute('stroke-linecap', 'round');
+    grp.appendChild(l);
+    return l;
+  });
+
+  const atomCores = atoms.map(() => {
+    const c = document.createElementNS(ns, 'circle');
+    c.setAttribute('r', '0.18');
+    c.setAttribute('fill', 'url(#atom-near)');
+    grp.appendChild(c);
+    return c;
+  });
+
+  // ---- アニメーション ----
+  // angY:    円筒中心線まわりの自転（既存）
+  // angRoll: 画面平面内（XY平面）での公転 = 中心線の傾きが時計回りに回転（新規）
+  let angY     = 0.3;
+  let angRoll  = 0;
+  let lastT = performance.now();
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const CAM_DIST = 9.0;
+  const FOCAL    = 6.5;
+
+  function frame(t) {
+    const dt = Math.min((t - lastT) / 1000, 0.1);
+    lastT = t;
+    if (!reduced) {
+      angY    += dt * 0.15;   // 自転（前回の半分）
+      angRoll += dt * 0.05;   // 公転（時計回り、前回の半分）
+    }
+    const tilt = 0.18;
+    const cosY = Math.cos(angY), sinY = Math.sin(angY);
+    const cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+
+    // 投影：Y軸自転 + 軽いX軸チルト → 透視投影
+    // 公転（画面平面内回転）は SVG g 要素の transform で GPU加速で実装
+    function project(p) {
+      const x = p[0], y = p[1], z = p[2];
+      const x1 = x * cosY + z * sinY;
+      const z1 = -x * sinY + z * cosY;
+      const y2 = y * cosT - z1 * sinT;
+      const z2 = y * sinT + z1 * cosT;
+      const persp = FOCAL / Math.max(2.0, CAM_DIST - z2);
+      return [x1 * persp, y2 * persp, z2];
+    }
+
+    const proj = atoms.map(project);
+
+    // 結合線（属性更新は最小限・toFixed(2)で文字列短縮）
+    for (let k = 0; k < bonds.length; k++) {
+      const a = proj[bonds[k][0]];
+      const b = proj[bonds[k][1]];
+      const ln = bondCores[k];
+      ln.setAttribute('x1', a[0].toFixed(2));
+      ln.setAttribute('y1', a[1].toFixed(2));
+      ln.setAttribute('x2', b[0].toFixed(2));
+      ln.setAttribute('y2', b[1].toFixed(2));
+      const depth = (a[2] + b[2]) * 0.05 + 0.5; // 深度: 0=遠 / 1=近
+      const d = depth < 0 ? 0 : (depth > 1 ? 1 : depth);
+      ln.setAttribute('stroke-opacity', (0.15 + d * 0.55).toFixed(2));
+    }
+
+    // 原子（toFixed(2) + r 計算簡略化）
+    for (let i = 0; i < atoms.length; i++) {
+      const p = proj[i];
+      const c = atomCores[i];
+      c.setAttribute('cx', p[0].toFixed(2));
+      c.setAttribute('cy', p[1].toFixed(2));
+      const depth = p[2] * 0.1 + 0.5;
+      const d = depth < 0 ? 0 : (depth > 1 ? 1 : depth);
+      c.setAttribute('r', (0.08 + d * 0.14).toFixed(2));
+      c.setAttribute('opacity', (0.30 + d * 0.65).toFixed(2));
+    }
+
+    // 公転: SVG g 要素全体を回転（GPU合成で滑らか）
+    // angRoll は radian → degree 変換、時計回り（正の値）
+    const rollDeg = (angRoll * 180 / Math.PI) % 360;
+    grp.setAttribute('transform', 'rotate(' + rollDeg.toFixed(2) + ')');
+
+    if (!reduced) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
