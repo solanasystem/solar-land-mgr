@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260802b / 🌾筆ポリゴン(AgriFude)の表示開始ズームを12→15に戻す(_doRenderAgriFudeのしきい値1行のみ)。z12は視野が広くget_fude_in_bboxの約1000件上限で南に偏り全面表示できないため、実用上z15を採用。v20260802aの面積表示(turf.area)・Canvas描画は維持。他レイヤ/他マップ/他機能・データ取得は無変更。前:v20260802a -->
 <!-- BUILD: farmland-tracker v20260802a / 🌾筆ポリゴン(AgriFude)を3点変更。(1)クリックポップアップに「面積」行を追加(turf.area()でGeoJSON面積㎡を算出・土地種別の下に1行・算出不可時は非表示)。(2)表示開始ズームを15→12に緩和(_doRenderAgriFudeのしきい値1行)。(3)描画をSVG既定→専用Canvas(agriFudeCanvas=L.canvas)に変更し低ズームの多数ポリゴン描画を高速化(他レイヤと同方式)。※z12はget_fude_in_bboxのrow_limit=2000上限のため一部のみ表示。変更は_fetchAndRenderAgriFude(canvas生成1行＋renderer指定1行＋onEachFeature面積2行＋行1挿入)/_doRenderAgriFudeの1行/agriFudeCanvas宣言1行のみ。他レイヤ/他マップ/他機能・データ取得は無変更。前:v20260801d -->
 <!-- BUILD: farmland-tracker v20260801d / 誤って追加した📌ピック地レイヤ(hzPicks/togglePicks/_loadPicks/_renderPicks/凡例/partner行)を全削除し、連系除外のみのv20260801a相当に戻す。案件候補の赤マーカーの色変更はcase-candidates-recorder.js側で対応。既存の衛星verdict/開拓候補/連系除外/他レイヤ/他マップは無変更。前:v20260801a -->
 <!-- BUILD: farmland-tracker v20260801a / 🎯開拓候補レイヤに連系(grid_status)フィルタを追加。grid_status='ng'(建物300m超かつ配電線100m超＝山奥・連系不能)を候補から自動除外。pass/未判定(unknown/null)は表示維持。変更4点=_loadCandidatesのCOLSにgrid_status追加/candCacheフィルタにgrid_status!=='ng'追加/凡例に注記1行/ポップアップに連系行。他レイヤ(衛星verdict/ハザード/農振/空容量)・他マップ(landowner/field-survey)・他機能は無変更。開拓候補はtracker固有につき3マップ同期不要。連系判定はfarmland_snapshots.grid_status(SQL UPDATE済:五條/大淀の距離計算済10,945件のみpass5,223/ng5,722・NULL13万はunknown保留)。前:v20260731b -->
@@ -1711,7 +1712,7 @@ function renderAgriFudeInView() {
 }
 function _doRenderAgriFude() {
   if (!agriFudeEnabled) return;
-  if (map.getZoom() < 12) {
+  if (map.getZoom() < 15) {
     if (agriFudeLayer) { map.removeLayer(agriFudeLayer); agriFudeLayer = null; }
     return;
   }
