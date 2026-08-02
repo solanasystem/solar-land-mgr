@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260802j / 🛡️除外筆の「復活」不具合を根治。原因は_fetchAllPagedのRangeページングが①ORDER BY未指定で境界の行が飛ぶ②30ページ(30,000行)で黙って頭打ち——の二重欠陥。母集団70,727件やNGリスト(16,000件超・増加中)が取りこぼされ、除外済み筆がngSetから漏れて候補に復活していた。対策:_fetchAllPagedにorder列引数を追加しfeature_id昇順で安定化、上限を1000ページ(100万行)へ拡大し到達時warn。除外/候補に関わる全読込(候補ローダのsnapshots×2/farmland_ng_list/promoted/status、loadNgList、近傍NG用snapshots×2、status)にfeature_id順を付与。手動除外(manual_rect等約4,120件)もこれで恒久的に非表示。判定ロジック・DB書込は無変更。前:v20260802i -->
 <!-- BUILD: farmland-tracker v20260802i / 🎯開拓候補に接道フィルタを反映。infra_status='FAIL'(接道なし=最寄り道路30m超)を候補から自動除外(grid_status='ng'除外と同方式)。_loadCandidatesのCOLSにinfra_status追加/candCacheに`infra_status!=='FAIL'`追加/ポップアップに接道行(PASS=接道あり幅員3m+/PENDING=幅員3m未満2.5m要確認/FAIL=接道なし)。接道判定は国土数値情報N13道路(幅員)によるbatch_road_filter結果。他レイヤ/他機能は無変更。前:v20260802h -->
 <!-- BUILD: farmland-tracker v20260802h / 🛰衛星verdictフラグのクリックで情報が出ない不具合を修正。原因=v20260802dでピン(pPins610)・筆(450)・候補(640)を上位paneへ移した結果、overlayPane(400)の衛星マーカーがそれらに覆われクリックを奪われていた。対策=衛星マーカー/ポリゴンを専用pane'pSat'(zIndex648=候補640・ピン610より上/tooltip650より下)へ描画(circleMarker/geoJSONにpane指定＋pane生成)。ポップアップ内容は無変更で正常表示に復帰。前:v20260802g -->
 <!-- BUILD: farmland-tracker v20260802g / 🎯開拓候補に「連系未判定(グレー)を隠す」トグルを追加。凡例内ボタンで candHidePending を切替→_renderCandidatesが _candUse().key==='pending'(連系未判定)の筆を描画スキップ。非破壊(データ削除なし・再表示可)で分類済み(☀太陽光/🔋蓄電池)のみ表示=画面をすっきり。候補母集団/NG判定/他機能・データ取得は無変更。前:v20260802f -->
@@ -2532,7 +2533,7 @@ function _addCadEditorControl(){
 // === NG\u4e00\u89a7\u3092\u8d77\u52d5\u6642\u306b\u53d6\u5f97 ===
 async function loadNgList(){
   try{
-    var res=await _fetchAllPaged(function(){return db.from('farmland_ng_list').select('feature_id');});
+    var res=await _fetchAllPaged(function(){return db.from('farmland_ng_list').select('feature_id');},'feature_id');
     if(res.error){console.warn('NG list load error:',res.error);return;}
     ngFeatureIds={};
     (res.data||[]).forEach(function(d){ngFeatureIds[d.feature_id]=true;});
@@ -2852,7 +2853,7 @@ async function runAutoNgJudgment(){
     if(!dateRes.data||!dateRes.data.length){throw new Error('\u30b9\u30ca\u30c3\u30d7\u30b7\u30e7\u30c3\u30c8\u304c\u3042\u308a\u307e\u305b\u3093');}
     var latestDate=dateRes.data[0].snapshot_date;
     // Supabase max-rows=1000 制限を回避するため _fetchAllPaged を使用
-    var fRes=await _fetchAllPaged(function(){return db.from('farmland_snapshots').select('feature_id,lat,lng').eq('snapshot_date',latestDate);});
+    var fRes=await _fetchAllPaged(function(){return db.from('farmland_snapshots').select('feature_id,lat,lng').eq('snapshot_date',latestDate);},'feature_id');
     if(fRes.error){throw new Error('\u8fb2\u5730\u53d6\u5f97\u5931\u6557: '+fRes.error.message);}
     var farmlands=(fRes.data||[]).filter(function(f){return f.lat&&f.lng;});
     // 県別にグルーピング
@@ -3044,7 +3045,7 @@ async function runCaseMasterSync(){
     var dateRes=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1);
     if(!dateRes.data||!dateRes.data.length)throw new Error('\u30b9\u30ca\u30c3\u30d7\u30b7\u30e7\u30c3\u30c8\u304c\u3042\u308a\u307e\u305b\u3093');
     var latestDate=dateRes.data[0].snapshot_date;
-    var fRes=await _fetchAllPaged(function(){return db.from('farmland_snapshots').select('feature_id,lat,lng,address').eq('snapshot_date',latestDate);});
+    var fRes=await _fetchAllPaged(function(){return db.from('farmland_snapshots').select('feature_id,lat,lng,address').eq('snapshot_date',latestDate);},'feature_id');
     if(fRes.error)throw new Error('\u8fb2\u5730\u53d6\u5f97\u5931\u6557: '+fRes.error.message);
     var farmlands=(fRes.data||[]).filter(function(f){return f.lat&&f.lng;});
     document.getElementById('loadingText').textContent='\u7167\u5408\u4e2d (0/'+cases.length+')...';
@@ -3081,7 +3082,7 @@ async function runCaseMasterSync(){
       }
     }
     document.getElementById('loadingText').textContent='\u30b9\u30c6\u30fc\u30bf\u30b9\u3092\u66f4\u65b0\u4e2d...';
-    var statusRes=await _fetchAllPaged(function(){return db.from('farmland_status').select('feature_id,status');});
+    var statusRes=await _fetchAllPaged(function(){return db.from('farmland_status').select('feature_id,status');},'feature_id');
     var existingStatuses={};
     (statusRes.data||[]).forEach(function(d){existingStatuses[d.feature_id]=d.status;});
     var approachRecords=[];
@@ -3165,7 +3166,8 @@ function showCaseSyncReport(d){
   document.body.appendChild(overlay);
 }
 // === paging fetch helper（Supabase max-rows=1000 制限を回避）===
-async function _fetchAllPaged(buildQuery){var all=[];for(var page=0;page<30;page++){var from=page*1000,to=from+999;var res=await buildQuery().range(from,to);if(res.error)return{data:null,error:res.error};var rows=res.data||[];if(!rows.length)break;all=all.concat(rows);if(rows.length<1000)break;}return{data:all,error:null};}
+/* v20260802j: ①order列を渡せる様にし、Rangeページングを安定化（順序未指定だと境界で行が飛び、除外筆が候補に復活する不具合の根治）。②上限を30→1000ページ(=100万行)に拡大し、母集団70,727件やNGリストが黙って30,000件で頭打ちになる事故を根絶。上限到達時はconsole.warn。 */
+async function _fetchAllPaged(buildQuery,orderCol){var all=[];var MAXP=1000;for(var page=0;page<MAXP;page++){var from=page*1000,to=from+999;var q=buildQuery();if(orderCol)q=q.order(orderCol,{ascending:true});var res=await q.range(from,to);if(res.error)return{data:null,error:res.error};var rows=res.data||[];if(!rows.length)break;all=all.concat(rows);if(rows.length<1000)break;if(page===MAXP-1)console.warn('_fetchAllPaged: '+MAXP+'ページ上限に到達。取りこぼしの可能性あり（orderCol='+(orderCol||'なし')+'）');}return{data:all,error:null};}
 async function loadDates(){var res=await db.rpc('get_snapshot_dates');if(res.error){showToast('DB\u63a5\u7d9a\u30a8\u30e9\u30fc: '+res.error.message,'error');return;}if(!res.data||res.data.length===0){loadDiff();return;}var dates=[];res.data.forEach(function(d){if(d.snapshot_date)dates.push(d.snapshot_date);});dates.sort().reverse();var fe=document.getElementById('dateFrom');fe.innerHTML='<option value="">\u306a\u3057\uff08\u5168\u4ef6\u300c\u65e2\u5b58\u300d\u8868\u793a\uff09</option>';dates.forEach(function(d){fe.innerHTML+='<option value="'+d+'">'+d+' \u4ee5\u964d\u3092\u65b0\u898f\u30cf\u30a4\u30e9\u30a4\u30c8</option>';});loadDiff();}
 async function loadDiff(){
   /* v20260521b: 紫マーカー(変更状況レイヤー)は表示廃止。
@@ -3748,12 +3750,12 @@ async function _loadCandidates(){
     var COLS='feature_id,city,address,lat,lng,area_sqm,intent,price,snapshot_date,source_type,hazard_status,noshin_status,dedup_status,grid_status,infra_status';
     var results=await Promise.all([
       // PBF系含む最新日の全件（pubH_/emaffN_が最新日にあっても下のマージで重複解消）
-      _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS).eq('snapshot_date',latestDate);}),
+      _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS).eq('snapshot_date',latestDate);},'feature_id'),
       // 永続系（pubH_ / emaffN_）は日付問わず全件
-      _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS).or('feature_id.ilike.pubH%,feature_id.ilike.emaffN%');}),
-      _fetchAllPaged(function(){return db.from('farmland_ng_list').select('*');}),
-      _fetchAllPaged(function(){return db.from('farmland_promoted').select('feature_id');}),
-      _fetchAllPaged(function(){return db.from('farmland_status').select('feature_id,status');})
+      _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS).or('feature_id.ilike.pubH%,feature_id.ilike.emaffN%');},'feature_id'),
+      _fetchAllPaged(function(){return db.from('farmland_ng_list').select('*');},'feature_id'),
+      _fetchAllPaged(function(){return db.from('farmland_promoted').select('feature_id');},'feature_id'),
+      _fetchAllPaged(function(){return db.from('farmland_status').select('feature_id,status');},'feature_id')
     ]);
     var combined=(results[0].data||[]).concat(results[1].data||[]);
     var byFid={};
