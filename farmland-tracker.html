@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260802e / 🎯開拓候補フラグを用途別に配色(色相=用途)。☀太陽光=マゼンタ(枠#a21caf/塗#e879f9)、🔋蓄電池=青(#1d4ed8/#60a5fa)、連系未判定=グレー。※日照④・接道⑤が未実装のため暫定分類=連系pass×面積(≥1000㎡→太陽光/未満→蓄電池、連系未判定→保留)。_renderCandidatesの配色＋_candUse()追加＋ポップアップに用途(暫定)行＋凡例を用途別3色に更新。候補母集団/NGフィルタ/他レイヤは無変更。④⑤導入後に精緻化。前:v20260802d -->
 <!-- BUILD: farmland-tracker v20260802d / レイヤ重なり順を根本対処=「後からONにしたレイヤが下を隠す」問題を全レイヤで解消。(1)中央関数enforceZOrder()を新設しmap'layeradd'で自動適用: overlayPane層(森林/土砂/ハザード/農振/用途XKT002/区域XKT001/都市計画道路/TrackB/衛星)を固定順(塗り→線/データ)でbringToFrontし直す→トグル順非依存。(2)ピン(markersLayer circleMarker)を専用pane'pPins'(zIndex610/canvas)へ=筆ポリゴン(450)より上に固定しクリック奪取も防止。筆(450)/開拓候補(640)/別荘(645)/ラベル等は既に専用paneで対象外。既存のbringToFront/Back呼出はenforceZOrderが上書きし無害。他機能・データ取得は無変更。前:v20260802c -->
 <!-- BUILD: farmland-tracker v20260802c / 🌾筆ポリゴンが都市計画区域(XKT001/XKT002)をONにすると隠れる不具合を修正。原因=都市計画区域はbringToFront・筆ポリゴンはbringToBackで最背面のため塗りに覆われていた。対策=筆ポリゴンを専用pane'agriFudePane'(zIndex450=overlayPane/都市計画区域より上・markerPane600より下)に描画(canvas/geoJSONにpane指定)＋bringToBack廃止。ピンは従来通り最前面。面積表示・z15・Canvasは維持。他レイヤ/他マップ/他機能・データ取得は無変更。前:v20260802b -->
 <!-- BUILD: farmland-tracker v20260802b / 🌾筆ポリゴン(AgriFude)の表示開始ズームを12→15に戻す(_doRenderAgriFudeのしきい値1行のみ)。z12は視野が広くget_fude_in_bboxの約1000件上限で南に偏り全面表示できないため、実用上z15を採用。v20260802aの面積表示(turf.area)・Canvas描画は維持。他レイヤ/他マップ/他機能・データ取得は無変更。前:v20260802a -->
@@ -827,8 +828,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
       <span class="hazard-toggle-dot"></span>🎯 開拓候補
     </button>
     <div id="candLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
-      <div style="display:flex;align-items:center;gap:6px;font-size:10px;white-space:nowrap;"><span style="width:11px;height:11px;border-radius:50%;background:#fff;border:3px solid #0891b2;flex-shrink:0;display:inline-block"></span>開拓候補（NG/昇格済 除外）</div>
-      <div style="font-size:9px;color:var(--text-muted);margin-top:3px;line-height:1.3;">⚡連系NG（山奥・連系不能）は非表示<br>※連系未判定の筆は表示</div>
+      <div style="font-size:9.5px;font-weight:700;margin-bottom:3px;">開拓候補 — 用途別（暫定）</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;"><span style="width:11px;height:11px;border-radius:50%;background:#e879f9;border:2px solid #a21caf;flex-shrink:0;display:inline-block"></span>☀ 太陽光候補（連系可×面積≥1000㎡）</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-top:2px;"><span style="width:11px;height:11px;border-radius:50%;background:#60a5fa;border:2px solid #1d4ed8;flex-shrink:0;display:inline-block"></span>🔋 蓄電池候補（連系可×小面積）</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-top:2px;"><span style="width:11px;height:11px;border-radius:50%;background:#cbd5e1;border:2px solid #64748b;flex-shrink:0;display:inline-block"></span>連系未判定（分類保留）</div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:3px;line-height:1.3;">※用途は<b>暫定分類</b>（日照④・接道⑤ 未反映／後日精緻化）<br>⚡連系NG（連系不能）は非表示</div>
     </div>
     <!-- 別荘地候補（villa_candidates、目視判定用） v20260630a -->
     <button class="hazard-toggle-btn" id="hzVilla" onclick="toggleVilla()">
@@ -3761,6 +3765,15 @@ async function _loadCandidates(){
   }
 }
 function _esc(v){return String(v==null?'':v).replace(/[&<>]/g,function(c){return c==='&'?'&amp;':c==='<'?'&lt;':'&gt;';});}
+/* 用途別 暫定分類(v20260802e): 色相=用途。日照④/接道⑤ 未実装のため連系pass×面積で暫定。
+   ☀太陽光=マゼンタ / 🔋蓄電池=青 / 連系未判定=グレー。④⑤導入後に精緻化。 */
+function _candUse(c){
+  var pass=(c.grid_status==='pass');
+  var area=Number(c.area_sqm)||0;
+  if(!pass) return {key:'pending',color:'#64748b',fill:'#cbd5e1',label:'連系未判定（分類保留）'};
+  if(area>=1000) return {key:'solar',color:'#a21caf',fill:'#e879f9',label:'☀ 太陽光候補（暫定）'};
+  return {key:'batt',color:'#1d4ed8',fill:'#60a5fa',label:'🔋 蓄電池候補（暫定）'};
+}
 function _renderCandidates(){
   if(!candEnabled||!candCache)return;
   if(candLayer){map.removeLayer(candLayer);candLayer=null;}
@@ -3771,13 +3784,14 @@ function _renderCandidates(){
   candCache.forEach(function(c){
     var lat=Number(c.lat),lng=Number(c.lng);
     if(isNaN(lat)||isNaN(lng))return;
-    var m=L.circleMarker([lat,lng],{renderer:candRenderer,pane:'candPane',radius:7,color:'#0891b2',weight:3,fillColor:'#ffffff',fillOpacity:1,opacity:1});
+    var u=_candUse(c);
+    var m=L.circleMarker([lat,lng],{renderer:candRenderer,pane:'candPane',radius:7,color:u.color,weight:2,fillColor:u.fill,fillOpacity:0.95,opacity:1});
     m._fid=c.feature_id;
     var area=(c.area_sqm!=null&&c.area_sqm!=='')?(Math.round(Number(c.area_sqm))+'㎡'):'—';
     var gs=(c.grid_status==='pass')?'⚡連系可（建物300m/配電線100m内）':'連系未判定';
     var st=c.status?('<div class="popup-row"><span class="popup-label">ステータス</span><span class="popup-value">'+_esc(c.status)+'</span></div>'):'';
     var exBtn='<button onclick="excludeCandidate(&quot;'+_esc(c.feature_id)+'&quot;)" style="margin-top:10px;width:100%;padding:6px 8px;border:1px solid #B71C1C;background:#3a1414;color:#ff8a80;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">⛔ 候補から除外（NG登録）</button>';
-    m.bindPopup('<div class="popup-body"><div class="popup-case-no" style="color:#0891b2;font-size:13px;margin-bottom:10px">🎯 開拓候補</div><div class="popup-info"><div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">'+_esc(c.city||'—')+'</span></div><div class="popup-row"><span class="popup-label">所在</span><span class="popup-value">'+_esc(c.address||'—')+'</span></div><div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">'+area+'</span></div><div class="popup-row"><span class="popup-label">意向</span><span class="popup-value">'+_esc(c.intent||'—')+'</span></div><div class="popup-row"><span class="popup-label">連系</span><span class="popup-value">'+gs+'</span></div>'+st+'</div>'+exBtn+'</div>',{maxWidth:280,minWidth:220});
+    m.bindPopup('<div class="popup-body"><div class="popup-case-no" style="color:#0891b2;font-size:13px;margin-bottom:10px">🎯 開拓候補</div><div class="popup-info"><div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">'+_esc(c.city||'—')+'</span></div><div class="popup-row"><span class="popup-label">所在</span><span class="popup-value">'+_esc(c.address||'—')+'</span></div><div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">'+area+'</span></div><div class="popup-row"><span class="popup-label">意向</span><span class="popup-value">'+_esc(c.intent||'—')+'</span></div><div class="popup-row"><span class="popup-label">連系</span><span class="popup-value">'+gs+'</span></div><div class="popup-row"><span class="popup-label">用途(暫定)</span><span class="popup-value">'+u.label+'</span></div>'+st+'</div>'+exBtn+'</div>',{maxWidth:280,minWidth:220});
     candLayer.addLayer(m); n++;
   });
   candLayer.addTo(map);
