@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: settings v20260803a / 🛰️管理者用「衛星分析」タブを新設(母集団パイプライン⑤の管理盤)。①〜④全通過候補数/現母集団の分析済・未分析/verdict内訳(耕作放棄強・可能性/不確実/耕作中)/カバレッジ進捗バーを表示。実行エンジンはPC Python(batch_satellite_v4_7_1.py ~55秒/筆)のためブラウザ直起動は不可→PC実行コマンドをワンクリックコピーで橋渡し。絶対条件(対象は①〜④全通過筆のみ)を明示。追加はタブ1個+パネル+JS(loadSatellitePanel/copySatCmd)のみ、既存タブ(共有範囲/色設定/権限/ステータス色)・機能は無改変。DDL不要・既存テーブル(farmland_snapshots/satellite_analysis)のcount照会のみ。 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -701,6 +702,7 @@
       <button type="button" class="tab"            data-tab="colors"      onclick="switchTab('colors')">🎨 色設定</button>
       <button type="button" class="tab admin-only" data-tab="permissions" onclick="switchTab('permissions')" style="display:none;">🔐 色変更権限</button>
       <button type="button" class="tab admin-only" data-tab="status"      onclick="switchTab('status')"      style="display:none;">🏷️ ステータス色</button>
+      <button type="button" class="tab admin-only" data-tab="satellite"   onclick="switchTab('satellite')"   style="display:none;">🛰️ 衛星分析</button>
     </div>
     <div class="ctrl-user" id="ctrlUser">
       <label>編集:</label>
@@ -730,6 +732,11 @@
   <!-- タブ4: ステータス色（admin のみ） -->
   <div class="tab-content" id="tab-status">
     <div id="statusList" class="loading">読込中...</div>
+  </div>
+
+  <!-- タブ5: 衛星分析（admin のみ）- 母集団パイプライン⑤ 耕作放棄判定の管理盤 -->
+  <div class="tab-content" id="tab-satellite">
+    <div id="satellitePanel" class="loading">読込中...</div>
   </div>
 
 </main>
@@ -1187,8 +1194,128 @@ function switchTab(name) {
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   const c = document.getElementById(`tab-${name}`);
   if (c) c.classList.add('active');
+  if (name === 'satellite') { loadSatellitePanel(); return; } // 衛星分析タブは項目フィルタ対象外
   renderCtrlFilters(name);
   applyFilter(name);
+}
+
+// ============================================
+// 衛星分析タブ（母集団パイプライン⑤ 耕作放棄判定の管理盤）
+//   実行エンジンはPC Python(batch_satellite_v4_7_1.py ~55秒/筆)のため、
+//   ここはステータス可視化＋実行コマンド生成の橋渡し。対象は①〜④全通過筆のみ。
+// ============================================
+const SAT_SOURCE_TYPE = 'emaff_solar'; // 現母集団(奈良)。新エリアはsource_typeを変えて運用。
+const SAT_VERDICTS = [
+  { key: 'ABANDONED_STRONG', label: '★★ 耕作放棄・強', color: '#dc2626' },
+  { key: 'ABANDONED_LIKELY', label: '★ 耕作放棄の可能性', color: '#ec4899' },
+  { key: 'UNCERTAIN',        label: '△ 不確実',          color: '#06b6d4' },
+  { key: 'CULTIVATED_LIKELY',label: '○ 耕作中の可能性',   color: '#22c55e' },
+  { key: 'CULTIVATED_STRONG',label: '○○ 耕作中・強',      color: '#15803d' },
+];
+
+async function _satCount(table, apply) {
+  let q = SB.from(table).select('id', { count: 'exact', head: true });
+  if (apply) q = apply(q);
+  const { count, error } = await q;
+  return error ? -1 : (count || 0);
+}
+
+async function loadSatellitePanel() {
+  const el = document.getElementById('satellitePanel');
+  if (!el) return;
+  if (!window.__auth || !window.__auth.isAdmin()) { el.innerHTML = '<div style="padding:20px;color:#dc2626">管理者のみ利用できます。</div>'; return; }
+  el.className = '';
+  el.innerHTML = '<div class="loading" style="padding:24px">衛星分析ステータスを集計中...</div>';
+  try {
+    // ①〜④全通過の候補（絶対条件：この筆だけが衛星分析の対象）
+    const cand = await _satCount('farmland_snapshots', q => q
+      .eq('source_type', SAT_SOURCE_TYPE)
+      .eq('hazard_status', 'CLEAR').eq('noshin_status', 'CLEAR').eq('dedup_status', 'NEW')
+      .neq('grid_status', 'ng').neq('infra_status', 'FAIL'));
+    // 衛星分析 実施済（累計）＋ verdict内訳
+    const analyzedTotal = await _satCount('satellite_analysis');
+    const vc = {};
+    for (const v of SAT_VERDICTS) vc[v.key] = await _satCount('satellite_analysis', q => q.eq('verdict', v.key));
+    const abandoned = (vc.ABANDONED_STRONG || 0) + (vc.ABANDONED_LIKELY || 0);
+    // 現母集団(emaff_solar)側の分析済（feature_idプレフィックス emaff で近似）
+    const analyzedEmaff = await _satCount('satellite_analysis', q => q.ilike('feature_id', 'emaff%'));
+    const pending = Math.max(0, cand - analyzedEmaff);
+    const pct = cand > 0 ? Math.min(100, Math.round(analyzedEmaff / cand * 100)) : 0;
+    const estMin = Math.round(pending * 55 / 60);
+
+    const card = (label, val, color) =>
+      `<div style="flex:1;min-width:140px;background:rgba(127,127,127,0.08);border:1px solid rgba(127,127,127,0.25);border-radius:10px;padding:14px 16px">
+        <div style="font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#8a8a8a;margin-bottom:6px">${label}</div>
+        <div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;color:${color || 'inherit'}">${val.toLocaleString()}</div>
+      </div>`;
+
+    const verdictRows = SAT_VERDICTS.map(v =>
+      `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(127,127,127,0.12)">
+        <span style="width:12px;height:12px;border-radius:50%;background:${v.color};flex-shrink:0;border:1px solid rgba(0,0,0,.35)"></span>
+        <span style="flex:1">${v.label}</span>
+        <span style="font-weight:700;font-variant-numeric:tabular-nums">${(vc[v.key] || 0).toLocaleString()}</span>
+      </div>`).join('');
+
+    const cmd = 'cd D:\\solar-land-mgr\\satellite\npython batch_satellite_v4_7_1.py';
+
+    el.innerHTML = `
+      <div style="max-width:920px">
+        <div style="background:rgba(37,99,235,0.10);border:1px solid rgba(37,99,235,0.35);border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;line-height:1.6">
+          🛰️ <b>衛星分析（耕作放棄判定 v4.7.1）</b>は母集団パイプラインの<b>最終工程⑤</b>です。
+          <b>①農振②ハザード③連系④接道を全通過した筆のみ</b>が対象（＝非通過は対象外）。重い処理（約55秒/筆）のため必ず事前フィルタで母数を絞ってから実行します。
+        </div>
+
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+          ${card('①〜④通過 候補', cand, '#2563eb')}
+          ${card('分析済（現母集団）', analyzedEmaff)}
+          ${card('未分析（要実行）', pending, pending > 0 ? '#d97706' : '#16a34a')}
+          ${card('耕作放棄（強+可能性）', abandoned, '#dc2626')}
+        </div>
+
+        <div style="margin-bottom:6px;font-size:12px;color:#8a8a8a;display:flex;justify-content:space-between">
+          <span>現母集団の分析カバレッジ</span><span>${pct}%（${analyzedEmaff.toLocaleString()} / ${cand.toLocaleString()}）</span>
+        </div>
+        <div style="height:12px;border-radius:6px;background:rgba(127,127,127,0.2);overflow:hidden;margin-bottom:20px">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#2563eb,#22c55e)"></div>
+        </div>
+
+        <div style="display:flex;gap:24px;flex-wrap:wrap">
+          <div style="flex:1;min-width:280px">
+            <div style="font-weight:700;margin-bottom:8px">判定内訳（累計 ${analyzedTotal.toLocaleString()}件）</div>
+            ${verdictRows}
+          </div>
+          <div style="flex:1;min-width:280px">
+            <div style="font-weight:700;margin-bottom:8px">実行（PC）</div>
+            <div style="font-size:12px;color:#8a8a8a;margin-bottom:8px;line-height:1.6">
+              解析エンジンはPC上のPythonバッチです（ブラウザからは起動できません）。下記コマンドをPCで実行し、対話プロンプトで<b>範囲=奈良／モード=未分析のみ</b>を選択してください。未分析 ${pending.toLocaleString()}件で概算 <b>約${estMin.toLocaleString()}分</b>。
+            </div>
+            <pre id="satCmd" style="background:#0b0f14;color:#d1fae5;border:1px solid rgba(127,127,127,0.3);border-radius:8px;padding:12px;font-size:12px;white-space:pre-wrap;word-break:break-all;margin:0 0 8px">${cmd}</pre>
+            <div style="display:flex;gap:8px">
+              <button type="button" class="btn btn-primary" onclick="copySatCmd()">📋 コマンドをコピー</button>
+              <button type="button" class="btn" onclick="loadSatellitePanel()">🔄 更新</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:18px;font-size:11px;color:#8a8a8a;line-height:1.6">
+          ※ 対象母集団: <code>source_type='${SAT_SOURCE_TYPE}'</code>。新エリアは母集団のsource_typeに合わせて運用。<br>
+          ※ 「分析済（現母集団）」は feature_id プレフィックス <code>emaff</code> による近似。厳密な突合はバッチ側VIEW（未分析筆のみ抽出）で担保されます。
+        </div>
+      </div>`;
+  } catch (e) {
+    el.innerHTML = '<div style="padding:20px;color:#dc2626">集計に失敗しました: ' + escapeHtml(e.message || String(e)) + '</div>';
+  }
+}
+
+function copySatCmd() {
+  const t = (document.getElementById('satCmd') || {}).textContent || '';
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).then(() => showToast('コマンドをコピーしました')).catch(() => showToast('コピー失敗', true));
+  } else {
+    const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); showToast('コマンドをコピーしました'); } catch (_) { showToast('コピー失敗', true); }
+    document.body.removeChild(ta);
+  }
 }
 
 async function onTargetUserChange() {
