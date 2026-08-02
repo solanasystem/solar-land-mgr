@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260802f / 🤖AI自動判定(runAutoNgJudgment)に土砂災害3種を追加。従来の農振＋浸水/内水/高潮/津波に加え、土石流(dosekiryu)/急傾斜(kyukeisha)/地すべり(jisuberi)のGSIタイル(DOSYA_TILE_URLS全国版)を_isInHazardTileで判定→該当はauto_hazard_dosekiryu/kyukeisha/jisuberiでfarmland_ng_listにupsert。_judgeOneFarmlandに3分岐＋breakdown/結果メッセージ/確認ダイアログに土砂反映。判定パラメータ(zoom15/閾値50%)・他機能は無変更。※既存のNG登録は再判定時に土砂分が追加される。前:v20260802e -->
 <!-- BUILD: farmland-tracker v20260802e / 🎯開拓候補フラグを用途別に配色(色相=用途)。☀太陽光=マゼンタ(枠#a21caf/塗#e879f9)、🔋蓄電池=青(#1d4ed8/#60a5fa)、連系未判定=グレー。※日照④・接道⑤が未実装のため暫定分類=連系pass×面積(≥1000㎡→太陽光/未満→蓄電池、連系未判定→保留)。_renderCandidatesの配色＋_candUse()追加＋ポップアップに用途(暫定)行＋凡例を用途別3色に更新。候補母集団/NGフィルタ/他レイヤは無変更。④⑤導入後に精緻化。前:v20260802d -->
 <!-- BUILD: farmland-tracker v20260802d / レイヤ重なり順を根本対処=「後からONにしたレイヤが下を隠す」問題を全レイヤで解消。(1)中央関数enforceZOrder()を新設しmap'layeradd'で自動適用: overlayPane層(森林/土砂/ハザード/農振/用途XKT002/区域XKT001/都市計画道路/TrackB/衛星)を固定順(塗り→線/データ)でbringToFrontし直す→トグル順非依存。(2)ピン(markersLayer circleMarker)を専用pane'pPins'(zIndex610/canvas)へ=筆ポリゴン(450)より上に固定しクリック奪取も防止。筆(450)/開拓候補(640)/別荘(645)/ラベル等は既に専用paneで対象外。既存のbringToFront/Back呼出はenforceZOrderが上書きし無害。他機能・データ取得は無変更。前:v20260802c -->
 <!-- BUILD: farmland-tracker v20260802c / 🌾筆ポリゴンが都市計画区域(XKT001/XKT002)をONにすると隠れる不具合を修正。原因=都市計画区域はbringToFront・筆ポリゴンはbringToBackで最背面のため塗りに覆われていた。対策=筆ポリゴンを専用pane'agriFudePane'(zIndex450=overlayPane/都市計画区域より上・markerPane600より下)に描画(canvas/geoJSONにpane指定)＋bringToBack廃止。ピンは従来通り最前面。面積表示・z15・Canvasは維持。他レイヤ/他マップ/他機能・データ取得は無変更。前:v20260802b -->
@@ -2840,7 +2841,7 @@ function _detectNoshinPrefForPoint(lat,lng){
 }
 async function runAutoNgJudgment(){
   if(typeof turf==='undefined'){showToast('Turf.js\u672a\u8aad\u307f\u8fbc\u307f\u3002\u30da\u30fc\u30b8\u3092\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044','error');return;}
-  if(!confirm('\u8fb2\u632f\u8fb2\u7528\u5730 + \u30cf\u30b6\u30fc\u30c9\uff08\u6d78\u6c34/\u5185\u6c34/\u9ad8\u6f6e/\u6d25\u6ce2\uff09\u306b\u8a72\u5f53\u3059\u308b\u8fb2\u5730\u3092\u81ea\u52d5NG\u5224\u5b9a\u3057\u307e\u3059\u3002\n\u8fb2\u632f: \u5168\u56fd10\u770c\u5bfe\u5fdc\u3001\u5883\u754c\u304b\u3089'+AUTO_NG_BUFFER_METERS+'m\u4ee5\u4e0a\u5185\u5074\n\u30cf\u30b6\u30fc\u30c9: \u8fb2\u5730\u5468\u8fba7\u00d77px\u306e'+(AUTO_NG_HAZARD_THRESHOLD*100)+'%\u4ee5\u4e0a\u304c\u8986\u308f\u308c\u3066\u3044\u308b\u5834\u5408\u306e\u307f\n\u30ae\u30ea\u30ae\u30ea\u306f\u624b\u52d5\u5224\u5b9a\u7528\u306b\u6b8b\u308a\u307e\u3059\u3002\n\n\u26a0\ufe0f \u91cd\u8981: \u516c\u958b\u8fb2\u5730\u30de\u30c3\u30c1\u30f3\u30b0\u7531\u6765\u3067\u5b57\u30ec\u30d9\u30eb\u7cbe\u5ea6\uff08pub_\uff09\u306e\u7269\u4ef6\u306fAI\u5224\u5b9a\u5bfe\u8c61\u5916\u3067\u3059\uff08\u624b\u52d5\u5224\u5b9a\u8981\uff09\u3002\n\u756a\u5730\u7cbe\u5ea6\u306b\u88dc\u6b63\u6e08\u307f\uff08pubH_\uff09\u306e\u7269\u4ef6\u306f\u901a\u5e38\u901a\u308a\u5224\u5b9a\u3055\u308c\u307e\u3059\u3002\n\n\u5b9f\u884c\u3057\u307e\u3059\u304b\uff1f\uff08\u6570\u5206\u304b\u304b\u308a\u307e\u3059\uff09'))return;
+  if(!confirm('\u8fb2\u632f\u8fb2\u7528\u5730 + \u30cf\u30b6\u30fc\u30c9\uff08\u6d78\u6c34/\u5185\u6c34/\u9ad8\u6f6e/\u6d25\u6ce2/\u571f\u7802\uff09\u306b\u8a72\u5f53\u3059\u308b\u8fb2\u5730\u3092\u81ea\u52d5NG\u5224\u5b9a\u3057\u307e\u3059\u3002\n\u8fb2\u632f: \u5168\u56fd10\u770c\u5bfe\u5fdc\u3001\u5883\u754c\u304b\u3089'+AUTO_NG_BUFFER_METERS+'m\u4ee5\u4e0a\u5185\u5074\n\u30cf\u30b6\u30fc\u30c9: \u8fb2\u5730\u5468\u8fba7\u00d77px\u306e'+(AUTO_NG_HAZARD_THRESHOLD*100)+'%\u4ee5\u4e0a\u304c\u8986\u308f\u308c\u3066\u3044\u308b\u5834\u5408\u306e\u307f\n\u30ae\u30ea\u30ae\u30ea\u306f\u624b\u52d5\u5224\u5b9a\u7528\u306b\u6b8b\u308a\u307e\u3059\u3002\n\n\u26a0\ufe0f \u91cd\u8981: \u516c\u958b\u8fb2\u5730\u30de\u30c3\u30c1\u30f3\u30b0\u7531\u6765\u3067\u5b57\u30ec\u30d9\u30eb\u7cbe\u5ea6\uff08pub_\uff09\u306e\u7269\u4ef6\u306fAI\u5224\u5b9a\u5bfe\u8c61\u5916\u3067\u3059\uff08\u624b\u52d5\u5224\u5b9a\u8981\uff09\u3002\n\u756a\u5730\u7cbe\u5ea6\u306b\u88dc\u6b63\u6e08\u307f\uff08pubH_\uff09\u306e\u7269\u4ef6\u306f\u901a\u5e38\u901a\u308a\u5224\u5b9a\u3055\u308c\u307e\u3059\u3002\n\n\u5b9f\u884c\u3057\u307e\u3059\u304b\uff1f\uff08\u6570\u5206\u304b\u304b\u308a\u307e\u3059\uff09'))return;
   showLoading('\u8fb2\u5730\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u4e2d...');
   try{
     var dateRes=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1);
@@ -2934,9 +2935,9 @@ async function runAutoNgJudgment(){
     await loadNgList();
     await loadDiff();
     hideLoading();
-    var breakdown={auto_noshin:0,auto_hazard_flood:0,auto_hazard_inner:0,auto_hazard_tide:0,auto_hazard_tsunami:0};
+    var breakdown={auto_noshin:0,auto_hazard_flood:0,auto_hazard_inner:0,auto_hazard_tide:0,auto_hazard_tsunami:0,auto_hazard_dosekiryu:0,auto_hazard_kyukeisha:0,auto_hazard_jisuberi:0};
     candidates.forEach(function(c){if(breakdown[c.ng_reason]!==undefined)breakdown[c.ng_reason]++;});
-    var msg=candidates.length+'\u4ef6NG\u5224\u5b9a\uff08\u8fb2\u632f:'+breakdown.auto_noshin+' \u6d78\u6c34:'+breakdown.auto_hazard_flood+' \u5185\u6c34:'+breakdown.auto_hazard_inner+' \u9ad8\u6f6e:'+breakdown.auto_hazard_tide+' \u6d25\u6ce2:'+breakdown.auto_hazard_tsunami+'\uff09';
+    var msg=candidates.length+'\u4ef6NG\u5224\u5b9a\uff08\u8fb2\u632f:'+breakdown.auto_noshin+' \u6d78\u6c34:'+breakdown.auto_hazard_flood+' \u5185\u6c34:'+breakdown.auto_hazard_inner+' \u9ad8\u6f6e:'+breakdown.auto_hazard_tide+' \u6d25\u6ce2:'+breakdown.auto_hazard_tsunami+' \u571f\u77f3\u6d41:'+breakdown.auto_hazard_dosekiryu+' \u6025\u50be\u659c:'+breakdown.auto_hazard_kyukeisha+' \u5730\u3059\u3079\u308a:'+breakdown.auto_hazard_jisuberi+'\uff09';
     if(prefSkipped.length>0)msg+=' / \u8fb2\u632f\u30c7\u30fc\u30bf\u53d6\u5f97\u5931\u6557:'+prefSkipped.join(',');
     if(farmlandsOutOfPref.length>0)msg+=' / \u770c\u5916:'+farmlandsOutOfPref.length+'\u4ef6';
     if(stats.pubSkipped>0)msg+=' / \u5b57\u30ec\u30d9\u30eb\u7cbe\u5ea6\u306e\u305f\u3081\u5224\u5b9a\u5916:'+stats.pubSkipped+'\u4ef6\uff08\u624b\u52d5\u5224\u5b9a\u8981\uff09';
@@ -2972,6 +2973,12 @@ async function _judgeOneFarmland(farmland,noshinGeo,candidates,stats){
       ngReason='auto_hazard_tide';
     }else if(await _isInHazardTile(farmland.lat,farmland.lng,HAZARD_URLS.tsunami,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
       ngReason='auto_hazard_tsunami';
+    }else if(await _isInHazardTile(farmland.lat,farmland.lng,DOSYA_TILE_URLS.dosekiryu,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
+      ngReason='auto_hazard_dosekiryu';
+    }else if(await _isInHazardTile(farmland.lat,farmland.lng,DOSYA_TILE_URLS.kyukeisha,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
+      ngReason='auto_hazard_kyukeisha';
+    }else if(await _isInHazardTile(farmland.lat,farmland.lng,DOSYA_TILE_URLS.jisuberi,AUTO_NG_HAZARD_ZOOM,AUTO_NG_HAZARD_THRESHOLD)){
+      ngReason='auto_hazard_jisuberi';
     }
   }
   if(ngReason){
