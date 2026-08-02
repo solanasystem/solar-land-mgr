@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260802g / 🎯開拓候補に「連系未判定(グレー)を隠す」トグルを追加。凡例内ボタンで candHidePending を切替→_renderCandidatesが _candUse().key==='pending'(連系未判定)の筆を描画スキップ。非破壊(データ削除なし・再表示可)で分類済み(☀太陽光/🔋蓄電池)のみ表示=画面をすっきり。候補母集団/NG判定/他機能・データ取得は無変更。前:v20260802f -->
 <!-- BUILD: farmland-tracker v20260802f / 🤖AI自動判定(runAutoNgJudgment)に土砂災害3種を追加。従来の農振＋浸水/内水/高潮/津波に加え、土石流(dosekiryu)/急傾斜(kyukeisha)/地すべり(jisuberi)のGSIタイル(DOSYA_TILE_URLS全国版)を_isInHazardTileで判定→該当はauto_hazard_dosekiryu/kyukeisha/jisuberiでfarmland_ng_listにupsert。_judgeOneFarmlandに3分岐＋breakdown/結果メッセージ/確認ダイアログに土砂反映。判定パラメータ(zoom15/閾値50%)・他機能は無変更。※既存のNG登録は再判定時に土砂分が追加される。前:v20260802e -->
 <!-- BUILD: farmland-tracker v20260802e / 🎯開拓候補フラグを用途別に配色(色相=用途)。☀太陽光=マゼンタ(枠#a21caf/塗#e879f9)、🔋蓄電池=青(#1d4ed8/#60a5fa)、連系未判定=グレー。※日照④・接道⑤が未実装のため暫定分類=連系pass×面積(≥1000㎡→太陽光/未満→蓄電池、連系未判定→保留)。_renderCandidatesの配色＋_candUse()追加＋ポップアップに用途(暫定)行＋凡例を用途別3色に更新。候補母集団/NGフィルタ/他レイヤは無変更。④⑤導入後に精緻化。前:v20260802d -->
 <!-- BUILD: farmland-tracker v20260802d / レイヤ重なり順を根本対処=「後からONにしたレイヤが下を隠す」問題を全レイヤで解消。(1)中央関数enforceZOrder()を新設しmap'layeradd'で自動適用: overlayPane層(森林/土砂/ハザード/農振/用途XKT002/区域XKT001/都市計画道路/TrackB/衛星)を固定順(塗り→線/データ)でbringToFrontし直す→トグル順非依存。(2)ピン(markersLayer circleMarker)を専用pane'pPins'(zIndex610/canvas)へ=筆ポリゴン(450)より上に固定しクリック奪取も防止。筆(450)/開拓候補(640)/別荘(645)/ラベル等は既に専用paneで対象外。既存のbringToFront/Back呼出はenforceZOrderが上書きし無害。他機能・データ取得は無変更。前:v20260802c -->
@@ -834,6 +835,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
       <div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-top:2px;"><span style="width:11px;height:11px;border-radius:50%;background:#60a5fa;border:2px solid #1d4ed8;flex-shrink:0;display:inline-block"></span>🔋 蓄電池候補（連系可×小面積）</div>
       <div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-top:2px;"><span style="width:11px;height:11px;border-radius:50%;background:#cbd5e1;border:2px solid #64748b;flex-shrink:0;display:inline-block"></span>連系未判定（分類保留）</div>
       <div style="font-size:9px;color:var(--text-muted);margin-top:3px;line-height:1.3;">※用途は<b>暫定分類</b>（日照④・接道⑤ 未反映／後日精緻化）<br>⚡連系NG（連系不能）は非表示</div>
+      <button id="btnCandHidePending" onclick="toggleCandHidePending()" style="margin-top:6px;width:100%;padding:5px 6px;border:1px solid var(--border);background:var(--surface3);color:var(--text-muted);border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">🔘 連系未判定(グレー)を隠す</button>
     </div>
     <!-- 別荘地候補（villa_candidates、目視判定用） v20260630a -->
     <button class="hazard-toggle-btn" id="hzVilla" onclick="toggleVilla()">
@@ -3710,7 +3712,7 @@ async function _fetchAndRenderCityPlan() {
 // 母集団：farmland_snapshots(最新日, 全件) ∪ pubH_/emaffN_(全日付) を feature_id で最新優先マージ →
 //         pub_(低精度)除外 → farmland_ng_list 除外 → farmland_promoted(昇格済)除外。
 // ※候補ページが行う「アプローチ済の自動昇格(DB書込)」は副作用のため本トグルでは実施しない（読取専用）。
-var candEnabled=false, candLoading=false, candLayer=null, candCache=null, candRenderer=null;
+var candEnabled=false, candLoading=false, candLayer=null, candCache=null, candRenderer=null, candHidePending=false;
 var subEnabled=false, subLoading=false, subLayer=null, subCache=null, subRenderer=null;
 var measureMode=false, measureLayer=null, measureClickHandler=null;
 // ===== NG地点（座標）近傍判定：過去にNG除外した地点の半径15m以内は feature_id が違っても除外（再表示防止） =====
@@ -3774,6 +3776,12 @@ async function _loadCandidates(){
 function _esc(v){return String(v==null?'':v).replace(/[&<>]/g,function(c){return c==='&'?'&amp;':c==='<'?'&lt;':'&gt;';});}
 /* 用途別 暫定分類(v20260802e): 色相=用途。日照④/接道⑤ 未実装のため連系pass×面積で暫定。
    ☀太陽光=マゼンタ / 🔋蓄電池=青 / 連系未判定=グレー。④⑤導入後に精緻化。 */
+function toggleCandHidePending(){
+  candHidePending=!candHidePending;
+  var b=document.getElementById('btnCandHidePending');
+  if(b){ b.textContent=candHidePending?'⚪ 連系未判定を表示する':'🔘 連系未判定(グレー)を隠す'; b.classList.toggle('active',candHidePending); }
+  if(candEnabled&&candCache)_renderCandidates();
+}
 function _candUse(c){
   var pass=(c.grid_status==='pass');
   var area=Number(c.area_sqm)||0;
@@ -3792,6 +3800,7 @@ function _renderCandidates(){
     var lat=Number(c.lat),lng=Number(c.lng);
     if(isNaN(lat)||isNaN(lng))return;
     var u=_candUse(c);
+    if(candHidePending&&u.key==='pending')return;
     var m=L.circleMarker([lat,lng],{renderer:candRenderer,pane:'candPane',radius:7,color:u.color,weight:2,fillColor:u.fill,fillOpacity:0.95,opacity:1});
     m._fid=c.feature_id;
     var area=(c.area_sqm!=null&&c.area_sqm!=='')?(Math.round(Number(c.area_sqm))+'㎡'):'—';
