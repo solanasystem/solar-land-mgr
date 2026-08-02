@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260802i / 🎯開拓候補に接道フィルタを反映。infra_status='FAIL'(接道なし=最寄り道路30m超)を候補から自動除外(grid_status='ng'除外と同方式)。_loadCandidatesのCOLSにinfra_status追加/candCacheに`infra_status!=='FAIL'`追加/ポップアップに接道行(PASS=接道あり幅員3m+/PENDING=幅員3m未満2.5m要確認/FAIL=接道なし)。接道判定は国土数値情報N13道路(幅員)によるbatch_road_filter結果。他レイヤ/他機能は無変更。前:v20260802h -->
 <!-- BUILD: farmland-tracker v20260802h / 🛰衛星verdictフラグのクリックで情報が出ない不具合を修正。原因=v20260802dでピン(pPins610)・筆(450)・候補(640)を上位paneへ移した結果、overlayPane(400)の衛星マーカーがそれらに覆われクリックを奪われていた。対策=衛星マーカー/ポリゴンを専用pane'pSat'(zIndex648=候補640・ピン610より上/tooltip650より下)へ描画(circleMarker/geoJSONにpane指定＋pane生成)。ポップアップ内容は無変更で正常表示に復帰。前:v20260802g -->
 <!-- BUILD: farmland-tracker v20260802g / 🎯開拓候補に「連系未判定(グレー)を隠す」トグルを追加。凡例内ボタンで candHidePending を切替→_renderCandidatesが _candUse().key==='pending'(連系未判定)の筆を描画スキップ。非破壊(データ削除なし・再表示可)で分類済み(☀太陽光/🔋蓄電池)のみ表示=画面をすっきり。候補母集団/NG判定/他機能・データ取得は無変更。前:v20260802f -->
 <!-- BUILD: farmland-tracker v20260802f / 🤖AI自動判定(runAutoNgJudgment)に土砂災害3種を追加。従来の農振＋浸水/内水/高潮/津波に加え、土石流(dosekiryu)/急傾斜(kyukeisha)/地すべり(jisuberi)のGSIタイル(DOSYA_TILE_URLS全国版)を_isInHazardTileで判定→該当はauto_hazard_dosekiryu/kyukeisha/jisuberiでfarmland_ng_listにupsert。_judgeOneFarmlandに3分岐＋breakdown/結果メッセージ/確認ダイアログに土砂反映。判定パラメータ(zoom15/閾値50%)・他機能は無変更。※既存のNG登録は再判定時に土砂分が追加される。前:v20260802e -->
@@ -3744,7 +3745,7 @@ async function _loadCandidates(){
   try{
     var dRes=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1);
     var latestDate=(dRes.data&&dRes.data[0])?dRes.data[0].snapshot_date:null;
-    var COLS='feature_id,city,address,lat,lng,area_sqm,intent,price,snapshot_date,source_type,hazard_status,noshin_status,dedup_status,grid_status';
+    var COLS='feature_id,city,address,lat,lng,area_sqm,intent,price,snapshot_date,source_type,hazard_status,noshin_status,dedup_status,grid_status,infra_status';
     var results=await Promise.all([
       // PBF系含む最新日の全件（pubH_/emaffN_が最新日にあっても下のマージで重複解消）
       _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS).eq('snapshot_date',latestDate);}),
@@ -3763,7 +3764,7 @@ async function _loadCandidates(){
     _buildNgGrid(results[2].data||[]); // NG地点の座標グリッド（15m近傍除外用）
     var prSet={}; (results[3].data||[]).forEach(function(d){prSet[d.feature_id]=true;});
     var stMap={}; (results[4].data||[]).forEach(function(d){stMap[d.feature_id]=d.status;});
-    candCache=snaps.filter(function(s){return !ngSet[s.feature_id]&&!prSet[s.feature_id]&&s.lat!=null&&s.lng!=null&&!_isNearNg(s.lat,s.lng)&&s.grid_status!=='ng';})
+    candCache=snaps.filter(function(s){return !ngSet[s.feature_id]&&!prSet[s.feature_id]&&s.lat!=null&&s.lng!=null&&!_isNearNg(s.lat,s.lng)&&s.grid_status!=='ng'&&s.infra_status!=='FAIL';})
                    .map(function(s){return Object.assign({},s,{status:stMap[s.feature_id]||null});});
     candLoading=false;
     if(candEnabled)_renderCandidates();
@@ -3806,9 +3807,10 @@ function _renderCandidates(){
     m._fid=c.feature_id;
     var area=(c.area_sqm!=null&&c.area_sqm!=='')?(Math.round(Number(c.area_sqm))+'㎡'):'—';
     var gs=(c.grid_status==='pass')?'⚡連系可（建物300m/配電線100m内）':'連系未判定';
+    var ia={PASS:'✅ 接道あり（幅員3m以上）',PENDING:'接道あり（幅員3m未満・入口2.5m要確認）',FAIL:'❌ 接道なし'}[c.infra_status]||'接道 未判定';
     var st=c.status?('<div class="popup-row"><span class="popup-label">ステータス</span><span class="popup-value">'+_esc(c.status)+'</span></div>'):'';
     var exBtn='<button onclick="excludeCandidate(&quot;'+_esc(c.feature_id)+'&quot;)" style="margin-top:10px;width:100%;padding:6px 8px;border:1px solid #B71C1C;background:#3a1414;color:#ff8a80;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">⛔ 候補から除外（NG登録）</button>';
-    m.bindPopup('<div class="popup-body"><div class="popup-case-no" style="color:#0891b2;font-size:13px;margin-bottom:10px">🎯 開拓候補</div><div class="popup-info"><div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">'+_esc(c.city||'—')+'</span></div><div class="popup-row"><span class="popup-label">所在</span><span class="popup-value">'+_esc(c.address||'—')+'</span></div><div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">'+area+'</span></div><div class="popup-row"><span class="popup-label">意向</span><span class="popup-value">'+_esc(c.intent||'—')+'</span></div><div class="popup-row"><span class="popup-label">連系</span><span class="popup-value">'+gs+'</span></div><div class="popup-row"><span class="popup-label">用途(暫定)</span><span class="popup-value">'+u.label+'</span></div>'+st+'</div>'+exBtn+'</div>',{maxWidth:280,minWidth:220});
+    m.bindPopup('<div class="popup-body"><div class="popup-case-no" style="color:#0891b2;font-size:13px;margin-bottom:10px">🎯 開拓候補</div><div class="popup-info"><div class="popup-row"><span class="popup-label">市区町村</span><span class="popup-value">'+_esc(c.city||'—')+'</span></div><div class="popup-row"><span class="popup-label">所在</span><span class="popup-value">'+_esc(c.address||'—')+'</span></div><div class="popup-row"><span class="popup-label">面積</span><span class="popup-value">'+area+'</span></div><div class="popup-row"><span class="popup-label">意向</span><span class="popup-value">'+_esc(c.intent||'—')+'</span></div><div class="popup-row"><span class="popup-label">連系</span><span class="popup-value">'+gs+'</span></div><div class="popup-row"><span class="popup-label">接道</span><span class="popup-value">'+ia+'</span></div><div class="popup-row"><span class="popup-label">用途(暫定)</span><span class="popup-value">'+u.label+'</span></div>'+st+'</div>'+exBtn+'</div>',{maxWidth:280,minWidth:220});
     candLayer.addLayer(m); n++;
   });
   candLayer.addTo(map);
