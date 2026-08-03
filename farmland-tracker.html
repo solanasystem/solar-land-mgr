@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260803j / 🔢候補数を1つに収束。凡例に「🎯候補 総数 N件（①〜⑤通過・除外反映後）」バッジ(candTotalCount)を常時表示=candCache.length(=クロス集計の合計と一致する唯一の真数)。_loadCandidates確定時＋手動除外(excludeCandidate)＋範囲NG後にライブ更新。従来報告していた「フィルタ通過前の大きい数字」との二重表示による混乱を解消。前:v20260803i -->
 <!-- BUILD: farmland-tracker v20260803i / ☀️⑤日照(遮蔽/影)フィルタを①〜④と同格で統合。farmland_snapshots.shading_status(batch_shading.py=地形DEM＋森林5条＋建物OSMの遮蔽を冬至日影で判定: PASS/PENDING/NG)を候補ローダCOLSに追加し、サーバ絞り込みに`.or('shading_status.is.null,shading_status.neq.NG')`で日影不良NGを除外(NULL=不明は保守的に残す)。候補ポップアップに日照行(☀日照良好/⚠やや影/❌日影不良)追加。全候補14,317判定でNG1,612件を除外→⑥衛星分析の対象が「①〜⑤全通過筆」に自動限定。前:v20260803h -->
 <!-- BUILD: farmland-tracker v20260803h / 🎯クロス集計を「選択駆動・ライブ表示」に変更(栗本さん指示)。従来は未選択でも全候補が地図表示され集計ツールとして本末転倒だった。対策: 集計を開くと選択駆動モードに入り(candCrossFilter=選択の複製)、①セルクリックで即・地図反映(ライブ)②選択ゼロ＝表示ゼロ。ボタンを「✖選択クリア(表示ゼロ)」「🌐全件表示に戻す(クロス解除)」に刷新、▶表示ボタンは廃止(ライブ化で不要)。凡例の解除ボタンも🌐全件表示に戻すへ。読み取りは「選択N区分/表示中M件」。区域による事業性・農地転用難易度の比較という集計本来の意図に合致。前:v20260803g -->
 <!-- BUILD: farmland-tracker v20260803g / ⚡開拓候補の表示を大幅高速化(10分超→数十秒)。原因=候補ローダが「最新日全件64,034＋pubH/emaffN全件102,638=約16.6万行」をorder付き深いオフセットで全ページ取得していた(offset 5万で1ページ7.8秒)。対策=候補=①農振②ハザ③連系④接道 全通過のemaff_solarをサーバ側で直接絞り込み(source_type/hazard/noshin CLEAR・dedup NEW・grid≠ng・infra≠FAIL)し約1.4万行=15ページに削減。pubH/emaffN(eMAFF掲載/公開農地=①〜④未通過・先の未判定703の正体)は本レイヤ対象外に(→クロス集計の未判定行も消える)。ng_list取得も*→feature_id,lat,lngに縮小。マージ/pub_除外の冗長分岐を整理。判定・除外ロジック・他レイヤは無変更。※pubH/emaffN候補が必要なら復元容易。前:v20260803f -->
@@ -843,6 +844,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     </button>
     <div id="candLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
       <div style="font-size:9.5px;font-weight:700;margin-bottom:3px;">開拓候補 — 用途別（暫定）</div>
+      <div style="font-size:11px;font-weight:800;color:#67e8f9;margin-bottom:4px;padding:3px 5px;background:rgba(103,232,249,0.08);border-radius:4px;">🎯 候補 総数 <span id="candTotalCount" style="font-variant-numeric:tabular-nums;">—</span> 件<span style="font-weight:400;color:var(--text-muted);"> （①〜⑤通過・除外反映後）</span></div>
       <div style="display:flex;align-items:center;gap:6px;font-size:10px;"><span style="width:11px;height:11px;border-radius:50%;background:#e879f9;border:2px solid #a21caf;flex-shrink:0;display:inline-block"></span>☀ 太陽光候補（連系可×面積≥1000㎡）</div>
       <div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-top:2px;"><span style="width:11px;height:11px;border-radius:50%;background:#60a5fa;border:2px solid #1d4ed8;flex-shrink:0;display:inline-block"></span>🔋 蓄電池候補（連系可×小面積）</div>
       <div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-top:2px;"><span style="width:11px;height:11px;border-radius:50%;background:#cbd5e1;border:2px solid #64748b;flex-shrink:0;display:inline-block"></span>連系未判定（分類保留）</div>
@@ -3783,6 +3785,7 @@ async function _loadCandidates(){
     var stMap={}; (results[3].data||[]).forEach(function(d){stMap[d.feature_id]=d.status;});
     candCache=snaps.filter(function(s){return !ngSet[s.feature_id]&&!prSet[s.feature_id]&&s.lat!=null&&s.lng!=null&&!_isNearNg(s.lat,s.lng)&&s.grid_status!=='ng'&&s.infra_status!=='FAIL';})
                    .map(function(s){return Object.assign({},s,{status:stMap[s.feature_id]||null});});
+    var _tc=document.getElementById('candTotalCount'); if(_tc)_tc.textContent=candCache.length.toLocaleString(); // 真の候補総数(①〜⑤通過・除外反映後)
     candLoading=false;
     if(candEnabled)_renderCandidates();
   }catch(e){
@@ -3927,6 +3930,7 @@ async function excludeCandidate(fid){
     var res=await db.from('farmland_ng_list').upsert({feature_id:fid,ng_reason:'manual_from_tracker',lat:_c?_c.lat:null,lng:_c?_c.lng:null,updated_at:new Date().toISOString()},{onConflict:'feature_id'});
     if(res.error)throw res.error;
     if(candCache)candCache=candCache.filter(function(c){return c.feature_id!==fid;});
+    var _tc2=document.getElementById('candTotalCount');if(_tc2&&candCache)_tc2.textContent=candCache.length.toLocaleString();
     if(candLayer){candLayer.eachLayer(function(l){if(l._fid===fid)candLayer.removeLayer(l);});}
     map.closePopup();
     showToast('候補をNG除外しました（farmland_ng_list登録）','success');
@@ -6634,6 +6638,7 @@ window.toggleEdgePanel = function(id){
     // 開拓候補レイヤーからもNG分を即時除去（既存レイヤーから該当マーカーのみ削除＝canvas作り直しを避け連続NGでも安定）
     if(nCand>0&&typeof candEnabled!=='undefined'&&candEnabled&&typeof candCache!=='undefined'&&candCache){
       candCache=candCache.filter(function(c){return !(typeof ngFeatureIds!=='undefined'&&ngFeatureIds[c.feature_id]);});
+      var _tc3=document.getElementById('candTotalCount');if(_tc3)_tc3.textContent=candCache.length.toLocaleString();
       if(candLayer)candLayer.eachLayer(function(l){if(typeof ngFeatureIds!=='undefined'&&ngFeatureIds[l._fid])candLayer.removeLayer(l);});
     }
     // モード継続（連続して範囲NG可能）。ESC または ボタン再押下で終了。
