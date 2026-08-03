@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260803g / ⚡開拓候補の表示を大幅高速化(10分超→数十秒)。原因=候補ローダが「最新日全件64,034＋pubH/emaffN全件102,638=約16.6万行」をorder付き深いオフセットで全ページ取得していた(offset 5万で1ページ7.8秒)。対策=候補=①農振②ハザ③連系④接道 全通過のemaff_solarをサーバ側で直接絞り込み(source_type/hazard/noshin CLEAR・dedup NEW・grid≠ng・infra≠FAIL)し約1.4万行=15ページに削減。pubH/emaffN(eMAFF掲載/公開農地=①〜④未通過・先の未判定703の正体)は本レイヤ対象外に(→クロス集計の未判定行も消える)。ng_list取得も*→feature_id,lat,lngに縮小。マージ/pub_除外の冗長分岐を整理。判定・除外ロジック・他レイヤは無変更。※pubH/emaffN候補が必要なら復元容易。前:v20260803f -->
 <!-- BUILD: farmland-tracker v20260803f / 🧹クロス集計の「有望帯」事前強調(市街化調整区域×800-2000㎡=776/474セルのシアン網掛け)を廃止(栗本さん指示B)。選択色と紛らわしいため。セル描画のhi分岐/data-hi/_ctCellStyleのhi復元/注記の「強調セル=…有望帯」行を削除。以後セルは素表示で、クリック選択時のみシアンハイライト＝選択状態が明確に。他機能は無変更。前:v20260803e -->
 <!-- BUILD: farmland-tracker v20260803e / 🔢クロス集計のフィードバック強化。(1)選択中セルの合計件数をライブ表示: セルにdata-cnt付与→_ctRecalcTotalが選択セルのdata-cnt合計を集計し、集計表下部の読み取り「選択N区分 / 表示予定M件」＋「▶選択セルを表示(M件)」ボタンに即時反映(トグルの都度更新)。(2)実表示件数の常時可視化: _renderCandidatesがクロス絞り込み中の実描画件数nを_appliedCrossCountに保存し凡例の解除ボタンを「✖クロス絞り込み解除(表示中 n件)」に更新→地図に何件出ているか一目で判る。表示中トーストも「n件を地図に表示中」に。非破壊・表示のみ。前:v20260803d -->
 <!-- BUILD: farmland-tracker v20260803d / 🔎クロス集計セルをドリルダウン絞り込み化。集計表の各数値セル(件数>0)をクリックでトグル選択(複数可・青ハイライト)→「▶ 選択セルを表示」で該当区分(市街化調整×面積帯)の筆だけ地図表示、「✖ 全解除(全体に戻す)」で解除。凡例にも絞り込み中に出る解除ボタン(btnCandCrossClear)を追加。実装: candCrossFilter{zoneGroup_bucketIdx:true}を_renderCandidatesの描画スキップ条件に追加/_candZoneGroup(control/other/null)・_areaBucketIdxでセル対応付け/_ctToggle/_ctApply/_ctClear/_updateCrossClearBtn。再オープン時は現在の絞り込みを選択状態として復元。非破壊・表示のみ。前:v20260803c -->
@@ -3755,30 +3756,28 @@ async function _loadCandidates(){
   candLoading=true;
   showToast('開拓候補を読み込み中...','success');
   try{
-    var dRes=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1);
-    var latestDate=(dRes.data&&dRes.data[0])?dRes.data[0].snapshot_date:null;
     var COLS='feature_id,city,address,lat,lng,area_sqm,intent,price,snapshot_date,source_type,hazard_status,noshin_status,dedup_status,grid_status,infra_status,city_planning_zone';
+    // v20260803g: 高速化。開拓候補=①〜④通過のemaff_solarに限定しサーバ側で絞り込む。
+    //   従来は「最新日全件64k＋pubH/emaffN全件102k=約16.6万行」を深いオフセットで取得→表示まで10分超。
+    //   これを候補条件でサーバ絞り込み(約1.4万行=15ページ)に変更。pubH/emaffN(eMAFF掲載/公開農地=①〜④未通過)は本レイヤ対象外。
     var results=await Promise.all([
-      // PBF系含む最新日の全件（pubH_/emaffN_が最新日にあっても下のマージで重複解消）
-      _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS).eq('snapshot_date',latestDate);},'feature_id'),
-      // 永続系（pubH_ / emaffN_）は日付問わず全件
-      _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS).or('feature_id.ilike.pubH%,feature_id.ilike.emaffN%');},'feature_id'),
-      _fetchAllPaged(function(){return db.from('farmland_ng_list').select('*');},'feature_id'),
+      _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS)
+        .eq('source_type','emaff_solar').eq('hazard_status','CLEAR').eq('noshin_status','CLEAR').eq('dedup_status','NEW')
+        .neq('grid_status','ng').neq('infra_status','FAIL');},'feature_id'),
+      _fetchAllPaged(function(){return db.from('farmland_ng_list').select('feature_id,lat,lng');},'feature_id'),
       _fetchAllPaged(function(){return db.from('farmland_promoted').select('feature_id');},'feature_id'),
       _fetchAllPaged(function(){return db.from('farmland_status').select('feature_id,status');},'feature_id')
     ]);
     // v20260803a: 巨大取得が途中失敗しても無言で「候補ゼロ」にせず、明示エラーで気付ける様にする
-    var _cErr=(results[0]&&results[0].error)||(results[1]&&results[1].error)||(results[2]&&results[2].error);
+    var _cErr=(results[0]&&results[0].error)||(results[1]&&results[1].error);
     if(_cErr)throw new Error('候補データ取得に失敗しました。少し待って再読込してください（'+(_cErr.message||_cErr)+'）');
-    var combined=(results[0].data||[]).concat(results[1].data||[]);
     var byFid={};
-    combined.forEach(function(s){var fid=s.feature_id;if(!fid)return;var ex=byFid[fid];if(!ex||(s.snapshot_date||'')>(ex.snapshot_date||''))byFid[fid]=s;});
-    // pub_（低精度・pubH_以外）を除外
-    var snaps=Object.keys(byFid).map(function(k){return byFid[k];}).filter(function(s){var fid=s.feature_id||'';if(fid.indexOf('pub_')===0&&fid.indexOf('pubH_')!==0)return false;if(s.source_type==='emaff_solar'&&!(s.hazard_status==='CLEAR'&&s.noshin_status==='CLEAR'&&s.dedup_status==='NEW'))return false;return true;});
-    var ngSet={}; (results[2].data||[]).forEach(function(d){ngSet[d.feature_id]=true;});
-    _buildNgGrid(results[2].data||[]); // NG地点の座標グリッド（15m近傍除外用）
-    var prSet={}; (results[3].data||[]).forEach(function(d){prSet[d.feature_id]=true;});
-    var stMap={}; (results[4].data||[]).forEach(function(d){stMap[d.feature_id]=d.status;});
+    (results[0].data||[]).forEach(function(s){var fid=s.feature_id;if(!fid)return;var ex=byFid[fid];if(!ex||(s.snapshot_date||'')>(ex.snapshot_date||''))byFid[fid]=s;});
+    var snaps=Object.keys(byFid).map(function(k){return byFid[k];});
+    var ngSet={}; (results[1].data||[]).forEach(function(d){ngSet[d.feature_id]=true;});
+    _buildNgGrid(results[1].data||[]); // NG地点の座標グリッド（15m近傍除外用）
+    var prSet={}; (results[2].data||[]).forEach(function(d){prSet[d.feature_id]=true;});
+    var stMap={}; (results[3].data||[]).forEach(function(d){stMap[d.feature_id]=d.status;});
     candCache=snaps.filter(function(s){return !ngSet[s.feature_id]&&!prSet[s.feature_id]&&s.lat!=null&&s.lng!=null&&!_isNearNg(s.lat,s.lng)&&s.grid_status!=='ng'&&s.infra_status!=='FAIL';})
                    .map(function(s){return Object.assign({},s,{status:stMap[s.feature_id]||null});});
     candLoading=false;
