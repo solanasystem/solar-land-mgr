@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260803e / 🔢クロス集計のフィードバック強化。(1)選択中セルの合計件数をライブ表示: セルにdata-cnt付与→_ctRecalcTotalが選択セルのdata-cnt合計を集計し、集計表下部の読み取り「選択N区分 / 表示予定M件」＋「▶選択セルを表示(M件)」ボタンに即時反映(トグルの都度更新)。(2)実表示件数の常時可視化: _renderCandidatesがクロス絞り込み中の実描画件数nを_appliedCrossCountに保存し凡例の解除ボタンを「✖クロス絞り込み解除(表示中 n件)」に更新→地図に何件出ているか一目で判る。表示中トーストも「n件を地図に表示中」に。非破壊・表示のみ。前:v20260803d -->
 <!-- BUILD: farmland-tracker v20260803d / 🔎クロス集計セルをドリルダウン絞り込み化。集計表の各数値セル(件数>0)をクリックでトグル選択(複数可・青ハイライト)→「▶ 選択セルを表示」で該当区分(市街化調整×面積帯)の筆だけ地図表示、「✖ 全解除(全体に戻す)」で解除。凡例にも絞り込み中に出る解除ボタン(btnCandCrossClear)を追加。実装: candCrossFilter{zoneGroup_bucketIdx:true}を_renderCandidatesの描画スキップ条件に追加/_candZoneGroup(control/other/null)・_areaBucketIdxでセル対応付け/_ctToggle/_ctApply/_ctClear/_updateCrossClearBtn。再オープン時は現在の絞り込みを選択状態として復元。非破壊・表示のみ。前:v20260803c -->
 <!-- BUILD: farmland-tracker v20260803c / 📊開拓候補の「市街化調整区域×面積」クロス集計ボタンを追加。候補凡例に📊ボタン(btnCandCrosstab/showCandCrosstab)→オーバーレイで2次元表を即時表示(行=市街化調整区域/それ以外/未判定、列=<300/300-500/500-800/800-1200/1200-2000/2000-5000/>5000㎡、行列合計付)。区域区分はfarmland_snapshots.city_planning_zone(batch_cpz_xkt001由来: control=市街化調整/urbanization=市街化/non_zoned=非線引/outside=区域外)を候補COLSに追加して取得。現在ロード済み候補(①〜④通過)に対するクライアント側即時集計=追加クエリ無し。市街化調整×800-2000㎡セルを有望帯として強調。未判定(null)は行表示＋cpzバッチ案内。非破壊・表示のみ。前:v20260803b -->
 <!-- BUILD: farmland-tracker v20260803b / ⚡開拓候補の再作図を高速化＋衛星分析前の面積絞り込みを追加。(1)ポップアップHTMLを遅延生成化: 従来は約12,000件分のポップアップHTML文字列を描画時に一括構築していた→_candPopupHtml(c,u)に切り出しbindPopup(関数)でクリック時のみ構築=再作図が大幅高速化(マーカーはcanvas描画のまま)。(2)面積フィルタ「800㎡未満を隠す」トグル(btnCandMinArea/toggleCandMinArea/candMinArea)を候補凡例に追加=_renderCandidatesがarea_sqm<candMinAreaをスキップ。ロードマップ準拠(≤800㎡は衛星分析後回し)で表示を約2,500件に絞り込み描画も軽量化。非破壊(データ削除なし・トグルで元に戻る)。判定ロジック/DB/他レイヤは無変更。前:v20260803a -->
@@ -3724,7 +3725,7 @@ async function _fetchAndRenderCityPlan() {
 //         pub_(低精度)除外 → farmland_ng_list 除外 → farmland_promoted(昇格済)除外。
 // ※候補ページが行う「アプローチ済の自動昇格(DB書込)」は副作用のため本トグルでは実施しない（読取専用）。
 var candEnabled=false, candLoading=false, candLayer=null, candCache=null, candRenderer=null, candHidePending=false, candMinArea=0, candCrossFilter=null;
-var _ctSel={}; // クロス集計の選択セル {zoneGroup_bucketIdx:true}
+var _ctSel={}, _appliedCrossCount=0; // クロス集計の選択セル {zoneGroup_bucketIdx:true} / 適用中の表示件数
 var subEnabled=false, subLoading=false, subLayer=null, subCache=null, subRenderer=null;
 var measureMode=false, measureLayer=null, measureClickHandler=null;
 // ===== NG地点（座標）近傍判定：過去にNG除外した地点の半径15m以内は feature_id が違っても除外（再表示防止） =====
@@ -3840,7 +3841,7 @@ function showCandCrosstab(){
       var hi=(r3===0&&(c5===3||c5===4)); // 調整区域×800-2000を強調(有望帯)
       var cnt=mat[r3][c5]; var key=zg+'_'+c5; var sel=!!_ctSel[key];
       if(cnt>0){
-        html+='<td data-key="'+key+'" data-hi="'+(hi?'1':'0')+'" onclick="_ctToggle(this)" title="クリックで選択/解除" style="cursor:pointer;padding:5px 8px;text-align:right;border-bottom:1px solid #1f2937;font-variant-numeric:tabular-nums;'+(sel?'background:#155e75;color:#fff;font-weight:700;box-shadow:inset 0 0 0 2px #22d3ee;':(hi?'background:#0b3a45;color:#67e8f9;font-weight:700;':''))+'">'+cnt.toLocaleString()+'</td>';
+        html+='<td data-key="'+key+'" data-hi="'+(hi?'1':'0')+'" data-cnt="'+cnt+'" onclick="_ctToggle(this)" title="クリックで選択/解除" style="cursor:pointer;padding:5px 8px;text-align:right;border-bottom:1px solid #1f2937;font-variant-numeric:tabular-nums;'+(sel?'background:#155e75;color:#fff;font-weight:700;box-shadow:inset 0 0 0 2px #22d3ee;':(hi?'background:#0b3a45;color:#67e8f9;font-weight:700;':''))+'">'+cnt.toLocaleString()+'</td>';
       }else{
         html+='<td style="padding:5px 8px;text-align:right;border-bottom:1px solid #1f2937;color:#475569">0</td>';
       }
@@ -3852,20 +3853,23 @@ function showCandCrosstab(){
   html+='<td style="padding:6px 8px;text-align:right;border-top:2px solid #334155;font-weight:800;color:#67e8f9">'+grand.toLocaleString()+'</td></tr>';
   html+='</table>';
   var note='<div style="font-size:10.5px;color:#94a3b8;margin-top:6px;line-height:1.6">👆 数値セルをクリックで選択（複数可）→「表示」で該当区分の筆だけ地図表示。「全解除」で全体に戻ります。<br>対象: 現在ロード済みの開拓候補（①農振②ハザ③連系④接道 全通過・NG/昇格除外後）<b>'+grand.toLocaleString()+'件</b>。<br>「それ以外」内訳: 市街化区域 '+zc.urbanization.toLocaleString()+' / 非線引 '+zc.non_zoned.toLocaleString()+' / 区域外 '+zc.outside.toLocaleString()+'。'+(zc.nul>0?('<br>⚠️ 未判定 '+zc.nul.toLocaleString()+'件（cpzバッチ未処理）。batch_cpz_xkt001で解消可。'):'')+'<br>強調セル=市街化調整区域×800–2000㎡（有望帯）。</div>';
-  var controls='<div style="display:flex;gap:8px;margin-top:12px"><button onclick="_ctApply()" style="flex:1;padding:8px;border:1px solid #0e7490;background:#0891b2;color:#fff;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">▶ 選択セルを表示</button><button onclick="_ctClear()" style="flex:1;padding:8px;border:1px solid #334155;background:#1f2937;color:#e5e7eb;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">✖ 全解除（全体に戻す）</button></div>';
+  var controls='<div style="margin-top:12px"><div id="ctSelReadout" style="text-align:right;font-size:13px;font-weight:800;color:#67e8f9;margin-bottom:6px;font-variant-numeric:tabular-nums">選択 0区分 / 表示予定 0件</div><div style="display:flex;gap:8px"><button id="ctApplyBtn" onclick="_ctApply()" style="flex:1;padding:8px;border:1px solid #0e7490;background:#0891b2;color:#fff;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">▶ 選択セルを表示</button><button onclick="_ctClear()" style="flex:1;padding:8px;border:1px solid #334155;background:#1f2937;color:#e5e7eb;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">✖ 全解除（全体に戻す）</button></div></div>';
   var ov=document.getElementById('candCrosstabOverlay');
   if(!ov){ov=document.createElement('div');ov.id='candCrosstabOverlay';ov.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;';ov.onclick=function(e){if(e.target===ov)closeCandCrosstab();};document.body.appendChild(ov);}
   ov.innerHTML='<div style="background:#0b0f14;border:1px solid #334155;border-radius:12px;padding:18px 20px;max-width:min(92vw,720px);max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,0.6)"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:14px;font-weight:800;color:#e5e7eb">📊 開拓候補 クロス集計（市街化調整区域 × 面積）</div><button onclick="closeCandCrosstab()" style="border:1px solid #334155;background:#1f2937;color:#e5e7eb;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">✕ 閉じる</button></div>'+html+controls+note+'</div>';
   ov.style.display='flex';
+  _ctRecalcTotal();
 }
 // クロス集計セルの選択トグル
-function _ctToggle(el){var k=el.getAttribute('data-key');if(_ctSel[k]){delete _ctSel[k];_ctCellStyle(el,false);}else{_ctSel[k]=true;_ctCellStyle(el,true);}}
+function _ctToggle(el){var k=el.getAttribute('data-key');if(_ctSel[k]){delete _ctSel[k];_ctCellStyle(el,false);}else{_ctSel[k]=true;_ctCellStyle(el,true);}_ctRecalcTotal();}
+// 選択中セルの合計件数をライブ表示（右下の読み取り＋表示ボタン）
+function _ctRecalcTotal(){var zones=Object.keys(_ctSel).length,cnt=0;var cells=document.querySelectorAll('#candCrosstabOverlay td[data-key]');for(var i=0;i<cells.length;i++){if(_ctSel[cells[i].getAttribute('data-key')])cnt+=parseInt(cells[i].getAttribute('data-cnt'),10)||0;}var r=document.getElementById('ctSelReadout');if(r)r.textContent='選択 '+zones+'区分 / 表示予定 '+cnt.toLocaleString()+'件';var ab=document.getElementById('ctApplyBtn');if(ab)ab.textContent=zones?('▶ 選択セルを表示（'+cnt.toLocaleString()+'件）'):'▶ 選択セルを表示';return cnt;}
 function _ctCellStyle(el,sel){var hi=el.getAttribute('data-hi')==='1';if(sel){el.style.background='#155e75';el.style.color='#fff';el.style.boxShadow='inset 0 0 0 2px #22d3ee';el.style.fontWeight='700';}else if(hi){el.style.background='#0b3a45';el.style.color='#67e8f9';el.style.boxShadow='';el.style.fontWeight='700';}else{el.style.background='';el.style.color='';el.style.boxShadow='';el.style.fontWeight='';}}
 // 選択セルのみ地図表示
-function _ctApply(){var keys=Object.keys(_ctSel);if(!keys.length){showToast('セルを1つ以上選択してください（全体表示は「全解除」）','error');return;}candCrossFilter={};keys.forEach(function(k){candCrossFilter[k]=true;});closeCandCrosstab();if(candEnabled&&candCache)_renderCandidates();_updateCrossClearBtn();showToast('クロス集計の選択'+keys.length+'区分のみ表示中。凡例の「解除」で全体に戻せます','success');}
+function _ctApply(){var keys=Object.keys(_ctSel);if(!keys.length){showToast('セルを1つ以上選択してください（全体表示は「全解除」）','error');return;}var cnt=_ctRecalcTotal();candCrossFilter={};keys.forEach(function(k){candCrossFilter[k]=true;});_appliedCrossCount=cnt;closeCandCrosstab();if(candEnabled&&candCache)_renderCandidates();_updateCrossClearBtn();showToast(cnt.toLocaleString()+'件（'+keys.length+'区分）を地図に表示中。凡例の「解除」で全体に戻せます','success');}
 // 絞り込み解除→全候補表示
-function _ctClear(){candCrossFilter=null;_ctSel={};if(candEnabled&&candCache)_renderCandidates();_updateCrossClearBtn();var ov=document.getElementById('candCrosstabOverlay');if(ov&&ov.style.display!=='none')showCandCrosstab();else showToast('クロス絞り込みを解除（全候補表示）','success');}
-function _updateCrossClearBtn(){var b=document.getElementById('btnCandCrossClear');if(b)b.style.display=candCrossFilter?'block':'none';}
+function _ctClear(){candCrossFilter=null;_ctSel={};_appliedCrossCount=0;if(candEnabled&&candCache)_renderCandidates();_updateCrossClearBtn();var ov=document.getElementById('candCrosstabOverlay');if(ov&&ov.style.display!=='none')showCandCrosstab();else showToast('クロス絞り込みを解除（全候補表示）','success');}
+function _updateCrossClearBtn(){var b=document.getElementById('btnCandCrossClear');if(b){b.style.display=candCrossFilter?'block':'none';if(candCrossFilter)b.textContent='✖ クロス絞り込み解除（表示中 '+(_appliedCrossCount||0).toLocaleString()+'件）';}}
 function closeCandCrosstab(){var ov=document.getElementById('candCrosstabOverlay');if(ov)ov.style.display='none';}
 function _candUse(c){
   var pass=(c.grid_status==='pass');
@@ -3903,7 +3907,8 @@ function _renderCandidates(){
     candLayer.addLayer(m); n++;
   });
   candLayer.addTo(map);
-  showToast(n+'件の開拓候補を表示（NG・昇格済 除外後）','success');
+  if(candCrossFilter){_appliedCrossCount=n;if(typeof _updateCrossClearBtn==='function')_updateCrossClearBtn();} // 実表示件数を凡例ボタンに反映
+  showToast(n+'件の開拓候補を表示'+(candCrossFilter?'（クロス絞り込み中）':'（NG・昇格済 除外後）'),'success');
 }
 // 候補ポップアップから手動NG除外：farmland_ng_list に登録 → その場でマーカー除去（候補一覧からも消える）
 async function excludeCandidate(fid){
