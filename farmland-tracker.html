@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260803c / 📊開拓候補の「市街化調整区域×面積」クロス集計ボタンを追加。候補凡例に📊ボタン(btnCandCrosstab/showCandCrosstab)→オーバーレイで2次元表を即時表示(行=市街化調整区域/それ以外/未判定、列=<300/300-500/500-800/800-1200/1200-2000/2000-5000/>5000㎡、行列合計付)。区域区分はfarmland_snapshots.city_planning_zone(batch_cpz_xkt001由来: control=市街化調整/urbanization=市街化/non_zoned=非線引/outside=区域外)を候補COLSに追加して取得。現在ロード済み候補(①〜④通過)に対するクライアント側即時集計=追加クエリ無し。市街化調整×800-2000㎡セルを有望帯として強調。未判定(null)は行表示＋cpzバッチ案内。非破壊・表示のみ。前:v20260803b -->
 <!-- BUILD: farmland-tracker v20260803b / ⚡開拓候補の再作図を高速化＋衛星分析前の面積絞り込みを追加。(1)ポップアップHTMLを遅延生成化: 従来は約12,000件分のポップアップHTML文字列を描画時に一括構築していた→_candPopupHtml(c,u)に切り出しbindPopup(関数)でクリック時のみ構築=再作図が大幅高速化(マーカーはcanvas描画のまま)。(2)面積フィルタ「800㎡未満を隠す」トグル(btnCandMinArea/toggleCandMinArea/candMinArea)を候補凡例に追加=_renderCandidatesがarea_sqm<candMinAreaをスキップ。ロードマップ準拠(≤800㎡は衛星分析後回し)で表示を約2,500件に絞り込み描画も軽量化。非破壊(データ削除なし・トグルで元に戻る)。判定ロジック/DB/他レイヤは無変更。前:v20260803a -->
 <!-- BUILD: farmland-tracker v20260803a / 🛟開拓候補が「無言で全消え」する不具合を堅牢化。原因=v20260802jで候補ローダの最新日巨大取得(64,034件=65ページ)の上限を撤廃した結果、_fetchAllPagedが途中1ページでも通信エラーだとnull返却→_loadCandidatesが`results[0].data||[]`で無言に空扱い→emaff_solar候補が丸ごと消失(特に手動除外→候補再読込のたびに巨大取得が走り発生)。対策(2点):①_fetchAllPagedに各ページ最大3回リトライ(400ms×回数バックオフ)を追加=一過性エラーを吸収。②_loadCandidatesでresults[0/1/2]のerrorを検出したらthrowし、catchで明示トースト表示=二度と無言でゼロにしない(再読込を促す)。候補データ自体は無事(DB上12,329件現存)。判定ロジック/フィルタ/他レイヤ/他機能は無変更。前:v20260802j -->
 <!-- BUILD: farmland-tracker v20260802j / 🛡️除外筆の「復活」不具合を根治。原因は_fetchAllPagedのRangeページングが①ORDER BY未指定で境界の行が飛ぶ②30ページ(30,000行)で黙って頭打ち——の二重欠陥。母集団70,727件やNGリスト(16,000件超・増加中)が取りこぼされ、除外済み筆がngSetから漏れて候補に復活していた。対策:_fetchAllPagedにorder列引数を追加しfeature_id昇順で安定化、上限を1000ページ(100万行)へ拡大し到達時warn。除外/候補に関わる全読込(候補ローダのsnapshots×2/farmland_ng_list/promoted/status、loadNgList、近傍NG用snapshots×2、status)にfeature_id順を付与。手動除外(manual_rect等約4,120件)もこれで恒久的に非表示。判定ロジック・DB書込は無変更。前:v20260802i -->
@@ -842,6 +843,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
       <div style="font-size:9px;color:var(--text-muted);margin-top:3px;line-height:1.3;">※用途は<b>暫定分類</b>（日照④・接道⑤ 未反映／後日精緻化）<br>⚡連系NG（連系不能）は非表示</div>
       <button id="btnCandHidePending" onclick="toggleCandHidePending()" style="margin-top:6px;width:100%;padding:5px 6px;border:1px solid var(--border);background:var(--surface3);color:var(--text-muted);border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">🔘 連系未判定(グレー)を隠す</button>
       <button id="btnCandMinArea" onclick="toggleCandMinArea()" style="margin-top:4px;width:100%;padding:5px 6px;border:1px solid var(--border);background:var(--surface3);color:var(--text-muted);border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">🔲 800㎡未満を隠す（衛星分析前の絞り込み）</button>
+      <button id="btnCandCrosstab" onclick="showCandCrosstab()" style="margin-top:4px;width:100%;padding:5px 6px;border:1px solid #0e7490;background:#0b3a45;color:#67e8f9;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">📊 クロス集計（市街化調整×面積）</button>
     </div>
     <!-- 別荘地候補（villa_candidates、目視判定用） v20260630a -->
     <button class="hazard-toggle-btn" id="hzVilla" onclick="toggleVilla()">
@@ -3750,7 +3752,7 @@ async function _loadCandidates(){
   try{
     var dRes=await db.from('farmland_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1);
     var latestDate=(dRes.data&&dRes.data[0])?dRes.data[0].snapshot_date:null;
-    var COLS='feature_id,city,address,lat,lng,area_sqm,intent,price,snapshot_date,source_type,hazard_status,noshin_status,dedup_status,grid_status,infra_status';
+    var COLS='feature_id,city,address,lat,lng,area_sqm,intent,price,snapshot_date,source_type,hazard_status,noshin_status,dedup_status,grid_status,infra_status,city_planning_zone';
     var results=await Promise.all([
       // PBF系含む最新日の全件（pubH_/emaffN_が最新日にあっても下のマージで重複解消）
       _fetchAllPaged(function(){return db.from('farmland_snapshots').select(COLS).eq('snapshot_date',latestDate);},'feature_id'),
@@ -3799,6 +3801,52 @@ function toggleCandMinArea(){
   if(b){ b.textContent=candMinArea>0?('⬜ '+candMinArea+'㎡未満も表示する'):'🔲 800㎡未満を隠す（衛星分析前の絞り込み）'; b.classList.toggle('active',candMinArea>0); }
   if(candEnabled&&candCache)_renderCandidates();
 }
+// v20260803c: 開拓候補を「市街化調整区域×面積」でクロス集計（現在ロード済み候補=①〜④通過に対する即時集計）
+var CAND_AREA_BUCKETS=[{lo:0,hi:300,l:'<300'},{lo:300,hi:500,l:'300–500'},{lo:500,hi:800,l:'500–800'},{lo:800,hi:1200,l:'800–1200'},{lo:1200,hi:2000,l:'1200–2000'},{lo:2000,hi:5000,l:'2000–5000'},{lo:5000,hi:1e12,l:'>5000'}];
+function _areaBucketIdx(a){for(var i=0;i<CAND_AREA_BUCKETS.length;i++){if(a>=CAND_AREA_BUCKETS[i].lo&&a<CAND_AREA_BUCKETS[i].hi)return i;}return CAND_AREA_BUCKETS.length-1;}
+function showCandCrosstab(){
+  if(!candCache){showToast('先に「開拓候補」を表示してください','error');return;}
+  var B=CAND_AREA_BUCKETS.length;
+  // rows: 0=市街化調整区域(control) 1=それ以外(urbanization/non_zoned/outside) 2=未判定(null)
+  var mat=[[],[],[]]; for(var r=0;r<3;r++)for(var c2=0;c2<B;c2++)mat[r][c2]=0;
+  var zc={control:0,urbanization:0,non_zoned:0,outside:0,nul:0};
+  candCache.forEach(function(c){
+    var a=Number(c.area_sqm)||0; var bi=_areaBucketIdx(a);
+    var z=c.city_planning_zone;
+    if(z==='control'){mat[0][bi]++;zc.control++;}
+    else if(z==null||z===''){mat[2][bi]++;zc.nul++;}
+    else{mat[1][bi]++; if(z==='urbanization')zc.urbanization++; else if(z==='non_zoned')zc.non_zoned++; else zc.outside++;}
+  });
+  var colTot=[]; for(var c3=0;c3<B;c3++){colTot[c3]=mat[0][c3]+mat[1][c3]+mat[2][c3];}
+  var rowTot=[0,0,0]; for(var r2=0;r2<3;r2++)for(var c4=0;c4<B;c4++)rowTot[r2]+=mat[r2][c4];
+  var grand=rowTot[0]+rowTot[1]+rowTot[2];
+  var rowLabels=['🏞️ 市街化調整区域','🏙️ それ以外','❔ 未判定'];
+  var th='<th style="padding:6px 8px;text-align:right;border-bottom:2px solid #334155;white-space:nowrap">';
+  var td='<td style="padding:5px 8px;text-align:right;border-bottom:1px solid #1f2937;font-variant-numeric:tabular-nums">';
+  var html='<table style="border-collapse:collapse;font-size:12px;color:#e5e7eb;width:100%">';
+  html+='<tr><th style="padding:6px 8px;text-align:left;border-bottom:2px solid #334155">区域＼面積(㎡)</th>';
+  CAND_AREA_BUCKETS.forEach(function(b){html+=th+b.l+'</th>';});
+  html+=th+'<b>合計</b></th></tr>';
+  for(var r3=0;r3<3;r3++){
+    if(r3===2&&rowTot[2]===0)continue; // 未判定0なら行省略
+    html+='<tr><td style="padding:5px 8px;text-align:left;border-bottom:1px solid #1f2937;white-space:nowrap">'+rowLabels[r3]+'</td>';
+    for(var c5=0;c5<B;c5++){
+      var hi=(r3===0&&(c5===3||c5===4)); // 調整区域×800-2000を強調(有望帯)
+      html+='<td style="padding:5px 8px;text-align:right;border-bottom:1px solid #1f2937;font-variant-numeric:tabular-nums'+(hi?';background:#0b3a45;color:#67e8f9;font-weight:700':'')+'">'+mat[r3][c5].toLocaleString()+'</td>';
+    }
+    html+='<td style="padding:5px 8px;text-align:right;border-bottom:1px solid #1f2937;font-weight:700">'+rowTot[r3].toLocaleString()+'</td></tr>';
+  }
+  html+='<tr><td style="padding:6px 8px;text-align:left;border-top:2px solid #334155;font-weight:700">合計</td>';
+  for(var c6=0;c6<B;c6++)html+='<td style="padding:6px 8px;text-align:right;border-top:2px solid #334155;font-weight:700;font-variant-numeric:tabular-nums">'+colTot[c6].toLocaleString()+'</td>';
+  html+='<td style="padding:6px 8px;text-align:right;border-top:2px solid #334155;font-weight:800;color:#67e8f9">'+grand.toLocaleString()+'</td></tr>';
+  html+='</table>';
+  var note='<div style="font-size:10.5px;color:#94a3b8;margin-top:10px;line-height:1.6">対象: 現在ロード済みの開拓候補（①農振②ハザ③連系④接道 全通過・NG/昇格除外後）<b>'+grand.toLocaleString()+'件</b>。<br>「それ以外」内訳: 市街化区域 '+zc.urbanization.toLocaleString()+' / 非線引 '+zc.non_zoned.toLocaleString()+' / 区域外 '+zc.outside.toLocaleString()+'。'+(zc.nul>0?('<br>⚠️ 未判定 '+zc.nul.toLocaleString()+'件（cpzバッチ未処理）。batch_cpz_xkt001で解消可。'):'')+'<br>強調セル=市街化調整区域×800–2000㎡（有望帯）。</div>';
+  var ov=document.getElementById('candCrosstabOverlay');
+  if(!ov){ov=document.createElement('div');ov.id='candCrosstabOverlay';ov.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;';ov.onclick=function(e){if(e.target===ov)closeCandCrosstab();};document.body.appendChild(ov);}
+  ov.innerHTML='<div style="background:#0b0f14;border:1px solid #334155;border-radius:12px;padding:18px 20px;max-width:min(92vw,720px);max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,0.6)"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:14px;font-weight:800;color:#e5e7eb">📊 開拓候補 クロス集計（市街化調整区域 × 面積）</div><button onclick="closeCandCrosstab()" style="border:1px solid #334155;background:#1f2937;color:#e5e7eb;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">✕ 閉じる</button></div>'+html+note+'</div>';
+  ov.style.display='flex';
+}
+function closeCandCrosstab(){var ov=document.getElementById('candCrosstabOverlay');if(ov)ov.style.display='none';}
 function _candUse(c){
   var pass=(c.grid_status==='pass');
   var area=Number(c.area_sqm)||0;
