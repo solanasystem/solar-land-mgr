@@ -11,9 +11,10 @@
 #toast{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:2000;background:#0b2e1a;border:1px solid #16a34a;color:#86efac;padding:8px 14px;border-radius:8px;font-size:13px;display:none}</style></head>
 <body><div id="map"></div><div id="toast"></div>
 <div id="panel"><h1>&#128279; 合筆・低圧太陽光 提案マップ</h1>
-<div class="stat">合筆(3筆まで×800〜1200㎡): <b id="nAll">-</b> 箇所<br>うち★理想=2筆合筆: <b id="nPrime">-</b> 箇所<br><span style="font-size:11px;color:#94a3b8">市街化調整 × 放棄（手放しやすい）</span></div>
+<div class="stat">合筆(3筆まで×800〜1200㎡): <b id="nAll">-</b> 箇所<br>うち★理想=2筆合筆: <b id="nPrime">-</b> 箇所<br>確認済み: <b id="nSeen" style="color:#9ca3af">0</b> 箇所<br><span style="font-size:11px;color:#94a3b8">市街化調整 × 放棄（手放しやすい）</span></div>
 <div class="leg"><span class="dot" style="background:#f59e0b;border:2px solid #7c2d12"></span>★理想＝2筆合筆（地権者2名）<br>
 <span class="dot" style="background:#fbbf24;opacity:.8"></span>3筆合筆（地権者3名）<br>
+<span class="dot" style="background:#6b7280"></span>確認済み（開いた＝グレー化）<br>
 <span class="dot" style="background:#fca5a5"></span>束ねる小筆（構成筆）</div>
 <div style="font-size:10px;color:#64748b;margin-top:6px">中心マーカーをクリック→合計面積・現地確認・<b style="color:#ff8a80">合筆NG（構成筆を一括削除）</b>。日照が当たらない等はここで一括除外。</div></div>
 <script>
@@ -22,6 +23,10 @@ var map=L.map('map',{attributionControl:false}).setView([34.62,135.78],11);
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19}).addTo(map);
 document.getElementById('nAll').textContent=F.length;
 document.getElementById('nPrime').textContent=F.filter(function(x){return x.ideal;}).length;
+// 確認済み(開いた合筆)はグレー化してlocalStorageに保存＝どこまで見たか一目で分かる
+var visited=(function(){try{return JSON.parse(localStorage.getItem('gappitsu_visited')||'{}');}catch(e){return {};}})();
+function markSeen(id,ctr){ if(!visited[id]){ visited[id]=1; try{localStorage.setItem('gappitsu_visited',JSON.stringify(visited));}catch(e){} } try{ctr.setStyle({fillColor:'#6b7280',color:'#374151'});}catch(e){} updSeen(); }
+function updSeen(){var n=F.filter(function(x){return visited[x.id];}).length;var el=document.getElementById('nSeen');if(el)el.textContent=n;}
 function toast(m,ok){var t=document.getElementById('toast');t.textContent=m;t.style.borderColor=ok?'#16a34a':'#b91c1c';t.style.color=ok?'#86efac':'#fca5a5';t.style.background=ok?'#0b2e1a':'#3a1414';t.style.display='block';setTimeout(function(){t.style.display='none';},4000);}
 var _cl={}; // id -> [layers]
 var group=L.featureGroup().addTo(map);
@@ -36,7 +41,8 @@ F.forEach(function(c){
   var gm='https://www.google.com/maps/search/?api=1&query='+c.lat+','+c.lng;
   var sv='https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+c.lat+','+c.lng;
   var e3='https://earth.google.com/web/@'+c.lat+','+c.lng+',150a,300d,35y,0h,55t,0r';
-  var ctr=L.circleMarker([c.lat,c.lng],{radius:c.ideal?9:7,color:'#7c2d12',weight:2,fillColor:col,fillOpacity:.95}).addTo(group);
+  var ctr=L.circleMarker([c.lat,c.lng],{radius:c.ideal?9:7,color:(visited[c.id]?'#374151':'#7c2d12'),weight:2,fillColor:(visited[c.id]?'#6b7280':col),fillOpacity:.95}).addTo(group);
+  ctr.on('popupopen',function(){markSeen(c.id,ctr);});
   ctr.bindPopup('<div style="min-width:210px;font-size:12px;line-height:1.7">'
      +'<b style="color:#fbbf24">&#9728; 合筆・低圧太陽光候補'+(c.ideal?'（★理想・2筆）':'（3筆）')+'</b><br>'
      +'<b>'+(c.city||'-')+'</b><br>筆数: <b>'+c.n+'筆</b> を合筆<br>合計: <b>'+c.total+'㎡</b>（本命帯）<br>'
@@ -50,6 +56,7 @@ F.forEach(function(c){
   layers.push(ctr); _cl[c.id]=layers;
 });
 try{map.fitBounds(group.getBounds().pad(0.1));}catch(e){}
+updSeen();
 window.delCluster=async function(id){
   var c=F.filter(function(x){return x.id===id;})[0]; if(!c)return;
   if(!confirm('この合筆（'+c.n+'筆・'+c.total+'㎡）をNGにします。構成する'+c.n+'筆すべてを削除します。よろしいですか？'))return;
