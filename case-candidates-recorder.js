@@ -590,12 +590,12 @@
     // v20260702m3: divIcon(涙滴形+rotate)は位置ズレの原因になるため廃止。
     // Leaflet標準の L.circleMarker で確実に緯度経度=中心に描画。
     const statusColors = {
-      new:      '#ec4899',
-      reviewed: '#f0b429',
+      new:      '#f59e0b',   // 太陽光色(ゴールド) ＝公式放棄地の太陽光候補と統一
+      reviewed: '#fbbf24',
       adopted:  '#3fb950',
       ng:       '#6e7681'
     };
-    const fillColor = statusColors[status] || '#ec4899';
+    const fillColor = statusColors[status] || '#f59e0b';
     const marker = L.circleMarker([lat, lng], {
       pane: 'candidatePane',
       radius: 5,             // v20260702m4: 9→5 (見た目サイズを1/2に)
@@ -635,11 +635,8 @@
 
     var _ll = Number(rec.latitude) + ',' + Number(rec.longitude);
     return '<div style="font-size:12px;line-height:1.7;min-width:190px;">'
-      + '<b>\u2605 \u8015\u4f5c\u653e\u68c4\u306e\u53ef\u80fd\u6027\u3042\u308a</b><br>'
-      + '\u533a\u5206: \u76ee\u8996\u30d4\u30c3\u30af\uff08' + _escapeHtml(rec.memo || '-') + '\uff09<br>'
-      + '\u6240\u5728\u5730: -<br>'
-      + '\u9762\u7a4d: -<br>'
-      + '\u63a5\u9053: -<br>'
+      + '<b style="color:#fbbf24">\u2600 \u592a\u967d\u5149\u5019\u88dc</b><br>'
+      + (rec.memo ? ('\u30e1\u30e2: ' + _escapeHtml(rec.memo) + '<br>') : '')
       + '<div style="margin-top:6px;display:flex;gap:6px;">'
       + '<a href="https://www.google.com/maps?q=' + _ll + '" target="_blank" rel="noopener" '
       + 'style="flex:1;text-align:center;padding:5px 4px;background:#1a73e8;color:#fff;'
@@ -699,7 +696,7 @@
         entry.record = data[0];
         // v20260702m3: circleMarker.setStyle で色を切り替え
         const statusColors = {
-          new:      '#ec4899',
+          new:      '#f59e0b',
           reviewed: '#f0b429',
           adopted:  '#3fb950',
           ng:       '#6e7681'
