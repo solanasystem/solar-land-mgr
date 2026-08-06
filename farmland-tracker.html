@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260806d / 🟥範囲NGを用途別レイヤーに対応。collectMarkersInBoundsに(5)用途別(useCache[1]/[3]=太陽光1筆/低圧蓄電池・手動記録cc_含む)を追加(従来はmarkers/衛星/開拓候補/公式放棄地のみ→用途別表示中は矩形で囲んでも0件だった)。手動記録(案件候補)はcase_candidates直削除・それ以外はng_list、実行後useCache再描画。加えて範囲NG中はcandPaneのpointer-eventsも解除しSVGマーカー上でもドラッグ開始可能に。前:v20260806c -->
 <!-- BUILD: farmland-tracker v20260806c / ✋案件候補(case_candidates=手作業で記録したフラグ)を☀太陽光(1筆)レイヤーに統合表示。recorderの常時ピンは停止(init opts.render:false・記録=PCクリック保存は維持)し、_loadUse(1)でcase_candidatesをfetch→白リング付きゴールドで描画・ポップアップは「✋手動記録」でメモ表示・案件候補から削除可。滋賀県(高島市=別事業びわこ)とng状態は除外。前:v20260806b -->
 <!-- BUILD: farmland-tracker v20260806b / 🗂用途別3レイヤー切替をヘッダーに実装。①☀太陽光(1筆・関西≥800㎡) ②🔗太陽光(合筆・確定9) ③🔋低圧蓄電池(<800㎡・市街化調整以外)。排他切替(一度に1用途)。市街化調整は全て太陽光側、蓄電池は市街化区域/非線引き/区域外のみ。各筆に削除ボタン・現地確認リンク。前:v20260806a -->
 <!-- BUILD: farmland-tracker v20260806a / 🔗確定合筆9カ所(放棄×市街化調整×2筆合筆)を専用レイヤー「合筆・太陽光候補」として追加。gappitsu_confirmed.jsonをfetch、中心マーカー＋構成筆＋グループ線＋現地確認リンク。ヘッダ版もa。前:v20260805m -->
@@ -728,7 +729,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260806c</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260806d</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div style="display:flex;align-items:center;gap:6px;margin:0 12px;">
@@ -6856,6 +6857,10 @@ window.toggleEdgePanel = function(id){
           });
         });
       }
+      // v20260806d: 候補系マーカー(開拓候補/公式放棄地/合筆/用途別)を載せるcandPane自体のpointer-eventsも解除。
+      //   これらSVGマーカー上でドラッグ開始すると矩形が描けなくなる不具合を防ぐ。exitRectModeで復元。
+      var _cp=(getMap()&&getMap().getPane)?getMap().getPane('candPane'):null;
+      if(_cp){_peSaved.push({el:_cp,prev:_cp.style.pointerEvents});_cp.style.pointerEvents='none';}
     }catch(_){}
     // ESCキーでキャンセル
     document.addEventListener('keydown',onKeyDown);
@@ -6972,15 +6977,17 @@ window.toggleEdgePanel = function(id){
       if(typeof showToast==='function')showToast('範囲内のマーカーは全てNG済みでした','warning');
       return;
     }
-    // 内訳カウント（変更トラッカー / 衛星分析 / 開拓候補）
-    var nTracker=0,nSat=0,nCand=0;
-    targets.forEach(function(t){if(t._ngSource==='sat')nSat++;else if(t._ngSource==='cand')nCand++;else nTracker++;});
+    // 内訳カウント（変更トラッカー / 衛星分析 / 開拓候補 / 用途別 / 手動記録）
+    var nTracker=0,nSat=0,nCand=0,nUse=0,nMan=0;
+    targets.forEach(function(t){if(t._manual)nMan++;else if(t._ngSource==='sat')nSat++;else if(t._ngSource==='cand')nCand++;else if(t._ngSource==='use')nUse++;else if(t._ngSource==='yukyu')nCand++;else nTracker++;});
     // 確認ダイアログ
     var msg=targets.length+'件をNG判定します。';
     var _bd=[];
     if(nTracker>0)_bd.push('変更トラッカー '+nTracker+'件');
     if(nSat>0)_bd.push('衛星分析 '+nSat+'件');
-    if(nCand>0)_bd.push('開拓候補 '+nCand+'件');
+    if(nCand>0)_bd.push('候補 '+nCand+'件');
+    if(nUse>0)_bd.push('用途別 '+nUse+'件');
+    if(nMan>0)_bd.push('手動記録(案件候補) '+nMan+'件');
     if(_bd.length>1)msg+='（'+_bd.join(' / ')+'）';
     msg+='\n\n';
     var sample=targets.slice(0,5).map(function(t){return '・'+(t._ngSource==='sat'?'[衛星] ':t._ngSource==='cand'?'[候補] ':'')+(t.city||'')+' '+(t.address||'').substring(0,30);}).join('\n');
@@ -6988,11 +6995,21 @@ window.toggleEdgePanel = function(id){
     if(targets.length>5)msg+='\n…他 '+(targets.length-5)+'件';
     msg+='\n\n実行しますか？（NG解除は個別マーカー詳細から可能）';
     if(!confirm(msg)){return;}
-    // 一括INSERT(upsert)
+    // 手動記録(案件候補cc_)は farmland_ng_list ではなく case_candidates から直接削除
+    var manTargets=targets.filter(function(t){return t._manual;});
+    var manDeleted={};
+    if(manTargets.length){
+      for(var mi=0;mi<manTargets.length;mi++){
+        var ccid=manTargets[mi].cc_id;
+        try{ var dr=await db.from('case_candidates').delete().eq('id',ccid); if(!(dr&&dr.error))manDeleted[ccid]=true; }
+        catch(_de){ console.warn('案件候補削除失敗',ccid,_de); }
+      }
+    }
+    // 一括INSERT(upsert) — 手動記録以外を farmland_ng_list へ
     if(typeof showLoading==='function')showLoading('NG登録中... (0/'+targets.length+')');
     var saved=0,failed=0;
     var BATCH=100;
-    var records=targets.map(function(t){return{feature_id:t.feature_id,ng_reason:'manual_rect',lat:(t.lat!=null?t.lat:null),lng:(t.lng!=null?t.lng:null),updated_at:new Date().toISOString()};});
+    var records=targets.filter(function(t){return !t._manual;}).map(function(t){return{feature_id:t.feature_id,ng_reason:'manual_rect',lat:(t.lat!=null?t.lat:null),lng:(t.lng!=null?t.lng:null),updated_at:new Date().toISOString()};});
     for(var i=0;i<records.length;i+=BATCH){
       var batch=records.slice(i,i+BATCH);
       try{
@@ -7012,9 +7029,22 @@ window.toggleEdgePanel = function(id){
       if(typeof showLoading==='function')document.getElementById('loadingText').textContent='NG登録中... ('+Math.min(i+BATCH,records.length)+'/'+records.length+')';
     }
     if(typeof hideLoading==='function')hideLoading();
+    var nManDel=Object.keys(manDeleted).length;
     if(typeof showToast==='function'){
-      var msg2='範囲NG完了：'+saved+'件登録 / 失敗 '+failed+'件';
+      var msg2='範囲NG完了：'+saved+'件登録'+(nManDel?' / 案件候補削除 '+nManDel+'件':'')+' / 失敗 '+failed+'件';
       showToast(msg2,failed>0?'warning':'success');
+    }
+    // 用途別レイヤー（①太陽光1筆/③低圧蓄電池）からNG分・案件候補削除分を即時除去して再描画 v20260806d
+    if(typeof useEnabled!=='undefined'&&typeof useCache!=='undefined'){
+      [1,3].forEach(function(un){
+        if(!(useEnabled[un]&&useCache[un]))return;
+        var _ub=useCache[un].length;
+        useCache[un]=useCache[un].filter(function(c){
+          if(c._manual)return !manDeleted[c.cc_id];
+          return !(typeof ngFeatureIds!=='undefined'&&ngFeatureIds[c.feature_id]);
+        });
+        if(useCache[un].length!==_ub&&typeof _renderUse==='function')_renderUse(un);
+      });
     }
     // 地図再描画（農地変更トラッカー）
     if(typeof loadDiff==='function')await loadDiff();
@@ -7098,6 +7128,21 @@ window.toggleEdgePanel = function(id){
         if(seen[c.feature_id])return;
         seen[c.feature_id]=true;
         result.push({feature_id:c.feature_id,lat:ylat,lng:ylng,address:c.address||'',city:c.city||'',_ngSource:'yukyu'});
+      });
+    }
+    // (5) 用途別レイヤー（①太陽光1筆 / ③低圧蓄電池）。レイヤーON時のみ。手動記録(案件候補cc_)も含む。 v20260806d
+    if(typeof useEnabled!=='undefined'&&typeof useCache!=='undefined'){
+      [1,3].forEach(function(un){
+        if(!(useEnabled[un]&&useCache[un]))return;
+        useCache[un].forEach(function(c){
+          if(!c||c.lat==null||c.lng==null||!c.feature_id)return;
+          var uln=Number(c.lat),ulg=Number(c.lng);
+          if(isNaN(uln)||isNaN(ulg))return;
+          if(!bounds.contains([uln,ulg]))return;
+          if(seen[c.feature_id])return;
+          seen[c.feature_id]=true;
+          result.push({feature_id:c.feature_id,lat:uln,lng:ulg,address:'',city:c.city||'',_ngSource:'use',_manual:!!c._manual,cc_id:c.cc_id});
+        });
       });
     }
     return result;
