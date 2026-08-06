@@ -58,10 +58,11 @@
     setupModal();
     setupPcClickHandler();
     setupMobileGpsFab();
-    // v20260806c: opts.render===false のとき自作ピンを描画しない（記録=PCクリック保存は維持）。
-    //   farmland-tracker側は案件候補を用途別レイヤー(太陽光1筆)に統合表示するため、recorderの常時ピンは出さない。
+    // v20260806e: レイヤー生成(setupCandidateLayer)は常に行う=記録した新ピンが即表示され保存が「動く」。
+    //   opts.render===false のときは既存ピンの一括描画(loadExistingCandidates)だけスキップ。
+    //   farmland-tracker側は既存の案件候補を用途別レイヤー(太陽光1筆)に統合表示するため、常時の一括ピンは出さない。
+    setupCandidateLayer();
     if (opts.render !== false) {
-      setupCandidateLayer();
       loadExistingCandidates();
     }
   }
