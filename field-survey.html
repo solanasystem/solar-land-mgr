@@ -62,7 +62,7 @@
     --font-mono: 'Share Tech Mono', monospace;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: var(--bg); color: var(--text); font-family: var(--font-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-main); height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
 
   .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 20px; min-height: 52px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 1000; flex-wrap:wrap; gap:8px; }
   .header-left { display: flex; align-items: center; gap: 12px; }
@@ -1495,6 +1495,15 @@ function initMap() {
   // (「Map container is already initialized」エラーの根本防止)
   if (map) { return; }
   map = L.map('map', { zoomControl: false, maxZoom: 22 }).setView([36.5, 138], 5);
+  // --- モバイル対応: レイアウト変化・画面回転・URLバー伸縮時に地図サイズを再計算 ---
+  (function(){
+    let _t;
+    const fix = () => { try { map.invalidateSize(false); } catch(e){} };
+    window.addEventListener('resize', () => { clearTimeout(_t); _t = setTimeout(fix, 150); });
+    window.addEventListener('orientationchange', () => setTimeout(fix, 300));
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { clearTimeout(_t); _t = setTimeout(fix, 150); });
+    setTimeout(fix, 300); setTimeout(fix, 900);
+  })();
   baseTileRef = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 22, maxNativeZoom: 18 }).addTo(map);
   gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 22, maxNativeZoom: 18, opacity: 0.85, zIndex: 1 });
   esriLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles \u00a9 Esri \u2014 Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community', maxZoom: 22, maxNativeZoom: 18, opacity: 0.9, zIndex: 2 });
