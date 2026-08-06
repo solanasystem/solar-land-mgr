@@ -1,0 +1,2292 @@
+<!DOCTYPE html>
+<!-- BUILD: landowner-visit v20260729a / 地番検索欄の都道府県対応(farmland v20260729aと共通): 47都道府県名の完全一致判定を追加し県名検索を開通。県境を赤い点線表示に(#ec4899→#ef4444,dash 6,6)。前:v20260727a -->
+<!-- BUILD: landowner-visit v20260727a / 衛星(Esri)・地理院ベースを高ズーム対応: 地図maxZoom=22、Esri/地理院は maxNativeZoom=18・maxZoom=22(18超は引き伸ばし表示＝「Map data not yet available」解消・さらに拡大可)。ハザード/土砂もmaxZoom=22で追随。前:v20260711A -->
+<!-- BUILD: landowner-visit v20260711A / 都市計画区域(XKT001)の実効表示閾値をズーム15→12に緩和。タイル数上限を36→128に引き上げてズーム12のワイド視野でも取得可能に(zoom>=11のprimaryチェックは維持)。トースト文言も更新。3マップ共通ロジックのためfarmland-tracker v20260711G / field-survey v20260711Aと同じ修正。前:v20260702m -->
+<!-- v20260626c: ポップアップにGoogle地図・ストリートビューボタン追加
+<!-- v20260626a: 別荘地候補レイヤー追加（villa_place_names 16件・v_villa_places_map ビュー経由）。🏘️別荘地候補トグル+パターン別色分け凡例（別荘地#7c3aed/ハイランド・リゾート#c026d3/高原#a855f7）。villaPane(zIndex640)+canvas。3マップ同期実装。 -->
+<!-- v20260622c: 手紙ワークフロー実装。地権者ポップアップに【📮手紙発信→LETTER】【📦印刷完了→LTR済】2段ボタン追加(郵便番号空欄時は発信ボタン無効化＋警告)。ツールバーに【📮一括手紙発信(表示中・郵便番号必須)】【📋宛名ラベルCSV出力(BOM付UTF-8・Excel互換)】追加。RPC mark_letter_sent/mark_letter_printed/mark_letters_sent_bulk(全DEFINER)経由でcases.status・last_letter_sent_at更新。ポップアップに〒+最新発信日も表示。 -->
+<html lang="ja">
+<head>
+<!-- v20260516t: 強制リロード不要化（HTML自体を毎回再取得 / 外部リソースは静的バージョン文字列） -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ===== 権限管理ガード v1.0 (2026-05-10) - 必ず他スクリプトより前に配置 ===== -->
+<script src="common-auth.js?v=20260516u"></script>
+<!-- ===== MODE SELECT 戻るボタン v20260515ad (mode-back.js) ===== -->
+<script src="mode-back.js?v=20260516u"></script>
+<script src="power-company-utils.js?v=20260619a"></script>
+
+<link rel="stylesheet" href="viewer-mode.css?v=20260516u">
+<script src="viewer-mode.js?v=20260516u"></script>
+<link rel="stylesheet" href="external-mode.css">
+<script src="external-mode.js"></script>
+
+<script>
+/* ===== version.json による自動更新チェック =====
+   修正時は version.json のバージョン文字列を更新すること。
+   ユーザーは Ctrl+Shift+R 不要。次回アクセス時に自動でリロード。 */
+(async function _vchk(){
+  try {
+    var lastCheck = parseInt(sessionStorage.getItem('vchk_at') || '0', 10);
+    if (Date.now() - lastCheck < 30000) return;
+    sessionStorage.setItem('vchk_at', String(Date.now()));
+    var ctrl = new AbortController();
+    setTimeout(function(){ ctrl.abort(); }, 3000);
+    var r = await fetch('./version.json?t=' + Date.now(), { cache: 'no-store', signal: ctrl.signal });
+    if (!r.ok) return;
+    var j = await r.json();
+    if (!j || !j.version) return;
+    var stored = localStorage.getItem('app_version');
+    if (!stored) { localStorage.setItem('app_version', j.version); return; }
+    if (stored !== j.version) {
+      localStorage.setItem('app_version', j.version);
+      var hasOpenModal = !!document.querySelector('.modal-overlay.open');
+      if (hasOpenModal) {
+        if (!confirm('新しいバージョンが利用可能です。編集中の内容は失われる可能性があります。更新しますか？')) return;
+      }
+      /* Safari等でreload()がHTMLをキャッシュから返す問題を回避：URLに_v=バージョンを付与して再取得 */
+      try {
+        var u = new URL(location.href);
+        u.searchParams.set('_v', j.version);
+        location.replace(u.toString());
+      } catch (e2) {
+        location.reload();
+      }
+    }
+  } catch(e) {}
+})();
+</script>
+<!-- v20260623c: XKT001点照合バグ修正(全ポリゴン走査→最具体区分採用)。 -->
+<title>地権者訪問マップ | GRID LAND MGR v3.0</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="mobile-responsive.css?v=20260806j">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- ベクトルタイル＋面積計算 用ライブラリ -->
+<script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
+<script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
+<script type="module">
+  // pmtiles \u3068 \u30d9\u30af\u30bf\u30fc\u30bf\u30a4\u30eb\u30c7\u30b3\u30fc\u30c0\u3092\u8aad\u307f\u8fbc\u307f\u3001\u30b0\u30ed\u30fc\u30d0\u30eb\u306b\u30a8\u30af\u30b9\u30dd\u30fc\u30c8
+  import * as pmtilesModule from 'https://esm.sh/pmtiles@3.0.6';
+  const vtModule = await import('https://esm.sh/@mapbox/vector-tile@1.3.1');
+  const pbfModule = await import('https://esm.sh/pbf@3.2.1');
+  window.__PMT = new pmtilesModule.PMTiles('https://data.source.coop/smartmaps/amx-2024-04/MojMap_amx_2024.pmtiles');
+  window.__VT = vtModule.VectorTile;
+  window.__Pbf = pbfModule.default;
+  window.dispatchEvent(new Event('pmtReady'));
+</script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2333;
+    --border: #30363d;
+    --accent: #f0b429;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --font-main: 'Zen Kaku Gothic New', sans-serif;
+    --font-mono: 'Share Tech Mono', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-main); height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 20px; min-height: 52px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 1000; flex-wrap: wrap; gap: 8px; }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--text); }
+  .logo-icon { width: 28px; height: 28px; background: linear-gradient(135deg, #0F7B3E, #064E2A); border-radius: 6px; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 1px 2px rgba(255,255,255,.15), 0 2px 4px rgba(0,0,0,.3); }
+  .logo-text { font-size: 14px; font-weight: 700; }
+  .logo-version { font-family: var(--font-mono); font-size: 10px; color: var(--accent); background: rgba(240,180,41,.1); border: 1px solid rgba(240,180,41,.3); border-radius: 4px; padding: 2px 6px; }
+  .page-title { font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+  .page-title::before { content: '/'; color: var(--border); }
+  .phase-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+  .phase-plan { background: rgba(88,166,255,0.15); color: var(--blue); border: 1px solid rgba(88,166,255,0.3); }
+  .phase-visit { background: rgba(240,180,41,0.15); color: var(--accent); border: 1px solid rgba(240,180,41,0.3); }
+  .legend { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--text-muted); flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  /* ========= Dashboard bar (header 2段目) ========= */
+  .dashboard-bar {
+    width:100%; background:#0d1117; border-top:1px solid var(--border); border-bottom:1px solid var(--border);
+    padding:6px 12px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; overflow-x:auto;
+    overflow-y:hidden; scrollbar-width:thin;
+  }
+  .pc-tabs { display:flex; gap:3px; flex-wrap:wrap; }
+  .pc-tab {
+    padding:4px 10px; background:rgba(255,255,255,.03); border:1px solid var(--border); border-radius:5px;
+    color:var(--text-muted); font-size:11px; font-weight:500; cursor:pointer; transition:all .15s; white-space:nowrap;
+  }
+  .pc-tab:hover { background:var(--surface2); color:var(--text); }
+  .pc-tab.active { background:rgba(240,180,41,.15); border-color:var(--accent); color:var(--accent); font-weight:700; }
+  .pc-tab .pc-count { font-family:var(--font-mono); font-size:9px; margin-left:3px; opacity:.7; }
+  .status-chart-wrap { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .donut-wrap { display:flex; align-items:center; gap:8px; }
+  .donut-svg { flex-shrink:0; }
+  .donut-legend { display:flex; flex-direction:column; gap:1px; font-size:10px; line-height:1.3; max-height:64px; flex-wrap:wrap; }
+  .donut-legend-item { display:flex; align-items:center; gap:4px; color:var(--text-muted); white-space:nowrap; }
+  .donut-legend-swatch { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
+  .donut-legend-count { color:var(--text); font-family:var(--font-mono); font-weight:600; margin-left:2px; }
+  .donut-total { text-align:center; }
+  .donut-total-num { font-family:var(--font-mono); font-size:16px; font-weight:700; color:var(--text); line-height:1; }
+  .donut-total-lbl { font-size:9px; color:var(--text-muted); letter-spacing:.05em; }
+  .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); font-family: var(--font-main); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+  .btn-ghost { background: none; color: var(--text-muted); }
+  .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+  .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); }
+  .btn-primary:hover { background: #e0a820; }
+  .btn-danger { background: var(--red); color: #fff; border-color: var(--red); }
+  .map-wrapper { flex: 1; position: relative; overflow: hidden; }
+  #map { width: 100%; height: 100%; }
+  .leaflet-top.leaflet-left { display: none; }
+  /* ======== 地番検索 ======== */
+  .chiban-search{position:absolute;top:12px;left:12px;z-index:501;width:260px;}
+  .chiban-search input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px 8px 32px;color:var(--text);font-family:var(--font-main);font-size:12px;outline:none;}
+  .chiban-search input:focus{border-color:var(--accent);}
+  .chiban-search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;pointer-events:none;}
+  .chiban-results{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-top:4px;max-height:200px;overflow-y:auto;display:none;}
+  /* 市区町村境界の点滅アニメーション（マゼンタ） */
+  @keyframes boundary-pulse {
+    0%   { stroke-opacity: 1.0; fill-opacity: 0.12; }
+    50%  { stroke-opacity: 0.35; fill-opacity: 0.04; }
+    100% { stroke-opacity: 1.0; fill-opacity: 0.12; }
+  }
+  .boundary-pulse path { animation: boundary-pulse 2s ease-in-out infinite; }
+  .chiban-result-item{padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid rgba(48,54,61,0.5);color:var(--text);}
+  .chiban-result-item:hover{background:var(--surface2);}
+  .chiban-result-item:last-child{border-bottom:none;}
+  .control-panel { position: absolute; top: 52px; left: 12px; z-index: 500; display: flex; flex-direction: column; gap: 8px; transition: left 0.3s ease; }
+  .control-panel.shifted { left: 272px; }
+  .stat-pill { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 12px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .stat-pill-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .action-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 200px; }
+  .action-panel-title { font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 2px; }
+  .zoom-controls { position: absolute; bottom: 80px; right: 12px; z-index: 500; display: flex; flex-direction: column; gap: 2px; }
+  .zoom-btn { width: 32px; height: 32px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 18px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
+  .zoom-btn:hover { background: var(--surface2); }
+  .layer-control { position: absolute; top: 12px; right: 12px; z-index: 500; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 160px; max-height: calc(100vh - 120px); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  .layer-title { font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: .08em; text-transform: uppercase; }
+  .layer-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); cursor: pointer; }
+  .layer-item input[type=checkbox] { accent-color: var(--blue); }
+  /* ======== ハザード+都市計画+農振 コントロール（farmland-tracker互換） ======== */
+  .hazard-controls{position:absolute;top:130px;right:12px;z-index:500;display:flex;flex-direction:column;gap:4px;max-height:calc(100vh - 160px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;width:150px;}
+  /* ハザードパネル折りたたみ・レスポンシブ対応 */
+  .hazard-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+    padding: 4px 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 2px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+  .hazard-panel-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .hazard-panel-toggle {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 4px;
+    transition: transform 0.2s;
+    line-height: 1;
+    border-radius: 4px;
+  }
+  .hazard-panel-toggle:hover { background: var(--surface); color: var(--text); }
+  .hazard-controls.collapsed .hazard-panel-toggle { transform: rotate(-90deg); }
+  .hazard-controls.collapsed .hazard-body { display: none; }
+  .hazard-controls.collapsed {
+    max-height: none;
+    overflow: visible;
+    width: auto;
+    min-width: 120px;
+  }
+  .hazard-body { display: flex; flex-direction: column; gap: 4px; }
+  @media (max-width: 1024px) {
+    .layer-control {
+      font-size: 11px;
+      padding: 8px 10px;
+      min-width: 140px;
+      max-height: calc(100vh - 100px);
+    }
+    .layer-control .layer-item { font-size: 11px; }
+    .hazard-controls {
+      top: 120px;
+      width: 130px;
+      max-height: calc(100vh - 140px);
+    }
+    .hazard-controls .hazard-btn,
+    .hazard-controls .hazard-toggle-btn { font-size: 10px; padding: 4px 8px; }
+  }
+  @media (max-width: 480px) {
+    .layer-control {
+      max-width: 160px;
+      max-height: calc(100vh - 80px);
+      padding: 6px 8px;
+    }
+    .hazard-controls {
+      top: 110px;
+      width: 120px;
+      max-height: calc(100vh - 130px);
+    }
+  }
+  .hazard-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text-muted);font-family:var(--font-main);font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.15s;text-align:left;}
+  .hazard-btn:hover{background:var(--surface2);color:var(--text);}
+  .hazard-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(240,180,41,.12);}
+  .hazard-divider{border-top:1px solid var(--border);margin:2px 0;}
+  .forest-legend{display:none;font-size:10px;color:var(--text-muted);padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;margin-top:2px;line-height:1.5;}
+  .forest-legend.show{display:block;}
+  .forest-legend .fl-row{display:flex;align-items:center;gap:6px;margin-bottom:3px;}
+  .forest-legend .fl-row:last-child{margin-bottom:0;}
+  .forest-legend .fl-key{display:inline-block;width:34px;text-align:center;font-weight:700;color:var(--text);flex-shrink:0;}
+  .forest-legend .fl-swatch{display:inline-block;width:14px;height:14px;flex-shrink:0;}
+  .hazard-toggle-btn{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-muted);cursor:pointer;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);font-family:var(--font-main);width:100%;text-align:left;transition:all 0.15s;font-weight:600;}
+  .hazard-toggle-dot{width:8px;height:8px;border-radius:50%;background:var(--border);flex-shrink:0;transition:background 0.15s;}
+  .hazard-toggle-btn.active{background:rgba(240,180,41,0.12);border-color:var(--accent);color:var(--accent);}
+  .hazard-toggle-btn.active .hazard-toggle-dot{background:var(--accent);}
+  .hazard-toggle-btn:hover{background:var(--surface2);color:var(--text);}
+  .farmland-tooltip{background:#161b22;border:1px solid #f0b429;border-radius:6px;color:#e6edf3;font-size:12px;padding:4px 10px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);}
+  .farmland-tooltip::before{display:none;}
+  .leaflet-popup-content-wrapper { background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: 10px !important; color: var(--text) !important; box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important; padding: 0 !important; min-width: 260px; }
+  .leaflet-popup-tip { background: var(--surface) !important; }
+  .leaflet-popup-content { margin: 0 !important; }
+  .popup-body { padding: 14px; font-family: var(--font-main); }
+  .popup-name { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+  .popup-case-no { font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
+  .popup-info { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .popup-row { display: flex; gap: 8px; font-size: 12px; }
+  .popup-label { color: var(--text-muted); min-width: 56px; flex-shrink: 0; }
+  .popup-value { color: var(--text); }
+  .popup-divider { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+  .popup-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .popup-btn { flex: 1; padding: 7px 8px; border-radius: 6px; border: 1px solid var(--border); background: none; color: var(--text); font-family: var(--font-main); font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.15s; text-align: center; min-width: 80px; }
+  .popup-btn:hover { background: var(--surface2); }
+  .popup-btn.select-btn { border-color: var(--blue); color: var(--blue); }
+  .popup-btn.select-btn:hover { background: rgba(88,166,255,0.1); }
+  .popup-btn.selected-btn { background: rgba(240,180,41,0.15); border-color: var(--accent); color: var(--accent); }
+  .popup-btn.nav-btn { background: var(--green); border-color: var(--green); color: #fff; font-weight: 700; }
+  .popup-btn.complete-btn { background: var(--red); border-color: var(--red); color: #fff; }
+  .popup-btn.completed-btn { background: rgba(248,81,73,0.1); border-color: var(--red); color: var(--red); cursor: default; }
+  .popup-btn.undo-btn { border-color: var(--text-muted); color: var(--text-muted); }
+  .popup-btn.undo-btn:hover { background: var(--surface2); color: var(--text); }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 480px; transform: scale(0.95); transition: transform 0.2s; }
+  .modal-overlay.open .modal { transform: scale(1); }
+  .modal-header { padding: 16px 20px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .modal-title { font-size: 15px; font-weight: 700; }
+  .modal-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .modal-close { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 4px; border-radius: 4px; }
+  .modal-close:hover { background: var(--surface2); color: var(--text); }
+  .modal-body { padding: 16px 20px; }
+  .modal-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .form-label { font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: .06em; text-transform: uppercase; }
+  .form-input, .form-textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 9px 12px; color: var(--text); font-family: var(--font-main); font-size: 13px; transition: border-color 0.2s; }
+  .form-input:focus, .form-textarea:focus { outline: none; border-color: var(--blue); }
+  .form-textarea { resize: vertical; min-height: 80px; }
+  .owner-list-panel { position: absolute; top: 0; left: 0; width: 260px; height: 100%; background: var(--surface); border-right: 1px solid var(--border); z-index: 600; transform: translateX(-100%); transition: transform 0.3s ease; display: flex; flex-direction: column; }
+  .owner-list-panel.open { transform: translateX(0); }
+  .owner-list-header { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--surface2); flex-shrink: 0; }
+  .owner-list-title { font-size: 12px; font-weight: 700; color: var(--text); }
+  .owner-list-count { font-size: 11px; color: var(--accent); font-family: var(--font-mono); }
+  .owner-table-wrap { flex: 1; overflow-y: auto; padding: 8px; }
+  .owner-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .owner-table thead tr { background: var(--surface2); position: sticky; top: 0; z-index: 1; }
+  .owner-table th { padding: 7px 8px; text-align: left; font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .owner-table th:first-child { width: 36px; text-align: center; }
+  .owner-table td { padding: 7px 8px; border-bottom: 1px solid rgba(48,54,61,0.5); vertical-align: middle; color: var(--text); }
+  .owner-table td:first-child { text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--accent); font-weight: 700; }
+  .owner-table tr:hover td { background: var(--surface2); }
+  .owner-table tr.visited td { opacity: 0.5; }
+  .owner-table tr.visited td:first-child::after { content: '\u2713'; color: var(--red); }
+  .side-panel { position: absolute; top: 0; right: 0; width: 280px; height: 100%; background: var(--surface); border-left: 1px solid var(--border); z-index: 600; transform: translateX(100%); transition: transform 0.3s ease; display: flex; flex-direction: column; }
+  .side-panel.open { transform: translateX(0); }
+  .side-panel-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--surface); }
+  .side-panel-title { font-size: 13px; font-weight: 700; }
+  .plan-list { flex: 1; overflow-y: auto; padding: 10px; }
+  .plan-item { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; border-left: 3px solid var(--blue); }
+  .plan-item.visited { border-left-color: var(--red); opacity: 0.6; }
+  .plan-item-name { font-size: 13px; font-weight: 600; }
+  .plan-item-case { font-family: var(--font-mono); font-size: 10px; color: var(--accent); margin-top: 2px; }
+  .plan-item-address { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+  .toast-container { position: fixed; bottom: 20px; right: 60px; z-index: 3000; display: flex; flex-direction: column; gap: 8px; }
+  .toast { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 11px 16px; font-size: 13px; min-width: 220px; animation: slideIn 0.3s ease; display: flex; align-items: center; gap: 8px; }
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error { border-left: 3px solid var(--red); }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+  .leaflet-tooltip { background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: 6px !important; color: var(--text) !important; font-family: var(--font-main) !important; font-size: 12px !important; font-weight: 500 !important; padding: 5px 10px !important; box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important; white-space: nowrap !important; }
+  .leaflet-tooltip-top::before { border-top-color: var(--border) !important; }
+
+  /* ======== ドラッグ可能パネル 共通CSS ======== */
+  body.dragging-panel * { user-select: none !important; cursor: grabbing !important; }
+  body.dragging-panel .draggable-panel { transition: none !important; }
+  .hazard-panel-header, .mc-panel-header { cursor: grab; }
+  .hazard-panel-header:active, .mc-panel-header:active { cursor: grabbing; }
+  .draggable-panel { touch-action: none; }
+
+  /* ===== 地図カーソルを矢印に統一 ===== */
+  .leaflet-container,
+  .leaflet-grab,
+  .leaflet-dragging .leaflet-grab { cursor: default !important; }
+
+  /* ===== 選択フラグ点滅エフェクト（3マップ共通） ===== */
+  .selection-flash { position: relative; pointer-events: none; }
+  .selection-flash .sf-pulse {
+    position: absolute; left: 50%; top: 50%;
+    width: 48px; height: 48px;
+    margin-left: -24px; margin-top: -24px;
+    border-radius: 50%;
+    background: rgba(248,81,73,0.45);
+    animation: sf-pulse 1.4s infinite ease-out;
+    pointer-events: none;
+  }
+  .selection-flash .sf-dot {
+    position: absolute; left: 50%; top: 50%;
+    width: 14px; height: 14px;
+    margin-left: -7px; margin-top: -7px;
+    border-radius: 50%;
+    background: #f85149;
+    border: 3px solid #fff;
+    box-shadow: 0 0 12px rgba(248,81,73,0.9);
+    pointer-events: none;
+  }
+  @keyframes sf-pulse {
+    0% { transform: scale(0.5); opacity: 1; }
+    100% { transform: scale(2.4); opacity: 0; }
+  }
+
+  /* ===== 地番検索ヒット時の赤丸点滅マーカー ===== */
+  .sf-blink-icon { position: relative; }
+  .sf-blink-icon::after {
+    content: '';
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 48px; height: 48px;
+    margin-left: -24px; margin-top: -24px;
+    border-radius: 50%;
+    background: rgba(248,81,73,0.45);
+    animation: sf-pulse 1.4s infinite ease-out;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body class="map-page">
+<header class="header">
+  <div class="header-left">
+    <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
+    <span class="page-title">🚗 地権者訪問マップ</span>
+    <span class="phase-badge phase-plan" id="phaseBadge">📋 訪問計画モード</span>
+  </div>
+  <div class="legend">
+    <div class="legend-item"><span style="font-size:14px;color:var(--text-muted);">●</span><span>未選択</span></div>
+    <div class="legend-item"><span style="font-size:14px;color:var(--text-muted);">◆</span><span>訪問予定</span></div>
+    <div class="legend-item"><span style="font-size:14px;color:var(--text-muted);">★</span><span>訪問済</span></div>
+    <span style="color:var(--text-muted);font-size:11px;">（色＝案件ステータス）</span>
+    <button class="btn btn-ghost" onclick="location.href='index.html'">← 案件一覧</button>
+  </div>
+</header>
+<!-- ダッシュボードバー：電力会社タブ + ドーナツ + 凡例 -->
+<div class="dashboard-bar" id="dashboardBar">
+  <div class="pc-tabs" id="pcTabs"></div>
+  <button class="dashboard-toggle-mobile" id="dashboardToggleBtn" type="button" onclick="toggleDashboardStats()" style="display:none">📊 統計 ▼</button>
+  <button class="dashboard-start-mobile" id="dashboardStartBtn" type="button" onclick="handleDashStartClick()" style="display:none">🚗 訪問開始</button>
+  <div style="flex:1;min-width:12px;"></div>
+  <div class="status-chart-wrap" id="statusChartWrap">
+    <div class="donut-wrap">
+      <svg class="donut-svg" id="donutChart" width="64" height="64" viewBox="0 0 42 42"></svg>
+      <div class="donut-total"><div class="donut-total-num" id="donutTotal">0</div><div class="donut-total-lbl">TOTAL</div></div>
+      <div class="donut-total" style="margin-left:4px;border-left:1px solid #30363d;padding-left:10px;">
+        <div class="donut-total-num" id="mapShownCount" style="color:#22c55e;">0</div>
+        <div class="donut-total-lbl">MAP表示</div>
+      </div>
+      <div class="donut-total" style="margin-left:0;">
+        <div class="donut-total-num" id="noCoordsCount" style="color:#94a3b8;font-size:12px;">0</div>
+        <div class="donut-total-lbl">座標未登録</div>
+      </div>
+    </div>
+    <div class="donut-legend" id="donutLegend"></div>
+  </div>
+</div>
+<div class="map-wrapper">
+  <div id="map"></div>
+  <!-- 地番・住所検索 -->
+  <div class="chiban-search" id="chibanSearch">
+    <span class="chiban-search-icon">🔍</span>
+    <input type="text" id="chibanInput" placeholder="市区町村 大字 地番で検索...">
+    <div class="chiban-results" id="chibanResults"></div>
+  </div>
+  <div class="owner-list-panel" id="ownerListPanel">
+    <div class="owner-list-header">
+      <span class="owner-list-title">📋 訪問予定リスト</span>
+      <span class="owner-list-count" id="ownerListCount">0件</span>
+    </div>
+    <div class="owner-table-wrap">
+      <table class="owner-table">
+        <thead><tr><th>No</th><th>地権者名</th></tr></thead>
+        <tbody id="ownerTableBody"><tr><td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">フラグをクリックして<br>訪問予定を追加</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="control-panel" id="controlPanel">
+    <div class="action-panel mc-collapsible" id="planPanel">
+      <div class="mc-panel-header" onclick="toggleActionPanel('planPanel')">
+        <span class="mc-panel-title">📋 訪問計画モード</span>
+        <button class="mc-panel-toggle" type="button" aria-label="開閉">▼</button>
+      </div>
+      <div class="mc-panel-body">
+      <div class="action-panel-title">訪問計画モード</div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">フラグをクリックして<br>訪問予定を選択してください</div>
+      <button class="btn btn-primary" onclick="handleDashStartClick()" id="startBtn" disabled>🚗 訪問開始</button>
+      <button class="btn btn-ghost" style="font-size:11px" onclick="togglePlanList()">📋 予定リスト（右）</button>
+      </div>
+    </div>
+    <!-- 訪問実行モードはヘッダーの訪問開始ボタンに統合（実行中の再押下で計画リセット） -->
+  </div>
+  <div class="layer-control" id="layerControl">
+    <div class="layer-title">地図レイヤー</div>
+    <label class="layer-item"><input type="checkbox" id="layerGsi" onchange="toggleLayer('gsi',this.checked)"> GSI 航空写真</label>
+    <label class="layer-item"><input type="checkbox" id="layerEsri" onchange="toggleLayer('esri',this.checked)"> 🛰 最新衛星 (Esri)</label>
+    <label class="layer-item"><input type="checkbox" id="layerParcel" checked onchange="toggleLayer('parcel',this.checked)"> 地番境界</label>
+  </div>
+  <!-- ======== ハザード + 都市計画 + 農振 コントロール ======== -->
+  <div class="hazard-controls" id="hazardControls">
+    <div class="hazard-panel-header" onclick="toggleHazardPanel()">
+      <span class="hazard-panel-title">🚨 防災・都市計画</span>
+      <button class="hazard-panel-toggle" type="button" aria-label="開閉">▼</button>
+    </div>
+    <div class="hazard-body">
+    <button class="hazard-btn" id="hzFlood" onclick="toggleHazard('flood')">&#127754; 浸水</button>
+    <button class="hazard-btn" id="hzInner" onclick="toggleHazard('inner')">&#128167; 内水</button>
+    <button class="hazard-btn" id="hzSediment" onclick="toggleDosyaPolygon()">&#9888; 土砂災害</button>
+    <button class="hazard-btn" id="hzTide" onclick="toggleHazard('tide')">&#127754; 高潮</button>
+    <button class="hazard-btn" id="hzTsunami" onclick="toggleHazard('tsunami')">&#127754; 津波</button>
+    <div class="hazard-divider"></div>
+    <button class="hazard-toggle-btn" id="btnUrbanPlanning" onclick="toggleUrbanPlanning()">
+      <span class="hazard-toggle-dot"></span>&#127968; 用途地域
+    </button>
+    <div id="urbanLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-height:200px;overflow-y:auto;">
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">用途地域</div>
+      <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFFFD2;border:1px solid #aaa;flex-shrink:0"></div>第1種低層住居専用</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFFFC0;border:1px solid #aaa;flex-shrink:0"></div>第2種低層住居専用</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#DFF1CB;border:1px solid #aaa;flex-shrink:0"></div>第1種中高層住居専用</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#F0FFE1;border:1px solid #aaa;flex-shrink:0"></div>第2種中高層住居専用</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFFFD2;border:1px solid #aaa;flex-shrink:0"></div>第1種住居</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFF1E2;border:1px solid #aaa;flex-shrink:0"></div>第2種住居</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFE4CC;border:1px solid #aaa;flex-shrink:0"></div>準住居</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFD4A0;border:1px solid #aaa;flex-shrink:0"></div>近隣商業</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FFB3D2;border:1px solid #aaa;flex-shrink:0"></div>商業</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#E1B3FF;border:1px solid #aaa;flex-shrink:0"></div>準工業</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#B3D4FF;border:1px solid #aaa;flex-shrink:0"></div>工業</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#CCF0FF;border:1px solid #aaa;flex-shrink:0"></div>工業専用</div>
+      </div>
+    </div>
+    <button class="hazard-toggle-btn" id="btnCityPlan" onclick="toggleCityPlan()">
+      <span class="hazard-toggle-dot"></span>&#128506; 都市計画区域
+    </button>
+    <div id="cityPlanLegend" style="display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);">
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">区域区分</div>
+      <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#FF8C5A;opacity:0.5;border:1px solid #c5532e;flex-shrink:0"></div>市街化区域</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#4CAF50;opacity:0.5;border:1px solid #2e7d32;flex-shrink:0"></div>市街化調整区域</div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:transparent;border:1.5px dashed #2196F3;flex-shrink:0"></div>都市計画区域(外周)</div>
+        <div style="display:flex;align-items:center;gap:5px;color:#888"><div style="width:10px;height:10px;background:transparent;border:1px solid #ccc;flex-shrink:0"></div>無色＝区域外</div>
+      </div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.4;">※外周(青破線)内で無色＝<b>非線引き</b><br>※外周自体が無い＝<b>都市計画区域外</b></div>
+    </div>
+    <div class="hazard-divider"></div>
+    <button class="hazard-btn" id="hzNoshin" onclick="toggleNoshin()">&#127806; 農振農用地</button>
+    <button class="hazard-btn" id="hzForest5jou" onclick="toggleForest5jou()">&#127795; 5条森林</button>
+    <div id="forestLegend" class="forest-legend">
+      <div style="font-weight:700;color:var(--text);margin-bottom:4px;font-size:10px;">🌳 森林計画対象森林（林野庁2024年度版）</div>
+      <div class="fl-row"><span class="fl-swatch" style="background:#4ade80;border:1px solid #16a34a;"></span><span>緑塗り：民有林（5条森林）＋国有林</span></div>
+      <div class="fl-row"><span class="fl-key" style="font-size:11px;">4019</span><span>大きな番号：<b>林班番号</b></span></div>
+      <div class="fl-row"><span class="fl-key" style="font-size:8px;">1</span><span>小さな番号：<b>小班番号</b></span></div>
+      <div class="fl-row"><span class="fl-key" style="border-top:2px solid #000;width:24px;height:1px;"></span><span>濃い境界線：林班境界</span></div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:4px;line-height:1.3;">※ ズーム14以上で番号表示<br>※ ズーム12以上でクリック→面積表示<br>太陽光発電 0.5ha超で林地開発許可必須</div>
+    </div>
+    <!-- 別荘地候補（villa_place_names・紫点表示） v20260626a -->
+    <button class="hazard-btn" id="hzVilla" onclick="toggleVilla()">&#127960; 別荘地候補</button>
+    <div id="villaLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
+      <div style="font-size:10px;line-height:1.7;">
+        <div style="font-weight:600;margin-bottom:2px">🏘️ 別荘地候補（OSM地名検出）</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#7c3aed;border:1px solid #4c1d95;margin-right:5px"></span>別荘・別荘地（本命）</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#c026d3;border:1px solid #4c1d95;margin-right:5px"></span>ハイランド・リゾート</div>
+        <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#a855f7;border:1px solid #4c1d95;margin-right:5px"></span>高原（地形名）</div>
+        <div style="margin-top:3px;color:var(--text-muted);font-size:9px;">中京圏11県・リゾート法構想と紐付け済</div>
+      </div>
+    </div>
+    </div><!-- /.hazard-body -->
+  </div>
+  <div class="zoom-controls">
+    <button class="zoom-btn" onclick="map.zoomIn()">＋</button>
+    <button class="zoom-btn" onclick="map.zoomOut()">－</button>
+  </div>
+  <div class="side-panel" id="sidePanel">
+    <div class="side-panel-header">
+      <span class="side-panel-title">📋 訪問予定リスト</span>
+      <button class="modal-close" onclick="togglePlanList()">✕</button>
+    </div>
+    <div class="plan-list" id="planList"><div style="color:var(--text-muted);font-size:12px;padding:10px">訪問予定がありません</div></div>
+  </div>
+</div>
+<div class="modal-overlay" id="visitModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div><div class="modal-title">✅ 訪問完了・商談記録</div><div class="modal-subtitle" id="visitModalInfo"></div></div>
+      <button class="modal-close" onclick="closeModal('visitModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label class="form-label">訪問日</label><input class="form-input" type="date" id="visitDate"></div>
+      <div class="form-group"><label class="form-label">商談内容</label><textarea class="form-textarea" id="visitContent" placeholder="訪問結果・地権者の反応・次回アクションなど..."></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('visitModal')">キャンセル</button>
+      <button class="btn btn-danger" onclick="saveVisit()">訪問完了・フラグを赤に変更</button>
+    </div>
+  </div>
+</div>
+<div class="toast-container" id="toastContainer"></div>
+<script>
+const SUPABASE_URL = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+const WORKER_BASE = 'https://reinfolib-proxy.takumi-29b.workers.dev';
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+/* ===== 業務用案件番号 (display_case_no) 対応：main.htmlと共通の表示ヘルパー ===== */
+var caseNoDisplayMode=(function(){try{return localStorage.getItem('caseNoDisplayMode')||'case_no';}catch(e){return 'case_no';}})();
+function caseDisplayNo(c){
+  if(!c)return '—';
+  if(caseNoDisplayMode==='business_no' && c.display_case_no)return c.display_case_no;
+  if(c.parent_case_no)return c.parent_case_no;
+  return c.case_no || '—';
+}
+/* localStorageが他タブで変更されたとき、自動で再読込（ベストエフォート） */
+window.addEventListener('storage',function(e){
+  if(e.key==='caseNoDisplayMode'){caseNoDisplayMode=e.newValue||'case_no';}
+});
+/* ===== ===== */
+
+let map, gsiLayer, esriLayer, parcelLayer;
+let markers = {};
+let planSet = new Set();
+
+/* ===== 訪問予定リストの永続化（localStorage） =====
+   電力会社ごとにキーを分けて保存。デバイス固有・PC/iPhone別保存。
+   保存タイミング：addPlan/removePlan/visitMode終了/案件訪問完了/リセット
+   復元タイミング：loadData完了後 */
+const PLAN_STORAGE_KEY = 'slm_planSet_landowner_v1';
+
+function _planStorageKey() {
+  return PLAN_STORAGE_KEY + '__' + (currentPowerCompany || '中部電力');
+}
+
+function savePlanSet() {
+  try {
+    const arr = Array.from(planSet);
+    localStorage.setItem(_planStorageKey(), JSON.stringify(arr));
+  } catch (e) {
+    console.warn('[savePlanSet] localStorage error:', e);
+  }
+}
+
+function loadPlanSet() {
+  try {
+    const raw = localStorage.getItem(_planStorageKey());
+    if (!raw) return;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return;
+    arr.forEach(caseId => planSet.add(caseId));
+  } catch (e) {
+    console.warn('[loadPlanSet] localStorage error:', e);
+  }
+}
+
+function clearPlanStorage() {
+  try { localStorage.removeItem(_planStorageKey()); } catch (e) {}
+}
+let visitMode = false;
+let currentVisitCaseId = null;
+let currentLandownerId = null;
+let allLandowners = [];/* 生データ：電力会社タブで再フィルタするため保持 */
+let currentPowerCompany = '中部電力';/* 電力会社タブで選択中 */
+
+/* ========== ステータス色定義（index.htmlと統一） ========== */
+const STATUS_COLORS = {
+  'NOT VISITED': { fill: '#ef4444', stroke: '#991b1b' },
+  'THINKING↑':   { fill: '#fca5a5', stroke: '#b91c1c' },
+  'THINKING→':   { fill: '#eab308', stroke: '#854d0e' },
+  'THINKING↓':   { fill: '#84cc16', stroke: '#4d7c0f' },
+  'OK':          { fill: '#38bdf8', stroke: '#0369a1' },
+  'SUCCESS':     { fill: '#f97316', stroke: '#9a3412' },
+  'NON MEET':    { fill: '#d1d5db', stroke: '#4b5563' },
+  'NG':          { fill: '#4b5563', stroke: '#1f2937' },
+  'UNKNOWN':     { fill: '#40826d', stroke: '#14532d' },
+  'LETTER':      { fill: '#a78bfa', stroke: '#6d28d9' },
+  'LTR済':       { fill: '#5b21b6', stroke: '#4c1d95' }
+};
+const STATUS_ORDER = ['NOT VISITED','THINKING↑','THINKING→','THINKING↓','OK','SUCCESS','NON MEET','UNKNOWN','LETTER','LTR済'];/* NGは非表示 */
+
+/* ========== 管轄電力会社マッピング ==========
+   定数・関数は power-company-utils.js（全国1,736市区町村対応）から提供される：
+   POWER_COMPANIES / PREF_TO_POWER / AREA_TO_PREF / BROAD_REGION_TO_POWER /
+   normalizeAreaKey / getPowerCompanyFromArea
+   ※ 旧・愛知県限定のインライン定義は撤去し main.html と判定を統一（v20260619a） */
+
+/* ========== SVGマーカー生成（18px、形状×ステータス色×訪問状態） ========== */
+function makeStatusIcon(status, visitState) {
+  /* visitState: 'unselected' | 'planned' | 'visited' */
+  const col = STATUS_COLORS[status] || STATUS_COLORS['UNKNOWN'];
+  const size = 18;
+  let shape = '';
+  if (visitState === 'planned') {
+    /* ◆ ダイヤ */
+    shape = `<polygon points="9,1 17,9 9,17 1,9" fill="${col.fill}" stroke="${col.stroke}" stroke-width="2"/>`;
+  } else if (visitState === 'visited') {
+    /* ★ 星 */
+    shape = `<polygon points="9,1 11.2,6.5 17,6.9 12.5,10.6 14,16.5 9,13.3 4,16.5 5.5,10.6 1,6.9 6.8,6.5" fill="${col.fill}" stroke="${col.stroke}" stroke-width="1.5" stroke-linejoin="round"/>`;
+  } else {
+    /* ● 円 */
+    shape = `<circle cx="9" cy="9" r="7.5" fill="${col.fill}" stroke="${col.stroke}" stroke-width="2"/>`;
+  }
+  const html = `<svg width="${size}" height="${size}" viewBox="0 0 18 18" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5))">${shape}</svg>`;
+  return L.divIcon({ html, className: '', iconSize: [size,size], iconAnchor: [size/2,size/2], popupAnchor: [0,-size/2-2] });
+}
+function visitStateOf(caseId, isVisited) {
+  if (isVisited) return 'visited';
+  if (planSet.has(caseId)) return 'planned';
+  return 'unselected';
+}
+
+/* ==== \u30c8\u30fc\u30b9\u30c8\u901a\u77e5 ==== */
+function showToast(msg, type){
+  var c=document.getElementById('toastContainer');
+  if(!c){ c=document.createElement('div'); c.id='toastContainer'; c.className='toast-container'; document.body.appendChild(c); }
+  var t=document.createElement('div'); t.className='toast '+(type||'success'); t.textContent=msg;
+  c.appendChild(t); setTimeout(function(){ if(t.parentNode)t.parentNode.removeChild(t); }, 4000);
+}
+/* ==== \u30cf\u30b6\u30fc\u30c95\u7a2e ==== */
+const HAZARD_URLS = {
+  flood:   'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  inner:   'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_kuni_data/{z}/{x}/{y}.png',
+  sediment:'https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki_data/{z}/{x}/{y}.png',
+  tide:    'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  tsunami: 'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png'
+};
+let hazardLayers = {};
+function toggleHazard(type){
+  var btnId='hz'+type.charAt(0).toUpperCase()+type.slice(1);
+  var btn=document.getElementById(btnId);
+  if(hazardLayers[type]){
+    map.removeLayer(hazardLayers[type]); delete hazardLayers[type]; btn.classList.remove('active');
+  } else {
+    var layer=L.tileLayer(HAZARD_URLS[type],{opacity:0.7,maxZoom:22,maxNativeZoom:17,attribution:'\u56fd\u571f\u4ea4\u901a\u7701'});
+    layer.addTo(map); layer.bringToFront(); hazardLayers[type]=layer; btn.classList.add('active');
+  }
+}
+/* ==== \u68ee\u6797\u8a08\u753b\u5bfe\u8c61\u68ee\u6797\u30ec\u30a4\u30e4\uff08\u6797\u91ce\u5e812024\u5e74\u5ea6\u7248\u30fb\u5168\u56fd\u30fb\u6c11\u6709\u6797\uff0b\u56fd\u6709\u6797\uff09==== */
+const FOREST_TILE_URL='https://rinya-tiles.geospatial.jp/fr_layer_webp_2025/{z}/{x}/{y}.webp';
+const FOREST_PBF_URL='https://rinya-tiles.geospatial.jp/fr_layer_pbf_2025/{z}/{x}/{y}.pbf';
+let forest5jouLayer=null;
+let forest5jouVectorLayer=null;
+function toggleForest5jou(){
+  var btn=document.getElementById('hzForest5jou');
+  var legend=document.getElementById('forestLegend');
+  if(forest5jouLayer){
+    map.removeLayer(forest5jouLayer);forest5jouLayer=null;
+    if(forest5jouVectorLayer){map.removeLayer(forest5jouVectorLayer);forest5jouVectorLayer=null;}
+    btn.classList.remove('active');
+    if(legend)legend.classList.remove('show');
+    return;
+  }
+  // \u30e9\u30b9\u30bf\u30bf\u30a4\u30eb\uff08\u898b\u305f\u76ee\u30fb\u30ba\u30fc\u30e05-16\uff09
+  forest5jouLayer=L.tileLayer(FOREST_TILE_URL,{opacity:0.55,minZoom:5,maxZoom:16,attribution:'\u6797\u91ce\u5e81\u68ee\u6797\u8a08\u753b\u5bfe\u8c61\u68ee\u6797\u30ec\u30a4\u30e4(2024)'});
+  forest5jouLayer.addTo(map);
+  forest5jouLayer.bringToFront();
+  // \u30d9\u30af\u30c8\u30eb\u30bf\u30a4\u30eb\uff08\u30af\u30ea\u30c3\u30af\u53cd\u5fdc\u7528\u30fb\u30ba\u30fc\u30e012-16\uff09
+  if(typeof L.vectorGrid!=='undefined'){
+    forest5jouVectorLayer=L.vectorGrid.protobuf(FOREST_PBF_URL,{
+      rendererFactory:L.canvas.tile,
+      interactive:true,
+      minZoom:12,maxZoom:16,
+      vectorTileLayerStyles:{
+        '\u68ee\u6797\u8a08\u753b\u5bfe\u8c61\u68ee\u6797\u30ec\u30a4\u30e4':{
+          fill:true,fillColor:'#22c55e',fillOpacity:0.001,stroke:false,weight:0
+        }
+      }
+    });
+    forest5jouVectorLayer.on('click',function(e){
+      var props=e.layer.properties||{};
+      var rinpan=props['\u6797\u73ed']||'-';
+      var minkokuClass=props['\u6c11\u56fd\u5225']||'-';
+      var pref=props['\u90fd\u9053\u5e9c\u770c\u540d\u79f0']||'-';
+      var city=props['\u5e02\u753a\u6751\u540d\u79f0']||'-';
+      var keikaku=props['\u68ee\u6797\u8a08\u753b\u533a\u540d\u79f0']||'-';
+      var areaText='\u8a08\u7b97\u4e2d...';
+      try{
+        if(typeof turf!=='undefined' && e.layer.toGeoJSON){
+          var geoJson=e.layer.toGeoJSON();
+          var areaSqm=turf.area(geoJson);
+          var areaHa=(areaSqm/10000).toFixed(2);
+          areaText=areaHa+' ha';
+        }
+      }catch(err){console.error('Turf area error:',err);areaText='\u8a08\u7b97\u4e0d\u53ef';}
+      var headerColor=minkokuClass==='\u56fd\u6709\u6797'?'#004d00':'#16a34a';
+      var warningText=minkokuClass==='\u6c11\u6709\u6797'
+        ?'\u26a0\ufe0f \u592a\u967d\u5149\u767a\u96fb 0.5ha\u8d85\u3067\u6797\u5730\u958b\u767a\u8a31\u53ef\u5fc5\u9808'
+        :'\u26a0\ufe0f \u56fd\u6709\u6797\u306f\u592a\u967d\u5149\u958b\u767a\u4e0d\u53ef';
+      L.popup({maxWidth:300,minWidth:230}).setLatLng(e.latlng).setContent(
+        '<div style="padding:10px;font-size:12px;line-height:1.5;">'+
+        '<div style="color:'+headerColor+';font-weight:700;margin-bottom:6px;">\u{1f333} '+minkokuClass+'</div>'+
+        '<div><b>\u6797\u73ed\u756a\u53f7\uff1a</b>'+rinpan+'</div>'+
+        '<div><b>\u9762\u7a4d\uff1a</b><span style="color:#16a34a;font-weight:700;">'+areaText+'</span></div>'+
+        '<div><b>\u90fd\u9053\u5e9c\u770c\uff1a</b>'+pref+'</div>'+
+        '<div><b>\u5e02\u753a\u6751\uff1a</b>'+city+'</div>'+
+        '<div><b>\u68ee\u6797\u8a08\u753b\u533a\uff1a</b>'+keikaku+'</div>'+
+        '<div style="color:#dc2626;font-size:11px;margin-top:8px;line-height:1.4;border-top:1px solid #ddd;padding-top:6px;">'+warningText+'</div>'+
+        '</div>'
+      ).openOn(map);
+    });
+    forest5jouVectorLayer.addTo(map);
+  }
+  btn.classList.add('active');
+  if(legend)legend.classList.add('show');
+  showToast('\u68ee\u6797\u8a08\u753b\u5bfe\u8c61\u68ee\u6797 \u8868\u793a\u4e2d\uff08\u30ba\u30fc\u30e012\u4ee5\u4e0a\u3067\u30af\u30ea\u30c3\u30af\u3057\u3066\u9762\u7a4d\u8868\u793a\uff09','success');
+}
+/* ==== 土砂災害警戒区域: 国土地理院公式タイル方式 (v20260702m) ====
+ * 「重ねるハザードマップ」と100%同一のタイル配信を利用。
+ * Supabase A33ポリゴン方式(row_limit=300で欠落)を廃止。
+ * 3種類(土石流・急傾斜地の崩壊・地すべり)を重畳表示 = 事業性判断で完全一致。
+ * タイル出典: https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html
+ */
+var dosyaTileLayers = null;
+var dosyaEnabled = false;
+var DOSYA_TILE_URLS = {
+  dosekiryu: 'https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki/{z}/{x}/{y}.png',
+  kyukeisha: 'https://disaportaldata.gsi.go.jp/raster/05_kyukeishakeikaikuiki/{z}/{x}/{y}.png',
+  jisuberi:  'https://disaportaldata.gsi.go.jp/raster/05_jisuberikeikaikuiki/{z}/{x}/{y}.png'
+};
+var DOSYA_ATTRIBUTION = '<a href="https://disaportal.gsi.go.jp/" target="_blank">ハザードマップポータルサイト</a>';
+
+// ======== v20260626a: 別荘地候補レイヤー（villa_place_names・紫点表示） ========
+var villaEnabled=false, villaLoading=false, villaLayer=null, villaCache=null, villaRenderer=null;
+function _villaEsc(s){if(s==null)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function _villaColor(pattern){
+  if(pattern==='別荘'||pattern==='別荘地') return '#7c3aed';
+  if(pattern==='ハイランド'||pattern==='リゾート') return '#c026d3';
+  return '#a855f7';
+}
+function toggleVilla(){
+  var btn=document.getElementById('hzVilla'); var lg=document.getElementById('villaLegend');
+  villaEnabled=!villaEnabled;
+  if(!villaEnabled){
+    if(villaLayer){map.removeLayer(villaLayer);villaLayer=null;}
+    if(btn)btn.classList.remove('active');
+    if(lg)lg.style.display='none';
+    return;
+  }
+  if(btn)btn.classList.add('active');
+  if(lg)lg.style.display='block';
+  if(villaCache){_renderVilla();return;}
+  _loadVilla();
+}
+async function _loadVilla(){
+  if(villaLoading)return; villaLoading=true;
+  try{
+    var res=await db.from('v_villa_places_map').select('*').order('pref_name');
+    if(res.error)throw new Error(res.error.message||'fetch error');
+    villaCache=res.data||[];
+    villaLoading=false;
+    if(villaEnabled)_renderVilla();
+  }catch(e){
+    villaLoading=false; villaEnabled=false;
+    var btn=document.getElementById('hzVilla'); if(btn)btn.classList.remove('active');
+    var lg=document.getElementById('villaLegend'); if(lg)lg.style.display='none';
+    console.error('別荘地候補の読み込みに失敗:', e.message);
+  }
+}
+function _renderVilla(){
+  if(!villaEnabled||!villaCache)return;
+  if(villaLayer){map.removeLayer(villaLayer);villaLayer=null;}
+  if(!map.getPane('villaPane')){var pp=map.createPane('villaPane');pp.style.zIndex=640;}
+  if(!villaRenderer)villaRenderer=L.canvas({pane:'villaPane',padding:0.5});
+  villaLayer=L.layerGroup([],{pane:'villaPane'});
+  villaCache.forEach(function(row){
+    var lat=Number(row.lat), lng=Number(row.lng);
+    if(isNaN(lat)||isNaN(lng))return;
+    var col=_villaColor(row.pattern_match);
+    var m=L.circleMarker([lat,lng],{
+      renderer:villaRenderer,pane:'villaPane',
+      radius:7,color:'#4c1d95',weight:1.5,fillColor:col,fillOpacity:0.85,opacity:1
+    });
+    var resortLine = row.resort_construct 
+      ? _villaEsc(row.resort_construct) + (row.chukyo_accessible ? ' <span style="color:#7c3aed;font-weight:700">★中京圏</span>' : '')
+      : '<span style="color:#9ca3af">該当なし</span>';
+    m.bindPopup(
+      '<div style="padding:8px;font-size:12px;min-width:220px">'+
+      '<div style="color:#7c3aed;font-size:13px;font-weight:700;margin-bottom:8px">🏘️ 別荘地候補</div>'+
+      '<div style="line-height:1.7"><b>名称:</b> '+_villaEsc(row.name||'—')+'</div>'+
+      '<div style="line-height:1.7"><b>県:</b> '+_villaEsc(row.pref_name||'—')+'</div>'+
+      '<div style="line-height:1.7"><b>パターン:</b> '+_villaEsc(row.pattern_match||'—')+'</div>'+
+      '<div style="line-height:1.7"><b>リゾート法:</b> '+resortLine+'</div>'+
+      '<div style="display:flex;gap:6px;margin-top:10px">'+
+      '<a href="https://www.google.com/maps?q='+row.lat+','+row.lng+'&t=k&z=17" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:8px;background:#3b82f6;color:white;text-decoration:none;border-radius:6px;font-size:12px;font-weight:600">🗺️ 地図</a>'+
+      '<a href="https://www.google.com/maps?q=&layer=c&cbll='+row.lat+','+row.lng+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:8px;background:#10b981;color:white;text-decoration:none;border-radius:6px;font-size:12px;font-weight:600">🚶 ストビュー</a>'+
+      '</div>'+
+      '<button onclick="villaDeleteNG('+row.id+')" style="margin-top:6px;width:100%;padding:8px;background:#dc2626;color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:700">⛔ NG削除（この1件を物理削除）</button>'+
+      '</div>',
+      {maxWidth:300,minWidth:220}
+    );
+    villaLayer.addLayer(m);
+  });
+  villaLayer.addTo(map);
+}
+
+// v20260626b: 別荘地候補のNG削除（1件ずつ）
+async function villaDeleteNG(id){
+  var row=(villaCache||[]).find(function(r){return r.id===id;});
+  if(!row){alert('対象レコードが見つかりません');return;}
+  if(!confirm('「'+row.name+'」('+row.pref_name+') を NG として物理削除します。\nこの操作は取り消せません。実行しますか？'))return;
+  try{
+    var res=await db.rpc('delete_villa_by_id',{p_id:id});
+    if(res.error)throw new Error(res.error.message);
+    if(!res.data||!res.data.success)throw new Error((res.data&&res.data.error)||'unknown');
+    villaCache=villaCache.filter(function(r){return r.id!==id;});
+    map.closePopup();
+    _renderVilla();
+    if(typeof showToast==='function'){
+      showToast('「'+row.name+'」を削除（残り'+villaCache.length+'件）','success');
+    }else{
+      alert('「'+row.name+'」を削除しました（残り'+villaCache.length+'件）');
+    }
+  }catch(e){
+    alert('削除失敗: '+e.message);
+  }
+}
+
+function toggleDosyaPolygon(){
+  var btn=document.getElementById('hzSediment');
+  dosyaEnabled=!dosyaEnabled;
+  if(dosyaEnabled){ btn.classList.add('active'); _loadDosyaTiles(); }
+  else { btn.classList.remove('active'); _unloadDosyaTiles(); }
+}
+function _loadDosyaTiles(){
+  if(dosyaTileLayers)return;
+  if(!map.getPane('hazardTilePane')){
+    var p=map.createPane('hazardTilePane');
+    p.style.zIndex='220';
+    p.style.pointerEvents='none';
+  }
+  dosyaTileLayers={};
+  ['dosekiryu','kyukeisha','jisuberi'].forEach(function(k){
+    var layer=L.tileLayer(DOSYA_TILE_URLS[k],{
+      opacity:0.75,
+      minZoom:2,maxZoom:22,maxNativeZoom:17,
+      attribution:DOSYA_ATTRIBUTION,
+      pane:'hazardTilePane'
+    });
+    layer.addTo(map);
+    dosyaTileLayers[k]=layer;
+  });
+}
+function _unloadDosyaTiles(){
+  if(!dosyaTileLayers)return;
+  Object.keys(dosyaTileLayers).forEach(function(k){
+    try{map.removeLayer(dosyaTileLayers[k]);}catch(_){}
+  });
+  dosyaTileLayers=null;
+}
+// 旧A33ポリゴン方式のダミー関数(内部呼び出し互換用、無効化)
+function renderDosyaInView(){}
+function loadDosya(){}
+// ======== 農振農用地（11県対応） ========
+let noshinEnabled=false,noshinLayer=null,noshinCache={},_noshinMoveHandler=null,noshinFetching={};
+const NOSHIN_MIN_ZOOM=12;
+const NOSHIN_PREF_BOUNDS={
+  tochigi:{latMin:36.2,latMax:37.2,lngMin:139.3,lngMax:140.3,file:'data/noshin/noshin_tochigi.geojson'},
+  gunma:{latMin:36.0,latMax:37.1,lngMin:138.4,lngMax:139.7,file:'data/noshin/noshin_gunma.geojson'},
+  saitama:{latMin:35.75,latMax:36.3,lngMin:138.7,lngMax:140.0,file:'data/noshin/noshin_saitama.geojson'},
+  chiba:{latMin:34.9,latMax:36.1,lngMin:139.7,lngMax:140.9,file:'data/noshin/noshin_chiba.geojson'},
+  nagano:{latMin:35.2,latMax:37.0,lngMin:137.45,lngMax:138.7,file:'data/noshin/noshin_nagano.geojson'},
+  gifu:{latMin:35.1,latMax:36.5,lngMin:136.3,lngMax:137.45,file:'data/noshin/noshin_gifu.geojson'},
+  shizuoka:{latMin:34.55,latMax:35.4,lngMin:137.5,lngMax:139.2,file:'data/noshin/noshin_shizuoka.geojson'},
+  aichi:{latMin:34.5,latMax:35.4,lngMin:136.5,lngMax:137.7,file:WORKER_BASE.replace('/api','')+'/r2/noshin_aichi.geojson'},
+  mie:{latMin:33.7,latMax:35.1,lngMin:135.9,lngMax:136.9,file:'data/noshin/noshin_mie.geojson'},
+  shiga:{latMin:34.8,latMax:35.7,lngMin:135.8,lngMax:136.5,file:'data/noshin/noshin_shiga.geojson'},
+  hyogo:{latMin:34.1,latMax:35.7,lngMin:134.2,lngMax:135.5,file:WORKER_BASE.replace('/api','')+'/r2/noshin_hyogo.geojson'}
+};
+function detectNoshinPrefsInView(){
+  const mb=map.getBounds(),w=mb.getWest(),e=mb.getEast(),s=mb.getSouth(),n=mb.getNorth();
+  return Object.keys(NOSHIN_PREF_BOUNDS).filter(k=>{const b=NOSHIN_PREF_BOUNDS[k];return!(b.lngMax<w||b.lngMin>e||b.latMax<s||b.latMin>n);});
+}
+function _ensureNoshinPrefs(prefs){
+  (prefs||[]).forEach(key=>{
+    if(noshinCache[key]||noshinFetching[key])return;
+    noshinFetching[key]=true;
+    fetch(NOSHIN_PREF_BOUNDS[key].file).then(r=>r.ok?r.json():Promise.reject(r.status))
+      .then(gj=>{noshinCache[key]=gj;noshinFetching[key]=false;if(noshinEnabled)_renderNoshinInView();})
+      .catch(err=>{noshinFetching[key]=false;console.warn('noshin load failed',key,err);});
+  });
+}
+function _calcNoshinFeatureBbox(geom){
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  const pr=ring=>{for(const[x,y]of ring){if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;}};
+  if(geom.type==='Polygon'&&geom.coordinates[0])pr(geom.coordinates[0]);
+  else if(geom.type==='MultiPolygon')geom.coordinates.forEach(p=>p[0]&&pr(p[0]));
+  return[minX,minY,maxX,maxY];
+}
+function _renderNoshinInView(){
+  if(!noshinEnabled)return;
+  if(map.getZoom()<NOSHIN_MIN_ZOOM){if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}return;}
+  const prefs=detectNoshinPrefsInView();_ensureNoshinPrefs(prefs);
+  const mb=map.getBounds(),w=mb.getWest(),e=mb.getEast(),s=mb.getSouth(),n=mb.getNorth();
+  const visible=[];
+  prefs.forEach(k=>{
+    const gj=noshinCache[k];if(!gj||!gj.features)return;
+    gj.features.forEach(ft=>{
+      if(!ft._bbox){try{ft._bbox=_calcNoshinFeatureBbox(ft.geometry);}catch(ex){return;}}
+      const b=ft._bbox;if(b[2]<w||b[0]>e||b[3]<s||b[1]>n)return;
+      visible.push(ft);
+    });
+  });
+  if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}
+  if(!visible.length)return;
+  noshinLayer=L.geoJSON({type:'FeatureCollection',features:visible},{
+    style:{color:'#eab308',weight:2,fillColor:'#fef08a',fillOpacity:0.35,dashArray:'6,4'},
+    onEachFeature:(f,l)=>{const c=f.properties&&f.properties.city;l.bindTooltip(c?'農振農用地：'+c:'農振農用地',{className:'farmland-tooltip',sticky:false});}
+  });
+  noshinLayer.addTo(map);noshinLayer.bringToFront();
+}
+function toggleNoshin(){
+  const btn=document.getElementById('hzNoshin');
+  if(noshinEnabled){
+    noshinEnabled=false;
+    if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}
+    if(_noshinMoveHandler){map.off('moveend',_noshinMoveHandler);_noshinMoveHandler=null;}
+    btn.classList.remove('active');showToast('農振農用地を非表示にしました','success');return;
+  }
+  noshinEnabled=true;btn.classList.add('active');
+  if(!_noshinMoveHandler){_noshinMoveHandler=()=>_renderNoshinInView();map.on('moveend',_noshinMoveHandler);}
+  const prefs=detectNoshinPrefsInView();
+  if(!prefs.length){showToast('表示中エリアに対応県がありません','error');return;}
+  if(map.getZoom()<NOSHIN_MIN_ZOOM)showToast('農振農用地はズーム'+NOSHIN_MIN_ZOOM+'以上で表示されます','success');
+  _renderNoshinInView();_ensureNoshinPrefs(prefs);
+}
+/* ==== \u7528\u9014\u5730\u57df (XKT002) ==== */
+const URBAN_API_BASE = WORKER_BASE + '/api';
+const YOTO_COLOR = {
+  '\u7b2c\u4e00\u7a2e\u4f4e\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df':'#FFC107','\u7b2c\u4e8c\u7a2e\u4f4e\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df':'#FF8F00',
+  '\u7b2c\u4e00\u7a2e\u4e2d\u9ad8\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df':'#4CAF50','\u7b2c\u4e8c\u7a2e\u4e2d\u9ad8\u5c64\u4f4f\u5c45\u5c02\u7528\u5730\u57df':'#81C784',
+  '\u7b2c\u4e00\u7a2e\u4f4f\u5c45\u5730\u57df':'#ADFF2F','\u7b2c\u4e8c\u7a2e\u4f4f\u5c45\u5730\u57df':'#D4FF8A','\u6e96\u4f4f\u5c45\u5730\u57df':'#FFC87A',
+  '\u8fd1\u96a3\u5546\u696d\u5730\u57df':'#FF9F40','\u5546\u696d\u5730\u57df':'#FF6EB4','\u6e96\u5de5\u696d\u5730\u57df':'#CC80FF',
+  '\u5de5\u696d\u5730\u57df':'#66B2FF','\u5de5\u696d\u5c02\u7528\u5730\u57df':'#40D4F4','\u7528\u9014\u5730\u57df\u5916':'#C8C8C8'
+};
+let urbanLayer=null, urbanEnabled=false, urbanRenderTimer=null;
+function latLngToTileXY(lat,lng,zoom){ var x=Math.floor((lng+180)/360*Math.pow(2,zoom)); var s=Math.sin(lat*Math.PI/180); var y=Math.floor((0.5-Math.log((1+s)/(1-s))/(4*Math.PI))*Math.pow(2,zoom)); return{x:x,y:y}; }
+function getTilesForBounds(bounds,zoom){ var nw=latLngToTileXY(bounds.getNorth(),bounds.getWest(),zoom); var se=latLngToTileXY(bounds.getSouth(),bounds.getEast(),zoom); var tiles=[]; for(var x=nw.x;x<=se.x;x++)for(var y=nw.y;y<=se.y;y++)tiles.push({x:x,y:y,z:zoom}); return tiles; }
+function toggleUrbanPlanning(){
+  var btn=document.getElementById('btnUrbanPlanning'); var legend=document.getElementById('urbanLegend');
+  urbanEnabled=!urbanEnabled;
+  if(urbanEnabled){ btn.classList.add('active'); if(legend)legend.style.display='block'; loadUrbanPlanning(); showToast('\ud83c\udfd9 \u7528\u9014\u5730\u57df\u3092ON\u306b\u3057\u307e\u3057\u305f','success'); }
+  else { btn.classList.remove('active'); if(legend)legend.style.display='none'; if(urbanLayer){map.removeLayer(urbanLayer);urbanLayer=null;} map.off('moveend',renderUrbanInView); map.off('zoomend',renderUrbanInView); showToast('\ud83c\udfd9 \u7528\u9014\u5730\u57df\u3092OFF\u306b\u3057\u307e\u3057\u305f','success'); }
+}
+function loadUrbanPlanning(){ map.on('moveend',renderUrbanInView); map.on('zoomend',renderUrbanInView); renderUrbanInView(); }
+function renderUrbanInView(){ if(urbanRenderTimer)clearTimeout(urbanRenderTimer); urbanRenderTimer=setTimeout(_doRenderUrban,400); }
+function _doRenderUrban(){
+  if(!urbanEnabled)return;
+  if(map.getZoom()<11){ if(urbanLayer){map.removeLayer(urbanLayer);urbanLayer=null;} showToast('\u30ba\u30fc\u30e011\u4ee5\u4e0a\u3067\u7528\u9014\u5730\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error'); return; }
+  _fetchAndRenderUrban();
+}
+async function _fetchAndRenderUrban(){
+  var bounds=map.getBounds();
+  var tileZoom=Math.min(Math.max(Math.floor(map.getZoom()),11),14);
+  var tiles=getTilesForBounds(bounds,tileZoom);
+  if(tiles.length>36){ if(urbanLayer){map.removeLayer(urbanLayer);urbanLayer=null;} showToast('\u3082\u3046\u5c11\u3057\u30ba\u30fc\u30e0\u30a4\u30f3\u3059\u308b\u3068\u7528\u9014\u5730\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error'); return; }
+  var allFeatures=[];
+  await Promise.all(tiles.map(async function(t){
+    try { var res=await fetch(URBAN_API_BASE+'/XKT002?response_format=geojson&z='+t.z+'&x='+t.x+'&y='+t.y); if(!res.ok)return; var data=await res.json(); if(data.features)allFeatures.push.apply(allFeatures,data.features); } catch(e){}
+  }));
+  if(!urbanEnabled)return;
+  if(urbanLayer){map.removeLayer(urbanLayer);urbanLayer=null;}
+  if(!allFeatures.length)return;
+  var seen=new Set();
+  var uniqueFeatures=allFeatures.filter(function(f){ var key=JSON.stringify((f.geometry&&f.geometry.coordinates&&f.geometry.coordinates[0]&&f.geometry.coordinates[0][0])||Math.random()); if(seen.has(key))return false; seen.add(key); return true; });
+  urbanLayer=L.geoJSON({type:'FeatureCollection',features:uniqueFeatures},{
+    style:function(feature){ var p=feature.properties||{}; var name=p.use_area_ja||''; var color=YOTO_COLOR[name]||'#dddddd'; return{fillColor:color,fillOpacity:0.45,color:'#aaaaaa',weight:0.4,opacity:0.6}; },
+    onEachFeature:function(feature,layer){
+      var p=feature.properties||{}; var name=p.use_area_ja||''; var label=name||'\u4e0d\u660e';
+      var kenpeiri=p.u_building_coverage_ratio_ja||'\u2014'; var yosekiri=p.u_floor_area_ratio_ja||'\u2014';
+      var city=p.city_name||''; var pref=p.prefecture||'';
+      layer.on('click',function(e){
+        L.popup({maxWidth:300,minWidth:240}).setLatLng(e.latlng).setContent('<div style="padding:12px;font-family:sans-serif;"><div style="color:#818cf8;font-size:13px;margin-bottom:10px;font-weight:700">\ud83c\udfd9 \u90fd\u5e02\u8a08\u753b\u60c5\u5831</div><div style="font-size:12px;line-height:1.8"><div><span style="color:#8b949e;display:inline-block;min-width:60px">\u7528\u9014\u5730\u57df</span><span style="font-weight:600">'+label+'</span></div><div><span style="color:#8b949e;display:inline-block;min-width:60px">\u5efa\u853d\u7387</span><span>'+kenpeiri+'</span></div><div><span style="color:#8b949e;display:inline-block;min-width:60px">\u5bb9\u7a4d\u7387</span><span>'+yosekiri+'</span></div>'+(city?'<div><span style="color:#8b949e;display:inline-block;min-width:60px">\u5e02\u533a\u753a\u6751</span><span>'+pref+' '+city+'</span></div>':'')+'</div><hr style="border:none;border-top:1px solid #30363d;margin:8px 0"><div style="font-size:11px;color:#aaa">\u56fd\u571f\u4ea4\u901a\u7701 \u4e0d\u52d5\u7523\u60c5\u5831\u30e9\u30a4\u30d6\u30e9\u30ea\uff08XKT002\uff09</div></div>').openOn(map);
+      });
+      layer.on('mouseover',function(){layer.setStyle({fillOpacity:0.85});});
+      layer.on('mouseout',function(){if(urbanLayer)urbanLayer.resetStyle(layer);});
+    }
+  }).addTo(map);
+  urbanLayer.bringToFront();
+}
+/* ==== \u90fd\u5e02\u8a08\u753b\u533a\u57df / \u533a\u57df\u533a\u5206 (XKT001) ==== */
+/* XKT001\u306f\u5404\u30dd\u30ea\u30b4\u30f3\u306b area_classification_ja \u5c5e\u6027\u3092\u4ed8\u3057\u3066\u8fd4\u3059\u3002
+   \u4ee3\u8868\u5024: "\u90fd\u5e02\u8a08\u753b\u533a\u57df" / "\u5e02\u8857\u5316\u533a\u57df" / "\u5e02\u8857\u5316\u8abf\u6574\u533a\u57df" \u7b49\u3002
+   \u5b89\u5168\u306b\u5224\u5b9a\u3059\u308b\u305f\u3081\u90e8\u5206\u4e00\u81f4(includes)\u3067\u30de\u30c3\u30c1\u3055\u305b\u308b\u3002 */
+let cityPlanLayer=null, cityPlanEnabled=false, cityPlanRenderTimer=null;
+function _classifyCityPlan(name){
+  var s=String(name||'');
+  if(s.indexOf('\u5e02\u8857\u5316\u8abf\u6574')>=0) return 'chosei';   /* \u5e02\u8857\u5316\u8abf\u6574\u533a\u57df */
+  if(s.indexOf('\u5e02\u8857\u5316\u533a\u57df')>=0) return 'shigai';    /* \u5e02\u8857\u5316\u533a\u57df */
+  if(s.indexOf('\u90fd\u5e02\u8a08\u753b\u533a\u57df')>=0) return 'tokei';/* \u90fd\u5e02\u8a08\u753b\u533a\u57df(\u89aa) */
+  return 'other';
+}
+/* v20260623c: XKT001区域区分の点照合を塗りと一致させる正本ロジック。点を含む全ポリゴンから最具体区分を返す。 */
+var _cityPlanFeats=[];
+function _cpPipRing(lng,lat,ring){var inside=false;for(var i=0,j=ring.length-1;i<ring.length;j=i++){var xi=ring[i][0],yi=ring[i][1],xj=ring[j][0],yj=ring[j][1];var hit=((yi>lat)!==(yj>lat))&&(lng<(xj-xi)*(lat-yi)/(yj-yi)+xi);if(hit)inside=!inside;}return inside;}
+function _cpContains(lng,lat,geom){if(!geom)return false;if(geom.type==='Polygon')return _cpPipRing(lng,lat,geom.coordinates[0]);if(geom.type==='MultiPolygon'){for(var k=0;k<geom.coordinates.length;k++){if(_cpPipRing(lng,lat,geom.coordinates[k][0]))return true;}}return false;}
+function _cpResolveAt(lat,lng){var fs=_cityPlanFeats||[],best=null,br=-1;for(var i=0;i<fs.length;i++){if(!_cpContains(lng,lat,fs[i].geometry))continue;var pr=fs[i].properties||{};var nm=String(pr.area_classification_ja||'');var rk=nm.indexOf('市街化調整')>=0?3:(nm.indexOf('市街化区域')>=0?2:(nm.indexOf('都市計画区域')>=0?1:0));if(rk>br){br=rk;best={cls:nm,pref:pr.prefecture||'',city:pr.city_name||'',dd:pr.decision_date||'—'};}}return best;}
+function _styleCityPlan(feature){
+  var p=feature.properties||{}; var cls=_classifyCityPlan(p.area_classification_ja);
+  if(cls==='shigai') return {fillColor:'#FF8C5A',fillOpacity:0.32,color:'#c5532e',weight:0.6,opacity:0.7};
+  if(cls==='chosei') return {fillColor:'#4CAF50',fillOpacity:0.28,color:'#2e7d32',weight:0.6,opacity:0.7};
+  if(cls==='tokei')  return {fillColor:'transparent',fillOpacity:0,color:'#2196F3',weight:1.8,opacity:0.85,dashArray:'6,4'};
+  return {fillColor:'#CCCCCC',fillOpacity:0.18,color:'#888888',weight:0.4,opacity:0.5};
+}
+function toggleCityPlan(){
+  var btn=document.getElementById('btnCityPlan'); var legend=document.getElementById('cityPlanLegend');
+  cityPlanEnabled=!cityPlanEnabled;
+  if(cityPlanEnabled){ btn.classList.add('active'); if(legend)legend.style.display='block'; loadCityPlan(); showToast('\ud83d\uddfa \u90fd\u5e02\u8a08\u753b\u533a\u57df\u3092ON\u306b\u3057\u307e\u3057\u305f','success'); }
+  else { btn.classList.remove('active'); if(legend)legend.style.display='none'; if(cityPlanLayer){map.removeLayer(cityPlanLayer);cityPlanLayer=null;} map.off('moveend',renderCityPlanInView); map.off('zoomend',renderCityPlanInView); showToast('\ud83d\uddfa \u90fd\u5e02\u8a08\u753b\u533a\u57df\u3092OFF\u306b\u3057\u307e\u3057\u305f','success'); }
+}
+function loadCityPlan(){ map.on('moveend',renderCityPlanInView); map.on('zoomend',renderCityPlanInView); renderCityPlanInView(); }
+function renderCityPlanInView(){ if(cityPlanRenderTimer)clearTimeout(cityPlanRenderTimer); cityPlanRenderTimer=setTimeout(_doRenderCityPlan,400); }
+function _doRenderCityPlan(){
+  if(!cityPlanEnabled)return;
+  if(map.getZoom()<11){ if(cityPlanLayer){map.removeLayer(cityPlanLayer);cityPlanLayer=null;} showToast('\u30ba\u30fc\u30e012\u4ee5\u4e0a\u3067\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error'); return; }
+  _fetchAndRenderCityPlan();
+}
+async function _fetchAndRenderCityPlan(){
+  var bounds=map.getBounds();
+  var tileZoom=Math.min(Math.max(Math.floor(map.getZoom()),11),14);
+  var tiles=getTilesForBounds(bounds,tileZoom);
+  // v20260711A: タイル数上限を 36 → 128 に引き上げ、ズーム 12 のワイド視野でも取得可能に
+  if(tiles.length>128){ if(cityPlanLayer){map.removeLayer(cityPlanLayer);cityPlanLayer=null;} showToast('\u3082\u3046\u5c11\u3057\u30ba\u30fc\u30e0\u30a4\u30f3\u3059\u308b\u3068\u90fd\u5e02\u8a08\u753b\u533a\u57df\u304c\u8868\u793a\u3055\u308c\u307e\u3059','error'); return; }
+  var allFeatures=[];
+  await Promise.all(tiles.map(async function(t){
+    try { var res=await fetch(URBAN_API_BASE+'/XKT001?response_format=geojson&z='+t.z+'&x='+t.x+'&y='+t.y); if(!res.ok)return; var data=await res.json(); if(data.features)allFeatures.push.apply(allFeatures,data.features); } catch(e){}
+  }));
+  if(!cityPlanEnabled)return;
+  if(cityPlanLayer){map.removeLayer(cityPlanLayer);cityPlanLayer=null;}
+  if(!allFeatures.length)return;
+  var seen=new Set();
+  var uniqueFeatures=allFeatures.filter(function(f){
+    var firstCoord=(f.geometry&&f.geometry.coordinates&&f.geometry.coordinates[0]&&f.geometry.coordinates[0][0])||Math.random();
+    var key=(f.properties&&f.properties.area_classification_ja||'')+'_'+JSON.stringify(firstCoord);
+    if(seen.has(key))return false; seen.add(key); return true;
+  });
+  /* \u63cf\u753b\u9806: \u90fd\u5e02\u8a08\u753b\u533a\u57df(\u89aa)\u2192\u5e02\u8857\u5316\u8abf\u6574\u2192\u5e02\u8857\u5316\u533a\u57df\u3001\u3068\u3044\u3046\u9806\u5e8f\u3067\u6700\u4e0a\u90e8\u306b\u5e02\u8857\u5316\u533a\u57df\u304c\u898b\u3048\u308b\u3088\u3046\u306b\u3059\u308b */
+  var orderRank={tokei:0, chosei:1, shigai:2, other:0};
+  uniqueFeatures.sort(function(a,b){
+    return (orderRank[_classifyCityPlan(a.properties&&a.properties.area_classification_ja)]||0)
+         - (orderRank[_classifyCityPlan(b.properties&&b.properties.area_classification_ja)]||0);
+  });
+  _cityPlanFeats=uniqueFeatures; cityPlanLayer=L.geoJSON({type:'FeatureCollection',features:uniqueFeatures},{
+    style:_styleCityPlan,
+    onEachFeature:function(feature,layer){
+      layer.on('click', function(e) { var p = feature.properties || {}; var _r = _cpResolveAt(e.latlng.lat, e.latlng.lng) || { cls:(p.area_classification_ja||'\u4e0d\u660e'), pref:(p.prefecture||''), city:(p.city_name||''), dd:(p.decision_date||'\u2014') }; var cls = _r.cls, pref = _r.pref, city = _r.city, dd = _r.dd;
+        L.popup({maxWidth:300,minWidth:240}).setLatLng(e.latlng).setContent('<div style="padding:12px;font-family:sans-serif;"><div style="color:#2196F3;font-size:13px;margin-bottom:10px;font-weight:700">\ud83d\uddfa \u90fd\u5e02\u8a08\u753b\u30fb\u533a\u57df\u533a\u5206</div><div style="font-size:12px;line-height:1.8"><div><span style="color:#8b949e;display:inline-block;min-width:70px">\u533a\u57df\u533a\u5206</span><span style="font-weight:600">'+cls+'</span></div>'+(city?'<div><span style="color:#8b949e;display:inline-block;min-width:70px">\u5e02\u533a\u753a\u6751</span><span>'+pref+' '+city+'</span></div>':'')+'<div><span style="color:#8b949e;display:inline-block;min-width:70px">\u8a2d\u5b9a\u5e74\u6708\u65e5</span><span>'+dd+'</span></div></div><hr style="border:none;border-top:1px solid #30363d;margin:8px 0"><div style="font-size:11px;color:#aaa">\u56fd\u571f\u4ea4\u901a\u7701 \u4e0d\u52d5\u7523\u60c5\u5831\u30e9\u30a4\u30d6\u30e9\u30ea\uff08XKT001 / \u4ee4\u548c6\u5e74\u5ea6\uff09</div></div>').openOn(map);
+      });
+      layer.on('mouseover',function(){ var s=_styleCityPlan(feature); layer.setStyle({fillOpacity:Math.min(0.7,(s.fillOpacity||0)+0.3)}); });
+      layer.on('mouseout',function(){if(cityPlanLayer)cityPlanLayer.resetStyle(layer);});
+    }
+  }).addTo(map);
+  cityPlanLayer.bringToBack();
+}
+function initMap() {
+  map = L.map('map', { zoomControl: false, maxZoom: 22 }).setView([36.5, 138], 5);
+  // --- モバイル対応: レイアウト変化・画面回転・URLバー伸縮時に地図サイズを再計算 ---
+  (function(){
+    let _t;
+    const fix = () => { try { map.invalidateSize(false); } catch(e){} };
+    window.addEventListener('resize', () => { clearTimeout(_t); _t = setTimeout(fix, 150); });
+    window.addEventListener('orientationchange', () => setTimeout(fix, 300));
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { clearTimeout(_t); _t = setTimeout(fix, 150); });
+    setTimeout(fix, 300); setTimeout(fix, 900);
+  })();
+  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 22, maxNativeZoom: 18 }).addTo(map);
+  gsiLayer = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { attribution: '\u00a9 \u56fd\u571f\u5730\u7406\u9662', maxZoom: 22, maxNativeZoom: 18, opacity: 0.85, zIndex: 1 });
+  esriLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles \u00a9 Esri \u2014 Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community', maxZoom: 22, maxNativeZoom: 18, opacity: 0.9, zIndex: 2 });
+  parcelLayer = protomapsL.leafletLayer({
+    url: 'https://data.source.coop/smartmaps/amx-2024-04/MojMap_amx_2024.pmtiles',
+    maxDataZoom: 16, // AMX fude レイヤは z14-16 で生成されているため、z17以上はオーバーズーム
+    paintRules: [{
+      dataLayer: 'fude',
+      symbolizer: new protomapsL.PolygonSymbolizer({ fill: 'transparent', stroke: '#f85149', width: 1.2 })
+    }],
+    attribution: '\u5730\u756a: AMX Project / \u6cd5\u52d9\u7701\u767b\u8a18\u6240\u5099\u4ed8\u5730\u56f3XML'
+  });
+  parcelLayer.addTo(map);
+  map.on('click', async function(ev) {
+    if (!window.__PMT || !window.__VT || !window.__Pbf) return;
+    const t = ev.originalEvent && ev.originalEvent.target;
+    if (t && (t.closest('.leaflet-marker-icon') || t.closest('.leaflet-popup'))) return;
+    const lng = ev.latlng.lng, lat = ev.latlng.lat;
+    const z = Math.min(Math.max(Math.floor(map.getZoom()), 14), 16); // AMX fude は z14-16 までしか実データなし
+    const n = Math.pow(2, z);
+    const latR = lat * Math.PI / 180;
+    const tx = Math.floor((lng + 180) / 360 * n);
+    const ty = Math.floor((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n);
+    try {
+      const resp = await window.__PMT.getZxy(z, tx, ty);
+      if (!resp) return;
+      const tile = new window.__VT(new window.__Pbf(resp.data));
+      const layerNames = Object.keys(tile.layers);
+      if (!layerNames.length) return;
+      const layer = tile.layers[layerNames[0]];
+      const extent = layer.extent;
+      const pxFull = (lng + 180) / 360 * n * extent;
+      const pyFull = (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n * extent;
+      const px = pxFull - tx * extent;
+      const py = pyFull - ty * extent;
+      let foundProps = null;
+      for (let i = 0; i < layer.length; i++) {
+        const feat = layer.feature(i);
+        if (feat.type !== 3) continue;
+        const geom = feat.loadGeometry();
+        if (pointInPolygon(px, py, geom)) { foundProps = feat.properties; break; }
+      }
+      if (!foundProps) return;
+      L.popup({ maxWidth: 320, minWidth: 240 }).setLatLng(ev.latlng).setContent(buildParcelPopup(foundProps)).openOn(map);
+    } catch (e) { /* silent */ }
+  });
+
+  // ========== GPS現在地ボタン（bottomright に配置）==========
+  setupLocateControl();
+}
+
+let _locateMarker = null;
+let _locateCircle = null;
+let _locateInProgress = false;
+
+function setupLocateControl(){
+  const ctrl = L.control({ position: 'bottomright' });
+  ctrl.onAdd = function(){
+    const c = L.DomUtil.create('div', 'leaflet-bar');
+    c.style.cssText = 'background:#fff;border:2px solid rgba(0,0,0,0.2);border-radius:6px;cursor:pointer;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1;user-select:none;-webkit-user-select:none;box-shadow:0 1px 4px rgba(0,0,0,0.2);';
+    c.title = '現在地に移動';
+    c.id = 'locateBtn';
+    c.innerHTML = '\u{1F4CD}';
+    L.DomEvent.disableClickPropagation(c);
+    L.DomEvent.disableScrollPropagation(c);
+    c.onclick = locateMe;
+    return c;
+  };
+  ctrl.addTo(map);
+}
+
+function locateMe(){
+  if(_locateInProgress) return;
+  if(!navigator.geolocation){
+    showToast('\u3053\u306e\u7aef\u672b\u306f\u4f4d\u7f6e\u60c5\u5831\u53d6\u5f97\u306b\u5bfe\u5fdc\u3057\u3066\u3044\u307e\u305b\u3093', 'error');
+    return;
+  }
+  _locateInProgress = true;
+  const btn = document.getElementById('locateBtn');
+  if(btn){btn.innerHTML = '\u23f3'; btn.style.opacity = '0.6';}
+  showToast('\u73fe\u5728\u5730\u3092\u53d6\u5f97\u4e2d...', 'success');
+
+  navigator.geolocation.getCurrentPosition(
+    function(pos){
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const acc = pos.coords.accuracy;
+      if(_locateMarker){map.removeLayer(_locateMarker); _locateMarker = null;}
+      if(_locateCircle){map.removeLayer(_locateCircle); _locateCircle = null;}
+      _locateMarker = L.circleMarker([lat, lng], {
+        radius: 8, fillColor: '#3b82f6', color: '#fff', weight: 3, opacity: 1, fillOpacity: 0.9
+      }).addTo(map);
+      _locateMarker.bindTooltip('\u73fe\u5728\u5730 (\u00b1' + Math.round(acc) + 'm)', {permanent: false, direction: 'top'});
+      _locateCircle = L.circle([lat, lng], {
+        radius: acc, color: '#3b82f6', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.1
+      }).addTo(map);
+      map.setView([lat, lng], 18);
+      showToast('\u73fe\u5728\u5730\uff1a\u7cbe\u5ea6 \u00b1' + Math.round(acc) + 'm', 'success');
+      _locateInProgress = false;
+      if(btn){btn.innerHTML = '\u{1F4CD}'; btn.style.opacity = '1';}
+    },
+    function(err){
+      let msg = '\u4f4d\u7f6e\u60c5\u5831\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f';
+      if(err.code === 1) msg = '\u4f4d\u7f6e\u60c5\u5831\u306e\u5229\u7528\u304c\u62d2\u5426\u3055\u308c\u307e\u3057\u305f\u3002\u8a2d\u5b9a\u304b\u3089\u8a31\u53ef\u3057\u3066\u304f\u3060\u3055\u3044';
+      else if(err.code === 2) msg = '\u4f4d\u7f6e\u60c5\u5831\u304c\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093\uff08GPS\u96fb\u6ce2\u4e0d\u8db3\uff09';
+      else if(err.code === 3) msg = '\u4f4d\u7f6e\u60c5\u5831\u53d6\u5f97\u306e\u30bf\u30a4\u30e0\u30a2\u30a6\u30c8';
+      showToast(msg, 'error');
+      _locateInProgress = false;
+      if(btn){btn.innerHTML = '\u{1F4CD}'; btn.style.opacity = '1';}
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+  );
+}
+
+/* ===== GPS常時追跡（モバイル用、Google Maps相当） =====
+   地図初期化後に自動で起動。位置情報の許可を取得すると、
+   現在位置を青い丸＋精度円で継続的に表示する。位置変化に追随。 */
+let _gpsWatchId = null;
+let _gpsWatchMarker = null;
+let _gpsWatchCircle = null;
+let _gpsFirstFix = false;
+
+function startGpsWatch() {
+  if (_gpsWatchId !== null) return;
+  if (!navigator.geolocation) return;
+  _gpsWatchId = navigator.geolocation.watchPosition(
+    function(pos) {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const acc = pos.coords.accuracy;
+      if (!_gpsWatchMarker) {
+        _gpsWatchMarker = L.circleMarker([lat, lng], {
+          radius: 8,
+          fillColor: '#3b82f6',
+          color: '#fff',
+          weight: 3,
+          opacity: 1,
+          fillOpacity: 0.9,
+          interactive: false
+        }).addTo(map);
+        _gpsWatchMarker.bindTooltip('現在地', { permanent: false, direction: 'top' });
+      } else {
+        _gpsWatchMarker.setLatLng([lat, lng]);
+      }
+      if (!_gpsWatchCircle) {
+        _gpsWatchCircle = L.circle([lat, lng], {
+          radius: acc,
+          color: '#3b82f6',
+          weight: 1,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.1,
+          interactive: false
+        }).addTo(map);
+        // 精度円を最背面に配置（マーカークリックを妨げないため）
+        try { _gpsWatchCircle.bringToBack(); } catch(e) {}
+      } else {
+        _gpsWatchCircle.setLatLng([lat, lng]);
+        _gpsWatchCircle.setRadius(acc);
+      }
+      if (!_gpsFirstFix) {
+        _gpsFirstFix = true;
+        try { map.setView([lat, lng], 14); } catch(e) {}
+      }
+    },
+    function(err) {
+      console.warn('[startGpsWatch] error:', err && err.message);
+    },
+    { enableHighAccuracy: true, timeout: 30000, maximumAge: 5000 }
+  );
+}
+
+function stopGpsWatch() {
+  if (_gpsWatchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(_gpsWatchId);
+    _gpsWatchId = null;
+  }
+  if (_gpsWatchMarker) { try { map.removeLayer(_gpsWatchMarker); } catch(e) {} _gpsWatchMarker = null; }
+  if (_gpsWatchCircle) { try { map.removeLayer(_gpsWatchCircle); } catch(e) {} _gpsWatchCircle = null; }
+  _gpsFirstFix = false;
+}
+
+setTimeout(function() {
+  if (typeof map !== 'undefined' && map) {
+    startGpsWatch();
+  }
+}, 1500);
+
+function pointInPolygon(x, y, rings) {
+  let inside = false;
+  for (const ring of rings) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i].x, yi = ring[i].y;
+      const xj = ring[j].x, yj = ring[j].y;
+      const hit = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (hit) inside = !inside;
+    }
+  }
+  return inside;
+}
+function toggleLayer(type, enabled) {
+  if (type === 'gsi') { enabled ? gsiLayer.addTo(map) : map.removeLayer(gsiLayer); }
+  else if (type === 'esri') { enabled ? esriLayer.addTo(map) : map.removeLayer(esriLayer); }
+  else if (type === 'parcel') { enabled ? parcelLayer.addTo(map) : map.removeLayer(parcelLayer); }
+}
+async function loadData() {
+  const { data: los } = await db.from('landowner_info').select('*, cases(id, case_no, display_case_no, status, area_name, last_letter_sent_at)');
+  const { data: visits } = await db.from('visit_status').select('*');
+  if (!los) return;
+  allLandowners = los.map(lo => {
+    const v = visits?.find(x => x.case_id === lo.case_id);
+    return { ...lo, _visit: v, _isVisited: v?.visited || false };
+  });
+  /* localStorageから訪問予定を復元（電力会社別） */
+  loadPlanSet();
+  renderMarkersForCurrentPower();
+  renderPowerCompanyTabs();
+  recalcVisitStats();
+  /* 復元した予定が画面に反映されるよう、UIを更新 */
+  updatePlanUI();
+}
+
+function clearMarkers(){
+  Object.keys(markers).forEach(cid => { try { map.removeLayer(markers[cid].marker); } catch(e){} });
+  markers = {};
+}
+
+function renderMarkersForCurrentPower(){
+  clearMarkers();
+  allLandowners.forEach(lo => {
+    if (!lo.lat || !lo.lng) return;
+    const st = lo.cases?.status || 'UNKNOWN';
+    if (st === 'NG') return;/* NGは地図非表示 */
+    /* 電力会社フィルタ */
+    const pc = getPowerCompanyFromArea(lo.cases?.area_name);
+    if (currentPowerCompany && pc !== currentPowerCompany) return;
+
+    const caseId = lo.case_id;
+    const isVisited = lo._isVisited;
+    const vs = visitStateOf(caseId, isVisited);
+    const icon = makeStatusIcon(st, vs);
+    const marker = L.marker([lo.lat, lo.lng], { icon });
+    marker.bindPopup(buildPopup(lo, caseId, isVisited, planSet.has(caseId)), { maxWidth: 280, minWidth: 260 });
+    marker.bindTooltip(
+      `<span style="font-family:'Share Tech Mono',monospace;color:#f0b429;font-size:11px">${caseDisplayNo(lo.cases) || ''}</span>\u3000${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}\u3000<span style="color:#94a3b8;font-size:10px;">[${st}]</span>`,
+      { direction: 'top', offset: [0, -22], opacity: 1 }
+    );
+    marker.addTo(map);
+    markers[caseId] = { marker, lo, visit: lo._visit, isVisited, status: st };
+  });
+}
+
+/* 凡例と対応した排他的な件数カウント + ダッシュボード描画 */
+function recalcVisitStats() {
+  renderStatusDonut();
+  renderPowerCompanyTabs();
+}
+
+/* 現在選択中の電力会社に属する全地権者のステータス別集計（NG除く、座標有無問わず） */
+function getStatusCountsForCurrentPower() {
+  const counts = {};
+  STATUS_ORDER.forEach(s => counts[s] = 0);
+  allLandowners.forEach(lo => {
+    let st = lo.cases?.status || 'UNKNOWN';
+    if (st === 'NG') return;
+    const pc = getPowerCompanyFromArea(lo.cases?.area_name);
+    if (currentPowerCompany && pc !== currentPowerCompany) return;
+    /* STATUS_ORDERにない値はUNKNOWNに寄せる */
+    if (counts[st] === undefined) st = 'UNKNOWN';
+    counts[st]++;
+  });
+  return counts;
+}
+
+/* ドーナツ（SVG） + 凡例レンダリング */
+function renderStatusDonut() {
+  const counts = getStatusCountsForCurrentPower();
+  const total = STATUS_ORDER.reduce((s,k) => s + (counts[k]||0), 0);
+  const svg = document.getElementById('donutChart');
+  const totalEl = document.getElementById('donutTotal');
+  const legendEl = document.getElementById('donutLegend');
+  const mapShownEl = document.getElementById('mapShownCount');
+  const noCoordsEl = document.getElementById('noCoordsCount');
+  if (!svg || !totalEl || !legendEl) return;
+  totalEl.textContent = total;
+
+  /* マップに表示中の件数（座標あり＋NG除く＋現在の電力会社） */
+  let shown = 0, noCoords = 0;
+  allLandowners.forEach(lo => {
+    const st = lo.cases?.status || 'UNKNOWN';
+    if (st === 'NG') return;
+    const pc = getPowerCompanyFromArea(lo.cases?.area_name);
+    if (currentPowerCompany && pc !== currentPowerCompany) return;
+    if (lo.lat && lo.lng) shown++; else noCoords++;
+  });
+  if (mapShownEl) mapShownEl.textContent = shown;
+  if (noCoordsEl) noCoordsEl.textContent = noCoords;
+
+  /* ドーナツ描画：stroke-dasharrayで各セグメント */
+  const cx = 21, cy = 21, r = 15.9155;/* 周長=100 */
+  let offset = 25;/* 12時位置から開始 */
+  let segs = '';
+  if (total === 0) {
+    segs = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="transparent" stroke="#30363d" stroke-width="6"/>`;
+  } else {
+    STATUS_ORDER.forEach(st => {
+      const n = counts[st] || 0;
+      if (n === 0) return;
+      const pct = (n / total) * 100;
+      const col = STATUS_COLORS[st];
+      segs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="transparent" stroke="${col.fill}" stroke-width="6" stroke-dasharray="${pct} ${100-pct}" stroke-dashoffset="${-offset+25}" transform="rotate(-90 ${cx} ${cy})"/>`;
+      offset += pct;
+    });
+  }
+  svg.innerHTML = segs;
+  legendEl.innerHTML = STATUS_ORDER.map(st => {
+    const n = counts[st] || 0;
+    const col = STATUS_COLORS[st];
+    const faded = n === 0 ? 'opacity:.4;' : '';
+    return `<div class="donut-legend-item" style="${faded}"><span class="donut-legend-swatch" style="background:${col.fill};border:1px solid ${col.stroke};"></span>${st}<span class="donut-legend-count">${n}</span></div>`;
+  }).join('');
+}
+
+/* 電力会社タブ（件数バッジ付き：NG除く、座標有無問わず） */
+function renderPowerCompanyTabs() {
+  const counts = {};
+  POWER_COMPANIES.forEach(pc => counts[pc] = 0);
+  allLandowners.forEach(lo => {
+    const st = lo.cases?.status || 'UNKNOWN';
+    if (st === 'NG') return;
+    const pc = getPowerCompanyFromArea(lo.cases?.area_name);
+    if (pc && counts[pc] !== undefined) counts[pc]++;
+  });
+  const tabs = document.getElementById('pcTabs');
+  if (!tabs) return;
+  tabs.innerHTML = POWER_COMPANIES.map(pc => {
+    const n = counts[pc] || 0;
+    const active = pc === currentPowerCompany ? ' active' : '';
+    const empty = n === 0 ? ' style="opacity:.4"' : '';
+    const onclickAttr = pc === currentPowerCompany
+      ? 'onclick="togglePcExpanded(event)"'
+      : `onclick="setPowerCompany('${pc}')"`;
+    return `<button class="pc-tab${active}"${empty} ${onclickAttr}>${pc}<span class="pc-count">(${n})</span></button>`;
+  }).join('');
+}
+
+function setPowerCompany(pc) {
+  if (currentPowerCompany === pc) return;
+  currentPowerCompany = pc;
+  /* 電力会社を切り替えたら訪問予定はクリア → 切替先のlocalStorageから復元 */
+  planSet.clear();
+  visitMode = false;
+  loadPlanSet();
+  // モバイル：電力会社ドロップダウンを閉じる
+  document.getElementById('pcTabs')?.classList.remove('expanded');
+  renderMarkersForCurrentPower();
+  renderPowerCompanyTabs();
+  renderStatusDonut();
+  updatePlanUI();
+  showToast('電力会社を切り替えました：' + pc, 'success');
+}
+
+/* ===== モバイル：電力会社ドロップダウン展開トグル ===== */
+function togglePcExpanded(event) {
+  if (window.innerWidth > 1024) return;
+  if (event) event.stopPropagation();
+  const tabs = document.getElementById('pcTabs');
+  if (tabs) tabs.classList.toggle('expanded');
+}
+
+/* ===== モバイル：統計ダッシュボード展開トグル ===== */
+function toggleDashboardStats() {
+  const wrap = document.getElementById('statusChartWrap');
+  const btn = document.getElementById('dashboardToggleBtn');
+  if (!wrap || !btn) return;
+  const opened = wrap.classList.toggle('expanded');
+  btn.textContent = opened ? '📊 統計 ▲' : '📊 統計 ▼';
+}
+
+function makeIconHtml(color) {
+  return `<div style="width:24px;height:24px;background:${color};border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid rgba(0,0,0,0.3);box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`;
+}
+function buildPopup(lo, caseId, isVisited, isPlanned) {
+  const d = markers[caseId];
+  const visitedAt = d?.visit?.visited_at ? new Date(d.visit.visited_at).toLocaleDateString('ja-JP') : null;
+  const cs = lo.cases || {};
+  const st = cs.status || '';
+  const lsa = cs.last_letter_sent_at ? new Date(cs.last_letter_sent_at).toLocaleDateString('ja-JP') : null;
+  const pc = lo.postal_code || '';
+  let actionHtml = '';
+  if (isVisited) {
+    actionHtml = `<button class="popup-btn completed-btn" style="flex:1">\u2713 \u8a2a\u554f\u6e08\u307f\uff08${visitedAt || ''}\uff09</button><button class="popup-btn undo-btn" style="flex:0 0 auto;min-width:60px" onclick="unVisit('${caseId}')">\ud83d\udd04 \u89e3\u9664</button>`;
+  } else if (visitMode) {
+    actionHtml = `<button class="popup-btn nav-btn" onclick="startNav('${caseId}')">\ud83d\uddfa \u30ca\u30d3\u958b\u59cb</button><button class="popup-btn complete-btn" onclick="openVisitModal('${caseId}')">\u2705 \u5b8c\u4e86</button>`;
+  } else {
+    if (planSet.has(caseId)) {
+      actionHtml = `<button class="popup-btn selected-btn" onclick="removePlan('${caseId}')">\u2713 \u4e88\u5b9a\u6e08\uff08\u30af\u30ea\u30c3\u30af\u3067\u89e3\u9664\uff09</button>`;
+    } else {
+      actionHtml = `<button class="popup-btn select-btn" onclick="addPlan('${caseId}')">\uff0b \u8a2a\u554f\u4e88\u5b9a\u306b\u8ffd\u52a0</button>`;
+    }
+  }
+  // 手紙ワークフロー：未発信→📮発信、LETTER→📦印刷完了、LTR済→発信日表示
+  let letterHtml = '';
+  if (st === 'LTR済') {
+    letterHtml = `<div style="margin-top:6px;font-size:11px;color:#a78bfa">\ud83d\udce6 \u624b\u7d19\u9001\u4ed8\u6e08\u307f${lsa ? '\uff08\u767a\u4fe1: ' + lsa + '\uff09' : ''}</div>`;
+  } else if (st === 'LETTER') {
+    letterHtml = `<div style="display:flex;gap:6px;margin-top:6px"><button class="popup-btn" style="flex:1;border-color:#5b21b6;color:#a78bfa" onclick="markLetterPrinted('${caseId}')">\ud83d\udce6 \u5370\u5237\u5b8c\u4e86\u2192LTR\u6e08</button></div>${lsa ? `<div style="font-size:10px;color:#94a3b8;margin-top:4px">\u767a\u4fe1: ${lsa}</div>` : ''}`;
+  } else {
+    const disabled = pc ? '' : 'disabled title="\u90f5\u4fbf\u756a\u53f7\u672a\u767b\u9332\u306e\u305f\u3081\u767a\u4fe1\u3067\u304d\u307e\u305b\u3093"';
+    letterHtml = `<div style="display:flex;gap:6px;margin-top:6px"><button class="popup-btn" style="flex:1;border-color:#a78bfa;color:#a78bfa" onclick="markLetterSent('${caseId}')" ${disabled}>\ud83d\udcee \u624b\u7d19\u767a\u4fe1\u2192LETTER</button></div>${pc ? '' : '<div style="font-size:10px;color:#ef4444;margin-top:4px">\u26a0\ufe0f \u90f5\u4fbf\u756a\u53f7\u672a\u767b\u9332</div>'}`;
+  }
+  const postalLine = pc ? `<div class="popup-row"><span class="popup-label">\u3012</span><span class="popup-value">${pc}</span></div>` : '';
+  return `<div class="popup-body"><div class="popup-name"><span>${lo.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'}</span><span class="popup-case-no">${caseDisplayNo(lo.cases) || ''}</span></div><div class="popup-info">${postalLine}<div class="popup-row"><span class="popup-label">\u4f4f\u6240</span><span class="popup-value">${lo.address || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u96fb\u8a71</span><span class="popup-value">${lo.tel || '\u2014'}</span></div><div class="popup-row"><span class="popup-label">\u4fa1\u683c</span><span class="popup-value">${lo.price ? Number(lo.price).toLocaleString() + ' \u4e07\u5186' : '\u2014'}</span></div></div><hr class="popup-divider"><div class="popup-actions">${actionHtml}</div>${letterHtml}</div>`;
+}
+/* ===== 手紙ワークフロー（発信→印刷完了→LTR済）v20260622c ===== */
+async function markLetterSent(caseId) {
+  const d = markers[caseId]; if (!d) return;
+  if (!d.lo.postal_code) { showToast('\u90f5\u4fbf\u756a\u53f7\u672a\u767b\u9332\u306e\u305f\u3081\u767a\u4fe1\u3067\u304d\u307e\u305b\u3093', 'error'); return; }
+  if (!confirm(`${d.lo.name || ''} \u3078\u624b\u7d19\u3092\u767a\u4fe1\u8a18\u9332\u3057\u307e\u3059\u3002\u30b9\u30c6\u30fc\u30bf\u30b9\u306f LETTER \u306b\u306a\u308a\u307e\u3059\u3002`)) return;
+  const { data, error } = await db.rpc('mark_letter_sent', { p_case_id: caseId });
+  if (error) { showToast('\u767a\u4fe1\u30a8\u30e9\u30fc: ' + error.message, 'error'); return; }
+  if (d.lo.cases) { d.lo.cases.status = 'LETTER'; d.lo.cases.last_letter_sent_at = new Date().toISOString(); }
+  d.status = 'LETTER';
+  refreshMarkerIcon(caseId);
+  d.marker.setPopupContent(buildPopup(d.lo, caseId, d.isVisited, planSet.has(caseId)));
+  recalcVisitStats();
+  showToast('\ud83d\udcee \u624b\u7d19\u767a\u4fe1\u8a18\u9332\uff08LETTER\uff09', 'success');
+}
+async function markLetterPrinted(caseId) {
+  const d = markers[caseId]; if (!d) return;
+  if (!confirm(`${d.lo.name || ''} \u306e\u5370\u5237\u3092\u5b8c\u4e86\u3068\u3057\u3066 LTR\u6e08 \u306b\u30b9\u30c6\u30fc\u30bf\u30b9\u3092\u9032\u3081\u307e\u3059\u3002`)) return;
+  const { error } = await db.rpc('mark_letter_printed', { p_case_id: caseId });
+  if (error) { showToast('\u5370\u5237\u5b8c\u4e86\u30a8\u30e9\u30fc: ' + error.message, 'error'); return; }
+  if (d.lo.cases) d.lo.cases.status = 'LTR\u6e08';
+  d.status = 'LTR\u6e08';
+  refreshMarkerIcon(caseId);
+  d.marker.setPopupContent(buildPopup(d.lo, caseId, d.isVisited, planSet.has(caseId)));
+  recalcVisitStats();
+  showToast('\ud83d\udce6 \u5370\u5237\u5b8c\u4e86\uff08LTR\u6e08\uff09', 'success');
+}
+
+/* 表示中の地権者を集める（markersに在るもの＝現在マップ上の対象） */
+function _collectVisibleLandowners() {
+  return Object.keys(markers).map(id => ({ caseId: id, ...markers[id] }));
+}
+
+/* 一括発信：表示中のうち status が LETTER/LTR済 でない＋郵便番号あり を対象に */
+async function bulkSendLetters() {
+  const all = _collectVisibleLandowners();
+  const eligible = all.filter(x => {
+    const st = (x.lo.cases && x.lo.cases.status) || x.status || '';
+    return st !== 'LETTER' && st !== 'LTR\u6e08' && !!x.lo.postal_code;
+  });
+  const skippedStatus = all.filter(x => {
+    const st = (x.lo.cases && x.lo.cases.status) || x.status || '';
+    return st === 'LETTER' || st === 'LTR\u6e08';
+  }).length;
+  const missingPostal = all.filter(x => !x.lo.postal_code && (((x.lo.cases && x.lo.cases.status) || x.status || '') !== 'LETTER') && (((x.lo.cases && x.lo.cases.status) || x.status || '') !== 'LTR\u6e08'));
+  if (missingPostal.length > 0) {
+    const list = missingPostal.slice(0, 20).map(x => '\u30fb' + (x.lo.name || '\u540d\u524d\u672a\u767b\u9332') + ' (' + (caseDisplayNo(x.lo.cases) || '') + ')').join('\n');
+    const more = missingPostal.length > 20 ? `\n\u4ed6 ${missingPostal.length - 20} \u4ef6` : '';
+    if (!confirm(`\u26a0\ufe0f \u90f5\u4fbf\u756a\u53f7\u672a\u767b\u9332\u306e\u5730\u6a29\u8005\u304c ${missingPostal.length} \u4ef6\u3042\u308a\u307e\u3059\uff08\u4e00\u62ec\u767a\u4fe1\u304b\u3089\u9664\u5916\uff09\uff1a\n\n${list}${more}\n\n\u9664\u5916\u3057\u3066\u7d9a\u884c\u3057\u307e\u3059\u304b\uff1f`)) return;
+  }
+  if (eligible.length === 0) { showToast('\u4e00\u62ec\u767a\u4fe1\u5bfe\u8c61\u304c0\u4ef6\u3067\u3059', 'error'); return; }
+  if (!confirm(`\u8868\u793a\u4e2d\u306e ${eligible.length} \u4ef6\u306b\u4e00\u62ec\u3067\u624b\u7d19\u767a\u4fe1\u8a18\u9332\u3057\u307e\u3059\u3002\n\u3059\u3079\u3066\u306e\u30b9\u30c6\u30fc\u30bf\u30b9\u304c LETTER \u306b\u306a\u308a\u307e\u3059\u3002\uff08\u9664\u5916: \u767a\u4fe1\u6e08\u307f ${skippedStatus} \u4ef6\u3001\u90f5\u4fbf\u756a\u53f7\u672a\u767b\u9332 ${missingPostal.length} \u4ef6\uff09`)) return;
+  const caseIds = eligible.map(x => x.caseId);
+  const { data, error } = await db.rpc('mark_letters_sent_bulk', { p_case_ids: caseIds });
+  if (error) { showToast('\u4e00\u62ec\u767a\u4fe1\u30a8\u30e9\u30fc: ' + error.message, 'error'); return; }
+  const now = new Date().toISOString();
+  eligible.forEach(x => {
+    if (x.lo.cases) { x.lo.cases.status = 'LETTER'; x.lo.cases.last_letter_sent_at = now; }
+    x.status = 'LETTER';
+    refreshMarkerIcon(x.caseId);
+    x.marker.setPopupContent(buildPopup(x.lo, x.caseId, x.isVisited, planSet.has(x.caseId)));
+  });
+  recalcVisitStats();
+  showToast(`\ud83d\udcee \u4e00\u62ec\u767a\u4fe1\u8a18\u9332\uff1a${data || eligible.length} \u4ef6\u3092 LETTER \u306b`, 'success');
+}
+
+/* 宛名ラベルCSV出力：郵便番号必須。空欄ありなら警告で止める */
+function _csvEscape(v) { v = (v == null) ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function exportLabelCSV() {
+  const all = _collectVisibleLandowners();
+  if (all.length === 0) { showToast('\u51fa\u529b\u5bfe\u8c61\u304c\u3042\u308a\u307e\u305b\u3093', 'error'); return; }
+  const missing = all.filter(x => !x.lo.postal_code);
+  if (missing.length > 0) {
+    const list = missing.slice(0, 30).map(x => '\u30fb' + (x.lo.name || '\u540d\u524d\u672a\u767b\u9332') + ' (' + (caseDisplayNo(x.lo.cases) || '') + ') ' + (x.lo.address || '')).join('\n');
+    const more = missing.length > 30 ? `\n\u4ed6 ${missing.length - 30} \u4ef6` : '';
+    if (!confirm(`\u26a0\ufe0f \u90f5\u4fbf\u756a\u53f7\u672a\u767b\u9332\u306e\u5730\u6a29\u8005\u304c ${missing.length} \u4ef6\u3042\u308a\u307e\u3059\u3002\nCSV\u304b\u3089\u9664\u5916\u3057\u3066\u7d9a\u884c\u3057\u307e\u3059\u304b\uff1f\n\n${list}${more}`)) return;
+  }
+  const targets = all.filter(x => !!x.lo.postal_code);
+  if (targets.length === 0) { showToast('\u90f5\u4fbf\u756a\u53f7\u3042\u308a\u306e\u5730\u6a29\u8005\u304c0\u4ef6\u3067\u3059', 'error'); return; }
+  const header = ['\u90f5\u4fbf\u756a\u53f7', '\u4f4f\u6240', '\u6c0f\u540d', '\u6848\u4ef6\u756a\u53f7', '\u30b9\u30c6\u30fc\u30bf\u30b9', '\u6700\u7d42\u767a\u4fe1\u65e5'];
+  const lines = [header.map(_csvEscape).join(',')];
+  targets.forEach(x => {
+    const cs = x.lo.cases || {};
+    const lsa = cs.last_letter_sent_at ? new Date(cs.last_letter_sent_at).toLocaleDateString('ja-JP') : '';
+    lines.push([
+      x.lo.postal_code || '',
+      x.lo.address || '',
+      x.lo.name || '',
+      caseDisplayNo(cs) || cs.case_no || '',
+      cs.status || '',
+      lsa
+    ].map(_csvEscape).join(','));
+  });
+  const csv = '\ufeff' + lines.join('\r\n'); // BOM付き UTF-8（Excel互換）
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const ts = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  a.href = url; a.download = `landowner_labels_${ts}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast(`\ud83d\udccb \u30e9\u30d9\u30ebCSV\u51fa\u529b\uff1a${targets.length} \u4ef6\uff08\u90f5\u4fbf\u756a\u53f7\u3042\u308a\u306e\u307f\uff09`, 'success');
+}
+
+async function unVisit(caseId) {
+  if (!confirm('\u8a2a\u554f\u6e08\u307f\u3092\u89e3\u9664\u3057\u307e\u3059\u304b\uff1f')) return;
+  const { error } = await db.from('visit_status').update({ visited: false, visited_at: null, flag_color: 'blue' }).eq('case_id', caseId);
+  if (error) { showToast('\u89e3\u9664\u30a8\u30e9\u30fc: ' + error.message, 'error'); return; }
+  updateMarkerColor(caseId, planSet.has(caseId) ? '#f0b429' : '#58a6ff');
+  const d = markers[caseId];
+  if (d) { d.isVisited = false; d.visit = { visited: false }; d.marker.setPopupContent(buildPopup(d.lo, caseId, false, planSet.has(caseId))); }
+  recalcVisitStats();
+  renderPlanList(); renderOwnerTable(); map.closePopup();
+  showToast('\u8a2a\u554f\u6e08\u307f\u3092\u89e3\u9664\u3057\u307e\u3057\u305f', 'success');
+}
+function addPlan(caseId) {
+  if (planSet.size >= 30) { showToast('\u8a2a\u554f\u4e88\u5b9a\u306f\u6700\u592730\u4ef6\u307e\u3067\u3067\u3059', 'error'); return; }
+  planSet.add(caseId);
+  savePlanSet();
+  updateMarkerColor(caseId, '#f0b429');
+  const d = markers[caseId];
+  if (d) d.marker.setPopupContent(buildPopup(d.lo, caseId, false, true));
+  updatePlanUI(); map.closePopup();
+  showToast('\u8a2a\u554f\u4e88\u5b9a\u306b\u8ffd\u52a0\u3057\u307e\u3057\u305f', 'success');
+}
+function removePlan(caseId) {
+  planSet.delete(caseId);
+  savePlanSet();
+  updateMarkerColor(caseId, '#58a6ff');
+  const d = markers[caseId];
+  if (d) d.marker.setPopupContent(buildPopup(d.lo, caseId, false, false));
+  updatePlanUI(); map.closePopup();
+  showToast('\u8a2a\u554f\u4e88\u5b9a\u304b\u3089\u89e3\u9664\u3057\u307e\u3057\u305f', 'success');
+}
+function updateMarkerColor(caseId, _color) {
+  /* 旧API互換。色指定は無視し、内部状態（status＋訪問状態）からアイコンを再生成 */
+  refreshMarkerIcon(caseId);
+}
+function refreshMarkerIcon(caseId) {
+  const d = markers[caseId];
+  if (!d) return;
+  const st = d.status || 'UNKNOWN';
+  const vs = visitStateOf(caseId, d.isVisited);
+  d.marker.setIcon(makeStatusIcon(st, vs));
+}
+function updatePlanUI() {
+  recalcVisitStats();
+  const startBtn = document.getElementById('startBtn');
+  const dashStartBtn = document.getElementById('dashboardStartBtn');
+  const isDisabled = planSet.size === 0;
+  if (startBtn) {
+    startBtn.disabled = isDisabled;
+    if (isDisabled) startBtn.setAttribute('disabled', 'disabled');
+    else startBtn.removeAttribute('disabled');
+  }
+  if (dashStartBtn) {
+    dashStartBtn.disabled = isDisabled;
+    if (isDisabled) dashStartBtn.setAttribute('disabled', 'disabled');
+    else dashStartBtn.removeAttribute('disabled');
+    // visitMode の表示切替は setVisitButtonResetMode() で処理するためここでは触らない
+    // dashStartBtn は計画モード/実行モードどちらでも常時表示
+    dashStartBtn.style.display = '';
+  }
+  renderPlanList(); renderOwnerTable();
+}
+function renderOwnerTable() {
+  const tbody = document.getElementById('ownerTableBody');
+  const countEl = document.getElementById('ownerListCount');
+  const panel = document.getElementById('ownerListPanel');
+  if (planSet.size === 0) {
+    // パネルの open/close はユーザーのトグル操作に委ねる（自動制御しない）
+    tbody.innerHTML = '<tr><td colspan="2" style="color:var(--text-muted);text-align:center;padding:16px">\u30d5\u30e9\u30b0\u3092\u30af\u30ea\u30c3\u30af\u3057\u3066<br>\u8a2a\u554f\u4e88\u5b9a\u3092\u8ffd\u52a0</td></tr>';
+    countEl.textContent = '0\u4ef6'; return;
+  }
+  // パネルの open はトグルボタンに委ねる（自動 open しない）
+  document.querySelector('.control-panel').classList.add('shifted');
+  countEl.textContent = `${planSet.size}\u4ef6`;
+  const rows = [...planSet].map((caseId, idx) => {
+    const d = markers[caseId];
+    const name = d?.lo?.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09';
+    const fs = _calcMobileFontSize(name, 12);
+    return `<tr class="${d?.isVisited ? 'visited' : ''}"><td>${idx + 1}</td><td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:${fs}px">${name}</td></tr>`;
+  });
+  const empty = Array(Math.max(0, 30 - planSet.size)).fill('<tr><td style="color:var(--border)">\u2014</td><td></td></tr>');
+  tbody.innerHTML = rows.join('') + empty.join('');
+}
+
+/* ===== 動的フォントサイズ計算（モバイルのみ縮小、文字数に応じて段階的） =====
+   全角換算文字数（漢字=1, 英数字=0.5）に基づきパネル幅に収まるサイズを返す */
+function _fwLen(s) {
+  let n = 0;
+  for (const c of (s || '')) n += (c.charCodeAt(0) < 128) ? 0.5 : 1;
+  return n;
+}
+function _calcMobileFontSize(text, baseSize) {
+  if (window.innerWidth > 1024) return baseSize; // PCは元のサイズ
+  const len = _fwLen(text);
+  if (window.innerWidth <= 480) {
+    // iPhone（パネル幅 114px）：文字エリア約60px
+    if (len <= 3) return 11;
+    if (len <= 4) return 10;
+    if (len <= 5) return 9;
+    if (len <= 6) return 8;
+    return 7;
+  }
+  // iPad/小型（パネル幅 144px）：文字エリア約80px
+  if (len <= 4) return 11;
+  if (len <= 5) return 10;
+  if (len <= 6) return 9;
+  if (len <= 8) return 8;
+  return 7;
+}
+function renderPlanList() {
+  const el = document.getElementById('planList');
+  if (planSet.size === 0) { el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:10px">\u8a2a\u554f\u4e88\u5b9a\u304c\u3042\u308a\u307e\u305b\u3093</div>'; return; }
+  el.innerHTML = [...planSet].map(caseId => {
+    const d = markers[caseId]; const lo = d?.lo;
+    return `<div class="plan-item ${d?.isVisited ? 'visited' : ''}"><div class="plan-item-name">${lo?.name || '\uff08\u6c0f\u540d\u672a\u767b\u9332\uff09'} ${d?.isVisited ? '\u2713' : ''}</div><div class="plan-item-case">${caseDisplayNo(lo?.cases) || ''}</div><div class="plan-item-address">${lo?.address || ''}</div></div>`;
+  }).join('');
+}
+function startVisitMode() {
+  visitMode = true;
+  Object.keys(markers).forEach(caseId => {
+    const d = markers[caseId];
+    if (!planSet.has(caseId) && !d.isVisited) map.removeLayer(d.marker);
+    else if (planSet.has(caseId) && !d.isVisited) d.marker.setPopupContent(buildPopup(d.lo, caseId, false, false));
+  });
+  document.getElementById('phaseBadge').textContent = '\ud83d\ude97 \u8a2a\u554f\u5b9f\u884c\u30e2\u30fc\u30c9';
+  document.getElementById('phaseBadge').className = 'phase-badge phase-visit';
+  showToast('\u8a2a\u554f\u5b9f\u884c\u30e2\u30fc\u30c9\u306b\u5207\u308a\u66ff\u3048\u307e\u3057\u305f', 'success');
+  document.getElementById('sidePanel').classList.remove('open');
+  // 訪問予定リスト（左パネル）も確実に閉じる：マーカークリックを妨げないため
+  const ownerPanel = document.getElementById('ownerListPanel');
+  if (ownerPanel) ownerPanel.classList.remove('open');
+  // ヘッダー/サイドの訪問開始ボタンを「計画リセット」状態に切替（赤色 + ラベル変更）
+  setVisitButtonResetMode(true);
+}
+function startNav(caseId) {
+  const d = markers[caseId];
+  if (!d?.lo?.lat) return;
+  window.open(`https://www.google.com/maps/dir/?api=1&destination=${d.lo.lat},${d.lo.lng}&travelmode=driving`, '_blank');
+}
+async function openVisitModal(caseId) {
+  currentVisitCaseId = caseId;
+  const d = markers[caseId]; const lo = d?.lo;
+  document.getElementById('visitModalInfo').textContent = `${caseDisplayNo(lo?.cases) || ''} ${lo?.name || ''}`;
+  document.getElementById('visitDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('visitContent').value = '';
+  currentLandownerId = lo?.id || null;
+  document.getElementById('visitModal').classList.add('open');
+  map.closePopup();
+}
+async function saveVisit() {
+  const date = document.getElementById('visitDate').value;
+  const content = document.getElementById('visitContent').value.trim();
+  if (!date || !content) { showToast('\u65e5\u4ed8\u3068\u5546\u8ac7\u5185\u5bb9\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044', 'error'); return; }
+  const caseId = currentVisitCaseId;
+  if (currentLandownerId) await db.from('negotiation_logs').insert({ landowner_id: currentLandownerId, log_date: date, content });
+  const { data: existing } = await db.from('visit_status').select('id').eq('case_id', caseId).single();
+  const payload = { visited: true, visited_at: new Date().toISOString(), flag_color: 'red' };
+  if (existing) { await db.from('visit_status').update(payload).eq('case_id', caseId); }
+  else { await db.from('visit_status').insert({ case_id: caseId, ...payload }); }
+  updateMarkerColor(caseId, '#f85149');
+  const d = markers[caseId];
+  if (d) { d.isVisited = true; d.visit = { visited: true, visited_at: new Date().toISOString() }; d.marker.setPopupContent(buildPopup(d.lo, caseId, true, false)); }
+  /* 訪問完了したものはplanSetからも除外し、カウントを再計算 */
+  if (planSet.has(caseId)) { planSet.delete(caseId); savePlanSet(); }
+  recalcVisitStats();
+  renderPlanList(); renderOwnerTable();
+  showToast('\u8a2a\u554f\u5b8c\u4e86\u3092\u8a18\u9332\u3057\u307e\u3057\u305f', 'success');
+  closeModal('visitModal');
+}
+function resetPlan() {
+  if (!confirm('\u8a2a\u554f\u8a08\u753b\u3092\u30ea\u30bb\u30c3\u30c8\u3057\u3066\u8a08\u753b\u30e2\u30fc\u30c9\u306b\u623b\u308a\u307e\u3059\u304b\uff1f')) return;
+  visitMode = false; planSet.clear();
+  clearPlanStorage();
+  Object.keys(markers).forEach(caseId => {
+    const d = markers[caseId];
+    updateMarkerColor(caseId, d.isVisited ? '#f85149' : '#58a6ff');
+    if (!map.hasLayer(d.marker)) d.marker.addTo(map);
+    d.marker.setPopupContent(buildPopup(d.lo, caseId, d.isVisited, false));
+  });
+  document.getElementById('phaseBadge').textContent = '\ud83d\udccb \u8a2a\u554f\u8a08\u753b\u30e2\u30fc\u30c9';
+  document.getElementById('phaseBadge').className = 'phase-badge phase-plan';
+  // ヘッダー/サイドの訪問開始ボタンを通常状態に戻す
+  setVisitButtonResetMode(false);
+  updatePlanUI();
+}
+
+/* ===== ヘッダー/サイドボタン共通ハンドラ：計画モード=開始、実行モード=リセット ===== */
+function handleDashStartClick() {
+  if (visitMode) {
+    resetPlan(); // 既存のconfirm()がそのまま動く
+  } else {
+    startVisitMode();
+  }
+}
+
+/* ===== ボタン表示モード切替（ヘッダー & サイドの両方） ===== */
+function setVisitButtonResetMode(isReset) {
+  const RESET_BG = '#dc3545'; // 赤
+  ['dashboardStartBtn', 'startBtn'].forEach(function(id){
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    if (isReset) {
+      // 元のラベルを保存（一度のみ）
+      if (!btn.dataset.originalLabel) btn.dataset.originalLabel = btn.innerHTML;
+      btn.innerHTML = '\ud83d\udd04 \u8a08\u753b\u30ea\u30bb\u30c3\u30c8'; // 🔄 計画リセット
+      btn.style.setProperty('background', RESET_BG, 'important');
+      btn.style.setProperty('border-color', RESET_BG, 'important');
+      btn.style.setProperty('color', '#fff', 'important');
+      btn.disabled = false;
+      btn.removeAttribute('disabled');
+    } else {
+      btn.innerHTML = btn.dataset.originalLabel || btn.innerHTML;
+      btn.style.removeProperty('background');
+      btn.style.removeProperty('border-color');
+      btn.style.removeProperty('color');
+    }
+  });
+}
+function togglePlanList() { document.getElementById('sidePanel').classList.toggle('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(o => { o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); }); });
+function showToast(msg, type = 'success') {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.innerHTML = `<span>${type === 'success' ? '\u2713' : '\u2715'}</span><span>${msg}</span>`;
+  c.appendChild(t); setTimeout(() => t.remove(), 3000);
+}
+// ======== 地番・住所検索 ========
+let _searchTimer = null;
+let _boundaryLayer = null;
+let _boundaryCache = [];
+/* Leaflet地図のイベント吸収を防ぐため、検索ボックス全体に伝播停止を適用 */
+(function(){
+  try {
+    const sb = document.getElementById('chibanSearch');
+    if (sb && typeof L !== 'undefined' && L.DomEvent) {
+      L.DomEvent.disableClickPropagation(sb);
+      L.DomEvent.disableScrollPropagation(sb);
+    }
+  } catch(e) {}
+})();
+document.getElementById('chibanInput').addEventListener('input', function() {
+  clearTimeout(_searchTimer);
+  const q = this.value.trim();
+  const res = document.getElementById('chibanResults');
+  if (q.length < 2) { res.style.display = 'none'; return; }
+  _searchTimer = setTimeout(() => _searchChiban(q, res), 400);
+});
+document.getElementById('chibanInput').addEventListener('blur', function() {
+  setTimeout(() => { document.getElementById('chibanResults').style.display = 'none'; }, 200);
+});
+async function _searchChiban(q, res) {
+  if (_boundaryLayer) { map.removeLayer(_boundaryLayer); _boundaryLayer = null; }
+  _boundaryCache = [];
+  let html = '';
+  /* ===== 1) 行政境界検索（市町村区郡を含む場合はそのまま、含まない場合はサフィックス自動補完） ===== */
+  const __PREFS = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県'];
+  const __isPref = __PREFS.indexOf(q) !== -1;
+  const hasAdminSuffix = /[\u5e02\u753a\u6751\u533a\u90e1]/.test(q) || __isPref;
+  const queriesToTry = hasAdminSuffix
+    ? [q]
+    : [q + '\u5e02', q + '\u753a', q + '\u6751'];  /* 市・町・村を順次試す */
+  const seenLabels = new Set();
+  for (const tryQ of queriesToTry) {
+    try {
+      const url = 'https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(tryQ) + '&polygon_geojson=1&format=json&countrycodes=jp&limit=3&accept-language=ja';
+      const nr = await fetch(url);
+      const ndata = await nr.json();
+      ndata.forEach(d => {
+        if (d.geojson && d.class === 'boundary' && d.type === 'administrative' && (d.geojson.type === 'Polygon' || d.geojson.type === 'MultiPolygon')) {
+          const label = d.display_name.split(',')[0];
+          if (seenLabels.has(label)) return;
+          seenLabels.add(label);
+          const idx = _boundaryCache.length;
+          _boundaryCache.push(d.geojson);
+          html += `<div class="chiban-result-item" style="color:var(--accent)" onmousedown="event.stopPropagation();jumpToBoundary(${idx},'${label.replace(/'/g,"\\'")}')">&#127961; ${label}</div>`;
+        }
+      });
+      if (_boundaryCache.length > 0 && !hasAdminSuffix) break; /* サフィックス補完で1つでもヒットしたら次は試さない */
+    } catch(e) {}
+  }
+  /* ===== 2) 地物検索（湖・山・観光地・駅など、行政境界以外） ===== */
+  if (!hasAdminSuffix && q.length >= 2) {
+    try {
+      const url2 = 'https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(q) + '&format=json&countrycodes=jp&limit=3&accept-language=ja';
+      const nr2 = await fetch(url2);
+      const ndata2 = await nr2.json();
+      ndata2.forEach(d => {
+        if (d.class === 'boundary') return; /* 行政境界は1)で処理済み */
+        if (!d.lat || !d.lon) return;
+        const label = d.display_name.split(',').slice(0,2).join(',');
+        if (seenLabels.has(label)) return;
+        seenLabels.add(label);
+        html += `<div class="chiban-result-item" style="color:#06b6d4" onmousedown="event.stopPropagation();jumpToChiban(${d.lat},${d.lon},'${label.replace(/'/g,"\\'")}')">&#127757; ${label}</div>`;
+      });
+    } catch(e) {}
+  }
+  /* ===== 3) AMX全国地番検索 (chiban_index廃止、PMTilesから直接取得) ===== */
+  try {
+    const tokens = q.split(/[\s\u3000]+/).filter(Boolean);
+    const chibanToken = tokens.find(t => /^[0-9\uff0d\-]+$/.test(t));
+    const nameTokens = tokens.filter(t => !/^[0-9\uff0d\-]+$/.test(t));
+    if (chibanToken && nameTokens.length > 0 && window.__PMT && window.__VT && window.__Pbf) {
+      // ステップ1: 地名部分(市区町村+大字)を国土地理院ジオコーディングAPIで緯度経度に変換
+      const geocodeQuery = nameTokens.join(' ');
+      const gsiUrl = 'https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(geocodeQuery);
+      const gsiRes = await fetch(gsiUrl);
+      const gsiData = await gsiRes.json();
+      if (gsiData && gsiData.length > 0) {
+        const foundChiban = [];
+        for (let gi = 0; gi < Math.min(3, gsiData.length); gi++) {
+          const coords = gsiData[gi].geometry.coordinates;
+          const lng = coords[0], lat = coords[1];
+          const z = 16;
+          const n = Math.pow(2, z);
+          const latR = lat * Math.PI / 180;
+          const tx = Math.floor((lng + 180) / 360 * n);
+          const ty = Math.floor((1 - Math.log(Math.tan(latR) + 1/Math.cos(latR))/Math.PI)/2 * n);
+          for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+              try {
+                const resp = await window.__PMT.getZxy(z, tx + dx, ty + dy);
+                if (!resp) continue;
+                const tile = new window.__VT(new window.__Pbf(resp.data));
+                const layerNames = Object.keys(tile.layers);
+                if (!layerNames.length) continue;
+                const lyr = tile.layers[layerNames[0]];
+                for (let i = 0; i < lyr.length && foundChiban.length < 8; i++) {
+                  const feat = lyr.feature(i);
+                  if (feat.type !== 3) continue;
+                  const props = feat.properties || {};
+                  if (props['\u5730\u756a'] !== chibanToken) continue;
+                  const rawArea = props['\u5730\u756a\u533a\u57df'] || '';
+                  const allMatch = nameTokens.every(t => rawArea.indexOf(t) !== -1);
+                  if (!allMatch) continue;
+                  const dupKey = rawArea + '|' + props['\u5730\u756a'];
+                  if (foundChiban.some(x => x.dupKey === dupKey)) continue;
+                  const geom = feat.loadGeometry();
+                  let cx = 0, cy = 0, cn = 0;
+                  for (let rk = 0; rk < geom.length; rk++) {
+                    for (let pk = 0; pk < geom[rk].length; pk++) { cx += geom[rk][pk].x; cy += geom[rk][pk].y; cn++; }
+                  }
+                  if (cn === 0) continue;
+                  cx /= cn; cy /= cn;
+                  const extent = lyr.extent;
+                  const lngOut = (((tx + dx) + cx/extent) / n) * 360 - 180;
+                  const nLat = Math.PI * (1 - 2 * ((ty + dy) + cy/extent) / n);
+                  const latOut = 180/Math.PI * Math.atan(0.5 * (Math.exp(nLat) - Math.exp(-nLat)));
+                  const areaParts = rawArea.split('_');
+                  const label = areaParts.filter(t => t && t.trim()).join(' ') + ' ' + props['\u5730\u756a'];
+                  foundChiban.push({ lat: latOut, lng: lngOut, label: label, dupKey: dupKey, props: props });
+                }
+              } catch (_) {}
+              if (foundChiban.length >= 8) break;
+            }
+            if (foundChiban.length >= 8) break;
+          }
+          if (foundChiban.length >= 8) break;
+        }
+        foundChiban.forEach(r => {
+          const safeLabel = r.label.replace(/'/g, "\\'");
+          const propsJson = encodeURIComponent(JSON.stringify(r.props));
+          html += `<div class="chiban-result-item" onmousedown="event.stopPropagation();jumpToChibanAMX(${r.lat},${r.lng},'${safeLabel}','${propsJson}')">&#128205; ${r.label}</div>`;
+        });
+      }
+    }
+  } catch (e) { console.warn('[search] AMX chiban error:', e); }
+  if (!html) { res.style.display = 'none'; return; }
+  res.innerHTML = html;
+  res.style.display = 'block';
+}
+function jumpToBoundary(idx, label) {
+  const geojson = _boundaryCache[idx];
+  if (!geojson) return;
+  if (_boundaryLayer) { map.removeLayer(_boundaryLayer); }
+  _boundaryLayer = L.geoJSON(geojson, {
+    style: { color: '#ef4444', weight: 3.5, dashArray: '6, 6', fillColor: '#ef4444', fillOpacity: 0.12, className: 'boundary-pulse' }
+  }).addTo(map);
+  map.fitBounds(_boundaryLayer.getBounds(), { padding: [40, 40] });
+  document.getElementById('chibanResults').style.display = 'none';
+  document.getElementById('chibanInput').value = label;
+}
+function buildParcelPopup(p) {
+  const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  p = p || {};
+  // 地番区域は "市区町村_大字_小字_丁目" 形式（欠損項目はアンダースコアで埋まる）
+  const rawArea = p['\u5730\u756a\u533a\u57df'] || '';
+  const areaParts = rawArea.split('_');
+  const city  = (areaParts[0] || '').trim();
+  const oaza  = (areaParts[1] || '').trim();
+  const koaza = (areaParts[2] || '').trim();
+  const chome = (areaParts[3] || '').trim();
+
+  const rows = [
+    ['\u5e02\u533a\u753a\u6751',    city],
+    ['\u5927\u5b57',                oaza],
+    ['\u5c0f\u5b57',                koaza],
+    ['\u4e01\u76ee',                chome],
+    ['\u5730\u756a',                p['\u5730\u756a']],
+    ['\u7e2e\u5c3a\u5206\u6bcd',    p['\u7e2e\u5c3a\u5206\u6bcd']],
+    ['\u5ea7\u6a19\u5024\u7a2e\u5225', p['\u5ea7\u6a19\u5024\u7a2e\u5225']],
+    ['\u7cbe\u5ea6\u533a\u5206',    p['\u7cbe\u5ea6\u533a\u5206']]
+  ].filter(r => r[1])
+   .map(r => `<tr><td style="color:var(--text-muted);padding:5px 14px 5px 0;font-size:11px;white-space:nowrap;vertical-align:top;font-weight:500">${r[0]}</td><td style="padding:5px 0;font-size:13px;word-break:break-all;font-weight:600;color:var(--text)">${esc(r[1])}</td></tr>`)
+   .join('');
+  return `<div style="padding:12px;min-width:240px"><div style="font-family:'Share Tech Mono',monospace;color:var(--accent);font-size:11px;margin-bottom:10px;letter-spacing:1px;border-bottom:1px solid var(--border);padding-bottom:7px">\u{1F4D0} \u5730\u756a\u60c5\u5831</div><table style="border-collapse:collapse;width:100%">${rows}</table></div>`;
+}
+function jumpToChiban(lat, lng, label) {
+  map.setView([lat, lng], 17);
+  L.popup({ maxWidth: 260 }).setLatLng([lat, lng])
+    .setContent(`<div style="padding:10px;font-size:12px">&#128205; ${label}</div>`)
+    .openOn(map);
+  document.getElementById('chibanResults').style.display = 'none';
+  document.getElementById('chibanInput').value = label;
+}
+// AMX地番検索ヒット時の赤丸点滅マーカー＋地番情報ポップアップ
+let _searchHitMarker = null;
+function jumpToChibanAMX(lat, lng, label, propsJsonEncoded) {
+  map.setView([lat, lng], 17);
+  if (_searchHitMarker) { try { map.removeLayer(_searchHitMarker); } catch(_) {} }
+  const divIcon = L.divIcon({
+    className: 'sf-blink-icon',
+    html: '<div style="position:absolute;left:0;top:0;width:14px;height:14px;margin-left:-7px;margin-top:-7px;border-radius:50%;background:#f85149;border:3px solid #fff;box-shadow:0 0 12px rgba(248,81,73,0.9);pointer-events:none"></div>',
+    iconSize: [0, 0]
+  });
+  _searchHitMarker = L.marker([lat, lng], { icon: divIcon, interactive: false, zIndexOffset: 1000 }).addTo(map);
+  setTimeout(() => {
+    if (_searchHitMarker) { try { map.removeLayer(_searchHitMarker); _searchHitMarker = null; } catch(_) {} }
+  }, 30000);
+  try {
+    const props = JSON.parse(decodeURIComponent(propsJsonEncoded));
+    if (typeof buildParcelPopup === 'function') {
+      L.popup({ maxWidth: 340, minWidth: 240 }).setLatLng([lat, lng]).setContent(buildParcelPopup(props)).openOn(map);
+    } else {
+      L.popup({ maxWidth: 260 }).setLatLng([lat, lng]).setContent(`<div style="padding:10px;font-size:12px">&#128205; ${label}</div>`).openOn(map);
+    }
+  } catch (e) {
+    L.popup({ maxWidth: 260 }).setLatLng([lat, lng]).setContent(`<div style="padding:10px;font-size:12px">&#128205; ${label}</div>`).openOn(map);
+  }
+  document.getElementById('chibanResults').style.display = 'none';
+  document.getElementById('chibanInput').value = label;
+}
+initMap();
+loadData();
+
+// ======== \u30cf\u30b6\u30fc\u30c9\u30d1\u30cd\u30eb \u6298\u308a\u305f\u305f\u307f\u30c8\u30b0\u30eb ========
+function toggleHazardPanel() {
+  const hc = document.getElementById('hazardControls');
+  if (hc) hc.classList.toggle('collapsed');
+}
+// \u521d\u671f\u72b6\u614b\uff1a\u753b\u9762\u5e451024px\u4ee5\u4e0b\uff08iPad\u30fbiPhone\uff09\u3067\u306f\u6298\u308a\u305f\u305f\u307f
+if (window.innerWidth <= 1024) {
+  const hc = document.getElementById('hazardControls');
+  if (hc) hc.classList.add('collapsed');
+}
+
+// ======== \u30a2\u30af\u30b7\u30e7\u30f3\u30d1\u30cd\u30eb \u6298\u308a\u305f\u305f\u307f\u30c8\u30b0\u30eb\uff08C\u6848\u30e2\u30d0\u30a4\u30eb\u5bfe\u5fdc\uff09 ========
+function toggleActionPanel(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('collapsed');
+}
+// \u521d\u671f\u72b6\u614b\uff1a\u753b\u9762\u5e451024px\u4ee5\u4e0b\uff08iPad\u30fbiPhone\uff09\u3067\u306f\u6298\u308a\u305f\u305f\u307f
+['planPanel'].forEach(function(id){
+  const el = document.getElementById(id);
+  if (el) el.classList.add('collapsed');
+});
+
+// ======== \u30c9\u30e9\u30c3\u30b0\u53ef\u80fd\u30d1\u30cd\u30eb \u5171\u901aJS\uff083\u30de\u30c3\u30d7\u5171\u901a\uff09========
+function initDraggablePanels(storageKeyPrefix, configs) {
+  configs.forEach(function(cfg) {
+    var panel = document.querySelector(cfg.id);
+    if (!panel) return;
+    panel.classList.add('draggable-panel');
+    // \u65e7\u30ad\u30fc\u306e\u53e4\u3044\u30c7\u30fc\u30bf\u3092\u524a\u9664\uff08v2\u5316\u3067\u4e0d\u6574\u5408\u30c7\u30fc\u30bf\u3092\u7834\u68c4\uff09
+    var oldStorageKey = 'dragPos_' + storageKeyPrefix + '_' + cfg.id.replace(/[^a-zA-Z0-9]/g, '_');
+    try { localStorage.removeItem(oldStorageKey); } catch (_) {}
+    var storageKey = oldStorageKey + '_v2';
+    var savedPos = null;
+    try { savedPos = JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch (e) {}
+    if (savedPos && typeof savedPos.left === 'number' && typeof savedPos.top === 'number') {
+      // 画面サイズ範囲チェック：画面外の値は破棄して初期位置に戻す（大画面で保存→小画面で復元時の対策）
+      var isOutside = savedPos.left > window.innerWidth - 40 || savedPos.left < -200 ||
+                      savedPos.top > window.innerHeight - 40 || savedPos.top < -100;
+      if (isOutside) {
+        try { localStorage.removeItem(storageKey); } catch (_) {}
+      } else {
+        panel.style.left = savedPos.left + 'px';
+        panel.style.top = savedPos.top + 'px';
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+      }
+    }
+    // \u30cf\u30f3\u30c9\u30eb\u6c7a\u5b9a\uff1acfg.handle\u6307\u5b9a\u3042\u308a\u2192\u305d\u308c\u3092\u4f7f\u7528 / \u306a\u3057\u2192panel\u81ea\u8eab\u3092\u30cf\u30f3\u30c9\u30eb\u306b
+    var handle = null;
+    if (cfg.handle) handle = panel.querySelector(cfg.handle);
+    if (!handle) handle = panel;
+    handle.title = '\u30c9\u30e9\u30c3\u30b0\u3067\u79fb\u52d5\u30fb\u30c0\u30d6\u30eb\u30af\u30ea\u30c3\u30af\u3067\u4f4d\u7f6e\u30ea\u30bb\u30c3\u30c8';
+    handle.style.cursor = 'grab';
+    var SKIP_SELECTOR = 'button, input, select, textarea, a, .chiban-result-item, .chiban-results';
+    // \u30d1\u30cd\u30eb\u306eoffsetParent\u57fa\u6e96\u306e\u4f4d\u7f6e\u3092\u8a08\u7b97\u3059\u308b\u30d8\u30eb\u30d1\u30fc
+    function getParentOffset() {
+      var op = panel.offsetParent || document.body;
+      var r = op.getBoundingClientRect();
+      return { left: r.left, top: r.top };
+    }
+    handle.addEventListener('dblclick', function(e) {
+      if (e.target.closest(SKIP_SELECTOR)) return;
+      e.stopPropagation();
+      localStorage.removeItem(storageKey);
+      panel.style.left = ''; panel.style.top = ''; panel.style.right = ''; panel.style.bottom = '';
+      if (typeof showToast === 'function') showToast('\u4f4d\u7f6e\u3092\u521d\u671f\u5316\u3057\u307e\u3057\u305f', 'success');
+    });
+    var dragging = false, offsetX = 0, offsetY = 0;
+    handle.addEventListener('pointerdown', function(e) {
+      if (e.target.closest(SKIP_SELECTOR)) return;
+      dragging = true;
+      document.body.classList.add('dragging-panel');
+      var rect = panel.getBoundingClientRect();
+      var po = getParentOffset();
+      // \u30ab\u30fc\u30bd\u30eb\u3068\u30d1\u30cd\u30eb\u5de6\u4e0a\u306e\u76f8\u5bfe\u8ddd\u96e2\u3092\u8a18\u9332
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+      // \u89aa\u8981\u7d20\u57fa\u6e96\u3067panel\u306e\u73fe\u5728\u4f4d\u7f6e\u3092\u30bb\u30c3\u30c8\uff08viewport \u2192 offsetParent\u57fa\u6e96\u306b\u5909\u63db\uff09
+      panel.style.left = (rect.left - po.left) + 'px';
+      panel.style.top = (rect.top - po.top) + 'px';
+      panel.style.right = 'auto'; panel.style.bottom = 'auto';
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+      e.stopPropagation();
+      e.preventDefault();
+    });
+    handle.addEventListener('pointermove', function(e) {
+      if (!dragging) return;
+      var po = getParentOffset();
+      // \u30d1\u30cd\u30eb\u306e\u65b0\u3057\u3044\u4f4d\u7f6e = \u30ab\u30fc\u30bd\u30eb\u4f4d\u7f6e - offset - \u89aa\u8981\u7d20\u4f4d\u7f6e\uff08offsetParent\u57fa\u6e96\uff09
+      var newLeft = e.clientX - offsetX - po.left;
+      var newTop = e.clientY - offsetY - po.top;
+      var rect = panel.getBoundingClientRect();
+      // \u5883\u754c\u30c1\u30a7\u30c3\u30af\u3082offsetParent\u57fa\u6e96\u3067\u8a08\u7b97
+      var maxLeft = window.innerWidth - po.left - 16;
+      var maxTop = window.innerHeight - po.top - 16;
+      var minLeft = -(rect.width - 16);
+      var minTop = -po.top;
+      if (newLeft < minLeft) newLeft = minLeft;
+      if (newLeft > maxLeft) newLeft = maxLeft;
+      if (newTop < minTop) newTop = minTop;
+      if (newTop > maxTop) newTop = maxTop;
+      panel.style.left = newLeft + 'px'; panel.style.top = newTop + 'px';
+    });
+    function endDrag(e) {
+      if (!dragging) return;
+      dragging = false;
+      document.body.classList.remove('dragging-panel');
+      try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+      var left = parseFloat(panel.style.left) || 0;
+      var top = parseFloat(panel.style.top) || 0;
+      try { localStorage.setItem(storageKey, JSON.stringify({ left: left, top: top })); } catch (_) {}
+    }
+    handle.addEventListener('pointerup', endDrag);
+    handle.addEventListener('pointercancel', endDrag);
+  });
+}
+// landowner-visit\u5c02\u7528\u306e\u30c9\u30e9\u30c3\u30b0\u30d1\u30cd\u30eb\u521d\u671f\u5316
+initDraggablePanels('landownerVisit', [
+  { id: '#chibanSearch' },
+  { id: '#controlPanel' },
+  { id: '#layerControl' },
+  { id: '#hazardControls', handle: '.hazard-panel-header' }
+]);
+</script>
+<script src="case-candidates-recorder.js?v=20260702m3"></script>
+<script>
+  (function waitForMap(){
+    if (typeof map !== 'undefined' && map && typeof db !== 'undefined' && db) {
+      CaseCandidatesRecorder.init(map, db, 'landowner-visit');
+    } else {
+      setTimeout(waitForMap, 100);
+    }
+  })();
+</script>
+<script src="mobile-responsive.js?v=20260516u"></script>
+<script>
+/* ============================================================================
+ * 選択フラグ点滅機能（3マップ共通）
+ * ============================================================================ */
+(function() {
+  'use strict';
+  var selectionFlashMarker = null;
+  function showSelectionFlash(latlng) {
+    if (typeof map === 'undefined' || !map) return;
+    if (selectionFlashMarker) {
+      try { map.removeLayer(selectionFlashMarker); } catch (_) {}
+      selectionFlashMarker = null;
+    }
+    var icon = L.divIcon({
+      className: 'selection-flash',
+      html: '<div class="sf-pulse"></div><div class="sf-dot"></div>',
+      iconSize: [48, 48],
+      iconAnchor: [24, 24]
+    });
+    selectionFlashMarker = L.marker(latlng, {
+      icon: icon,
+      interactive: false,
+      zIndexOffset: 9999
+    }).addTo(map);
+  }
+  function attachHandler() {
+    if (typeof map === 'undefined' || !map) { setTimeout(attachHandler, 200); return; }
+    map.on('popupopen', function(e) {
+      var ll = e.popup && e.popup.getLatLng();
+      if (ll) showSelectionFlash(ll);
+    });
+  }
+  attachHandler();
+
+  // 2026-05-16 追加: URLパラメータ受信
+  //   ?lat=...&lng=...&zoom=...(省略時16)&highlight=1
+  //   例: landowner-visit.html?lat=34.5&lng=137.2&zoom=16&highlight=1
+  //   → 該当座標を中心にズーム移動し、脈動マーカーを表示
+  function applyUrlParams() {
+    if (typeof map === 'undefined' || !map) { setTimeout(applyUrlParams, 200); return; }
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var lat = parseFloat(params.get('lat'));
+      var lng = parseFloat(params.get('lng'));
+      var zoom = parseInt(params.get('zoom'), 10);
+      var highlight = params.get('highlight') === '1';
+      if (isNaN(lat) || isNaN(lng)) return;
+      if (isNaN(zoom)) zoom = 16;
+      map.setView([lat, lng], zoom);
+      if (highlight) {
+        // タイル読込・地図移動が完了してから脈動マーカー描画
+        setTimeout(function(){
+          try { showSelectionFlash(L.latLng(lat, lng)); } catch(e) {}
+        }, 600);
+      }
+    } catch (e) {
+      console.warn('[url-params] 例外:', e);
+    }
+  }
+  applyUrlParams();
+})();
+</script>
+</body>
+</html>
