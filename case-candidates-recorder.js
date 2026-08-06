@@ -43,7 +43,7 @@
   /* ----------------------------------------------------------
      初期化（各HTMLから呼ぶ）
      ---------------------------------------------------------- */
-  function init(map, db, sourcePage) {
+  function init(map, db, sourcePage, opts) {
     if (_initialized) return;
     if (!map || !db || !sourcePage) {
       console.warn('[CaseCandidatesRecorder] init: 引数不足', { map, db, sourcePage });
@@ -53,13 +53,17 @@
     _db = db;
     _sourcePage = sourcePage;
     _initialized = true;
+    opts = opts || {};
 
     setupModal();
     setupPcClickHandler();
     setupMobileGpsFab();
-    // v20260702m: 保存済み案件候補のピン可視化
-    setupCandidateLayer();
-    loadExistingCandidates();
+    // v20260806c: opts.render===false のとき自作ピンを描画しない（記録=PCクリック保存は維持）。
+    //   farmland-tracker側は案件候補を用途別レイヤー(太陽光1筆)に統合表示するため、recorderの常時ピンは出さない。
+    if (opts.render !== false) {
+      setupCandidateLayer();
+      loadExistingCandidates();
+    }
   }
 
   /* ----------------------------------------------------------
