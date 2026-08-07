@@ -23,6 +23,7 @@ function g(){if(window.__auth&&typeof window.__auth.isPartner==='function'){if(w
 市街化調整: <b id="nC">-</b>／非調整(青フラグ): <b id="nN">-</b>／AI堅い(&ge;0.5): <b style="color:#22c55e" id="n5">-</b><br>
 確認済み: <b id="nSeen" style="color:#9ca3af">0</b></div>
 <div style="margin-top:6px"><span class="zbtn on" id="zAll" onclick="setZone(null)">全部</span><span class="zbtn" id="zC" onclick="setZone('control')">市街化調整</span><span class="zbtn" id="zN" onclick="setZone('noncontrol')">非調整</span></div>
+<div style="margin-top:6px"><span class="zbtn" id="addBtn" onclick="toggleAdd()" style="border-color:#22c55e;color:#86efac">&#10133; 追加候補（クリックで記録）</span></div>
 <div class="leg"><span class="dot" style="background:#22c55e"></span>AI空き&ge;0.5(最有力)　<span class="dot" style="background:#f59e0b"></span>&ge;0.4　<span class="dot" style="background:#9ca3af"></span>&lt;0.4(要目視)<br>
 <span class="dot" style="background:#6b7280;border:1px solid #374151"></span>確認済み　<span class="dot" style="background:#fca5a5"></span>構成筆</div>
 <div style="font-size:10px;color:#64748b;margin-top:6px">中心クリック→面積・区域・AI空き見込み・現地確認・<b style="color:#ff8a80">合筆NG(一括削除)</b>。緑・市街化調整から確認が効率的。</div></div>
@@ -69,4 +70,24 @@ window.delCluster=async function(id){var c=F.filter(function(x){return x.id===id
   (_cl[id]||[]).forEach(function(l){try{group.removeLayer(l);}catch(e){}});map.closePopup();
   F=F.filter(function(x){return x.id!==id;});setCounts();updSeen();toast(c.n+'筆を合筆NGで削除しました（復元可）',true);
  }catch(e){toast('削除失敗: '+((e&&e.message)||e),false);}};
+// ➕追加候補: 地図確認中に見つけた新候補をクリックで記録(case_candidates)。取り逃がし防止。
+var addMode=false;var _addLayer=L.layerGroup().addTo(map);
+function toggleAdd(){addMode=!addMode;var b=document.getElementById('addBtn');if(b)b.classList.toggle('on',addMode);
+ try{document.getElementById('map').style.cursor=addMode?'crosshair':'';}catch(e){}
+ toast(addMode?'追加候補モードON：地図をクリックで記録':'追加候補モードOFF',true);}
+map.on('click',async function(e){
+ if(!addMode)return;
+ var memo=window.prompt('追加候補として記録します。メモ(任意・用途/所感など):','');
+ if(memo===null)return;
+ var sb=window.__auth&&window.__auth.sb;if(!sb){toast('認証エラー：ログインしてください',false);return;}
+ try{
+  var r=await sb.from('case_candidates').insert({organization_id:'00000000-0000-0000-0000-000000000001',
+    latitude:e.latlng.lat,longitude:e.latlng.lng,source:'pc_click',source_page:'solar_land_analysis',
+    accuracy:null,memo:(memo||'追加候補(太陽光土地分析)'),status:'new'}).select();
+  if(r.error)throw r.error;
+  L.circleMarker([e.latlng.lat,e.latlng.lng],{radius:8,color:'#ffffff',weight:2.5,fillColor:'#f59e0b',fillOpacity:.98})
+    .addTo(_addLayer).bindPopup('&#9995; 追加候補：'+(memo||'')).openPopup();
+  toast('追加候補に記録しました（案件候補に保存）',true);
+ }catch(err){toast('記録失敗: '+((err&&err.message)||err),false);}
+});
 </script></body></html>
