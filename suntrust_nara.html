@@ -92,5 +92,19 @@ map.on('click',async function(e){
     (r.data||[]).forEach(function(c){var la=Number(c.latitude),lo=Number(c.longitude);if(isNaN(la)||isNaN(lo))return;if(la<33.85||la>34.9||lo<135.5||lo>136.6)return;addMarker(c.id,la,lo,c.memo||'');});
   }catch(e){}
 })();
-render();try{map.fitBounds(g.getBounds().pad(0.08));}catch(e){}
+(async function boot(){
+  var t=0;while(!(window.__auth&&window.__auth.sb)&&t<120){await new Promise(function(r){setTimeout(r,50);});t++;}
+  var sb=window.__auth&&window.__auth.sb;
+  if(sb){try{
+    var ng={},ngpts=[],frm=0;
+    while(true){var r=await sb.from('farmland_ng_list').select('feature_id,lat,lng').range(frm,frm+999);var d=(r&&r.data)||[];
+      d.forEach(function(x){ng[x.feature_id]=1;if(x.lat&&x.lng)ngpts.push([Number(x.lat),Number(x.lng)]);});
+      if(d.length<1000)break;frm+=1000;}
+    var C=0.0004,grid={};ngpts.forEach(function(p){var k=Math.floor(p[0]/C)+','+Math.floor(p[1]/C);(grid[k]=grid[k]||[]).push(p);});
+    function nearNg(la,lo){var ci=Math.floor(la/C),cj=Math.floor(lo/C);for(var i=ci-1;i<=ci+1;i++)for(var j=cj-1;j<=cj+1;j++){var a=grid[i+','+j];if(!a)continue;for(var k=0;k<a.length;k++){var dy=(la-a[k][0])*111000,dx=(lo-a[k][1])*111000*Math.cos(la*Math.PI/180);if(dx*dx+dy*dy<=225)return true;}}return false;}
+    var before=F.length;F=F.filter(function(f){return !ng[f.fid]&&!nearNg(f.lat,f.lng);});
+    if(before!==F.length)console.log('起動時NG再除外: '+(before-F.length)+'件');
+  }catch(e){console.warn('ng filter',e);}}
+  render();try{map.fitBounds(g.getBounds().pad(0.08));}catch(e){}
+})();
 </script></body></html>
