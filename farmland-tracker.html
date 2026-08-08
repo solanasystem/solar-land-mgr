@@ -740,7 +740,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260808dedup</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260808s1ai</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:flex;align-items:center;gap:6px;margin:0 12px;">
@@ -4400,6 +4400,10 @@ async function _loadUse(n){
     // v20260806c: 太陽光(1筆)には、私が手作業で記録した案件候補(case_candidates)も統合表示する。
     //   滋賀県(高島市=別事業びわこ)のフラグは除外。ng状態(除外/NG)の案件候補も出さない。
     if(n===1){
+      // 太陽光(1筆)の現況OK(ai_ok_labels source=solar1)を読み、AI判定の緑上書き表示に使う
+      if(!window.SOLAR1_OK)window.SOLAR1_OK={};
+      try{ var _s1ok=await db.from('ai_ok_labels').select('member_fids,source').eq('source','solar1');
+        if(_s1ok&&_s1ok.data)_s1ok.data.forEach(function(x){(x.member_fids||[]).forEach(function(f){window.SOLAR1_OK[f]=1;});}); }catch(_s1e){}
       try{
         var ccRes=await db.from('case_candidates').select('id,latitude,longitude,memo,status');
         var ccRows=(ccRes&&ccRes.data)||[];
@@ -4536,9 +4540,39 @@ function _usePopup(c,solar){
   var hd=solar?'<div style="color:#fbbf24;font-weight:700;font-size:13px;margin-bottom:6px">☀ 太陽光候補（1筆・≥800㎡）</div>'
               :'<div style="color:#60a5fa;font-weight:700;font-size:13px;margin-bottom:6px">🔋 低圧蓄電池候補</div>';
   var exBtn='<button onclick="excludeYukyu(&quot;'+_esc(c.feature_id)+'&quot;)" style="margin-top:9px;width:100%;padding:6px 8px;border:1px solid #B71C1C;background:#3a1414;color:#ff8a80;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">🗑 この筆を削除</button>';
+  // 太陽光(1筆)のみ: 学習済みreject AIの判定(①適当/②検討/③不可)＋現況OK上書き＋✅OK正例登録。栗本さん指示の本丸。
+  var _s1badge='', _s1okBtn='';
+  if(solar){
+    var _s1ai=(window.SOLAR1_AI&&window.SOLAR1_AI.items)?window.SOLAR1_AI.items[c.feature_id]:null;
+    if(window.SOLAR1_OK&&window.SOLAR1_OK[c.feature_id]){
+      _s1badge='<div data-s1badge="1" style="margin-top:8px;padding:6px 8px;border-radius:6px;background:#0b2e1a;border:1px solid #22c55e"><span style="color:#22c55e;font-weight:800;font-size:12px">✅ 現況OK（あなたが確認済・AI判定を上書き）</span></div>';
+    } else if(_s1ai&&_s1ai.level){
+      var _sm={'適当':['①','#22c55e','#0b2e1a','✅'],'検討':['②','#f59e0b','#3a2a0b','⚠'],'不可':['③','#ef4444','#3a1414','✖'],'不明':['—','#94a3b8','#1f2937','？']}[_s1ai.level]||['—','#94a3b8','#1f2937','？'];
+      _s1badge='<div data-s1badge="1" style="margin-top:8px;padding:6px 8px;border-radius:6px;background:'+_sm[2]+';border:1px solid '+_sm[1]+'"><span style="color:'+_sm[1]+';font-weight:800;font-size:12px">'+_sm[3]+' AI判定: '+_sm[0]+' '+_s1ai.level+'（低圧太陽光）</span>'+(_s1ai.reject!=null?'<span style="color:#94a3b8;font-size:10px;margin-left:6px">reject '+_s1ai.reject+'</span>':'')+'</div>';
+    }
+    _s1okBtn='<button onclick="registerSolar1OK(&quot;'+_esc(c.feature_id)+'&quot;,'+c.lat+','+c.lng+',this)" style="margin-top:9px;width:100%;padding:6px 8px;border:1px solid #22c55e;background:#0b2e1a;color:#86efac;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">✅ 現況OK（正例に登録）</button>';
+  }
   return '<div style="min-width:200px">'+hd+'<div style="font-size:12px;line-height:1.8"><b>'+_esc(c.city||'—')+'</b><br>面積: '+area+'<br>区域: '+zone+'</div>'
+    +_s1badge
     +'<div style="display:flex;gap:5px;margin-top:9px"><a href="'+gm+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #1a73e8;background:#0b2447;color:#8ab4f8;border-radius:5px;font-size:11px;text-decoration:none">🌐地図</a><a href="'+sv+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:5px;font-size:11px;text-decoration:none">🚶SV</a><a href="'+e3+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:5px;font-size:11px;text-decoration:none">🌍Earth</a></div>'
-    +_promoteBtns(c.lat,c.lng,(solar?'低圧太陽光':'蓄電池'),c.city||'')+exBtn+'</div>';
+    +_promoteBtns(c.lat,c.lng,(solar?'低圧太陽光':'蓄電池'),c.city||'')+_s1okBtn+exBtn+'</div>';
+}
+// 太陽光(1筆)の「✅現況OK」= 目視OKを ai_ok_labels(source=solar1)へ→reject AI再学習の正例に。緑上書き＋永続化。
+async function registerSolar1OK(fid,lat,lng,btn){
+  try{
+    if(btn){btn.disabled=true;btn.textContent='登録中...';}
+    var r=await db.from('ai_ok_labels').insert({cluster_id:null,lat:Number(lat),lng:Number(lng),member_fids:[fid],source:'solar1',memo:'太陽光1筆 現況OK(目視確認)'});
+    if(r&&r.error)throw r.error;
+    if(!window.SOLAR1_OK)window.SOLAR1_OK={};
+    window.SOLAR1_OK[fid]=1;
+    try{ var _bd=document.querySelector('.leaflet-popup-content [data-s1badge]'); if(_bd)_bd.outerHTML='<div data-s1badge="1" style="margin-top:8px;padding:6px 8px;border-radius:6px;background:#0b2e1a;border:1px solid #22c55e"><span style="color:#22c55e;font-weight:800;font-size:12px">✅ 現況OK（あなたが確認済・AI判定を上書き）</span></div>'; }catch(_x){}
+    if(btn){btn.textContent='✅ 登録済み';btn.style.background='#166534';btn.style.color='#dcfce7';btn.disabled=true;}
+    if(typeof showToast==='function')showToast('現況OKに登録（AI判定を緑=適当に上書き）','success');
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent='✅ 現況OK（正例に登録）';}
+    var msg=(e&&e.message)||JSON.stringify(e);
+    if(typeof showToast==='function')showToast('登録失敗: '+msg,'error'); else alert('登録失敗: '+msg);
+  }
 }
 // ======== 別荘地番図オーバーレイ (自作: L.imageOverlay + draggable markers) v20260630b ========
 // びわこ台・びわこの森の地番図画像を衛星地図に重ねる。
@@ -6935,6 +6969,7 @@ window.toggleEdgePanel = function(id){
 <script src="case-candidates-recorder.js?v=20260808modal"></script>
 <script src="nara_revival.js?v=20260808a"></script><!-- 復活(cyan)レイヤーのデータ(file://でも読める) -->
 <script src="gappitsu_ai.js?v=20260808a"></script><!-- 合筆・太陽光候補のreject AI判定(①適当/②検討/③不可) -->
+<script src="solar1_ai.js?v=20260808a"></script><!-- 太陽光(1筆)のreject AI判定(feature_id別・①適当/②検討/③不可) -->
 <script>
   (function waitForMap(){
     if (typeof map !== 'undefined' && map && typeof db !== 'undefined' && db) {
