@@ -740,7 +740,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260808grn</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260808dedup</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:flex;align-items:center;gap:6px;margin:0 12px;">
@@ -3847,6 +3847,10 @@ var NG_NEAR_M=15, NG_CELL=0.0003; var _ngGrid=null;
 function _ngHaversineM(la1,lo1,la2,lo2){var R=6371000,T=Math.PI/180;var dLa=(la2-la1)*T,dLo=(lo2-lo1)*T;var a=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.cos(la1*T)*Math.cos(la2*T)*Math.sin(dLo/2)*Math.sin(dLo/2);return 2*R*Math.asin(Math.sqrt(a));}
 function _buildNgGrid(ngRows){_ngGrid={};(ngRows||[]).forEach(function(d){if(d==null||d.lat==null||d.lng==null)return;var la=Number(d.lat),lo=Number(d.lng);if(isNaN(la)||isNaN(lo))return;var k=Math.floor(la/NG_CELL)+'_'+Math.floor(lo/NG_CELL);(_ngGrid[k]=_ngGrid[k]||[]).push([la,lo]);});}
 function _isNearNg(lat,lng){if(!_ngGrid)return false;var la=Number(lat),lo=Number(lng);if(isNaN(la)||isNaN(lo))return false;var ci=Math.floor(la/NG_CELL),cj=Math.floor(lo/NG_CELL);for(var di=-1;di<=1;di++)for(var dj=-1;dj<=1;dj++){var arr=_ngGrid[(ci+di)+'_'+(cj+dj)];if(!arr)continue;for(var i=0;i<arr.length;i++){if(_ngHaversineM(la,lo,arr[i][0],arr[i][1])<=NG_NEAR_M)return true;}}return false;}
+// 手動⇔機械の二重計上除去用: 手動ピック座標グリッド + 18m近傍判定。栗本さん指示: 同じ土地を2回数えない。
+var MAN_CELL=0.0004, MAN_NEAR_M=18; var _manGrid=null;
+function _buildManGrid(coords){_manGrid={};(coords||[]).forEach(function(p){if(!p)return;var la=Number(p[0]),lo=Number(p[1]);if(isNaN(la)||isNaN(lo))return;var k=Math.floor(la/MAN_CELL)+'_'+Math.floor(lo/MAN_CELL);(_manGrid[k]=_manGrid[k]||[]).push([la,lo]);});}
+function _isNearMan(lat,lng){if(!_manGrid)return false;var la=Number(lat),lo=Number(lng);if(isNaN(la)||isNaN(lo))return false;var ci=Math.floor(la/MAN_CELL),cj=Math.floor(lo/MAN_CELL);for(var di=-1;di<=1;di++)for(var dj=-1;dj<=1;dj++){var arr=_manGrid[(ci+di)+'_'+(cj+dj)];if(!arr)continue;for(var i=0;i<arr.length;i++){if(_ngHaversineM(la,lo,arr[i][0],arr[i][1])<=MAN_NEAR_M)return true;}}return false;}
 function toggleCandidates(){
   var btn=document.getElementById('hzCandidates');
   var lg=document.getElementById('candLegend');
@@ -4348,11 +4352,13 @@ async function _loadUseCounts(){
       return q;
     }
     function cnt(rows){ return (rows||[]).filter(function(s){return s.lat!=null&&s.lng!=null&&!ngSet[s.feature_id]&&!_isNearNg(s.lat,s.lng);}).length; }
-    // ① 太陽光(1筆) = 母集団 + 手動記録(案件候補・非滋賀/非ng/非近傍)
-    var r1=await _fetchAllPaged(function(){return baseQ(1);},'feature_id'); var n1=cnt((r1&&r1.data)||[]);
-    var ccN=0; try{ var cc=await db.from('case_candidates').select('latitude,longitude,memo,status');
+    // ① 太陽光(1筆) = 母集団 + 手動記録。★手動⇔機械の二重計上を除去(手動と18m以内の機械は数えない)。
+    var _mc1=[]; var ccN=0; try{ var cc=await db.from('case_candidates').select('latitude,longitude,memo,status');
       (((cc&&cc.data))||[]).forEach(function(r){ var la=Number(r.latitude),lo=Number(r.longitude); if(isNaN(la)||isNaN(lo))return;
-        if((r.status||'').toLowerCase()==='ng')return; if(/滋賀|高島/.test(r.memo||''))return; if(_isNearNg(la,lo))return; ccN++; }); }catch(_c){}
+        if((r.status||'').toLowerCase()==='ng')return; if(/滋賀|高島/.test(r.memo||''))return; if(_isNearNg(la,lo))return; _mc1.push([la,lo]); ccN++; }); }catch(_c){}
+    _buildManGrid(_mc1);
+    var r1=await _fetchAllPaged(function(){return baseQ(1);},'feature_id');
+    var n1=((r1&&r1.data)||[]).filter(function(s){return s.lat!=null&&s.lng!=null&&!ngSet[s.feature_id]&&!_isNearNg(s.lat,s.lng)&&!_isNearMan(s.lat,s.lng);}).length;
     _setUseCount(1,n1+ccN);
     // ③ 低圧蓄電池（合筆に使った確定筆は除外＝実質の残数）
     var gapF=await _getGappitsuFids();
@@ -4397,14 +4403,20 @@ async function _loadUse(n){
       try{
         var ccRes=await db.from('case_candidates').select('id,latitude,longitude,memo,status');
         var ccRows=(ccRes&&ccRes.data)||[];
+        var _manRecs=[], _manCoords=[];
         ccRows.forEach(function(r){
           var la=Number(r.latitude),lo=Number(r.longitude); if(isNaN(la)||isNaN(lo))return;
           if((r.status||'').toLowerCase()==='ng')return;                 // 除外済みは出さない
           if(/滋賀|高島/.test(r.memo||''))return;                        // 別事業(びわこ)は対象外
           if(_isNearNg(la,lo))return;                                    // 手動NG近傍は除外
-          useCache[1].push({feature_id:'cc_'+r.id, cc_id:r.id, lat:la, lng:lo, area_sqm:null,
+          _manRecs.push({feature_id:'cc_'+r.id, cc_id:r.id, lat:la, lng:lo, area_sqm:null,
             city_planning_zone:null, city:null, memo:r.memo||null, _manual:true});
+          _manCoords.push([la,lo]);
         });
+        // ★二重計上除去: 手動ピックと18m以内の機械候補は落とし、ピンク(手動)を残す
+        _buildManGrid(_manCoords);
+        useCache[1]=useCache[1].filter(function(s){return !_isNearMan(s.lat,s.lng);});
+        _manRecs.forEach(function(m){useCache[1].push(m);});
       }catch(_ccErr){ console.warn('[useLayer] case_candidates統合に失敗',_ccErr); }
     }
     _setUseCount(n,useCache[n].length);   // 読込後は実数(NG近傍除外・手動記録込み)でバッジを更新
