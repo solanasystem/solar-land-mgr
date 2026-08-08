@@ -638,19 +638,38 @@
       ? '<div class="cc-popup-memo-block">' + _escapeHtml(rec.memo) + '</div>'
       : '<div class="cc-popup-memo-block" style="color:var(--text-muted);font-style:italic">(メモなし)</div>';
 
-    var _ll = Number(rec.latitude) + ',' + Number(rec.longitude);
-    return '<div style="font-size:12px;line-height:1.7;min-width:190px;">'
-      + '<b style="color:#fbbf24">\u2600 \u592a\u967d\u5149\u5019\u88dc</b><br>'
-      + (rec.memo ? ('\u30e1\u30e2: ' + _escapeHtml(rec.memo) + '<br>') : '')
-      + '<div style="margin-top:6px;display:flex;gap:6px;">'
-      + '<a href="https://www.google.com/maps?q=' + _ll + '" target="_blank" rel="noopener" '
-      + 'style="flex:1;text-align:center;padding:5px 4px;background:#1a73e8;color:#fff;'
-      + 'border-radius:4px;text-decoration:none;font-size:11px;">\ud83d\uddfa \u5730\u56f3</a>'
-      + '<a href="https://www.google.com/maps?q=&layer=c&cbll=' + _ll + '" target="_blank" rel="noopener" '
-      + 'style="flex:1;text-align:center;padding:5px 4px;background:#34a853;color:#fff;'
-      + 'border-radius:4px;text-decoration:none;font-size:11px;">\ud83d\udcf7 \u30b9\u30c8\u30ea\u30fc\u30c8\u30d3\u30e5\u30fc</a>'
-      + '</div>'
-      + '<button class="cc-popup-btn cc-danger" style="margin-top:6px;width:100%;" onclick="CaseCandidatesRecorder._delete(\'' + rec.id + '\')">\u2716 \u3053\u306e\u7b46\u3092\u9664\u5916</button>'
+    // \u6817\u672c\u3055\u3093\u6307\u793a: \u624b\u52d5\u30d4\u30c3\u30af(\u30d4\u30f3\u30af)\u306e\u30dd\u30c3\u30d7\u30a2\u30c3\u30d7\u3092\u3001\u9752/\u9ec4\u8272(\u6a5f\u68b0\u5019\u88dc)\u3068\u540c\u3058\u30ea\u30c3\u30c1\u30e2\u30fc\u30c0\u30eb\u306b\u7d71\u4e00\u3002
+    //  \u9762\u7a4d\u306f\u30e1\u30e2\u5185\u306e\u300c\u9762\u7a4d\u7d04\u25cb\u25cb\u33a1\u300d\u304b\u3089\u62bd\u51fa\u3001\u5730\u56f3/SV/Earth\u3001\u2605\u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u3078\u767b\u9332(promoteToCase)\u3001\ud83d\uddd1\u524a\u9664\u3092\u914d\u7f6e\u3002
+    var _lat = Number(rec.latitude), _lng = Number(rec.longitude);
+    var _ll = _lat + ',' + _lng;
+    var _memo = rec.memo || '';
+    var _am = _memo.match(/\u9762\u7a4d\u7d04?\s*([0-9,]+)\s*\u33a1/);
+    var _areaHtml = _am ? ('<b>' + _am[1].replace(/,/g,'') + '\u33a1</b>')
+                        : '<span style="color:#94a3b8">\u2014\uff08\u7b46\u672a\u7d10\u4ed8\uff09</span>';
+    var _memoClean = _memo.replace(/\s*\|?\s*\u9762\u7a4d\u7d04?[0-9,]+\u33a1\([^)]*\)/g, '').trim();
+    var _memoHtml = _memoClean ? _escapeHtml(_memoClean)
+                               : '<span style="color:#94a3b8;font-style:italic">(\u30e1\u30e2\u306a\u3057)</span>';
+    var _dstr = '';
+    try { var _d = new Date(rec.created_at);
+      if (!isNaN(_d.getTime())) _dstr = _d.getFullYear()+'/'+String(_d.getMonth()+1).padStart(2,'0')+'/'+String(_d.getDate()).padStart(2,'0');
+    } catch(_) {}
+    var _gm = 'https://www.google.com/maps/search/?api=1&query=' + _ll;
+    var _sv = 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + _ll;
+    var _e3 = 'https://earth.google.com/web/@' + _lat + ',' + _lng + ',150a,300d,35y,0h,55t,0r';
+    var _mapBtns = '<div style="display:flex;gap:5px;margin-top:9px">'
+      + '<a href="'+_gm+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #1a73e8;background:#0b2447;color:#8ab4f8;border-radius:5px;font-size:11px;text-decoration:none">\ud83c\udf10\u5730\u56f3</a>'
+      + '<a href="'+_sv+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:5px;font-size:11px;text-decoration:none">\ud83d\udeb6SV</a>'
+      + '<a href="'+_e3+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:5px;font-size:11px;text-decoration:none">\ud83c\udf0dEarth</a>'
+      + '</div>';
+    var _caseBtn = (typeof window !== 'undefined' && typeof window.promoteToCase === 'function')
+      ? '<button onclick="promoteToCase('+_lat+','+_lng+',&quot;\u4f4e\u5727\u592a\u967d\u5149&quot;,&quot;&quot;,this)" style="margin-top:9px;width:100%;padding:6px 8px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">\u2605 \u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u3078\u767b\u9332</button>'
+      : '';
+    var _delBtn = '<button onclick="CaseCandidatesRecorder._delete(\'' + rec.id + '\')" style="margin-top:9px;width:100%;padding:6px 8px;border:1px solid #B71C1C;background:#3a1414;color:#ff8a80;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">\ud83d\uddd1 \u3053\u306e\u6848\u4ef6\u5019\u88dc\u3092\u524a\u9664</button>';
+    return '<div style="min-width:210px">'
+      + '<div style="color:#ff1493;font-weight:800;font-size:13px;margin-bottom:6px">\u270b \u624b\u52d5\u30d4\u30c3\u30af\uff08\u6848\u4ef6\u5019\u88dc\uff09'
+      + (_dstr?'<span style="font-size:10px;color:#94a3b8;font-weight:400;margin-left:6px">'+_dstr+'</span>':'') + '</div>'
+      + '<div style="font-size:12px;line-height:1.9">\u9762\u7a4d: '+_areaHtml+'<br>\u30e1\u30e2: '+_memoHtml+'</div>'
+      + _mapBtns + _caseBtn + _delBtn
       + '</div>';
   }
 
