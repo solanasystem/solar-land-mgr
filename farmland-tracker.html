@@ -740,7 +740,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260808fix</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260808grn</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:flex;align-items:center;gap:6px;margin:0 12px;">
@@ -4239,6 +4239,12 @@ async function _renderGappitsu(){
       if(_r&&_r.data)_r.data.forEach(function(x){_gapNg[x.feature_id]=1;});
     }
   }catch(_e){}
+  // 登録済みの現況OK(ai_ok_labels)を読み、該当合筆はAI判定を緑(上書き)表示する。栗本さん指示: 登録内容が流れないよう永続化。
+  if(!window.GAPPITSU_OK)window.GAPPITSU_OK={};
+  try{
+    var _okr=await db.from('ai_ok_labels').select('cluster_id');
+    if(_okr&&_okr.data)_okr.data.forEach(function(x){window.GAPPITSU_OK[String(x.cluster_id)]=1;});
+  }catch(_e3){}
   var _shown=0;
   gappitsuCache.forEach(function(c){
     if((c.mem||[]).some(function(m){return m&&m[3]&&_gapNg[m[3]];}))return; // 削除済みは非表示
@@ -4255,9 +4261,11 @@ async function _renderGappitsu(){
     // 学習済みreject AIの判定(gappitsu_ai.js)を合筆モーダルに表示。①適当/②検討/③不可（低圧太陽光）
     var _ai=(window.GAPPITSU_AI&&window.GAPPITSU_AI.items)?window.GAPPITSU_AI.items[String(c.id)]:null;
     var _aiHtml='';
-    if(_ai&&_ai.level){
+    if(window.GAPPITSU_OK&&window.GAPPITSU_OK[String(c.id)]){   // 登録済み現況OK=緑でAI判定を上書き
+      _aiHtml='<div data-gapbadge="1" style="margin-top:8px;padding:6px 8px;border-radius:6px;background:#0b2e1a;border:1px solid #22c55e"><span style="color:#22c55e;font-weight:800;font-size:12px">✅ 現況OK（あなたが確認済・AI判定を上書き）</span></div>';
+    } else if(_ai&&_ai.level){
       var _am={'適当':['①','#22c55e','#0b2e1a','✅'],'検討':['②','#f59e0b','#3a2a0b','⚠'],'不可':['③','#ef4444','#3a1414','✖'],'不明':['—','#94a3b8','#1f2937','？']}[_ai.level]||['—','#94a3b8','#1f2937','？'];
-      _aiHtml='<div style="margin-top:8px;padding:6px 8px;border-radius:6px;background:'+_am[2]+';border:1px solid '+_am[1]+'"><span style="color:'+_am[1]+';font-weight:800;font-size:12px">'+_am[3]+' AI判定: '+_am[0]+' '+_ai.level+'（低圧太陽光）</span>'+(_ai.reject!=null?'<span style="color:#94a3b8;font-size:10px;margin-left:6px">reject '+_ai.reject+'（構成筆'+_ai.n+'筆平均）</span>':'')+'</div>';
+      _aiHtml='<div data-gapbadge="1" style="margin-top:8px;padding:6px 8px;border-radius:6px;background:'+_am[2]+';border:1px solid '+_am[1]+'"><span style="color:'+_am[1]+';font-weight:800;font-size:12px">'+_am[3]+' AI判定: '+_am[0]+' '+_ai.level+'（低圧太陽光）</span>'+(_ai.reject!=null?'<span style="color:#94a3b8;font-size:10px;margin-left:6px">reject '+_ai.reject+'（構成筆'+_ai.n+'筆平均）</span>':'')+'</div>';
     }
     var pop='<div style="min-width:210px;font-size:12px;line-height:1.7"><div style="color:#fbbf24;font-weight:700;font-size:13px;margin-bottom:6px">🔗 合筆・低圧太陽光候補'+(c.n===2?'（★理想・2筆）':'（3筆）')+'</div>'
       +'<b>'+_esc(c.city||'—')+'</b><br>筆数: <b>'+c.n+'筆</b> を合筆<br>合計: <b>'+c.total+'㎡</b>（本命帯）<br>'
@@ -4305,8 +4313,11 @@ async function registerGappitsuOK(cid,lat,lng,btn){
     }
     var r=await db.from('ai_ok_labels').insert({cluster_id:String(cid),lat:Number(lat),lng:Number(lng),member_fids:fids,source:'gappitsu',memo:'現況OK(目視確認)'});
     if(r&&r.error)throw r.error;
+    if(!window.GAPPITSU_OK)window.GAPPITSU_OK={};
+    window.GAPPITSU_OK[String(cid)]=1;   // 永続化: 再表示・再読込でも緑のまま
+    try{ var _bd=document.querySelector('.leaflet-popup-content [data-gapbadge]'); if(_bd)_bd.outerHTML='<div data-gapbadge="1" style="margin-top:8px;padding:6px 8px;border-radius:6px;background:#0b2e1a;border:1px solid #22c55e"><span style="color:#22c55e;font-weight:800;font-size:12px">✅ 現況OK（あなたが確認済・AI判定を上書き）</span></div>'; }catch(_x){}
     if(btn){btn.textContent='✅ 登録済み';btn.style.background='#166534';btn.style.color='#dcfce7';btn.disabled=true;}
-    if(typeof showToast==='function')showToast('現況OKを正例に登録しました（次回のAI学習に反映）','success');
+    if(typeof showToast==='function')showToast('現況OKに登録（AI判定を緑=適当に上書き）','success');
   }catch(e){
     if(btn){btn.disabled=false;btn.textContent='✅ 現況OK（正例に登録）';}
     var msg=(e&&e.message)||JSON.stringify(e);
