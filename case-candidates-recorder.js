@@ -595,15 +595,15 @@
     // v20260702m3: divIcon(涙滴形+rotate)は位置ズレの原因になるため廃止。
     // Leaflet標準の L.circleMarker で確実に緯度経度=中心に描画。
     const statusColors = {
-      new:      '#f59e0b',   // 太陽光色(ゴールド) ＝公式放棄地の太陽光候補と統一
+      new:      '#ff1493',   // 栗本さん指示: 手動ピックを他の筆と紛れない明確なピンクに(deeppink)
       reviewed: '#fbbf24',
       adopted:  '#3fb950',
       ng:       '#6e7681'
     };
-    const fillColor = statusColors[status] || '#f59e0b';
+    const fillColor = statusColors[status] || '#ff1493';
     const marker = L.circleMarker([lat, lng], {
       pane: 'candidatePane',
-      radius: 5,             // v20260702m4: 9→5 (見た目サイズを1/2に)
+      radius: 7,             // 栗本さん指示: 紛れないよう少し大きく(5→7)
       fillColor: fillColor,
       color: '#ffffff',
       weight: 1.5,           // v20260702m4: 2.5→1.5
