@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<!-- BUILD: delivery-geocode v20260810a / 納品案件の地番・面積を「AMX登記所備付地図(MojMap)PMTiles」で点内包判定して正しく取り直すシステムツール。最近傍マッチ禁止=内包筆の地番+ポリゴン実面積。自社ページ非依存の新規ファイル。 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>納品 地番・面積 是正（AMX登記内包判定）// GRID LAND MGR</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://unpkg.com/pbf@3.2.1/dist/pbf.js"></script>
+<script src="https://unpkg.com/@mapbox/vector-tile@1.3.1/dist/vectortile.js"></script>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+<script type="module">
+  import * as pmtilesModule from 'https://esm.sh/pmtiles@3.0.6';
+  window.__PMT = new pmtilesModule.PMTiles('https://data.source.coop/smartmaps/amx-2024-04/MojMap_amx_2024.pmtiles');
+  window.__PMT_READY = true;
+</script>
+<style>
+  body{background:#0a1020;color:#e8eefc;font-family:'Segoe UI','Meiryo',sans-serif;margin:0;padding:22px;}
+  h1{font-size:19px;} .sub{color:#8fa0c4;font-size:13px;margin:6px 0 16px;}
+  button{padding:11px 20px;border-radius:8px;border:2px solid #f59e0b;background:#3a2a0b;color:#fcd34d;font-size:15px;font-weight:800;cursor:pointer;}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  .stat{margin:14px 0;font-family:monospace;font-size:14px;color:#7ef0b6;}
+  .bar{height:10px;background:#16233f;border-radius:6px;overflow:hidden;margin:8px 0;}
+  .bar>div{height:100%;background:#34d399;width:0;}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:14px;}
+  th,td{border-bottom:1px solid #26375c;padding:5px 8px;text-align:left;white-space:nowrap;}
+  th{color:#8fa0c4;position:sticky;top:0;background:#0d1730;}
+  .chg{color:#fcd34d;} .ok{color:#7ef0b6;} .bad{color:#f87171;}
+  #log{max-height:52vh;overflow:auto;border:1px solid #26375c;border-radius:8px;margin-top:12px;}
+</style>
+</head>
+<body>
+<h1>🗺 納品 地番・面積 是正（AMX登記所備付地図の内包判定）</h1>
+<div class="sub">各納品案件の座標を <b>法務省登記所備付地図（MojMap AMX）</b> の筆ポリゴンに<b>点内包判定</b>し、その筆の<b>地番</b>と<b>ポリゴン実面積</b>を取り直します。最近傍マッチは使いません。出典: AMX Project / 法務省登記所備付地図XML。</div>
+<button id="run" disabled>読み込み中…</button>
+<label style="margin-left:14px;font-size:13px;color:#8fa0c4"><input type="checkbox" id="writeBack" checked> DBに書き戻す（chiban/area_m2/address）</label>
+<div class="stat" id="stat">—</div>
+<div class="bar"><div id="prog"></div></div>
+<div id="log"><table><thead><tr><th>#</th><th>市</th><th>旧地番</th><th>→新地番(登記)</th><th>旧面積</th><th>→新面積㎡</th><th>状態</th></tr></thead><tbody id="tb"></tbody></table></div>
+
+<script>
+var SB_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
+var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+var db=supabase.createClient(SB_URL,SB_KEY);
+var CID='ddb6c757-d0fd-47d7-99fb-14f34550a946';
+function ready(){ return window.__PMT_READY && window.Pbf && window.VectorTile && window.turf; }
+var t=setInterval(function(){ if(ready()){ clearInterval(t); var b=document.getElementById('run'); b.disabled=false; b.textContent='▶ AMX登記で全件 地番・面積を取り直す'; } },300);
+
+function pip(x,y,rings){ var inside=false;
+  for(var r=0;r<rings.length;r++){ var ring=rings[r];
+    for(var i=0,j=ring.length-1;i<ring.length;j=i++){
+      var xi=ring[i].x,yi=ring[i].y,xj=ring[j].x,yj=ring[j].y;
+      if(((yi>y)!=(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi))inside=!inside; } }
+  return inside; }
+function ringToLL(ring,z,tx,ty,extent){ var n=Math.pow(2,z),out=[];
+  for(var i=0;i<ring.length;i++){ var lng=(tx+ring[i].x/extent)/n*360-180;
+    var ny=(ty+ring[i].y/extent)/n; var lat=Math.atan(Math.sinh(Math.PI*(1-2*ny)))*180/Math.PI; out.push([lng,lat]); }
+  if(out.length&&(out[0][0]!==out[out.length-1][0]||out[0][1]!==out[out.length-1][1]))out.push(out[0]);
+  return out; }
+async function amxAt(lat,lng){
+  var z=16,n=Math.pow(2,z),latR=lat*Math.PI/180;
+  var tx=Math.floor((lng+180)/360*n), ty=Math.floor((1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*n);
+  var resp=await window.__PMT.getZxy(z,tx,ty); if(!resp)return null;
+  var tile=new window.VectorTile(new window.Pbf(resp.data)); var names=Object.keys(tile.layers); if(!names.length)return null;
+  var layer=tile.layers[names[0]], extent=layer.extent;
+  var px=((lng+180)/360*n*extent)-tx*extent;
+  var py=((1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*n*extent)-ty*extent;
+  for(var i=0;i<layer.length;i++){ var f=layer.feature(i); if(f.type!==3)continue;
+    var geom=f.loadGeometry();
+    if(pip(px,py,geom)){ var pr=f.properties||{};
+      var rawArea=pr['地番区域']||''; var parts=rawArea.split('_');
+      var area=0; try{ var poly=[]; for(var g=0;g<geom.length;g++)poly.push(ringToLL(geom[g],z,tx,ty,extent));
+        area=window.turf.area(window.turf.polygon(poly)); }catch(e){ area=0; }
+      return { city:(parts[0]||'').trim(), oaza:(parts[1]||'').trim(), koaza:(parts[2]||'').trim(), chome:(parts[3]||'').trim(),
+               chiban:String(pr['地番']||'').trim(), area:area }; } }
+  return null;
+}
+document.getElementById('run').onclick=async function(){
+  var btn=this; btn.disabled=true; var tb=document.getElementById('tb'); tb.innerHTML='';
+  var wb=document.getElementById('writeBack').checked;
+  var rows=[]; var frm=0;
+  while(true){ var r=await db.from('client_delivery_items').select('id,pref,city,chiban,area_m2,address,lat,lng').eq('client_id',CID).eq('status','confirmed').range(frm,frm+999);
+    var d=(r&&r.data)||[]; rows=rows.concat(d); if(d.length<1000)break; frm+=1000; }
+  var N=rows.length, hit=0, miss=0, changedTi=0, changedAr=0;
+  for(var i=0;i<N;i++){ var row=rows[i];
+    var res=null; try{ res=await amxAt(Number(row.lat),Number(row.lng)); }catch(e){}
+    var tr=document.createElement('tr'); var st='';
+    if(res&&res.chiban){ hit++;
+      var newAddr=(row.pref||'')+(res.city||'')+(res.oaza||'')+(res.koaza||'')+(res.chome||'')+res.chiban;
+      var body={chiban:res.chiban, address:newAddr};
+      if(res.area&&res.area>0)body.area_m2=Math.round(res.area);
+      if(String(row.chiban||'')!==res.chiban)changedTi++;
+      if(res.area>0 && Math.abs((Number(row.area_m2)||0)-res.area)>5)changedAr++;
+      st='<span class="ok">登記一致</span>';
+      if(wb){ try{ await db.from('client_delivery_items').update(body).eq('id',row.id); }catch(e){ st='<span class="bad">書込失敗</span>'; } }
+      tr.innerHTML='<td>'+(i+1)+'</td><td>'+(res.city||'')+'</td><td>'+(row.chiban||'—')+'</td><td class="chg">'+res.chiban+'</td><td>'+(row.area_m2||'—')+'</td><td class="chg">'+(res.area>0?Math.round(res.area):'—')+'</td><td>'+st+'</td>';
+    } else { miss++; st='<span class="bad">登記筆なし</span>';
+      tr.innerHTML='<td>'+(i+1)+'</td><td>'+(row.city||'')+'</td><td>'+(row.chiban||'—')+'</td><td>—</td><td>'+(row.area_m2||'—')+'</td><td>—</td><td>'+st+'</td>'; }
+    tb.appendChild(tr);
+    document.getElementById('prog').style.width=Math.round((i+1)/N*100)+'%';
+    document.getElementById('stat').textContent='処理 '+(i+1)+'/'+N+'  登記一致 '+hit+' / 筆なし '+miss+'  地番変更 '+changedTi+' / 面積変更 '+changedAr;
+    if(i%5===0)document.getElementById('log').scrollTop=document.getElementById('log').scrollHeight;
+  }
+  document.getElementById('stat').textContent='完了: '+N+'件中 登記一致 '+hit+' / 筆なし '+miss+'  地番変更 '+changedTi+' / 面積変更 '+changedAr+(wb?'（DB書戻し済）':'（プレビューのみ）');
+  btn.disabled=false;
+};
+</script>
+</body>
+</html>
