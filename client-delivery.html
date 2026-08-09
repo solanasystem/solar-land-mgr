@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<!-- BUILD: client-delivery v20260810a / クライアントが確定納品データを「項目選択してExcel掃き出し」。掃き出しログ+改ざんハッシュ記録(削除禁止トリガ下=消えない) -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>納品データ掃き出し // GRID LAND MGR</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  :root{--void:#050b1a;--panel:#0d1730;--panel2:#12203f;--line:#26375c;--plasma:#00d4ff;--gold:#f59e0b;--mint:#34d399;--text:#eaf0ff;--muted:#8698bd;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--void);color:var(--text);font-family:var(--jp);min-height:100vh;}
+  .top{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#081124,#050b1a);}
+  .brand{font-family:var(--mono);font-weight:700;letter-spacing:0.1em;font-size:15px;}
+  .brand b{color:var(--plasma);}
+  .cchip{display:flex;gap:8px;align-items:center;padding:6px 12px;border:1px solid var(--gold);border-radius:5px;color:var(--gold);font-size:13px;font-weight:700;}
+  .cchip small{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:0.2em;}
+  a.back{color:var(--plasma);text-decoration:none;font-size:13px;border:1px solid var(--line);padding:6px 12px;border-radius:5px;}
+  main{max-width:1200px;margin:0 auto;padding:26px 24px 60px;}
+  h1{font-size:22px;font-weight:900;letter-spacing:0.04em;}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-top:18px;}
+  .card h2{font-size:15px;color:var(--plasma);margin-bottom:12px;letter-spacing:0.05em;}
+  .cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;}
+  .col{display:flex;align-items:center;gap:8px;padding:9px 11px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;cursor:pointer;font-size:13px;user-select:none;}
+  .col input{width:16px;height:16px;accent-color:var(--gold);}
+  .col.on{border-color:var(--gold);background:rgba(245,158,11,0.08);}
+  .btnrow{display:flex;gap:12px;align-items:center;margin-top:16px;flex-wrap:wrap;}
+  .btn{padding:12px 22px;border-radius:8px;border:2px solid var(--mint);background:#06331f;color:#7ef0b6;font-size:15px;font-weight:900;cursor:pointer;}
+  .btn:disabled{opacity:0.5;cursor:not-allowed;}
+  .cnt{font-family:var(--mono);color:var(--gold);font-size:14px;}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px;}
+  th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;white-space:nowrap;}
+  th{background:var(--panel2);color:var(--muted);font-weight:700;position:sticky;top:0;}
+  .tblwrap{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px;}
+  .hist td, .hist th{font-family:var(--mono);font-size:11px;}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0d2a1a;border:1px solid var(--mint);color:#a7f3d0;padding:12px 20px;border-radius:8px;font-weight:700;display:none;z-index:50;}
+  .muted{color:var(--muted);font-size:12px;}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="brand">GRID LAND <b>MGR</b> // 納品データ掃き出し</div>
+  <div style="display:flex;gap:12px;align-items:center;">
+    <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
+    <a class="back" href="client-select.html">⇄ クライアント切替</a>
+    <a class="back" href="mode-select.html">⬢ MODE</a>
+  </div>
+</div>
+
+<main>
+  <h1>📊 納品データ Excel掃き出し</h1>
+  <div class="sub">このシステムに保存された「確定納品」から、<b>必要な項目を選んでExcelに掃き出し</b>ます。掃き出すたびに履歴（消えないログ）が残ります。</div>
+
+  <div class="card">
+    <h2>1. 掃き出す項目を選択</h2>
+    <div class="cols" id="cols"></div>
+  </div>
+
+  <div class="card">
+    <h2>2. プレビュー（<span id="rowcnt" class="cnt">—</span>）</h2>
+    <div class="tblwrap"><table id="preview"></table></div>
+    <div class="btnrow">
+      <button class="btn" id="expBtn" onclick="doExport()">📊 Excelで掃き出し（選択項目）</button>
+      <span class="muted" id="expNote"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3. 掃き出し履歴（削除不可・消えないログ）</h2>
+    <div class="tblwrap"><table class="hist" id="hist"><thead><tr><th>日時</th><th>件数</th><th>ファイル名</th><th>項目</th><th>ハッシュ(先頭)</th><th>実行者</th></tr></thead><tbody id="histBody"><tr><td colspan="6" class="muted">読込中…</td></tr></tbody></table></div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+var SB_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
+var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+var db=supabase.createClient(SB_URL,SB_KEY);
+var CLIENT_NAME=localStorage.getItem('glm_client_name')||'株式会社SUNトラスト';
+document.getElementById('cname').textContent=CLIENT_NAME;
+
+var COLS=[
+ {k:'pref',label:'県',def:true},{k:'city',label:'市',def:true},{k:'town',label:'町/大字',def:true},
+ {k:'chiban',label:'地番',def:true},{k:'area_m2',label:'面積(㎡)',def:true},{k:'chimoku',label:'地目',def:true},
+ {k:'zone',label:'区域',def:true},{k:'address',label:'住所',def:true},
+ {k:'__gmap',label:'地図リンク',def:true},
+ {k:'lat',label:'緯度',def:false},{k:'lng',label:'経度',def:false},
+ {k:'source',label:'取得種別',def:false},{k:'ai_note',label:'AI判定',def:false},{k:'status',label:'状態',def:false}
+];
+var ROWS=[], CID=null;
+
+function toast(m){var t=document.getElementById('toast');t.textContent=m;t.style.display='block';setTimeout(function(){t.style.display='none';},3000);}
+function selected(){return COLS.filter(function(c){return document.getElementById('ck_'+c.k).checked;});}
+function cellVal(r,c){ if(c.k==='__gmap'){ return (r.lat!=null&&r.lng!=null)?('https://www.google.com/maps?q='+r.lat+','+r.lng):''; } var v=r[c.k]; return (v==null)?'':v; }
+
+function renderCols(){
+  var box=document.getElementById('cols');box.innerHTML='';
+  COLS.forEach(function(c){
+    var el=document.createElement('label');el.className='col'+(c.def?' on':'');
+    el.innerHTML='<input type="checkbox" id="ck_'+c.k+'" '+(c.def?'checked':'')+'> '+c.label;
+    el.querySelector('input').addEventListener('change',function(){el.classList.toggle('on',this.checked);renderPreview();});
+    box.appendChild(el);
+  });
+}
+function renderPreview(){
+  var cols=selected();var t=document.getElementById('preview');
+  var head='<thead><tr>'+cols.map(function(c){return '<th>'+c.label+'</th>';}).join('')+'</tr></thead>';
+  var body='<tbody>'+ROWS.slice(0,30).map(function(r){return '<tr>'+cols.map(function(c){var v=cellVal(r,c);if(c.k==='__gmap'&&v)v='(地図)';return '<td>'+String(v).slice(0,40)+'</td>';}).join('')+'</tr>';}).join('')+'</tbody>';
+  t.innerHTML=head+body;
+  document.getElementById('rowcnt').textContent=ROWS.length+'件（プレビューは先頭30件）';
+  document.getElementById('expBtn').disabled=(ROWS.length===0||cols.length===0);
+}
+async function sha256(str){var buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));return Array.from(new Uint8Array(buf)).map(function(b){return b.toString(16).padStart(2,'0');}).join('');}
+
+async function doExport(){
+  var cols=selected();if(!cols.length||!ROWS.length)return;
+  document.getElementById('expBtn').disabled=true;
+  try{
+    var data=ROWS.map(function(r){var o={};cols.forEach(function(c){o[c.label]=cellVal(r,c);});return o;});
+    var hash=await sha256(JSON.stringify(data));
+    var d=new Date();var pad=function(n){return String(n).padStart(2,'0');};
+    var stamp=d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'_'+pad(d.getHours())+pad(d.getMinutes());
+    var fname=(CLIENT_NAME.replace(/[株式会社\s]/g,''))+'_納品_'+stamp+'.xlsx';
+    // Excel生成
+    var ws=XLSX.utils.json_to_sheet(data);var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'納品');
+    XLSX.writeFile(wb,fname);
+    // 掃き出しログ記録(消えない)
+    var op=(localStorage.getItem('glm_user')||'client');
+    var ins=await db.from('client_export_log').insert({client_id:CID,export_type:'excel',row_count:data.length,file_name:fname,snapshot:data,content_hash:hash,exported_by:op});
+    if(ins&&ins.error)toast('Excelは出力しましたが履歴記録に失敗: '+ins.error.message);
+    else toast('掃き出し完了：'+data.length+'件・履歴に記録しました');
+    loadHist();
+  }catch(e){toast('掃き出し失敗: '+((e&&e.message)||e));}
+  document.getElementById('expBtn').disabled=false;
+}
+
+async function loadHist(){
+  try{
+    var r=await db.from('client_export_log').select('exported_at,row_count,file_name,content_hash,exported_by,snapshot').order('exported_at',{ascending:false}).limit(50);
+    var rows=(r&&r.data)||[];
+    if(CID)rows=rows.filter(function(x){return true;}); // client_idはRLS上全件見えるが表示は全履歴(社内)
+    var tb=document.getElementById('histBody');
+    if(!rows.length){tb.innerHTML='<tr><td colspan="6" class="muted">まだ掃き出し履歴はありません</td></tr>';return;}
+    tb.innerHTML=rows.map(function(x){
+      var cols=(x.snapshot&&x.snapshot[0])?Object.keys(x.snapshot[0]).length:'—';
+      var dt=(x.exported_at||'').replace('T',' ').slice(0,16);
+      return '<tr><td>'+dt+'</td><td>'+x.row_count+'</td><td>'+(x.file_name||'')+'</td><td>'+cols+'項目</td><td>'+String(x.content_hash||'').slice(0,10)+'…</td><td>'+(x.exported_by||'')+'</td></tr>';
+    }).join('');
+  }catch(e){document.getElementById('histBody').innerHTML='<tr><td colspan="6" class="muted">履歴読込エラー</td></tr>';}
+}
+
+async function init(){
+  renderCols();
+  // クライアント特定(名前一致)
+  try{
+    var c=await db.from('clients').select('id,name').ilike('name','%'+CLIENT_NAME.replace('株式会社','')+'%').limit(1);
+    if(c&&c.data&&c.data.length)CID=c.data[0].id;
+  }catch(e){}
+  // 確定納品を取得
+  try{
+    var q=db.from('client_delivery_items').select('pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng,source,ai_note,status').eq('status','confirmed').order('pref',{ascending:true});
+    if(CID)q=q.eq('client_id',CID);
+    var r=await q;
+    ROWS=(r&&r.data)||[];
+  }catch(e){ROWS=[];}
+  renderPreview();
+  loadHist();
+}
+init();
+</script>
+</body>
+</html>
