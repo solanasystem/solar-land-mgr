@@ -740,7 +740,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260809mie4</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260809mie5</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:flex;align-items:center;gap:6px;margin:0 12px;">
@@ -7160,9 +7160,12 @@ window.toggleEdgePanel = function(id){
       var r=await db.from('ai_ok_labels').insert({cluster_id:null,lat:Number(lat),lng:Number(lng),member_fids:[fid],source:'mie_ok',memo:'三重・白地太陽光 現況OK(目視確認)'});
       if(r&&r.error)throw r.error;
       if(!window.MIE_OK)window.MIE_OK={}; window.MIE_OK[fid]=1;
-      try{ var _bd=document.querySelector('.leaflet-popup-content [data-mieok]'); }catch(_x){}
+      // 押した瞬間に地図ピンを「✅現況OK=明るい緑・大」へ即変化(再読込後も_mieRenderが維持)
+      try{ var mk=window._mieMarkers&&window._mieMarkers[fid]; if(mk){ mk.setStyle({color:'#065f46',fillColor:'#34d399',weight:3,fillOpacity:1}); if(mk.setRadius)mk.setRadius(10); mk.bringToFront&&mk.bringToFront(); } }catch(_m){}
+      // ポップアップ内AI判定バッジも緑上書き
+      try{ var _ab=document.querySelector('.leaflet-popup-content [data-mieaibadge]'); if(_ab)_ab.outerHTML='<div data-mieaibadge="1" style="margin-top:6px;padding:5px 8px;border-radius:6px;background:#0b2e1a;border:1px solid #22c55e"><span style="color:#22c55e;font-weight:800;font-size:11px">✅ 現況OK（あなたが確認済・AI判定を上書き）</span></div>'; }catch(_b){}
       if(btn){btn.outerHTML='<div data-mieok="1" style="margin-top:9px;padding:6px 8px;border-radius:6px;background:#0b2e1a;border:1px solid #22c55e"><span style="color:#22c55e;font-weight:800;font-size:12px">✅ 現況OK（あなたが確認済・AI判定を上書き）</span></div>'; }
-      if(typeof showToast==='function')showToast('現況OKに登録（AI再学習の正例）','success');
+      if(typeof showToast==='function')showToast('現況OKに登録（緑=適当に上書き・AI再学習の正例）','success');
     }catch(e){ if(btn){btn.disabled=false;btn.textContent='✅ 現況OK（正例に登録）';} var m=(e&&e.message)||JSON.stringify(e); if(typeof showToast==='function')showToast('登録失敗: '+m,'error'); else alert('登録失敗: '+m); }
   };
   // 🗑削除: AI判定に同意し除外。farmland_ng_list へ登録＋地図から即除去(負例=reject AIが学習)。
@@ -7203,18 +7206,22 @@ window.toggleEdgePanel = function(id){
     var honmei=0,shown=0;
     (data.items||[]).forEach(function(it){
       if(it.lat==null||it.lng==null)return;
-      if(it.level==='不可')return; // 不可(9364筆)は多量のため非表示
+      if(it.level==='不可'&&!(window.MIE_OK&&window.MIE_OK[it.fid]))return; // 不可(9364筆)は非表示。ただし現況OK済みは表示
       if(window.MIE_NG&&window.MIE_NG[it.fid])return; // 🗑削除済みは非表示
+      var okFlag=!!(window.MIE_OK&&window.MIE_OK[it.fid]);  // ✅現況OK済み(あなたが目視で上書き)
       var cleanFlag=!!it.clean;                          // ①③④⑤完全通過
       var tekitou=(it.level==='適当');
-      if(cleanFlag&&tekitou)honmei++;                    // 納品候補=完全クリア適当
+      if((cleanFlag&&tekitou)||okFlag)honmei++;          // 納品候補=完全クリア適当 or 現況OK
       var col,fill,rad,wt,op;
-      if(cleanFlag&&tekitou){col='#047857';fill='#10b981';rad=9;wt=3;op=0.97;}   // ★完全クリア適当=納品本命
+      if(okFlag){col='#065f46';fill='#34d399';rad=10;wt=3;op=1;}                  // ✅現況OK=最優先・明るい緑・最大
+      else if(cleanFlag&&tekitou){col='#047857';fill='#10b981';rad=9;wt=3;op=0.97;}// ★完全クリア適当=納品本命
       else if(tekitou){col='#b45309';fill='#f59e0b';rad=6;wt=2;op=0.80;}          // 適当だが①〜⑤で減点/調整
       else {col='#a16207';fill='#eab308';rad=3;wt=1;op=0.40;}                     // 検討
       var m=L.circleMarker([it.lat,it.lng],{renderer:mieRenderer,radius:rad,color:col,weight:wt,fillColor:fill,fillOpacity:op});
       var lvMap={'適当':['#22c55e','✅'],'検討':['#f59e0b','⚠'],'不可':['#ef4444','✖']}[it.level]||['#94a3b8','?'];
-      var aibadge='<div style="margin-top:6px;padding:5px 8px;border-radius:6px;background:#1f2937;border:1px solid '+lvMap[0]+'"><span style="color:'+lvMap[0]+';font-weight:800;font-size:11px">'+lvMap[1]+' AI判定:'+it.level+(it.reject!=null?'（reject '+it.reject+'）':'')+'</span></div>';
+      var aibadge=okFlag
+        ?'<div data-mieaibadge="1" style="margin-top:6px;padding:5px 8px;border-radius:6px;background:#0b2e1a;border:1px solid #22c55e"><span style="color:#22c55e;font-weight:800;font-size:11px">✅ 現況OK（あなたが確認済・AI判定を上書き）</span></div>'
+        :'<div data-mieaibadge="1" style="margin-top:6px;padding:5px 8px;border-radius:6px;background:#1f2937;border:1px solid '+lvMap[0]+'"><span style="color:'+lvMap[0]+';font-weight:800;font-size:11px">'+lvMap[1]+' AI判定:'+it.level+(it.reject!=null?'（reject '+it.reject+'）':'')+'</span></div>';
       // ①③④⑤ ステータス行
       function chip(lb,v,okset){var c=(okset.indexOf(v)>=0)?'#22c55e':(v==null?'#64748b':'#f87171');return '<span style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:4px;background:#111827;border:1px solid '+c+';color:'+c+';font-size:10px">'+lb+':'+(v||'-')+'</span>';}
       var stat5='<div style="margin-top:6px">'+chip('①ハザ',it.haz,['CLEAR'])+chip('③接道',it.infra,['PASS','PENDING'])+chip('④連系',it.grid,['pass'])+chip('⑤日照',it.shade,['PASS','PENDING'])+'</div>';
