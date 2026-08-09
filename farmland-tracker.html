@@ -740,7 +740,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260809mie</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260809mie2</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:flex;align-items:center;gap:6px;margin:0 12px;">
@@ -7011,7 +7011,7 @@ window.toggleEdgePanel = function(id){
 <script src="gappitsu_ai.js?v=20260808a"></script><!-- 合筆・太陽光候補のreject AI判定(①適当/②検討/③不可) -->
 <script src="solar1_ai.js?v=20260808a"></script><!-- 太陽光(1筆)のreject AI判定(feature_id別・①適当/②検討/③不可) -->
 <script src="battery_gappitsu.js?v=20260809a"></script><!-- 蓄電池→合筆→太陽光 候補(424クラスタ・納品/ピンク重複除外済) -->
-<script src="mie_candidates.js?v=20260809a"></script><!-- 三重(松阪/玉城/津/多気/明和/度会/大台等)白地≥800にreject AI採点。window.MIE_CAND -->
+<script src="mie_candidates.js?v=20260809b"></script><!-- 三重 白地≥800にreject AI採点＋①③④⑤ステータス強化。完全クリア適当80筆=納品候補。window.MIE_CAND -->
 <script>
   (function waitForMap(){
     if (typeof map !== 'undefined' && map && typeof db !== 'undefined' && db) {
@@ -7172,33 +7172,39 @@ window.toggleEdgePanel = function(id){
     (data.items||[]).forEach(function(it){
       if(it.lat==null||it.lng==null)return;
       if(it.level==='不可')return; // 不可(9364筆)は多量のため非表示
-      var honmeiFlag=(it.level==='適当'&&!it.chosei);
-      if(honmeiFlag)honmei++;
-      var col,fill,rad,wt;
-      if(honmeiFlag){col='#059669';fill='#10b981';rad=8;wt=2;}
-      else if(it.level==='適当'){col='#b45309';fill='#f59e0b';rad=6;wt=2;} // 適当だが市街化調整
-      else {col='#a16207';fill='#eab308';rad=3;wt=1;} // 検討
-      var m=L.circleMarker([it.lat,it.lng],{renderer:mieRenderer,pane:'candPane',radius:rad,color:col,weight:wt,fillColor:fill,fillOpacity:honmeiFlag?0.95:(it.level==='適当'?0.85:0.45)});
+      var cleanFlag=!!it.clean;                          // ①③④⑤完全通過
+      var tekitou=(it.level==='適当');
+      if(cleanFlag&&tekitou)honmei++;                    // 納品候補=完全クリア適当
+      var col,fill,rad,wt,op;
+      if(cleanFlag&&tekitou){col='#047857';fill='#10b981';rad=9;wt=3;op=0.97;}   // ★完全クリア適当=納品本命
+      else if(tekitou){col='#b45309';fill='#f59e0b';rad=6;wt=2;op=0.80;}          // 適当だが①〜⑤で減点/調整
+      else {col='#a16207';fill='#eab308';rad=3;wt=1;op=0.40;}                     // 検討
+      var m=L.circleMarker([it.lat,it.lng],{renderer:mieRenderer,pane:'candPane',radius:rad,color:col,weight:wt,fillColor:fill,fillOpacity:op});
       var lvMap={'適当':['#22c55e','✅'],'検討':['#f59e0b','⚠'],'不可':['#ef4444','✖']}[it.level]||['#94a3b8','?'];
       var aibadge='<div style="margin-top:6px;padding:5px 8px;border-radius:6px;background:#1f2937;border:1px solid '+lvMap[0]+'"><span style="color:'+lvMap[0]+';font-weight:800;font-size:11px">'+lvMap[1]+' AI判定:'+it.level+(it.reject!=null?'（reject '+it.reject+'）':'')+'</span></div>';
-      var zone=(it.toshi||'—')+(it.chosei?' <span style="color:#f87171">⚠市街化調整</span>':'');
+      // ①③④⑤ ステータス行
+      function chip(lb,v,okset){var c=(okset.indexOf(v)>=0)?'#22c55e':(v==null?'#64748b':'#f87171');return '<span style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:4px;background:#111827;border:1px solid '+c+';color:'+c+';font-size:10px">'+lb+':'+(v||'-')+'</span>';}
+      var stat5='<div style="margin-top:6px">'+chip('①ハザ',it.haz,['CLEAR'])+chip('③接道',it.infra,['PASS','PENDING'])+chip('④連系',it.grid,['pass'])+chip('⑤日照',it.shade,['PASS','PENDING'])+'</div>';
+      var cleanBadge=(cleanFlag&&tekitou)?'<div style="margin-top:6px;padding:4px 8px;border-radius:6px;background:#052e23;border:2px solid #10b981;color:#6ee7b7;font-size:11px;font-weight:900;text-align:center">★ 完全クリア（①〜⑤通過）= 納品候補</div>':'';
+      var zone=(it.toshi||'—')+(it.chosei?' <span style="color:#f87171">⚠市街化調整(開発許可注意)</span>':'');
       var gm='https://www.google.com/maps/search/?api=1&query='+it.lat+','+it.lng;
       var sv='https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+it.lat+','+it.lng;
       var e3='https://earth.google.com/web/@'+it.lat+','+it.lng+',150a,300d,35y,0h,55t,0r';
       var done=!!ST[it.fid];
       var stbtn=done?'<div style="margin-top:9px;padding:8px;border-radius:6px;background:#065f46;border:2px solid #10b981;color:#a7f3d0;font-size:12px;font-weight:900;text-align:center">✅ サントラスト納品リスト入り</div>':'<button onclick="addMieToSuntrust(&quot;'+it.fid+'&quot;,'+it.lat+','+it.lng+',this)" style="margin-top:9px;width:100%;padding:8px;border:2px solid #10b981;background:#064e3b;color:#6ee7b7;border-radius:6px;font-size:12px;font-weight:900;cursor:pointer">📦 サントラスト納品（正規）に追加</button>';
-      var pop='<div style="min-width:210px;font-size:12px;line-height:1.7"><div style="color:'+(honmeiFlag?'#34d399':'#fbbf24')+';font-weight:800;font-size:13px;margin-bottom:6px">🌿 三重・白地太陽光候補'+(honmeiFlag?'（★本命=適当×非調整）':'')+'</div>'
+      var pop='<div style="min-width:220px;font-size:12px;line-height:1.7"><div style="color:'+((cleanFlag&&tekitou)?'#34d399':'#fbbf24')+';font-weight:800;font-size:13px;margin-bottom:6px">🌿 三重・白地太陽光候補'+((cleanFlag&&tekitou)?'（★完全クリア）':(it.chosei?'':'（本命?）'))+'</div>'
         +'<b>'+(it.city||'—')+'</b> 地番'+(it.tiban||'—')+'<br>面積: <b>'+it.a+'㎡</b><br>区域: '+zone
-        +aibadge
+        +aibadge+cleanBadge+stat5
         +'<div style="display:flex;gap:5px;margin-top:9px"><a href="'+gm+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #1a73e8;background:#0b2447;color:#8ab4f8;border-radius:5px;font-size:11px;text-decoration:none">🌐地図</a><a href="'+sv+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:5px;font-size:11px;text-decoration:none">🚶SV</a><a href="'+e3+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:5px;font-size:11px;text-decoration:none">🌍Earth</a></div>'
         +stbtn+'</div>';
-      m.bindPopup(pop,{maxWidth:270,minWidth:210});
+      m.bindPopup(pop,{maxWidth:280,minWidth:220});
       mieLayer.addLayer(m); shown++;
     });
     mieLayer.addTo(map);
-    var mc=document.getElementById('mieCount'); if(mc)mc.textContent=honmei;
-    if(typeof showToast==='function')showToast('三重候補 本命(適当×非調整)'+honmei+'筆・表示'+shown+'筆(不可は除外)','success');
-    console.log('[mie] honmei='+honmei+' shown='+shown+' total='+data.count);
+    var cleanN=(data.summary&&data.summary.clean_tekitou)||honmei;
+    var mc=document.getElementById('mieCount'); if(mc)mc.textContent=cleanN;
+    if(typeof showToast==='function')showToast('三重 完全クリア適当'+cleanN+'筆(納品候補)・表示'+shown+'筆(不可除外)','success');
+    console.log('[mie] clean_tekitou='+cleanN+' shown='+shown+' total='+data.count);
   }
 })();
 </script>
