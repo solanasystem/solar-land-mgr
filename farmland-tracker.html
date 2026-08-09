@@ -740,7 +740,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260809mie2</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260809mie3</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:flex;align-items:center;gap:6px;margin:0 12px;">
@@ -7153,14 +7153,47 @@ window.toggleEdgePanel = function(id){
       if(typeof showToast==='function')showToast('三重納品リストに追加しました','success');
     }catch(e){ if(btn){btn.disabled=false;btn.textContent='📦 サントラスト納品（正規）に追加';} var m=(e&&e.message)||JSON.stringify(e); if(typeof showToast==='function')showToast('登録失敗: '+m,'error'); else alert('登録失敗: '+m); }
   };
+  // ✅現況OK: 目視OKを ai_ok_labels(source=mie_ok)へ→reject AI再学習の正例に。緑上書き。
+  window.registerMieOK=async function(fid,lat,lng,btn){
+    try{
+      if(btn){btn.disabled=true;btn.textContent='登録中...';}
+      var r=await db.from('ai_ok_labels').insert({cluster_id:null,lat:Number(lat),lng:Number(lng),member_fids:[fid],source:'mie_ok',memo:'三重・白地太陽光 現況OK(目視確認)'});
+      if(r&&r.error)throw r.error;
+      if(!window.MIE_OK)window.MIE_OK={}; window.MIE_OK[fid]=1;
+      try{ var _bd=document.querySelector('.leaflet-popup-content [data-mieok]'); }catch(_x){}
+      if(btn){btn.outerHTML='<div data-mieok="1" style="margin-top:9px;padding:6px 8px;border-radius:6px;background:#0b2e1a;border:1px solid #22c55e"><span style="color:#22c55e;font-weight:800;font-size:12px">✅ 現況OK（あなたが確認済・AI判定を上書き）</span></div>'; }
+      if(typeof showToast==='function')showToast('現況OKに登録（AI再学習の正例）','success');
+    }catch(e){ if(btn){btn.disabled=false;btn.textContent='✅ 現況OK（正例に登録）';} var m=(e&&e.message)||JSON.stringify(e); if(typeof showToast==='function')showToast('登録失敗: '+m,'error'); else alert('登録失敗: '+m); }
+  };
+  // 🗑削除: AI判定に同意し除外。farmland_ng_list へ登録＋地図から即除去(負例=reject AIが学習)。
+  window.deleteMieNG=async function(fid,lat,lng,btn){
+    try{
+      if(btn){btn.disabled=true;btn.textContent='削除中...';}
+      var r=await db.from('farmland_ng_list').insert({feature_id:fid,ng_reason:'mie_manual',lat:Number(lat),lng:Number(lng)});
+      if(r&&r.error)throw r.error;
+      try{ if(window._mieMarkers&&window._mieMarkers[fid]&&typeof map!=='undefined'){ map.closePopup(); mieLayer&&mieLayer.removeLayer(window._mieMarkers[fid]); delete window._mieMarkers[fid]; } }catch(_x){}
+      if(typeof showToast==='function')showToast('削除しました（除外リストに登録）','success');
+    }catch(e){ if(btn){btn.disabled=false;btn.textContent='🗑 削除（AI判定に同意・除外）';} var m=(e&&e.message)||JSON.stringify(e); if(typeof showToast==='function')showToast('削除失敗: '+m,'error'); else alert('削除失敗: '+m); }
+  };
   window.toggleMieLayer=function(){
     if(typeof map==='undefined'||!map){setTimeout(window.toggleMieLayer,200);return;}
     var btn=document.getElementById('hzMie');
     if(mieOn){ if(mieLayer)map.removeLayer(mieLayer); mieOn=false; if(btn){btn.style.background='#052e23';btn.style.color='#6ee7b7';} return; }
     mieOn=true; if(btn){btn.style.background='#065f46';btn.style.color='#d1fae5';}
     if(mieLayer){mieLayer.addTo(map);return;}
-    if(typeof _loadSuntrustSet==='function'){ _loadSuntrustSet().then(_mieRender,_mieRender); } else { _mieRender(); }
+    var p1=(typeof _loadSuntrustSet==='function')?_loadSuntrustSet():Promise.resolve();
+    Promise.resolve(p1).then(_loadMieState).then(_mieRender,_mieRender);
   };
+  // 現況OK(mie_ok)と削除(farmland_ng_list mie_manual)の状態を読み、緑上書き/非表示に反映
+  async function _loadMieState(){
+    try{
+      window.MIE_OK=window.MIE_OK||{}; window.MIE_NG=window.MIE_NG||{};
+      var a=await db.from('ai_ok_labels').select('member_fids').eq('source','mie_ok');
+      if(a&&a.data)a.data.forEach(function(r){(r.member_fids||[]).forEach(function(f){window.MIE_OK[f]=1;});});
+      var n=await db.from('farmland_ng_list').select('feature_id').eq('ng_reason','mie_manual');
+      if(n&&n.data)n.data.forEach(function(r){window.MIE_NG[r.feature_id]=1;});
+    }catch(_e){}
+  }
   function _mieRender(){
     var data=window.MIE_CAND;
     if(!data||!data.items){ if(typeof showToast==='function')showToast('三重候補データ未読込','error'); mieOn=false; return; }
@@ -7172,6 +7205,7 @@ window.toggleEdgePanel = function(id){
     (data.items||[]).forEach(function(it){
       if(it.lat==null||it.lng==null)return;
       if(it.level==='不可')return; // 不可(9364筆)は多量のため非表示
+      if(window.MIE_NG&&window.MIE_NG[it.fid])return; // 🗑削除済みは非表示
       var cleanFlag=!!it.clean;                          // ①③④⑤完全通過
       var tekitou=(it.level==='適当');
       if(cleanFlag&&tekitou)honmei++;                    // 納品候補=完全クリア適当
@@ -7191,13 +7225,21 @@ window.toggleEdgePanel = function(id){
       var sv='https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+it.lat+','+it.lng;
       var e3='https://earth.google.com/web/@'+it.lat+','+it.lng+',150a,300d,35y,0h,55t,0r';
       var done=!!ST[it.fid];
-      var stbtn=done?'<div style="margin-top:9px;padding:8px;border-radius:6px;background:#065f46;border:2px solid #10b981;color:#a7f3d0;font-size:12px;font-weight:900;text-align:center">✅ サントラスト納品リスト入り</div>':'<button onclick="addMieToSuntrust(&quot;'+it.fid+'&quot;,'+it.lat+','+it.lng+',this)" style="margin-top:9px;width:100%;padding:8px;border:2px solid #10b981;background:#064e3b;color:#6ee7b7;border-radius:6px;font-size:12px;font-weight:900;cursor:pointer">📦 サントラスト納品（正規）に追加</button>';
+      var fidA=String(it.fid).replace(/"/g,'');
+      var stbtn=done?'<div data-miest="1" style="margin-top:9px;padding:8px;border-radius:6px;background:#065f46;border:2px solid #10b981;color:#a7f3d0;font-size:12px;font-weight:900;text-align:center">✅ サントラスト納品リスト入り</div>':'<button onclick="addMieToSuntrust(&quot;'+fidA+'&quot;,'+it.lat+','+it.lng+',this)" style="margin-top:9px;width:100%;padding:8px;border:2px solid #10b981;background:#064e3b;color:#6ee7b7;border-radius:6px;font-size:12px;font-weight:900;cursor:pointer">📦 サントラスト納品（正規）に追加</button>';
+      // ✅現況OK（AI正例登録・緑上書き）／🗑削除（AI判定に同意・除外）＝奈良モーダルと同じボタン群
+      var okDone=!!(window.MIE_OK&&window.MIE_OK[it.fid]);
+      var okBtn=okDone?'<div data-mieok="1" style="margin-top:6px;padding:6px 8px;border-radius:6px;background:#0b2e1a;border:1px solid #22c55e"><span style="color:#22c55e;font-weight:800;font-size:12px">✅ 現況OK（あなたが確認済・AI判定を上書き）</span></div>'
+        :'<button onclick="registerMieOK(&quot;'+fidA+'&quot;,'+it.lat+','+it.lng+',this)" style="margin-top:9px;width:100%;padding:6px 8px;border:1px solid #22c55e;background:#0b2e1a;color:#86efac;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">✅ 現況OK（正例に登録）</button>';
+      var delBtn='<button onclick="deleteMieNG(&quot;'+fidA+'&quot;,'+it.lat+','+it.lng+',this)" style="margin-top:6px;width:100%;padding:6px 8px;border:1px solid #B71C1C;background:#3a1414;color:#ff8a80;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">🗑 削除（AI判定に同意・除外）</button>';
+      var promote=(typeof _promoteBtns==='function')?_promoteBtns(it.lat,it.lng,'低圧太陽光',it.city||'',{noCand:true}):'';
       var pop='<div style="min-width:220px;font-size:12px;line-height:1.7"><div style="color:'+((cleanFlag&&tekitou)?'#34d399':'#fbbf24')+';font-weight:800;font-size:13px;margin-bottom:6px">🌿 三重・白地太陽光候補'+((cleanFlag&&tekitou)?'（★完全クリア）':(it.chosei?'':'（本命?）'))+'</div>'
         +'<b>'+(it.city||'—')+'</b> 地番'+(it.tiban||'—')+'<br>面積: <b>'+it.a+'㎡</b><br>区域: '+zone
         +aibadge+cleanBadge+stat5
         +'<div style="display:flex;gap:5px;margin-top:9px"><a href="'+gm+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #1a73e8;background:#0b2447;color:#8ab4f8;border-radius:5px;font-size:11px;text-decoration:none">🌐地図</a><a href="'+sv+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:5px;font-size:11px;text-decoration:none">🚶SV</a><a href="'+e3+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:5px;font-size:11px;text-decoration:none">🌍Earth</a></div>'
-        +stbtn+'</div>';
+        +stbtn+promote+okBtn+delBtn+'</div>';
       m.bindPopup(pop,{maxWidth:280,minWidth:220});
+      if(!window._mieMarkers)window._mieMarkers={}; window._mieMarkers[it.fid]=m;
       mieLayer.addLayer(m); shown++;
     });
     mieLayer.addTo(map);
