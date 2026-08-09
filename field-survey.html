@@ -43,6 +43,8 @@
 <!-- ベクトルタイル＋面積計算 用ライブラリ -->
 <script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
+<!-- 地番境界(AMX法務省登記所備付地図2024/PMTiles): 農地変化トラッカーと同一方式 (2026-08-10移植) -->
+<script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- v20260519a: EXIF GPS抽出用ライブラリ -->
 <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
@@ -879,17 +881,6 @@
     </div>
     <label class="layer-item"><input type="checkbox" id="layerFude" onchange="toggleLayer('fude',this.checked)"> 筆ポリゴン</label>
 
-    <!-- 地番プレビュー草案 (villa_hatch_landnumber_draft) v20260703d (farmland-trackerから移植) ※CAD区画/現在地系は削除(2026-08-10) -->
-    <div class="layer-section-title">&#128290; 地番</div>
-    <button class="hazard-toggle-btn" id="hzLandNumberDraft" onclick="toggleLandNumberDraft()">
-      <span class="hazard-toggle-dot"></span>🔢 地番プレビュー(草案)
-    </button>
-    <div id="landNumberDraftPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
-      <div style="font-size:10px;line-height:1.7;">
-        <div style="font-weight:600;margin-bottom:4px">地番プレビュー(草案)</div>
-        <div id="landNumberDraftInfo" style="color:var(--text-muted);">読み込み中...</div>
-      </div>
-    </div>
 
     <!-- ハザードマップ（5種類トグル） -->
     <div class="layer-section-title">&#128680; ハザードマップ</div>
@@ -1794,10 +1785,7 @@ let fudeEnabled = false;
 const fudeCanvas = L.canvas();
 let fudeRenderTimer = null;
 
-function renderFudeInView() {
-  if (fudeRenderTimer) clearTimeout(fudeRenderTimer);
-  fudeRenderTimer = setTimeout(_doRenderFude, 200);
-}
+function renderFudeInView() { /* 地番境界はAMX(protomapsL)方式に移行。内部でタイル処理するため個別再描画は不要(旧get_fude_in_bbox RPC方式は廃止) */ }
 
 function _doRenderFude() {
   if (!fudeEnabled) return;
@@ -1882,10 +1870,21 @@ function openNouchiNavi(lat, lng, address) {
 }
 
 function loadFude() {
+  // 地番境界: AMX法務省登記所備付地図2024(protomapsL/PMTiles)。農地変化トラッカーと同一(2026-08-10移植)
   fudeEnabled = true;
-  map.on('moveend', renderFudeInView);
-  map.on('zoomend', renderFudeInView);
-  renderFudeInView();
+  if (fudeLayer) { try{ map.removeLayer(fudeLayer); }catch(_){} fudeLayer = null; }
+  var ns = (typeof protomapsL!=='undefined') ? protomapsL : window.protomapsL;
+  if (!ns) { if(typeof showToast==='function')showToast('地番境界ライブラリ未読込：F5で再読込してください','error'); return; }
+  try {
+    fudeLayer = ns.leafletLayer({
+      url: 'https://data.source.coop/smartmaps/amx-2024-04/MojMap_amx_2024.pmtiles',
+      maxDataZoom: 16,
+      paintRules: [{ dataLayer:'fude', symbolizer: new ns.PolygonSymbolizer({ fill:'transparent', stroke:'#f85149', width:1.2 }) }],
+      attribution: '地番: AMX Project / 法務省登記所備付地図XML'
+    });
+    fudeLayer.addTo(map);
+    if(typeof showToast==='function')showToast('地番境界(法務省)を表示。ズーム14以上で筆が出ます','success');
+  } catch(e){ if(typeof showToast==='function')showToast('地番境界読込失敗: '+((e&&e.message)||e),'error'); }
 }
 
 async function loadData() {
