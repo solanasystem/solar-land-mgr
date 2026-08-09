@@ -61,7 +61,7 @@
     <button class="btn" onclick="openStatusConfig()">⚙ ステータスを設定（追加・編集）</button>
     <span class="cnt" id="cnt">—</span>
   </div>
-  <div class="tblwrap"><table id="tbl"><thead><tr><th>市</th><th>地番</th><th>面積(㎡)</th><th>地目</th><th>区域</th><th>ステータス</th></tr></thead><tbody id="tb"><tr><td colspan="6" class="muted">読込中…</td></tr></tbody></table></div>
+  <div class="tblwrap"><table id="tbl"><thead><tr><th>市</th><th>地番</th><th>面積(㎡)</th><th>地目</th><th>区域</th><th>住所</th><th>ステータス</th></tr></thead><tbody id="tb"><tr><td colspan="7" class="muted">読込中…</td></tr></tbody></table></div>
 </main>
 
 <!-- ステータス設定モーダル -->
@@ -109,8 +109,15 @@ async function loadStatuses(){
     if(r&&r.data)r.data.forEach(function(x){STMAP[x.case_id]=x.status;});
   }catch(e){}
 }
+function cityOf(r){
+  if(r.city) return r.city;
+  var a=r.address||'';
+  var m=a.match(/(?:都|道|府|県)(.+?[市区町村])/);
+  if(m) return m[1];
+  return r.pref||'—';
+}
 async function loadRows(){
-  try{ var r=await db.from('client_delivery_items').select('id,city,chiban,area_m2,chimoku,zone').eq('client_id',CID).eq('status','confirmed').order('city',{ascending:true});
+  try{ var r=await db.from('client_delivery_items').select('id,pref,city,chiban,area_m2,chimoku,zone,address').eq('client_id',CID).eq('status','confirmed').order('address',{ascending:true});
     ROWS=(r&&r.data)||[];
   }catch(e){ ROWS=[]; }
   renderRows();
@@ -118,14 +125,13 @@ async function loadRows(){
 function renderRows(){
   var tb=document.getElementById('tb');
   document.getElementById('cnt').textContent=ROWS.length+'件';
-  if(!ROWS.length){ tb.innerHTML='<tr><td colspan="6" class="muted">確定納品案件がありません</td></tr>'; return; }
-  var optsHtml=OPTS.map(function(o){return '<option value="'+o.label+'">'+o.label+'</option>';}).join('');
+  if(!ROWS.length){ tb.innerHTML='<tr><td colspan="7" class="muted">確定納品案件がありません</td></tr>'; return; }
   tb.innerHTML=ROWS.map(function(r){
     var cur=STMAP[r.id]||'';
     var sel='<select class="st" onchange="setStatus(\''+r.id+'\',this.value)"><option value="">（未設定）</option>'+
       OPTS.map(function(o){return '<option value="'+o.label+'"'+(o.label===cur?' selected':'')+'>'+o.label+'</option>';}).join('')+'</select>';
     var pill=cur?'<span class="pill" style="background:'+colorOf(cur)+'22;color:'+colorOf(cur)+';border:1px solid '+colorOf(cur)+'">'+cur+'</span> ':'';
-    return '<tr><td>'+(r.city||'—')+'</td><td>'+(r.chiban||'—')+'</td><td>'+(r.area_m2!=null?Math.round(r.area_m2):'—')+'</td><td>'+(r.chimoku||'—')+'</td><td>'+(r.zone||'—')+'</td><td>'+pill+sel+'</td></tr>';
+    return '<tr><td>'+cityOf(r)+'</td><td>'+(r.chiban||'—')+'</td><td>'+(r.area_m2!=null?Math.round(r.area_m2):'—')+'</td><td>'+(r.chimoku||'—')+'</td><td>'+(r.zone||'—')+'</td><td style="white-space:normal;max-width:320px">'+(r.address||'—')+'</td><td>'+pill+sel+'</td></tr>';
   }).join('');
 }
 async function setStatus(itemId,status){
