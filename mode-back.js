@@ -31,6 +31,7 @@
   // ====== 除外ページの判定 ======
   var path = (location.pathname || '').toLowerCase();
   var EXCLUDED = [
+    'client-select.html',
     'mode-select.html',
     'mode-select-debug.html',
     'index.html',
