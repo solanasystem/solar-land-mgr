@@ -43,8 +43,6 @@
 <!-- ベクトルタイル＋面積計算 用ライブラリ -->
 <script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
-<!-- 地番境界(AMX法務省登記所備付地図2024/PMTiles): 農地変化トラッカーと同一方式 (2026-08-10移植) -->
-<script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- v20260519a: EXIF GPS抽出用ライブラリ -->
 <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
@@ -881,14 +879,71 @@
     </div>
     <label class="layer-item"><input type="checkbox" id="layerFude" onchange="toggleLayer('fude',this.checked)"> 筆ポリゴン</label>
 
+    <!-- ★v20260703a: CAD区画・現在地セクションを最上部に移動（Phase 1-①検証中の視認性確保） -->
+    <!-- CAD区画ベクター (villa_parcels_geojson) v20260702n -->
+    <div class="layer-section-title">&#128506; CAD区画・現在地</div>
+    <button class="hazard-toggle-btn" id="hzVillaParcels" onclick="toggleVillaParcels()">
+      <span class="hazard-toggle-dot"></span>🗺 CAD区画図
+    </button>
+    <div id="villaParcelsPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.8;">
+        <div style="font-weight:600;margin-bottom:4px">CAD区画図（トレース）</div>
+        <div id="villaParcelsInfo" style="margin-bottom:4px;color:var(--text-muted);">読み込み中...</div>
+        <label style="font-size:9px;color:var(--text-muted);cursor:pointer;display:block;">
+          <input type="checkbox" id="villaParcelsFillMode" onchange="_toggleVillaParcelsFill()" style="vertical-align:middle;">
+          <span style="font-weight:600">区画を塗りつぶし表示</span>
+        </label>
+        <div style="color:var(--text-dim);font-size:9px;line-height:1.4;margin-top:3px;">閉じた区画をクリック or 現在地が入ると面積(㎡)を表示します。</div>
+      </div>
+    </div>
+    <!-- CADハッチング (villa_hatch) v20260702n -->
+    <button class="hazard-toggle-btn" id="hzVillaHatch" onclick="toggleVillaHatch()">
+      <span class="hazard-toggle-dot"></span>🎨 CADハッチング
+    </button>
+    <div id="villaHatchPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.7;">
+        <div style="font-weight:600;margin-bottom:4px">CADハッチング（色分け区画）</div>
+        <div id="villaHatchInfo" style="color:var(--text-muted);">読み込み中...</div>
+        <label style="font-size:9px;color:var(--text-muted);cursor:pointer;display:block;margin-top:4px;">塗り透明度
+          <input type="range" id="villaHatchOpacity" min="10" max="90" step="5" value="45" oninput="_setVillaHatchOpacity(this.value)" style="width:100%;">
+        </label>
+      </div>
+    </div>
+    <!-- 地番プレビュー草案 (villa_hatch_landnumber_draft) v20260703d (farmland-trackerから移植) -->
+    <button class="hazard-toggle-btn" id="hzLandNumberDraft" onclick="toggleLandNumberDraft()">
+      <span class="hazard-toggle-dot"></span>🔢 地番プレビュー(草案)
+    </button>
+    <div id="landNumberDraftPanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.7;">
+        <div style="font-weight:600;margin-bottom:4px">地番プレビュー(草案)</div>
+        <div id="landNumberDraftInfo" style="color:var(--text-muted);">読み込み中...</div>
+      </div>
+    </div>
+    <!-- 現在地区画ハイライト設定 v20260702n -->
+    <button class="hazard-toggle-btn active" id="hzGpsHighlight" onclick="toggleGpsHighlight()">
+      <span class="hazard-toggle-dot"></span>🎯 現在地区画ハイライト
+    </button>
+    <div id="gpsHighlightPanel" style="margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.7;">
+        <div id="gpsHighlightInfo" style="color:var(--text-muted);">CAD区画をONにすると現在地区画を自動判定します</div>
+      </div>
+    </div>
+    <!-- GPS疑似テストモード v20260702s (現地に行かず区画判定を検証) -->
+    <button class="hazard-toggle-btn" id="hzGpsSimulate" onclick="toggleGpsSimulate()">
+      <span class="hazard-toggle-dot"></span>🧪 GPS疑似テスト
+    </button>
+    <div id="gpsSimulatePanel" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:240px;">
+      <div style="font-size:10px;line-height:1.6;">
+        <div style="font-weight:600;color:#f0b429;margin-bottom:3px;">🧪 テストモードON（実GPS停止中）</div>
+        <div style="color:var(--text-muted);">地図をクリックすると、その地点があなたの<b>現在地（青点＋🧪バッジ）</b>になります。実GPSと全く同じ判定を再現します。</div>
+        <div id="gpsSimulateInfo" style="color:var(--accent);margin-top:4px;">クリック待機中...</div>
+      </div>
+    </div>
 
     <!-- ハザードマップ（5種類トグル） -->
     <div class="layer-section-title">&#128680; ハザードマップ</div>
     <button class="hazard-toggle-btn" id="btnHazard1" onclick="toggleHazard('hazard1')">
-      <span class="hazard-toggle-dot"></span>&#127754; 洪水浸水想定(都道府県)
-    </button>
-    <button class="hazard-toggle-btn" id="btnHazard2" onclick="toggleHazard('hazard2')">
-      <span class="hazard-toggle-dot"></span>&#127754; 洪水浸水想定(国管理河川)
+      <span class="hazard-toggle-dot"></span>&#127754; 洪水浸水想定
     </button>
     <button class="hazard-toggle-btn" id="btnHazard3" onclick="toggleHazard('hazard3')">
       <span class="hazard-toggle-dot"></span>&#127754; 津波浸水想定
@@ -1269,13 +1324,12 @@ let map, gsiLayer, esriLayer, baseTileRef;
 // ======== ハザードレイヤー（5種類） ========
 const HAZARD_URLS = {
   hazard1: 'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
-  hazard2: 'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_kuni_data/{z}/{x}/{y}.png',
   hazard3: 'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',
   hazard4: 'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
   hazard5: 'https://disaportaldata.gsi.go.jp/raster/01_naisui_shinsuishin_data/{z}/{x}/{y}.png',
 };
 let hazardLayers = {};
-const hazardState = { hazard1: false, hazard2: false, hazard3: false, hazard4: false, hazard5: false };
+const hazardState = { hazard1: false, hazard3: false, hazard4: false, hazard5: false };
 
 /* ==== 森林計画対象森林レイヤ（林野庁2024年度版・全国・民有林＋国有林）==== */
 const FOREST_TILE_URL = 'https://rinya-tiles.geospatial.jp/fr_layer_webp_2025/{z}/{x}/{y}.webp';
@@ -1785,7 +1839,10 @@ let fudeEnabled = false;
 const fudeCanvas = L.canvas();
 let fudeRenderTimer = null;
 
-function renderFudeInView() { /* 地番境界はAMX(protomapsL)方式に移行。内部でタイル処理するため個別再描画は不要(旧get_fude_in_bbox RPC方式は廃止) */ }
+function renderFudeInView() {
+  if (fudeRenderTimer) clearTimeout(fudeRenderTimer);
+  fudeRenderTimer = setTimeout(_doRenderFude, 200);
+}
 
 function _doRenderFude() {
   if (!fudeEnabled) return;
@@ -1870,21 +1927,10 @@ function openNouchiNavi(lat, lng, address) {
 }
 
 function loadFude() {
-  // 地番境界: AMX法務省登記所備付地図2024(protomapsL/PMTiles)。農地変化トラッカーと同一(2026-08-10移植)
   fudeEnabled = true;
-  if (fudeLayer) { try{ map.removeLayer(fudeLayer); }catch(_){} fudeLayer = null; }
-  var ns = (typeof protomapsL!=='undefined') ? protomapsL : window.protomapsL;
-  if (!ns) { if(typeof showToast==='function')showToast('地番境界ライブラリ未読込：F5で再読込してください','error'); return; }
-  try {
-    fudeLayer = ns.leafletLayer({
-      url: 'https://data.source.coop/smartmaps/amx-2024-04/MojMap_amx_2024.pmtiles',
-      maxDataZoom: 16,
-      paintRules: [{ dataLayer:'fude', symbolizer: new ns.PolygonSymbolizer({ fill:'transparent', stroke:'#f85149', width:1.2 }) }],
-      attribution: '地番: AMX Project / 法務省登記所備付地図XML'
-    });
-    fudeLayer.addTo(map);
-    if(typeof showToast==='function')showToast('地番境界(法務省)を表示。ズーム14以上で筆が出ます','success');
-  } catch(e){ if(typeof showToast==='function')showToast('地番境界読込失敗: '+((e&&e.message)||e),'error'); }
+  map.on('moveend', renderFudeInView);
+  map.on('zoomend', renderFudeInView);
+  renderFudeInView();
 }
 
 async function loadData() {
