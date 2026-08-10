@@ -39,6 +39,7 @@
   let _candidateLayer = null;      // Leaflet layerGroup
   let _candidateMarkers = {};      // id -> marker
   let _candidatesLoaded = false;
+  let _renderFilter = null;      // opts.renderFilter: (lat,lng)=>bool。falseを返す筆は描画しない(表示のみ・case_candidatesは不変)
 
   /* ----------------------------------------------------------
      初期化（各HTMLから呼ぶ）
@@ -54,6 +55,7 @@
     _sourcePage = sourcePage;
     _initialized = true;
     opts = opts || {};
+    _renderFilter = (typeof opts.renderFilter === 'function') ? opts.renderFilter : null;
 
     setupModal();
     setupPcClickHandler();
@@ -590,6 +592,7 @@
     const lat = Number(rec.latitude);
     const lng = Number(rec.longitude);
     if (isNaN(lat) || isNaN(lng)) return;
+    if (_renderFilter && !_renderFilter(lat, lng)) return; // 地域フィルタ(表示のみ・データ保持)
 
     const status = (rec.status || 'new').toLowerCase();
     // v20260702m3: divIcon(涙滴形+rotate)は位置ズレの原因になるため廃止。
