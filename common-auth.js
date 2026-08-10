@@ -37,6 +37,14 @@
   // v1.2: 許可ロール一覧（externalを追加）
   var ALLOWED_ROLES = ['admin', 'manager', 'viewer', 'external', 'partner'];
 
+  // ★メンテナンスロック (2026-08-10): オーナー以外はログイン不可。
+  //   解除するには MAINTENANCE_OWNER_ONLY を false にする（1箇所）。
+  var MAINTENANCE_OWNER_ONLY = true;
+  var OWNER_EMAILS = ['takumi.kurimoto@gmail.com'];
+  function isOwner(email) {
+    return !!email && OWNER_EMAILS.indexOf(String(email).trim().toLowerCase()) !== -1;
+  }
+
   // ============================================================
   // ヘルパー
   // ============================================================
@@ -77,6 +85,12 @@
   if (ALLOWED_ROLES.indexOf(profile.role) === -1) {
     bailToLogin('Unknown role: ' + profile.role);
     throw new Error('GRID LAND MGR: Unknown role');
+  }
+
+  // ★メンテナンスロック（同期: キャッシュにemailがある場合は即弾く）
+  if (MAINTENANCE_OWNER_ONLY && profile.email && !isOwner(profile.email)) {
+    bailToLogin('Maintenance: owner only');
+    throw new Error('GRID LAND MGR: Maintenance owner-only');
   }
 
   // ============================================================
@@ -169,6 +183,11 @@
           .then(function(res2) {
             var newProfile = res2 && res2.data;
             if (!newProfile) {
+              window.__auth.logout();
+              return;
+            }
+            // ★メンテナンスロック（非同期: 認証セッションのemail優先＝profiles.emailがnullでもオーナーを誤ロックしない。既存セッションも弾く）
+            if (MAINTENANCE_OWNER_ONLY && !isOwner((session.user && session.user.email) || newProfile.email)) {
               window.__auth.logout();
               return;
             }

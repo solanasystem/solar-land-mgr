@@ -229,6 +229,14 @@
 
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+  // ★メンテナンスロック (2026-08-10): オーナー以外はログイン不可。解除は MAINTENANCE_OWNER_ONLY=false。
+  const MAINTENANCE_OWNER_ONLY = true;
+  const OWNER_EMAILS = ['takumi.kurimoto@gmail.com'];
+  function isOwner(email) {
+    return !!email && OWNER_EMAILS.indexOf(String(email).trim().toLowerCase()) !== -1;
+  }
+  const MAINTENANCE_MSG = '現在メンテナンス中です。オーナーのみログインできます。';
+
   // ==========================================================
   // 既存セッション自動リダイレクト
   // ==========================================================
@@ -243,11 +251,19 @@
         // プロファイル取得 → ロール別リダイレクト
         const { data: profile } = await sb
           .from('profiles')
-          .select('role')
+          .select('role, email')
           .eq('id', session.user.id)
           .single();
 
         if (profile) {
+          // ★メンテナンスロック: オーナー以外は既存セッションでも入場不可
+          // 認証セッションのemail優先（profiles.emailがnullでもオーナーを誤ロックしない）
+          if (MAINTENANCE_OWNER_ONLY && !isOwner((session.user && session.user.email) || profile.email)) {
+            await sb.auth.signOut();
+            clearLocalSession();
+            showMessage(MAINTENANCE_MSG, 'error');
+            return;
+          }
           showMessage('既にログイン済みです。リダイレクト中…', 'info');
           setTimeout(() => redirectByRole(profile.role), 300);
           return;
@@ -362,6 +378,16 @@
         showMessage('プロファイル情報が登録されていません。管理者にユーザー追加を依頼してください。', 'error');
         await sb.auth.signOut();
         clearLocalSession();
+        showLoading(false);
+        return false;
+      }
+
+      // ★メンテナンスロック: オーナー以外はログイン不可（セッション保存前に弾く）
+      // 判定は認証セッションのemail優先（profiles.emailがnullでもオーナーを誤ロックしない）
+      if (MAINTENANCE_OWNER_ONLY && !isOwner((authData.user && authData.user.email) || profile.email)) {
+        await sb.auth.signOut();
+        clearLocalSession();
+        showMessage(MAINTENANCE_MSG, 'error');
         showLoading(false);
         return false;
       }
