@@ -799,7 +799,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <!-- v20260702l: 地番検索をツールバー先頭（新規ハイライト基準日の左）に組み込み -->
   <div class="chiban-search" id="chibanSearch">
     <span class="chiban-search-icon">&#128269;</span>
-    <input type="text" id="chibanInput" placeholder="市区町村 大字 地番で検索...">
+    <input type="text" id="chibanInput" placeholder="市区町村 大字 地番 / 緯度経度 で検索...">
     <div class="chiban-results" id="chibanResults"></div>
   </div>
   <span class="toolbar-label">新規ハイライト基準日</span>
@@ -6681,6 +6681,23 @@ document.getElementById('chibanInput').addEventListener('input',function(){
 document.getElementById('chibanInput').addEventListener('blur',function(){
   setTimeout(function(){document.getElementById('chibanResults').style.display='none';},200);
 });
+/* 緯度経度を入力してEnter→即その地点へ移動 (v20260811) */
+document.getElementById('chibanInput').addEventListener('keydown',function(e){
+  if(e.key!=='Enter')return;
+  var ll=_parseLatLng(this.value);
+  if(ll){e.preventDefault();clearTimeout(_searchTimer);jumpToChiban(ll.lat,ll.lng,ll.lat.toFixed(6)+', '+ll.lng.toFixed(6));}
+});
+/* 緯度経度の直接入力を解析（日本国内範囲で lat/lng を判定・逆順も許容）。該当なければ null (v20260811) */
+function _parseLatLng(s){
+  var m=String(s||'').trim().replace(/[，、]/g,',').match(/^\s*(-?\d{1,3}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/);
+  if(!m)return null;
+  var a=parseFloat(m[1]),b=parseFloat(m[2]);
+  function inLat(v){return v>=20&&v<=46;}
+  function inLng(v){return v>=122&&v<=154;}
+  if(inLat(a)&&inLng(b))return{lat:a,lng:b};
+  if(inLat(b)&&inLng(a))return{lat:b,lng:a};
+  return null;
+}
 async function _searchChiban(q,res){
   try{
     if(_boundaryLayer){
@@ -6689,6 +6706,13 @@ async function _searchChiban(q,res){
     }
   }catch(_){}
   _boundaryCache=[];
+  /* ===== 0) 緯度経度の直接入力を検出（例: 34.6277, 136.4917 / 34.6277 136.4917）→ その地点へ即移動 ===== */
+  var __ll=_parseLatLng(q);
+  if(__ll){
+    res.style.display='none';
+    jumpToChiban(__ll.lat,__ll.lng,__ll.lat.toFixed(6)+', '+__ll.lng.toFixed(6));
+    return;
+  }
   var html='';
   /* ===== 1) 行政境界検索（市町村区郡を含む場合はそのまま、含まない場合はサフィックス自動補完） ===== */
   var __PREFS=['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県'];
