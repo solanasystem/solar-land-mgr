@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260811o / 🗂画層v2.1＋🔆既存太陽光レイヤー。(1)点フラグ(奈良/三重等)の削除ボタンを「外す」→「🗑 外す」に明確化(🗑アイコンで一目・語は"外す"=画層から筆を取り除く/元データ無傷。Google確認で使用中の土地を除外する用。境界は自作図形なので🗑削除のまま。removeItemはv2.0修正済で確実に動作)。(2)自己完結の「🔆 既存太陽光（発電中）」レイヤーを追加(右上トグル/fitSolarPane)。fit_solar.json(経産省FIT・運転開始済×50kW以上・県別を全県共通ファイルに集約/pref付き)をfetchし出力別に色分け表示。ポップアップに事業者/出力/地番/Googleマップ/「🔎検索欄へ入れる」。用途=既設を確実な地番アンカーに近接探索(既設=適地の証明ではない旨も明記)。前:v20260811n -->
 <!-- BUILD: farmland-tracker v20260811n / 🗂画層v2.0: (1)削除/描き直しが効かないバグ修正=ポップアップ内ボタンで自分の図形を消す時、先にclosePopupしsetTimeout(0)で削除・再描画(Leafletの同期削除の飲まれ対策)。removeItem/redraw両対応。(2)各ポップアップに🌐Googleマップ／🚶ストリートビューのリンクを追加(緯度経度で別タブ)。点・境界とも。前:v20260811m -->
 <!-- BUILD: farmland-tracker v20260811m / 🗂画層v1.9: 敷地境界ポップアップに「🗑 描き直す」(この境界を消して即・描画再開＝redraw)を追加。描画は削除を伴わないため、旧境界が残る問題を解消。境界の削除ボタンは「外す」→「🗑 削除」に明確化(removeItemは従来通り動作)。点フラグの外すは変更なし。前:v20260811l -->
 <!-- BUILD: farmland-tracker v20260811l / 🗂画層v1.8: 敷地境界の面積ラベルが常時出て邪魔だった件を修正。ズームを引いた時(z<15)は面積ラベルを自動で隠し(zoomendで.gacho-noarea切替)、寄った時だけ表示。パネルに「㎡ 面積ラベル」ON/OFFトグルも追加(手動で完全非表示可)。前:v20260811k -->
@@ -8465,7 +8466,7 @@ function renderLayerGroups(){
       var vd=!!it.viewed;
       var under=(it.area!=null&&it.area<800);
       var areaTxt=(it.area!=null)?('面積 <b style="font-size:14px;color:'+(under?'#f85149':'#3fb950')+'">'+Math.round(it.area).toLocaleString()+' ㎡</b>'+(under?'<br><span style="color:#f85149">⚠ 800㎡未満：隣接を含め敷地境界を手描きで作成</span>':'')):'<span style="color:#8b949e">面積 不明</span>';
-      var acts='<div style="margin-top:8px"><button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 敷地境界を描く</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.review(\''+l.id+'\',\''+(it.iid||'')+'\',false)">↺ 未確認</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')">外す</button></div>';
+      var acts='<div style="margin-top:8px"><button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 敷地境界を描く</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.review(\''+l.id+'\',\''+(it.iid||'')+'\',false)">↺ 未確認</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')" title="この画層から筆を取り除く（元データは無傷）">🗑 外す</button></div>';
       var seen='<span style="color:#9aa4ae">'+(vd?'✓ 見た':'')+'</span>';
       var gmap='<div style="margin-top:6px"><a href="https://www.google.com/maps/search/?api=1&query='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🌐 Googleマップ</a> ｜ <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🚶 ストリートビュー</a></div>';
       if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
@@ -8608,6 +8609,58 @@ function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=do
 document.head.appendChild(st);}
 
 function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}injectStyle();buildPanel();ensurePane(m);render();m.on('zoomend',updateAreaLabels);updateAreaLabels();document.addEventListener('keydown',function(e){var tag=((e.target&&e.target.tagName)||'').toLowerCase();if(tag==='input'||tag==='textarea')return;if(e.key==='Escape'){if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();}if(_drawMode&&(e.key==='Backspace'||((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')))){e.preventDefault();drawUndo();}});}
+boot();
+})();
+</script>
+<!-- ===================================================================
+     既存太陽光（FIT・発電中）レイヤー v1 (2026-08-11) / 自己完結・既存非変更
+     経産省FIT認定(三重・運転開始済×50kW以上=1,887件)を地番→座標化して表示。
+     用途: 既設発電所を「確実な地番アンカー」として近接探索の起点にする。
+     ※既設=適地の証明ではない。周辺の筆は従来の青地/ハザード等ゲートを必ず通す。
+     =================================================================== -->
+<script>
+(function(){
+'use strict';
+var _on=false,_loaded=false,_layer=null,_pane=null,_data=null;
+function getMap(){return (typeof map!=='undefined'&&map)?map:(window.map||null);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function color(kw){return kw>=1000?'#dc2626':(kw>=250?'#f97316':'#f59e0b');}
+function ensurePane(m){if(_pane)return;_pane=m.createPane('fitSolarPane');_pane.style.zIndex=655;}
+function toastSafe(m){if(typeof showToast==='function'){try{showToast(m);}catch(_){}}}
+function render(){
+  var m=getMap();if(!m||!_data)return;ensurePane(m);
+  if(_layer){try{m.removeLayer(_layer);}catch(_){}_layer=null;}
+  var g=L.layerGroup([],{pane:'fitSolarPane'});
+  _data.forEach(function(d){
+    if(d.lat==null||d.lng==null)return;
+    var mk=L.circleMarker([d.lat,d.lng],{pane:'fitSolarPane',radius:5,color:'#111',weight:1,fillColor:color(d.kw),fillOpacity:0.9});
+    var gm='<a href="https://www.google.com/maps/search/?api=1&query='+d.lat+','+d.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🌐Googleマップ</a> ｜ <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+d.lat+','+d.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🚶SV</a>';
+    var srch='<button onclick="window.__fitsolar.toSearch(this.getAttribute(\'data-a\'))" data-a="'+esc(d.addr||'')+'">🔎 検索欄へ入れる</button>';
+    mk.bindPopup('<div style="font-size:12px;min-width:180px"><b style="color:'+color(d.kw)+'">🔆 既存太陽光（発電中）</b>'+(d.pref?' <span style="color:#8b949e">'+esc(d.pref)+'</span>':'')+'<br>出力 <b>'+d.kw+' kW</b><br>'+esc(d.op||'')+'<br>所在 '+esc(d.addr||'')+'<br>'+gm+'<div style="margin-top:6px">'+srch+'</div><div style="margin-top:4px;color:#8b949e;font-size:10px">※これは既設のアンカー。周辺の筆は青地/ハザード等の判定を必ず通すこと。</div></div>');
+    g.addLayer(mk);
+  });
+  g.addTo(m);_layer=g;
+}
+function toggle(){
+  var m=getMap();if(!m)return;
+  _on=!_on;
+  var btn=document.getElementById('fitSolarBtn');if(btn)btn.classList.toggle('on',_on);
+  if(_on){
+    if(!_loaded){
+      toastSafe('既存太陽光データを読込中…');
+      fetch('fit_solar.json?v='+Date.now()).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(j){_data=j;_loaded=true;render();toastSafe('既存太陽光（発電中・50kW以上）'+j.length+'件を表示');}).catch(function(){_on=false;if(btn)btn.classList.remove('on');toastSafe('fit_solar.json が見つかりません（本番反映待ちかも）');});
+    }else{render();}
+  }else{
+    if(_layer){try{m.removeLayer(_layer);}catch(_){}_layer=null;}
+  }
+}
+window.__fitsolar={toSearch:function(addr){var el=document.getElementById('chibanInput');if(el){el.value=addr;el.focus();try{el.dispatchEvent(new Event('input',{bubbles:true}));}catch(_){}}}};
+function injectBtn(){
+  if(document.getElementById('fitSolarBtn'))return;
+  var st=document.createElement('style');st.textContent='.fitsolar-btn{position:fixed;top:150px;right:14px;z-index:1150;background:rgba(13,17,23,.9);color:#f59e0b;border:1px solid #f59e0b;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.4);}.fitsolar-btn.on{background:#f59e0b;color:#111;font-weight:700;}';document.head.appendChild(st);
+  var b=document.createElement('button');b.id='fitSolarBtn';b.className='fitsolar-btn';b.textContent='🔆 既存太陽光';b.title='FIT認定・運転開始済×50kW以上（開拓予定の全県）を表示';b.onclick=toggle;document.body.appendChild(b);
+}
+function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,300);}injectBtn();}
 boot();
 })();
 </script>
