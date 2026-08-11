@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260812c / 🗂画層v2.5: (1)御所218(GOSE218=御所市の低圧太陽光分析・面積800-1200の本命107件)を画層取込対象に追加(collectInBounds)＋「☀御所218を画層に読込（全OK）」ボタン=107件をstatus=okで一括ロード(栗本さん認識=黄色は全てOK)。※御所218はSUNトラスト397(奈良256+三重141)とは別エリア・別母集団。裸で合算しない。(2)パネル上部に「全画層合計 👁見た/OK・NG/計」を常時表示=システムが状態から自動集計(AIは数えない)。前:v20260812b -->
 <!-- BUILD: farmland-tracker v20260812b / 🗂画層v2.4: 判定カウントの穴を全部塞ぐ。(1)敷地境界のポップアップにも✓OK/🚫NGを追加(点だけでなく境界も判定でき数字が動く)＋境界をstatusで色分け(OK緑枠/NG灰点線)。(2)件数行に「👁見た○」を復活＝モーダルを開いた分(最初の"開いただけ"も)を全部カウント→👁見た○／OK○・NG○／計○。(3)「👁→✓ 見た分をOKに一括」ボタン=既に見た(未判定)を全画層まとめてOKへ(過去分を開き直さずに数字化・後で個別NG可)。前:v20260812a -->
 <!-- BUILD: farmland-tracker v20260812a / 🗂画層v2.3: OK/NG件数が「見えない」不具合を修正。原因=件数を画層名spanの末尾に入れていたため、名前が長いとellipsis(…)で切れて件数が隠れていた(表示バグ・機能は動作)。件数(OK○・NG○／計○)を画層名の下の独立行(.gacho-cnt)へ移動し、長い名前でも常に全表示。前:v20260811p -->
 <!-- BUILD: farmland-tracker v20260811p / 🗂画層v2.2: 点フラグにOK/NG(除外)判定を実装。ポップアップに「✓ OK」「🚫 NG(除外)」ボタン(setStatus)。NGは消さず灰色で残し(除外を目視確認)、OKは緑リング。画層名の件数表示を「OK○・NG○／計○」に変更＝除外できたか一目。書き出し(KML/GeoJSON)はstatus=ngを自動除外(納品にNGを載せない)。Google確認で使用中の土地をNGにする運用。前:v20260811o -->
@@ -8306,6 +8307,7 @@ function collectInBounds(bounds){
   try{if(typeof candCache!=='undefined'&&candCache&&typeof candEnabled!=='undefined'&&candEnabled){candCache.forEach(function(c){if(c)push(c.feature_id,c.lat,c.lng,c.address,c.city,'cand',c.area_sqm||c.area_m2||c.area);});}}catch(_){}
   try{if(typeof yukyuCache!=='undefined'&&yukyuCache&&typeof yukyuEnabled!=='undefined'&&yukyuEnabled){yukyuCache.forEach(function(c){if(c)push(c.feature_id,c.lat,c.lng,c.address,c.city,'yukyu',c.area_m2||c.area_sqm||c.area);});}}catch(_){}
   try{if(typeof useCache!=='undefined'&&useCache){Object.keys(useCache).forEach(function(k){var arr=useCache[k];if(arr&&arr.forEach)arr.forEach(function(c){if(c)push(c.feature_id||c.cc_id,c.lat,c.lng,c.address,c.city,'use',c.area_m2||c.area_sqm||c.area);});});}}catch(_){}
+  try{if(window.GOSE218&&window.GOSE218.items){window.GOSE218.items.forEach(function(c){if(c)push(c.no!=null?('gose'+c.no):null,c.lat,c.lng,c.addr,'',c.kind||'gose',c.area);});}}catch(_){}
   return out;
 }
 
@@ -8452,6 +8454,22 @@ function loadSuntrust(){
   }).catch(function(e){toast('読込失敗: suntrust_cases_all.json が見つかりません（本番反映待ちかも）');});
 }
 
+/* 御所218(低圧太陽光分析・事前選別済み)を丸ごと画層へ。栗本さん認識=黄色は全てOKの集まり→status='ok'付きで読込 */
+function loadGose(){
+  if(!(window.GOSE218&&window.GOSE218.items&&window.GOSE218.items.length)){toast('御所218データが読み込まれていません');return;}
+  var name='御所218（低圧太陽光）';
+  var l=state.layers.filter(function(x){return x.name===name;})[0];
+  if(!l){l={id:uid(),name:name,color:'#f59e0b',visible:true,active:false,items:[]};state.layers.push(l);}
+  l.items=[];
+  window.GOSE218.items.forEach(function(c){
+    if(c.lat==null||c.lng==null)return;
+    l.items.push({iid:iid(),feature_id:'gose'+c.no,lat:Number(c.lat),lng:Number(c.lng),address:c.addr||'',area:(c.area!=null?Number(c.area):null),status:'ok',viewed:true,src:'gose'});
+  });
+  state.layers.forEach(function(x){x.active=false;});
+  saveState();render();
+  toast('御所218を画層に読込: '+l.items.length+'件（全てOK・0画層は保持）');
+}
+
 function showAll(){state.base0Visible=true;state.solo=null;state.layers.forEach(function(l){l.visible=true;});saveState();render();}
 function hideAll(){state.base0Visible=false;state.layers.forEach(function(l){l.visible=false;});saveState();render();}
 /* 既に見た(モーダルを開いた)＝残してある＝実質OK。未判定の見た分を全画層まとめてOKへ(開き直し不要) */
@@ -8516,6 +8534,9 @@ function renderPanel(){
   h+='<div class="gacho-master"><button id="gachoShowAll" class="gacho-btn">👁 全て表示</button><button id="gachoHideAll" class="gacho-btn">🚫 全て隠す</button></div>';
   h+='<div class="gacho-master"><button id="gachoOnlyUnrev" class="gacho-btn'+(state.hideReviewed?' on':'')+'" title="見た筆を隠して未確認だけ表示">👀 未確認のみ表示'+(state.hideReviewed?'（ON）':'')+'</button><button id="gachoAreaLbl" class="gacho-btn'+(state.showArea?' on':'')+'" title="敷地境界の面積ラベル表示（ズーム15以上で表示）">㎡ 面積ラベル</button></div>';
   h+='<div class="gacho-master"><button id="gachoBulkOk" class="gacho-btn" title="既に開いて見た(未判定)を全画層でまとめてOKに（開き直し不要）">👁→✓ 見た分をOKに一括</button></div>';
+  var _tOk=0,_tNg=0,_tV=0,_tAll=0;
+  state.layers.forEach(function(l){l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;});});
+  h+='<div class="gacho-total">全画層合計　👁'+_tV+' ／ <span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span> ／ 計'+_tAll+'</div>';
   h+='<div class="gacho-row gacho-base"><span class="gacho-eye" data-b0="1">'+(state.base0Visible?'👁':'🚫')+'</span><span class="gacho-name">0画層｜既存すべて</span></div>';
   state.layers.forEach(function(l){
     var okc=l.items.filter(function(it){return it.status==='ok';}).length;
@@ -8545,6 +8566,7 @@ function renderPanel(){
   }else{h+='<div class="gacho-active-note">取込先の画層を選択/作成してください</div>';}
   h+='<button id="gachoAddBoundary" class="gacho-btn wide" style="background:rgba(236,72,153,.18);border-color:#ec4899">✏️＋ 敷地境界の画層を作る</button>';
   h+='<button id="gachoLoadSuntrust" class="gacho-btn wide" style="background:rgba(245,158,11,.18);border-color:#f59e0b">📦 SUNトラスト納品を画層に読込（確定397）</button>';
+  h+='<button id="gachoLoadGose" class="gacho-btn wide" style="background:rgba(245,158,11,.14);border-color:#f59e0b">☀ 御所218を画層に読込（全OK）</button>';
   h+='<button id="gachoAdd" class="gacho-btn wide add">＋ 新規画層</button>';
   h+='</div>';
   h+='<div class="gacho-hint">既存の筆・フラグを条件別に画層へまとめ、切替えて分析。0画層＝今まで全部。取込は割当のみ・元データは無傷。</div>';
@@ -8579,6 +8601,7 @@ function bindPanel(){
   var rb=q('#gachoRectBtn');if(rb)rb.onclick=toggleRect;
   var ab=q('#gachoAddBoundary');if(ab)ab.onclick=addBoundaryLayer;
   var ls=q('#gachoLoadSuntrust');if(ls)ls.onclick=loadSuntrust;
+  var lg=q('#gachoLoadGose');if(lg)lg.onclick=loadGose;
   var ad=q('#gachoAdd');if(ad)ad.onclick=addLayer;
 }
 
@@ -8627,6 +8650,7 @@ function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=do
 +'.gacho-exp{display:flex;align-items:center;gap:4px;margin-top:8px;font-size:11px;color:#8b949e;}'
 +'.gacho-exp .gacho-btn{flex:1;margin-top:0;}'
 +'.gacho-cnt{padding:1px 6px 5px 30px;font-size:11px;color:#8b949e;font-weight:700;}'
++'.gacho-total{margin:2px 0 6px;padding:5px 8px;background:rgba(31,111,235,.14);border:1px solid rgba(31,111,235,.4);border-radius:6px;font-size:12px;font-weight:700;color:#e6edf3;text-align:center;}'
 +'.gacho-hint{color:#6e7681;margin-top:8px;font-size:10px;line-height:1.4;}'
 +'.gacho-area-lbl{background:rgba(0,0,0,.6);border:none;color:#fff;font-weight:700;font-size:11px;box-shadow:none;}'
 +'.gacho-area-lbl:before{display:none;}'
