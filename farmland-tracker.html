@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260811p / 🗂画層v2.2: 点フラグにOK/NG(除外)判定を実装。ポップアップに「✓ OK」「🚫 NG(除外)」ボタン(setStatus)。NGは消さず灰色で残し(除外を目視確認)、OKは緑リング。画層名の件数表示を「OK○・NG○／計○」に変更＝除外できたか一目。書き出し(KML/GeoJSON)はstatus=ngを自動除外(納品にNGを載せない)。Google確認で使用中の土地をNGにする運用。前:v20260811o -->
 <!-- BUILD: farmland-tracker v20260811o / 🗂画層v2.1＋🔆既存太陽光レイヤー。(1)点フラグ(奈良/三重等)の削除ボタンを「外す」→「🗑 外す」に明確化(🗑アイコンで一目・語は"外す"=画層から筆を取り除く/元データ無傷。Google確認で使用中の土地を除外する用。境界は自作図形なので🗑削除のまま。removeItemはv2.0修正済で確実に動作)。(2)自己完結の「🔆 既存太陽光（発電中）」レイヤーを追加(右上トグル/fitSolarPane)。fit_solar.json(経産省FIT・運転開始済×50kW以上・県別を全県共通ファイルに集約/pref付き)をfetchし出力別に色分け表示。ポップアップに事業者/出力/地番/Googleマップ/「🔎検索欄へ入れる」。用途=既設を確実な地番アンカーに近接探索(既設=適地の証明ではない旨も明記)。前:v20260811n -->
 <!-- BUILD: farmland-tracker v20260811n / 🗂画層v2.0: (1)削除/描き直しが効かないバグ修正=ポップアップ内ボタンで自分の図形を消す時、先にclosePopupしsetTimeout(0)で削除・再描画(Leafletの同期削除の飲まれ対策)。removeItem/redraw両対応。(2)各ポップアップに🌐Googleマップ／🚶ストリートビューのリンクを追加(緯度経度で別タブ)。点・境界とも。前:v20260811m -->
 <!-- BUILD: farmland-tracker v20260811m / 🗂画層v1.9: 敷地境界ポップアップに「🗑 描き直す」(この境界を消して即・描画再開＝redraw)を追加。描画は削除を伴わないため、旧境界が残る問題を解消。境界の削除ボタンは「外す」→「🗑 削除」に明確化(removeItemは従来通り動作)。点フラグの外すは変更なし。前:v20260811l -->
@@ -8389,6 +8390,7 @@ function download(fname,text,mime){try{var b=new Blob([text],{type:(mime||'text/
 function toGeoJSON(layer){
   var feats=[];
   layer.items.forEach(function(it){
+    if(it.status==='ng')return;
     if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
       var ring=it.latlngs.map(function(p){return [p[1],p[0]];});ring.push(ring[0]);
       feats.push({type:'Feature',properties:{layer:layer.name,kind:'敷地境界',area_m2:Math.round(it.area||0),address:it.address||''},geometry:{type:'Polygon',coordinates:[ring]}});
@@ -8402,6 +8404,7 @@ function _kmlColor(hex){hex=(hex||'#f59e0b').replace('#','');if(hex.length<6)hex
 function toKML(layer){
   var c=_kmlColor(layer.color),pm='';
   layer.items.forEach(function(it){
+    if(it.status==='ng')return;
     if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
       var co=it.latlngs.map(function(p){return p[1]+','+p[0]+',0';});co.push(it.latlngs[0][1]+','+it.latlngs[0][0]+',0');
       pm+='<Placemark><name>'+esc('敷地境界 約'+Math.round(it.area||0).toLocaleString()+'㎡')+'</name><styleUrl>#s</styleUrl><Polygon><outerBoundaryIs><LinearRing><coordinates>'+co.join(' ')+'</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>';
@@ -8466,8 +8469,9 @@ function renderLayerGroups(){
       var vd=!!it.viewed;
       var under=(it.area!=null&&it.area<800);
       var areaTxt=(it.area!=null)?('面積 <b style="font-size:14px;color:'+(under?'#f85149':'#3fb950')+'">'+Math.round(it.area).toLocaleString()+' ㎡</b>'+(under?'<br><span style="color:#f85149">⚠ 800㎡未満：隣接を含め敷地境界を手描きで作成</span>':'')):'<span style="color:#8b949e">面積 不明</span>';
-      var acts='<div style="margin-top:8px"><button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 敷地境界を描く</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.review(\''+l.id+'\',\''+(it.iid||'')+'\',false)">↺ 未確認</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')" title="この画層から筆を取り除く（元データは無傷）">🗑 外す</button></div>';
+      var acts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 敷地境界を描く</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')" title="この画層から筆を取り除く（元データは無傷）">🗑 外す</button></div>';
       var seen='<span style="color:#9aa4ae">'+(vd?'✓ 見た':'')+'</span>';
+      var stat=it.status==='ok'?' <b style="color:#3fb950">✓OK</b>':(it.status==='ng'?' <b style="color:#f85149">🚫NG(除外)</b>':'');
       var gmap='<div style="margin-top:6px"><a href="https://www.google.com/maps/search/?api=1&query='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🌐 Googleマップ</a> ｜ <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🚶 ストリートビュー</a></div>';
       if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
         var bacts='<div style="margin-top:8px"><button onclick="window.__gacho.redraw(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 描き直す</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.review(\''+l.id+'\',\''+(it.iid||'')+'\',false)">↺ 未確認</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 削除</button></div>';
@@ -8477,8 +8481,9 @@ function renderLayerGroups(){
         pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{pg.setStyle({fillOpacity:0.08,dashArray:'4,4'});}catch(_){}saveState();renderPanel();}});
         g.addLayer(pg);
       }else{
-        var mk=L.circleMarker([it.lat,it.lng],{pane:'gachoPane',radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95});
-        mk.bindPopup('<div style="font-size:12px;min-width:140px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+acts+'</div>');
+        var _sty=it.status==='ng'?{radius:5,color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.3}:(it.status==='ok'?{radius:7,color:'#3fb950',weight:3,fillColor:l.color,fillOpacity:0.95}:{radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95});
+        var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
+        mk.bindPopup('<div style="font-size:12px;min-width:140px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+acts+'</div>');
         mk.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{mk.setRadius(5);mk.setStyle({color:'#9aa4ae',weight:1,fillOpacity:0.35});}catch(_){}saveState();renderPanel();}});
         g.addLayer(mk);
       }
@@ -8500,11 +8505,13 @@ function renderPanel(){
   h+='<div class="gacho-master"><button id="gachoOnlyUnrev" class="gacho-btn'+(state.hideReviewed?' on':'')+'" title="見た筆を隠して未確認だけ表示">👀 未確認のみ表示'+(state.hideReviewed?'（ON）':'')+'</button><button id="gachoAreaLbl" class="gacho-btn'+(state.showArea?' on':'')+'" title="敷地境界の面積ラベル表示（ズーム15以上で表示）">㎡ 面積ラベル</button></div>';
   h+='<div class="gacho-row gacho-base"><span class="gacho-eye" data-b0="1">'+(state.base0Visible?'👁':'🚫')+'</span><span class="gacho-name">0画層｜既存すべて</span></div>';
   state.layers.forEach(function(l){
-    var vc=l.items.filter(function(it){return it.viewed;}).length;
+    var okc=l.items.filter(function(it){return it.status==='ok';}).length;
+    var ngc=l.items.filter(function(it){return it.status==='ng';}).length;
+    var cnt=l.items.length?('<span style="color:#3fb950">OK'+okc+'</span>・<span style="color:#f85149">NG'+ngc+'</span>／計'+l.items.length):'0';
     h+='<div class="gacho-row'+(l.active?' active':'')+'">'
       +'<span class="gacho-eye" data-eye="'+l.id+'">'+(l.visible?'👁':'🚫')+'</span>'
       +'<span class="gacho-dot" data-dot="'+l.id+'" style="background:'+l.color+'" title="色変更"></span>'
-      +'<span class="gacho-name" data-sel="'+l.id+'" title="取込先に選択">'+esc(l.name)+' <b>('+(l.items.length?'見た'+vc+'/'+l.items.length:l.items.length)+')</b></span>'
+      +'<span class="gacho-name" data-sel="'+l.id+'" title="取込先に選択">'+esc(l.name)+' <b>('+cnt+')</b></span>'
       +'<span class="gacho-solo'+(state.solo===l.id?' on':'')+'" data-solo="'+l.id+'" title="この画層だけ表示">◎</span>'
       +'<span class="gacho-ren" data-ren="'+l.id+'" title="名前変更">✎</span>'
       +'<span class="gacho-del" data-del="'+l.id+'" title="削除">🗑</span>'
@@ -8562,6 +8569,7 @@ function bindPanel(){
 window.__gacho={
   removeItem:function(lid,itemIid){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();setTimeout(function(){render();},0);},
   review:function(lid,itemIid,val){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid)it.viewed=!!val;});saveState();render();},
+  setStatus:function(lid,itemIid,val){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid){it.status=(it.status===val?null:val);it.viewed=true;}});saveState();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   moveItem:function(lid,itemIid){
     var l=byId(lid);if(!l)return;
