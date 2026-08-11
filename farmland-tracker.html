@@ -7028,6 +7028,7 @@ window.toggleEdgePanel = function(id){
 <script src="battery_gappitsu.js?v=20260809a"></script><!-- 蓄電池→合筆→太陽光 候補(424クラスタ・納品/ピンク重複除外済) -->
 <script src="mie_candidates.js?v=20260809b"></script><!-- 三重 白地≥800にreject AI採点＋①③④⑤ステータス強化。完全クリア適当80筆=納品候補。window.MIE_CAND -->
 <script src="gappitsu_hold_151.js?v=20260810b"></script><!-- 🟣合筆提案108+保留37+対象外6=151(SUNトラスト関西)。各筆fid付き(NG削除用)。cases_all.json由来=突合表と同一。window.GAPPITSU_HOLD -->
+<script src="gose218_analysis.js?v=20260811a"></script><!-- ☀御所218 低圧太陽光分析(面積800-1200の107本命)。①面積④接道⑤連系⑥日照。window.GOSE218 -->
 <script>
   (function waitForMap(){
     if (typeof map !== 'undefined' && map && typeof db !== 'undefined' && db) {
@@ -7083,6 +7084,32 @@ window.ghDelete=async function(fid,lat,lng){
       }catch(e){ console.warn('[gappitsu_hold]',e); }
     })();
   } else { setTimeout(waitGH,150); }
+})();
+/* ☀御所218 低圧太陽光分析フラグ（①面積④接道⑤連系⑥日照。②③ハザ青地は除外済） */
+(function waitGose(){
+  if (typeof map !== 'undefined' && map && typeof L !== 'undefined' && window.GOSE218) {
+    try{
+      if(!map.getPane('gosePane')){ var pn=map.createPane('gosePane'); pn.style.zIndex=652; }
+      var lyr=L.layerGroup([]); var shown=0;
+      function yn(b){return b?'<span style="color:#22c55e">✓</span>':'<span style="color:#f87171">×</span>';}
+      (window.GOSE218.items||[]).forEach(function(c){
+        if(c.lat==null||c.lng==null) return;
+        var col = c.honmei?'#22c55e':(c.pass>=3?'#f59e0b':(c.pass>=2?'#eab308':'#6b7280'));
+        var m=L.circleMarker([c.lat,c.lng],{pane:'gosePane',radius:8,fillColor:col,color:'#ffffff',weight:1.6,fillOpacity:0.9});
+        var g='https://www.google.com/maps?q='+c.lat+','+c.lng;
+        var h='<div style="font-family:sans-serif;font-size:12px;min-width:232px">'
+          +'<div style="font-weight:800;color:'+col+';margin-bottom:4px">☀ 御所218 No.'+c.no+' '+(c.kind||'')+(c.honmei?' ★本命':'')+'</div>'
+          +'<b>'+(c.addr||'')+'</b><br>面積: '+c.area+'㎡ ／ 筆数: '+c.n+'<br>'
+          +'①面積800-1200 '+yn(true)+' ／ ②③ハザ青地 <span style="color:#22c55e">✓済</span><br>'
+          +'④接道('+(c.road_m!=null?c.road_m+'m':'-')+') '+yn(c.setsudo)+' ／ ⑤連系('+(c.power_m!=null?c.power_m+'m':'-')+') '+yn(c.renkei)+'<br>'
+          +'⑥日照 '+yn(c.nissho)+' ／ 通過 '+c.pass+'/4<br>'
+          +'<div style="margin-top:6px"><a href="'+g+'" target="_blank" style="color:#38bdf8">📍地図</a></div></div>';
+        m.bindPopup(h); m.addTo(lyr); shown++;
+      });
+      lyr.addTo(map); window.__goseLayer=lyr;
+      console.log('[gose218] 御所分析フラグ '+shown+'件表示');
+    }catch(e){ console.warn('[gose218]',e); }
+  } else { setTimeout(waitGose,150); }
 })();
 </script>
 <script>
