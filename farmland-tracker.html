@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260811g / 🗂画層v1.3: 画層の書き出しを追加。アクティブ画層を①KML(Google Earthでダブルクリック=敷地の形が地球上に表示・クライアント納品用)②GeoJSON(GIS標準・AI連携用/ダウンロードしたファイルをAIが読む=スナップショット不要)③📋GeoJSONコピー(貼付でAIへ)。境界polygon/筆pointの両方を出力・面積/住所/画層名をproperties化。turf面積・iid・排他モードはv1.2のまま。前:v20260811f -->
 <!-- BUILD: farmland-tracker v20260811f / 🗂画層v1.2: (1)🖱クリックで1件ずつ取込=フラグをクリックして最寄り筆をアクティブ画層へ(26px以内)。(2)✏️敷地境界を描く=CAD風にクリックで頂点→Wクリック確定、turf.areaで面積算出し画層にpolygon保存(面積ラベル常時表示・非農地の敷地面積用・将来AI自動描画)。各itemにiid付与しremoveをiid基準に。緯度経度+画層に紐付くので形をいつでも再現。取込4種(クリック/範囲全部/面積条件/範囲ドラッグ)＋描画。用途=非農地の敷地面積をSUNトラスト納品情報として口頭説明なしで渡す。前:v20260811e -->
 <!-- BUILD: farmland-tracker v20260811e / 🗂画層機能v1.1: 「面積≥N㎡で取り込む」条件取込を追加(既定800㎡)。取り込み時に各筆の面積(area_m2/area_sqm/area)を保持し、表示中の範囲から閾値以上のみをアクティブ画層へ。例=奈良で数百筆表示→≥800を画層1へ→0画層を隠すと必要筆だけ表示(0画層は全フラグ保持のまま)。ポップアップに面積表示。面積不明筆は条件取込から除外(件数通知)。全部取込/範囲ドラッグ/単独表示/全表示・全非表示はv1のまま。前:v20260811d -->
 <!-- BUILD: farmland-tracker v20260811d / 🗂画層(レイヤー)機能v1を追加(自己完結・既存非変更)。0画層=既存すべて。探し方/抽出の切り口ごとにユーザ画層を作り、既存の筆・フラグを範囲ドラッグ/表示範囲で取り込み色別表示。画層ごと表示ON/OFF・単独表示(◎)・名前・色・削除、全て表示/全て隠す一括ボタン。0画層OFF=base/画層pane以外を一括非表示で下地だけに。取込は割当のみ(元データ無傷)・保存はlocalStorage(この端末)。</body>直前に1<script>ブロック挿入のみ。前:v20260811c -->
@@ -8362,6 +8363,45 @@ function rectMove(e){var m=getMap();if(!_rectStart)return;if(_rectLayer)m.remove
 function rectUp(e){var m=getMap();var b=L.latLngBounds(_rectStart,e.latlng);m.off('mousemove',rectMove);m.off('mouseup',rectUp);if(_rectLayer){m.removeLayer(_rectLayer);_rectLayer=null;}_rectStart=null;if(b.isValid())captureBounds(b);}
 function cleanupRect(){var m=getMap();if(!m)return;m.off('mousedown',rectDown);m.off('mousemove',rectMove);m.off('mouseup',rectUp);if(_rectLayer){try{m.removeLayer(_rectLayer);}catch(_){}_rectLayer=null;}_rectStart=null;try{m.dragging.enable();}catch(_){}m.getContainer().style.cursor='';_rectMode=false;renderPanel();}
 
+/* ===== 書き出し（スナップショット不要でAIへ／クライアントへスマートに渡す） ===== */
+function _fnsafe(s){return String(s||'画層').replace(/[\\\/:*?"<>|\s]+/g,'_').slice(0,40);}
+function _stamp(){var d=new Date();function z(n){return (n<10?'0':'')+n;}return ''+d.getFullYear()+z(d.getMonth()+1)+z(d.getDate())+'_'+z(d.getHours())+z(d.getMinutes());}
+function download(fname,text,mime){try{var b=new Blob([text],{type:(mime||'text/plain')+';charset=utf-8'});var u=URL.createObjectURL(b);var a=document.createElement('a');a.href=u;a.download=fname;document.body.appendChild(a);a.click();setTimeout(function(){try{URL.revokeObjectURL(u);a.remove();}catch(_){}} ,500);}catch(e){toast('書き出し失敗');}}
+function toGeoJSON(layer){
+  var feats=[];
+  layer.items.forEach(function(it){
+    if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
+      var ring=it.latlngs.map(function(p){return [p[1],p[0]];});ring.push(ring[0]);
+      feats.push({type:'Feature',properties:{layer:layer.name,kind:'敷地境界',area_m2:Math.round(it.area||0),address:it.address||''},geometry:{type:'Polygon',coordinates:[ring]}});
+    }else{
+      feats.push({type:'Feature',properties:{layer:layer.name,kind:'筆',feature_id:it.feature_id||'',area_m2:(it.area!=null?Math.round(it.area):null),address:it.address||'',city:it.city||''},geometry:{type:'Point',coordinates:[it.lng,it.lat]}});
+    }
+  });
+  return {type:'FeatureCollection',name:layer.name,features:feats};
+}
+function _kmlColor(hex){hex=(hex||'#f59e0b').replace('#','');if(hex.length<6)hex='f59e0b';return 'ff'+hex.substr(4,2)+hex.substr(2,2)+hex.substr(0,2);}
+function toKML(layer){
+  var c=_kmlColor(layer.color),pm='';
+  layer.items.forEach(function(it){
+    if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
+      var co=it.latlngs.map(function(p){return p[1]+','+p[0]+',0';});co.push(it.latlngs[0][1]+','+it.latlngs[0][0]+',0');
+      pm+='<Placemark><name>'+esc('敷地境界 約'+Math.round(it.area||0).toLocaleString()+'㎡')+'</name><styleUrl>#s</styleUrl><Polygon><outerBoundaryIs><LinearRing><coordinates>'+co.join(' ')+'</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>';
+    }else{
+      pm+='<Placemark><name>'+esc(it.address||'筆')+'</name><styleUrl>#s</styleUrl><Point><coordinates>'+it.lng+','+it.lat+',0</coordinates></Point></Placemark>';
+    }
+  });
+  return '<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>'+esc(layer.name)+'</name>'
+    +'<Style id="s"><IconStyle><color>'+c+'</color></IconStyle><LineStyle><color>'+c+'</color><width>2</width></LineStyle><PolyStyle><color>'+('66'+c.substr(2))+'</color></PolyStyle></Style>'
+    +pm+'</Document></kml>';
+}
+function exportLayer(fmt){
+  var l=activeLayer();if(!l){toast('書き出す画層を選んでください');return;}
+  if(!l.items.length){toast('この画層は空です');return;}
+  if(fmt==='geojson'){download(_fnsafe(l.name)+'_'+_stamp()+'.geojson',JSON.stringify(toGeoJSON(l),null,2),'application/geo+json');toast('GeoJSONを書き出しました（AI連携/GIS用）');}
+  else if(fmt==='kml'){download(_fnsafe(l.name)+'_'+_stamp()+'.kml',toKML(l),'application/vnd.google-earth.kml+xml');toast('KMLを書き出しました（Google Earthで開けます）');}
+  else if(fmt==='copy'){var t=JSON.stringify(toGeoJSON(l));if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){toast('GeoJSONをコピーしました（貼り付けでAIへ渡せます）');},function(){toast('コピー失敗');});}else{toast('コピー非対応の環境です');}}
+}
+
 function showAll(){state.base0Visible=true;state.solo=null;state.layers.forEach(function(l){l.visible=true;});saveState();render();}
 function hideAll(){state.base0Visible=false;state.layers.forEach(function(l){l.visible=false;});saveState();render();}
 
@@ -8420,6 +8460,7 @@ function renderPanel(){
     h+='<div class="gacho-cond">面積 ≥ <input id="gachoMinArea" type="number" min="0" step="50" value="'+(state.lastMinArea!=null?state.lastMinArea:800)+'"> ㎡ <button id="gachoCapCond" class="gacho-btn">条件で取込</button></div>';
     h+='<button id="gachoRectBtn" class="gacho-btn wide'+(_rectMode?' on':'')+'">▭ 範囲ドラッグで取り込む'+(_rectMode?'（ESCで終了）':'')+'</button>';
     h+='<button id="gachoDrawBtn" class="gacho-btn wide'+(_drawMode?' on':'')+'">✏️ 敷地境界を描く（面積）'+(_drawMode?'：クリックで頂点／Wクリック確定':'')+'</button>';
+    h+='<div class="gacho-exp">書き出し <button id="gachoExpKml" class="gacho-btn" title="Google Earthで開ける・クライアント納品用">KML</button><button id="gachoExpGeo" class="gacho-btn" title="GIS標準・AI連携用">GeoJSON</button><button id="gachoExpCopy" class="gacho-btn" title="コピーして貼付でAIへ">📋</button></div>';
   }else{h+='<div class="gacho-active-note">取込先の画層を選択/作成してください</div>';}
   h+='<button id="gachoAdd" class="gacho-btn wide add">＋ 新規画層</button>';
   h+='</div>';
@@ -8444,6 +8485,9 @@ function bindPanel(){
   var cc=q('#gachoCapCond');if(cc)cc.onclick=function(){var el=q('#gachoMinArea');var v=el?Number(el.value):800;if(isNaN(v))v=0;state.lastMinArea=v;saveState();captureViewport({minArea:v});};
   var pk=q('#gachoPickBtn');if(pk)pk.onclick=togglePick;
   var db=q('#gachoDrawBtn');if(db)db.onclick=toggleDraw;
+  var eg=q('#gachoExpGeo');if(eg)eg.onclick=function(){exportLayer('geojson');};
+  var ek=q('#gachoExpKml');if(ek)ek.onclick=function(){exportLayer('kml');};
+  var ep=q('#gachoExpCopy');if(ep)ep.onclick=function(){exportLayer('copy');};
   var rb=q('#gachoRectBtn');if(rb)rb.onclick=toggleRect;
   var ad=q('#gachoAdd');if(ad)ad.onclick=addLayer;
 }
@@ -8473,6 +8517,8 @@ function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=do
 +'.gacho-cond{display:flex;align-items:center;gap:4px;margin-top:6px;font-size:11px;color:#c9d1d9;}'
 +'.gacho-cond input{width:62px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:4px;padding:3px 4px;}'
 +'.gacho-cond .gacho-btn{flex:none;margin-top:0;}'
++'.gacho-exp{display:flex;align-items:center;gap:4px;margin-top:8px;font-size:11px;color:#8b949e;}'
++'.gacho-exp .gacho-btn{flex:1;margin-top:0;}'
 +'.gacho-hint{color:#6e7681;margin-top:8px;font-size:10px;line-height:1.4;}'
 +'.gacho-area-lbl{background:rgba(0,0,0,.6);border:none;color:#fff;font-weight:700;font-size:11px;box-shadow:none;}'
 +'.gacho-area-lbl:before{display:none;}';
