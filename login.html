@@ -235,7 +235,12 @@
   function isOwner(email) {
     return !!email && OWNER_EMAILS.indexOf(String(email).trim().toLowerCase()) !== -1;
   }
-  const MAINTENANCE_MSG = '現在メンテナンス中です。オーナーのみログインできます。';
+  // メンテナンス中でもログイン許可するメール（オーナー＋個別許可: 黒木さん九州 2026-08-11）
+  const MAINTENANCE_ALLOW_EMAILS = ['takumi.kurimoto@gmail.com', 'yumi.kurogi117@gmail.com'];
+  function isMaintenanceAllowed(email) {
+    return !!email && MAINTENANCE_ALLOW_EMAILS.indexOf(String(email).trim().toLowerCase()) !== -1;
+  }
+  const MAINTENANCE_MSG = '現在メンテナンス中です。許可されたユーザーのみログインできます。';
 
   // ==========================================================
   // 既存セッション自動リダイレクト
@@ -258,7 +263,7 @@
         if (profile) {
           // ★メンテナンスロック: オーナー以外は既存セッションでも入場不可
           // 認証セッションのemail優先（profiles.emailがnullでもオーナーを誤ロックしない）
-          if (MAINTENANCE_OWNER_ONLY && !isOwner((session.user && session.user.email) || profile.email)) {
+          if (MAINTENANCE_OWNER_ONLY && !isMaintenanceAllowed((session.user && session.user.email) || profile.email)) {
             await sb.auth.signOut();
             clearLocalSession();
             showMessage(MAINTENANCE_MSG, 'error');
@@ -384,7 +389,7 @@
 
       // ★メンテナンスロック: オーナー以外はログイン不可（セッション保存前に弾く）
       // 判定は認証セッションのemail優先（profiles.emailがnullでもオーナーを誤ロックしない）
-      if (MAINTENANCE_OWNER_ONLY && !isOwner((authData.user && authData.user.email) || profile.email)) {
+      if (MAINTENANCE_OWNER_ONLY && !isMaintenanceAllowed((authData.user && authData.user.email) || profile.email)) {
         await sb.auth.signOut();
         clearLocalSession();
         showMessage(MAINTENANCE_MSG, 'error');
