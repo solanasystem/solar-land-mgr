@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260811e / 🗂画層機能v1.1: 「面積≥N㎡で取り込む」条件取込を追加(既定800㎡)。取り込み時に各筆の面積(area_m2/area_sqm/area)を保持し、表示中の範囲から閾値以上のみをアクティブ画層へ。例=奈良で数百筆表示→≥800を画層1へ→0画層を隠すと必要筆だけ表示(0画層は全フラグ保持のまま)。ポップアップに面積表示。面積不明筆は条件取込から除外(件数通知)。全部取込/範囲ドラッグ/単独表示/全表示・全非表示はv1のまま。前:v20260811d -->
 <!-- BUILD: farmland-tracker v20260811d / 🗂画層(レイヤー)機能v1を追加(自己完結・既存非変更)。0画層=既存すべて。探し方/抽出の切り口ごとにユーザ画層を作り、既存の筆・フラグを範囲ドラッグ/表示範囲で取り込み色別表示。画層ごと表示ON/OFF・単独表示(◎)・名前・色・削除、全て表示/全て隠す一括ボタン。0画層OFF=base/画層pane以外を一括非表示で下地だけに。取込は割当のみ(元データ無傷)・保存はlocalStorage(この端末)。</body>直前に1<script>ブロック挿入のみ。前:v20260811c -->
 <!-- BUILD: farmland-tracker v20260811c / 🗺️ベース地図(地図/GSI衛星/最新衛星)の選択を記憶。switchGISでlocalStorage['trackerBaseGIS']に保存し、initMapで復元(currentGIS＋ボタンactive＋baseLayerを保存値で初期化)。強制リロードしても最後に選んだベースで表示。未保存/不正値はmapにフォールバック。他機能無変更。前:v20260811b -->
 <!-- BUILD: farmland-tracker v20260811b / 📍検索欄(#chibanInput)に緯度経度入力→Enterで即ジャンプ(Googleマップ式)を実装。"34.6277, 136.4917"(カンマ/空白/全角可・lat,lng逆順も許容・日本国内範囲で判定)を入れてEnter→その座標へ移動(jumpToChiban=setView z17+ピン)。緯度経度入力中は地名候補を出さない(勝手に飛ばない・Enterのみ)。地名/地番検索は従来通り。_parseLatLng＋_searchChiban先頭の検出分岐(候補抑止)＋keydown(Enter)＋placeholder更新のみ。他機能無変更。前:v20260811a -->
@@ -8273,32 +8274,38 @@ function ensurePane(m){if(_pane)return _pane;_pane=m.createPane('gachoPane');_pa
 /* 範囲内の既存の筆・フラグを集める（collectMarkersInBounds のロジックを再利用・全キャッシュ横断） */
 function collectInBounds(bounds){
   var m=getMap(),out=[],seen={};if(!m)return out;
-  function push(fid,lat,lng,addr,city,src){
+  function num(v){var n=Number(v);return (v!=null&&!isNaN(n))?n:null;}
+  function push(fid,lat,lng,addr,city,src,area){
     if(lat==null||lng==null)return;lat=Number(lat);lng=Number(lng);if(isNaN(lat)||isNaN(lng))return;
     if(!bounds.contains([lat,lng]))return;
     var key=fid||(lat.toFixed(6)+','+lng.toFixed(6));if(seen[key])return;seen[key]=true;
-    out.push({feature_id:fid||null,lat:lat,lng:lng,address:addr||'',city:city||'',src:src||''});
+    out.push({feature_id:fid||null,lat:lat,lng:lng,address:addr||'',city:city||'',src:src||'',area:num(area)});
   }
-  try{if(typeof markersLayer!=='undefined'&&markersLayer){markersLayer.eachLayer(function(mk){try{var ll=mk.getLatLng&&mk.getLatLng();if(!ll)return;var it=mk._item||{};push(it.feature_id||mk._featureId,ll.lat,ll.lng,it.address,it.city,'tracker');}catch(_){}});}}catch(_){}
-  try{if(typeof _satData!=='undefined'&&_satData&&typeof satAnalysisEnabled!=='undefined'&&satAnalysisEnabled){_satData.forEach(function(r){if(r)push(r.feature_id,r.lat,r.lng,r.address,'','sat');});}}catch(_){}
-  try{if(typeof candCache!=='undefined'&&candCache&&typeof candEnabled!=='undefined'&&candEnabled){candCache.forEach(function(c){if(c)push(c.feature_id,c.lat,c.lng,c.address,c.city,'cand');});}}catch(_){}
-  try{if(typeof yukyuCache!=='undefined'&&yukyuCache&&typeof yukyuEnabled!=='undefined'&&yukyuEnabled){yukyuCache.forEach(function(c){if(c)push(c.feature_id,c.lat,c.lng,c.address,c.city,'yukyu');});}}catch(_){}
-  try{if(typeof useCache!=='undefined'&&useCache){Object.keys(useCache).forEach(function(k){var arr=useCache[k];if(arr&&arr.forEach)arr.forEach(function(c){if(c)push(c.feature_id||c.cc_id,c.lat,c.lng,c.address,c.city,'use');});});}}catch(_){}
+  try{if(typeof markersLayer!=='undefined'&&markersLayer){markersLayer.eachLayer(function(mk){try{var ll=mk.getLatLng&&mk.getLatLng();if(!ll)return;var it=mk._item||{};push(it.feature_id||mk._featureId,ll.lat,ll.lng,it.address,it.city,'tracker',it.area_m2||it.area_sqm||it.area);}catch(_){}});}}catch(_){}
+  try{if(typeof _satData!=='undefined'&&_satData&&typeof satAnalysisEnabled!=='undefined'&&satAnalysisEnabled){_satData.forEach(function(r){if(r)push(r.feature_id,r.lat,r.lng,r.address,'','sat',r.area_m2||r.area_sqm||r.area);});}}catch(_){}
+  try{if(typeof candCache!=='undefined'&&candCache&&typeof candEnabled!=='undefined'&&candEnabled){candCache.forEach(function(c){if(c)push(c.feature_id,c.lat,c.lng,c.address,c.city,'cand',c.area_sqm||c.area_m2||c.area);});}}catch(_){}
+  try{if(typeof yukyuCache!=='undefined'&&yukyuCache&&typeof yukyuEnabled!=='undefined'&&yukyuEnabled){yukyuCache.forEach(function(c){if(c)push(c.feature_id,c.lat,c.lng,c.address,c.city,'yukyu',c.area_m2||c.area_sqm||c.area);});}}catch(_){}
+  try{if(typeof useCache!=='undefined'&&useCache){Object.keys(useCache).forEach(function(k){var arr=useCache[k];if(arr&&arr.forEach)arr.forEach(function(c){if(c)push(c.feature_id||c.cc_id,c.lat,c.lng,c.address,c.city,'use',c.area_m2||c.area_sqm||c.area);});});}}catch(_){}
   return out;
 }
 
 function setActive(id){state.layers.forEach(function(l){l.active=(l.id===id);});saveState();render();}
 function addLayer(){var idx=state.layers.length;state.layers.forEach(function(x){x.active=false;});state.layers.push({id:uid(),name:'画層'+(idx+1),color:PALETTE[idx%PALETTE.length],visible:true,active:true,items:[]});saveState();render();}
 
-function captureBounds(bounds){
+function captureBounds(bounds,opts){
+  opts=opts||{};
   var l=activeLayer();if(!l){toast('先に取込先の画層を選ぶ/作ってください');return;}
-  var found=collectInBounds(bounds),existing={},added=0;
+  var found=collectInBounds(bounds),existing={},added=0,skipped=0;
+  var minA=(opts.minArea!=null&&!isNaN(Number(opts.minArea)))?Number(opts.minArea):null;
+  var pool=found;
+  if(minA!=null){pool=found.filter(function(f){if(f.area==null){skipped++;return false;}return f.area>=minA;});}
   l.items.forEach(function(it){existing[it.feature_id||(it.lat+','+it.lng)]=true;});
-  found.forEach(function(f){var k=f.feature_id||(f.lat+','+f.lng);if(existing[k])return;existing[k]=true;l.items.push(f);added++;});
+  pool.forEach(function(f){var k=f.feature_id||(f.lat+','+f.lng);if(existing[k])return;existing[k]=true;l.items.push(f);added++;});
   saveState();render();
-  toast(added+'件を「'+l.name+'」に取り込み（範囲内 '+found.length+'件）');
+  if(minA!=null){toast(added+'件を「'+l.name+'」に取り込み（≥'+minA+'㎡｜範囲内'+found.length+'件中 該当'+pool.length+'件'+(skipped?'／面積不明'+skipped+'件は除外':'')+'）');}
+  else{toast(added+'件を「'+l.name+'」に取り込み（範囲内 '+found.length+'件）');}
 }
-function captureViewport(){var m=getMap();if(m)captureBounds(m.getBounds());}
+function captureViewport(opts){var m=getMap();if(m)captureBounds(m.getBounds(),opts);}
 
 function toggleRect(){var m=getMap();if(!m)return;_rectMode=!_rectMode;if(_rectMode){try{m.dragging.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('mousedown',rectDown);toast('地図上をドラッグで囲むと、その範囲の筆・フラグを取り込みます（ESCで終了）');}else{cleanupRect();}renderPanel();}
 function rectDown(e){_rectStart=e.latlng;var m=getMap();m.on('mousemove',rectMove);m.on('mouseup',rectUp);}
@@ -8320,7 +8327,7 @@ function renderLayerGroups(){
     var g=L.layerGroup([],{pane:'gachoPane'});
     l.items.forEach(function(it){
       var mk=L.circleMarker([it.lat,it.lng],{pane:'gachoPane',radius:7,color:'#fff',weight:2,fillColor:l.color,fillOpacity:0.95});
-      mk.bindPopup('<div style="font-size:12px;min-width:140px"><b style="color:'+l.color+'">'+esc(l.name)+'</b><br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+'<br><button style="margin-top:6px" onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.feature_id||'')+'\','+it.lat+','+it.lng+')">この画層から外す</button></div>');
+      mk.bindPopup('<div style="font-size:12px;min-width:140px"><b style="color:'+l.color+'">'+esc(l.name)+'</b><br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.area!=null?'<br>面積 '+Math.round(it.area).toLocaleString()+' ㎡':'')+'<br><button style="margin-top:6px" onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.feature_id||'')+'\','+it.lat+','+it.lng+')">この画層から外す</button></div>');
       g.addLayer(mk);
     });
     g.addTo(m);_groups[l.id]=g;
@@ -8351,7 +8358,8 @@ function renderPanel(){
   h+='<div class="gacho-actions">';
   if(al){
     h+='<div class="gacho-active-note">取込先: <b style="color:'+al.color+'">'+esc(al.name)+'</b></div>';
-    h+='<button id="gachoCapView" class="gacho-btn wide">＋ 表示中の範囲を取り込む</button>';
+    h+='<button id="gachoCapView" class="gacho-btn wide">＋ 表示中の範囲を取り込む（全部）</button>';
+    h+='<div class="gacho-cond">面積 ≥ <input id="gachoMinArea" type="number" min="0" step="50" value="'+(state.lastMinArea!=null?state.lastMinArea:800)+'"> ㎡ <button id="gachoCapCond" class="gacho-btn">条件で取込</button></div>';
     h+='<button id="gachoRectBtn" class="gacho-btn wide'+(_rectMode?' on':'')+'">▭ 範囲ドラッグで取り込む'+(_rectMode?'（ESCで終了）':'')+'</button>';
   }else{h+='<div class="gacho-active-note">取込先の画層を選択/作成してください</div>';}
   h+='<button id="gachoAdd" class="gacho-btn wide add">＋ 新規画層</button>';
@@ -8373,7 +8381,8 @@ function bindPanel(){
   all('.gacho-solo[data-solo]').forEach(function(el){el.onclick=function(){var id=el.getAttribute('data-solo');state.solo=(state.solo===id?null:id);saveState();render();};});
   all('.gacho-ren[data-ren]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-ren'));if(!l)return;var n=prompt('画層名',l.name);if(n!=null&&n.trim()){l.name=n.trim();saveState();render();}};});
   all('.gacho-del[data-del]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-del'));if(!l)return;if(confirm('画層「'+l.name+'」を削除しますか？（割当のみ削除・元データは無傷）')){state.layers=state.layers.filter(function(x){return x.id!==l.id;});if(state.solo===l.id)state.solo=null;saveState();render();}};});
-  var cv=q('#gachoCapView');if(cv)cv.onclick=captureViewport;
+  var cv=q('#gachoCapView');if(cv)cv.onclick=function(){captureViewport();};
+  var cc=q('#gachoCapCond');if(cc)cc.onclick=function(){var el=q('#gachoMinArea');var v=el?Number(el.value):800;if(isNaN(v))v=0;state.lastMinArea=v;saveState();captureViewport({minArea:v});};
   var rb=q('#gachoRectBtn');if(rb)rb.onclick=toggleRect;
   var ad=q('#gachoAdd');if(ad)ad.onclick=addLayer;
 }
@@ -8400,6 +8409,9 @@ function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=do
 +'.gacho-name{flex:1;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}'
 +'.gacho-actions{margin-top:8px;border-top:1px solid #30363d;padding-top:8px;}'
 +'.gacho-active-note{color:#8b949e;margin-bottom:4px;}'
++'.gacho-cond{display:flex;align-items:center;gap:4px;margin-top:6px;font-size:11px;color:#c9d1d9;}'
++'.gacho-cond input{width:62px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:4px;padding:3px 4px;}'
++'.gacho-cond .gacho-btn{flex:none;margin-top:0;}'
 +'.gacho-hint{color:#6e7681;margin-top:8px;font-size:10px;line-height:1.4;}';
 document.head.appendChild(st);}
 
