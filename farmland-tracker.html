@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260811i / 🗂画層v1.5: 確認進捗＋面積強調＋描画動線。(1)フラグを開いた瞬間に自動で「✓見た」=灰色に減光(popupopenでviewed保存)＝どこまで見たか一目。(2)「👀未確認のみ表示」トグルで見た筆を隠し残りだけ表示、画層名に(見たN/総数)。(3)ポップアップに面積を大きく表示・800㎡未満は赤字＋「隣接含め手描き要」警告。(4)ポップアップから「✏️敷地境界を描く」で即描画(その画層をアクティブ化)。(5)描画中はポップアップを閉じ画層paneのpointer-eventsを切って線が邪魔されない。前:v20260811h -->
 <!-- BUILD: farmland-tracker v20260811h / 🗂画層v1.4: 📦「SUNトラスト納品を画層に読込(確定397)」を追加。suntrust_cases_all.json(=突合表cases_all.json複製・確定/栗本さんOK済)をfetchし、県×区分(納品/合筆提案/保留・対象外)で画層を自動生成(色: 納品緑/合筆青/保留灰)。AIは数え直さず確定データをそのまま流し込むだけ。ポップアップに地番/区分追加。0画層(既存)は不変・再読込は同名画層をデータで置換(重複なし)。前:v20260811g -->
 <!-- BUILD: farmland-tracker v20260811g / 🗂画層v1.3: 画層の書き出しを追加。アクティブ画層を①KML(Google Earthでダブルクリック=敷地の形が地球上に表示・クライアント納品用)②GeoJSON(GIS標準・AI連携用/ダウンロードしたファイルをAIが読む=スナップショット不要)③📋GeoJSONコピー(貼付でAIへ)。境界polygon/筆pointの両方を出力・面積/住所/画層名をproperties化。turf面積・iid・排他モードはv1.2のまま。前:v20260811f -->
 <!-- BUILD: farmland-tracker v20260811f / 🗂画層v1.2: (1)🖱クリックで1件ずつ取込=フラグをクリックして最寄り筆をアクティブ画層へ(26px以内)。(2)✏️敷地境界を描く=CAD風にクリックで頂点→Wクリック確定、turf.areaで面積算出し画層にpolygon保存(面積ラベル常時表示・非農地の敷地面積用・将来AI自動描画)。各itemにiid付与しremoveをiid基準に。緯度経度+画層に紐付くので形をいつでも再現。取込4種(クリック/範囲全部/面積条件/範囲ドラッグ)＋描画。用途=非農地の敷地面積をSUNトラスト納品情報として口頭説明なしで渡す。前:v20260811e -->
@@ -8264,6 +8265,7 @@ function loadState(){
   if(!s||typeof s!=='object')s={};
   if(typeof s.base0Visible==='undefined')s.base0Visible=true;
   if(typeof s.solo==='undefined')s.solo=null;
+  if(typeof s.hideReviewed==='undefined')s.hideReviewed=false;
   if(!Array.isArray(s.layers))s.layers=[];
   s.layers.forEach(function(l){if(!Array.isArray(l.items))l.items=[];l.items.forEach(function(it){if(it&&!it.iid)it.iid=iid();});});
   return s;
@@ -8349,14 +8351,14 @@ function toggleDraw(){
   var m=getMap();if(!m)return;
   if(!activeLayer()){toast('先に取込先の画層を選ぶ/作ってください');return;}
   _drawMode=!_drawMode;
-  if(_drawMode){if(_rectMode)cleanupRect();if(_pickMode)cleanupPick();try{m.doubleClickZoom.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('click',drawClick);m.on('dblclick',drawFinish);toast('頂点をクリックで追加→ダブルクリックで確定（ESCで取消）');}
+  if(_drawMode){if(_rectMode)cleanupRect();if(_pickMode)cleanupPick();m.closePopup();if(_pane)_pane.style.pointerEvents='none';try{m.doubleClickZoom.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('click',drawClick);m.on('dblclick',drawFinish);toast('頂点をクリックで追加→ダブルクリックで確定（ESCで取消）');}
   else{cancelDraw();}
   renderPanel();
 }
-function drawClick(e){var m=getMap();_drawPts.push([e.latlng.lat,e.latlng.lng]);var mk=L.circleMarker(e.latlng,{pane:'gachoPane',radius:4,color:'#fff',weight:1,fillColor:'#f59e0b',fillOpacity:1}).addTo(m);_drawMarkers.push(mk);redrawTemp();}
+function drawClick(e){var m=getMap();try{m.closePopup();}catch(_){}_drawPts.push([e.latlng.lat,e.latlng.lng]);var mk=L.circleMarker(e.latlng,{pane:'gachoPane',radius:4,color:'#fff',weight:1,fillColor:'#f59e0b',fillOpacity:1}).addTo(m);_drawMarkers.push(mk);redrawTemp();}
 function redrawTemp(){var m=getMap();if(_drawTemp){try{m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}if(_drawPts.length>=2){var ring=_drawPts.slice();if(_drawPts.length>=3)ring=ring.concat([_drawPts[0]]);_drawTemp=L.polyline(ring,{pane:'gachoPane',color:'#f59e0b',weight:2,dashArray:'5,5'}).addTo(m);}}
 function drawFinish(e){if(e){try{L.DomEvent.stop(e);}catch(_){}}if(_drawPts.length<3){toast('3点以上必要です');return;}var l=activeLayer();if(!l){cancelDraw();return;}var latlngs=_drawPts.slice();var area=polyArea(latlngs);var c=centroid(latlngs);l.items.push({iid:iid(),type:'boundary',latlngs:latlngs,area:area,lat:c[0],lng:c[1],address:'敷地境界'});saveState();cancelDraw();render();toast('敷地境界を「'+l.name+'」に追加（約'+Math.round(area).toLocaleString()+'㎡）');}
-function cancelDraw(){var m=getMap();_drawMarkers.forEach(function(mk){try{if(m)m.removeLayer(mk);}catch(_){}});_drawMarkers=[];if(_drawTemp){try{if(m)m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}_drawPts=[];if(m){m.off('click',drawClick);m.off('dblclick',drawFinish);try{m.doubleClickZoom.enable();}catch(_){}m.getContainer().style.cursor='';}_drawMode=false;renderPanel();}
+function cancelDraw(){var m=getMap();_drawMarkers.forEach(function(mk){try{if(m)m.removeLayer(mk);}catch(_){}});_drawMarkers=[];if(_drawTemp){try{if(m)m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}_drawPts=[];if(_pane)_pane.style.pointerEvents='';if(m){m.off('click',drawClick);m.off('dblclick',drawFinish);try{m.doubleClickZoom.enable();}catch(_){}m.getContainer().style.cursor='';}_drawMode=false;renderPanel();}
 
 function toggleRect(){var m=getMap();if(!m)return;_rectMode=!_rectMode;if(_rectMode){if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();try{m.dragging.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('mousedown',rectDown);toast('地図上をドラッグで囲むと、その範囲の筆・フラグを取り込みます（ESCで終了）');}else{cleanupRect();}renderPanel();}
 function rectDown(e){_rectStart=e.latlng;var m=getMap();m.on('mousemove',rectMove);m.on('mouseup',rectUp);}
@@ -8442,15 +8444,22 @@ function renderLayerGroups(){
     var show=l.visible&&(!state.solo||state.solo===l.id);if(!show)return;
     var g=L.layerGroup([],{pane:'gachoPane'});
     l.items.forEach(function(it){
-      var rm='<button style="margin-top:6px" onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')">この画層から外す</button>';
+      if(state.hideReviewed&&it.viewed)return;
+      var vd=!!it.viewed;
+      var under=(it.area!=null&&it.area<800);
+      var areaTxt=(it.area!=null)?('面積 <b style="font-size:14px;color:'+(under?'#f85149':'#3fb950')+'">'+Math.round(it.area).toLocaleString()+' ㎡</b>'+(under?'<br><span style="color:#f85149">⚠ 800㎡未満：隣接を含め敷地境界を手描きで作成</span>':'')):'<span style="color:#8b949e">面積 不明</span>';
+      var acts='<div style="margin-top:8px"><button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 敷地境界を描く</button> <button onclick="window.__gacho.review(\''+l.id+'\',\''+(it.iid||'')+'\',false)">↺ 未確認</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')">外す</button></div>';
+      var seen='<span style="color:#9aa4ae">'+(vd?'✓ 見た':'')+'</span>';
       if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
-        var pg=L.polygon(it.latlngs,{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:0.25});
-        pg.bindPopup('<div style="font-size:12px;min-width:150px"><b style="color:'+l.color+'">'+esc(l.name)+'</b><br>敷地境界<br>面積 約 '+Math.round(it.area||0).toLocaleString()+' ㎡'+rm+'</div>');
+        var pg=L.polygon(it.latlngs,{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null});
+        pg.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+'<br>敷地境界<br>'+areaTxt+acts+'</div>');
         pg.bindTooltip(Math.round(it.area||0).toLocaleString()+'㎡',{permanent:true,direction:'center',className:'gacho-area-lbl',pane:'gachoPane'});
+        pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{pg.setStyle({fillOpacity:0.08,dashArray:'4,4'});}catch(_){}saveState();renderPanel();}});
         g.addLayer(pg);
       }else{
-        var mk=L.circleMarker([it.lat,it.lng],{pane:'gachoPane',radius:7,color:'#fff',weight:2,fillColor:l.color,fillOpacity:0.95});
-        mk.bindPopup('<div style="font-size:12px;min-width:140px"><b style="color:'+l.color+'">'+esc(l.name)+'</b><br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+(it.area!=null?'<br>面積 '+Math.round(it.area).toLocaleString()+' ㎡':'')+(it.deliver?'<br>区分 '+esc(it.deliver):'')+rm+'</div>');
+        var mk=L.circleMarker([it.lat,it.lng],{pane:'gachoPane',radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95});
+        mk.bindPopup('<div style="font-size:12px;min-width:140px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+acts+'</div>');
+        mk.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{mk.setRadius(5);mk.setStyle({color:'#9aa4ae',weight:1,fillOpacity:0.35});}catch(_){}saveState();renderPanel();}});
         g.addLayer(mk);
       }
     });
@@ -8468,12 +8477,14 @@ function renderPanel(){
   h+='<div class="gacho-head"><span>🗂 画層</span><button class="gacho-min" id="gachoMin" title="開閉">—</button></div>';
   h+='<div class="gacho-body" id="gachoBody">';
   h+='<div class="gacho-master"><button id="gachoShowAll" class="gacho-btn">👁 全て表示</button><button id="gachoHideAll" class="gacho-btn">🚫 全て隠す</button></div>';
+  h+='<div class="gacho-master"><button id="gachoOnlyUnrev" class="gacho-btn'+(state.hideReviewed?' on':'')+'" title="見た筆を隠して未確認だけ表示">👀 未確認のみ表示'+(state.hideReviewed?'（ON）':'')+'</button></div>';
   h+='<div class="gacho-row gacho-base"><span class="gacho-eye" data-b0="1">'+(state.base0Visible?'👁':'🚫')+'</span><span class="gacho-name">0画層｜既存すべて</span></div>';
   state.layers.forEach(function(l){
+    var vc=l.items.filter(function(it){return it.viewed;}).length;
     h+='<div class="gacho-row'+(l.active?' active':'')+'">'
       +'<span class="gacho-eye" data-eye="'+l.id+'">'+(l.visible?'👁':'🚫')+'</span>'
       +'<span class="gacho-dot" data-dot="'+l.id+'" style="background:'+l.color+'" title="色変更"></span>'
-      +'<span class="gacho-name" data-sel="'+l.id+'" title="取込先に選択">'+esc(l.name)+' <b>('+l.items.length+')</b></span>'
+      +'<span class="gacho-name" data-sel="'+l.id+'" title="取込先に選択">'+esc(l.name)+' <b>('+(l.items.length?'見た'+vc+'/'+l.items.length:l.items.length)+')</b></span>'
       +'<span class="gacho-solo'+(state.solo===l.id?' on':'')+'" data-solo="'+l.id+'" title="この画層だけ表示">◎</span>'
       +'<span class="gacho-ren" data-ren="'+l.id+'" title="名前変更">✎</span>'
       +'<span class="gacho-del" data-del="'+l.id+'" title="削除">🗑</span>'
@@ -8502,6 +8513,7 @@ function bindPanel(){
   var mn=q('#gachoMin');if(mn)mn.onclick=function(){var b=q('#gachoBody');if(b)b.style.display=(b.style.display==='none'?'':'none');};
   var sa=q('#gachoShowAll');if(sa)sa.onclick=showAll;
   var ha=q('#gachoHideAll');if(ha)ha.onclick=hideAll;
+  var ou=q('#gachoOnlyUnrev');if(ou)ou.onclick=function(){state.hideReviewed=!state.hideReviewed;saveState();render();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();};
   all('.gacho-eye[data-eye]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-eye'));if(l){l.visible=!l.visible;saveState();render();}};});
   all('.gacho-dot[data-dot]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-dot'));if(l){var i=PALETTE.indexOf(l.color);l.color=PALETTE[(i+1)%PALETTE.length];saveState();render();}};});
@@ -8521,7 +8533,11 @@ function bindPanel(){
   var ad=q('#gachoAdd');if(ad)ad.onclick=addLayer;
 }
 
-window.__gacho={removeItem:function(lid,itemIid){var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();render();}};
+window.__gacho={
+  removeItem:function(lid,itemIid){var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();render();},
+  review:function(lid,itemIid,val){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid)it.viewed=!!val;});saveState();render();},
+  drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();}
+};
 
 function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=document.createElement('style');st.id='gachoStyle';st.textContent=''
 +'.gacho-panel{position:fixed;right:12px;bottom:12px;width:252px;z-index:1200;background:rgba(13,17,23,.95);border:1px solid #30363d;border-radius:10px;color:#e6edf3;font-size:12px;box-shadow:0 6px 24px rgba(0,0,0,.45);}'
