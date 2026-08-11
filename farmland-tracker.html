@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260812a / 🗂画層v2.3: OK/NG件数が「見えない」不具合を修正。原因=件数を画層名spanの末尾に入れていたため、名前が長いとellipsis(…)で切れて件数が隠れていた(表示バグ・機能は動作)。件数(OK○・NG○／計○)を画層名の下の独立行(.gacho-cnt)へ移動し、長い名前でも常に全表示。前:v20260811p -->
 <!-- BUILD: farmland-tracker v20260811p / 🗂画層v2.2: 点フラグにOK/NG(除外)判定を実装。ポップアップに「✓ OK」「🚫 NG(除外)」ボタン(setStatus)。NGは消さず灰色で残し(除外を目視確認)、OKは緑リング。画層名の件数表示を「OK○・NG○／計○」に変更＝除外できたか一目。書き出し(KML/GeoJSON)はstatus=ngを自動除外(納品にNGを載せない)。Google確認で使用中の土地をNGにする運用。前:v20260811o -->
 <!-- BUILD: farmland-tracker v20260811o / 🗂画層v2.1＋🔆既存太陽光レイヤー。(1)点フラグ(奈良/三重等)の削除ボタンを「外す」→「🗑 外す」に明確化(🗑アイコンで一目・語は"外す"=画層から筆を取り除く/元データ無傷。Google確認で使用中の土地を除外する用。境界は自作図形なので🗑削除のまま。removeItemはv2.0修正済で確実に動作)。(2)自己完結の「🔆 既存太陽光（発電中）」レイヤーを追加(右上トグル/fitSolarPane)。fit_solar.json(経産省FIT・運転開始済×50kW以上・県別を全県共通ファイルに集約/pref付き)をfetchし出力別に色分け表示。ポップアップに事業者/出力/地番/Googleマップ/「🔎検索欄へ入れる」。用途=既設を確実な地番アンカーに近接探索(既設=適地の証明ではない旨も明記)。前:v20260811n -->
 <!-- BUILD: farmland-tracker v20260811n / 🗂画層v2.0: (1)削除/描き直しが効かないバグ修正=ポップアップ内ボタンで自分の図形を消す時、先にclosePopupしsetTimeout(0)で削除・再描画(Leafletの同期削除の飲まれ対策)。removeItem/redraw両対応。(2)各ポップアップに🌐Googleマップ／🚶ストリートビューのリンクを追加(緯度経度で別タブ)。点・境界とも。前:v20260811m -->
@@ -8511,11 +8512,12 @@ function renderPanel(){
     h+='<div class="gacho-row'+(l.active?' active':'')+'">'
       +'<span class="gacho-eye" data-eye="'+l.id+'">'+(l.visible?'👁':'🚫')+'</span>'
       +'<span class="gacho-dot" data-dot="'+l.id+'" style="background:'+l.color+'" title="色変更"></span>'
-      +'<span class="gacho-name" data-sel="'+l.id+'" title="取込先に選択">'+esc(l.name)+' <b>('+cnt+')</b></span>'
+      +'<span class="gacho-name" data-sel="'+l.id+'" title="取込先に選択">'+esc(l.name)+'</span>'
       +'<span class="gacho-solo'+(state.solo===l.id?' on':'')+'" data-solo="'+l.id+'" title="この画層だけ表示">◎</span>'
       +'<span class="gacho-ren" data-ren="'+l.id+'" title="名前変更">✎</span>'
       +'<span class="gacho-del" data-del="'+l.id+'" title="削除">🗑</span>'
       +'</div>';
+    if(l.items.length)h+='<div class="gacho-cnt">'+cnt+'</div>';
   });
   h+='<div class="gacho-actions">';
   if(al){
@@ -8610,6 +8612,7 @@ function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=do
 +'.gacho-cond .gacho-btn{flex:none;margin-top:0;}'
 +'.gacho-exp{display:flex;align-items:center;gap:4px;margin-top:8px;font-size:11px;color:#8b949e;}'
 +'.gacho-exp .gacho-btn{flex:1;margin-top:0;}'
++'.gacho-cnt{padding:1px 6px 5px 30px;font-size:11px;color:#8b949e;font-weight:700;}'
 +'.gacho-hint{color:#6e7681;margin-top:8px;font-size:10px;line-height:1.4;}'
 +'.gacho-area-lbl{background:rgba(0,0,0,.6);border:none;color:#fff;font-weight:700;font-size:11px;box-shadow:none;}'
 +'.gacho-area-lbl:before{display:none;}'
