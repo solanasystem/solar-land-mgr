@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260811m / 🗂画層v1.9: 敷地境界ポップアップに「🗑 描き直す」(この境界を消して即・描画再開＝redraw)を追加。描画は削除を伴わないため、旧境界が残る問題を解消。境界の削除ボタンは「外す」→「🗑 削除」に明確化(removeItemは従来通り動作)。点フラグの外すは変更なし。前:v20260811l -->
 <!-- BUILD: farmland-tracker v20260811l / 🗂画層v1.8: 敷地境界の面積ラベルが常時出て邪魔だった件を修正。ズームを引いた時(z<15)は面積ラベルを自動で隠し(zoomendで.gacho-noarea切替)、寄った時だけ表示。パネルに「㎡ 面積ラベル」ON/OFFトグルも追加(手動で完全非表示可)。前:v20260811k -->
 <!-- BUILD: farmland-tracker v20260811k / 🗂画層v1.7: (1)ポップアップに「⇄ 別画層へ」を追加=筆/境界を別の画層へ移動(番号選択・入れ間違い/最初に別画層へ描いた境界の付け替えに)。(2)「✏️＋ 敷地境界の画層を作る」常設ワンクリックボタン=『敷地境界（実測）』をピンクで自動生成し取込先化(既存あれば再利用)。以後✏️描画はここに集約。前:v20260811j -->
 <!-- BUILD: farmland-tracker v20260811j / 🗂画層v1.6: 敷地境界の描画中に「↩1つ戻す」を追加(直前の頂点を取消)。パネルに描画中のみ[↩1つ戻す][✓確定]ボタン表示＋キーボード(Backspace/Ctrl+Z=戻す, Wクリック/確定=完成, ESC=全取消)。描き損じてもやり直せる。前:v20260811i -->
@@ -8466,8 +8467,9 @@ function renderLayerGroups(){
       var acts='<div style="margin-top:8px"><button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 敷地境界を描く</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.review(\''+l.id+'\',\''+(it.iid||'')+'\',false)">↺ 未確認</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')">外す</button></div>';
       var seen='<span style="color:#9aa4ae">'+(vd?'✓ 見た':'')+'</span>';
       if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
+        var bacts='<div style="margin-top:8px"><button onclick="window.__gacho.redraw(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 描き直す</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.review(\''+l.id+'\',\''+(it.iid||'')+'\',false)">↺ 未確認</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 削除</button></div>';
         var pg=L.polygon(it.latlngs,{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null});
-        pg.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+'<br>敷地境界<br>'+areaTxt+acts+'</div>');
+        pg.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+'<br>敷地境界<br>'+areaTxt+bacts+'</div>');
         pg.bindTooltip(Math.round(it.area||0).toLocaleString()+'㎡',{permanent:true,direction:'center',className:'gacho-area-lbl',pane:'gachoPane'});
         pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{pg.setStyle({fillOpacity:0.08,dashArray:'4,4'});}catch(_){}saveState();renderPanel();}});
         g.addLayer(pg);
@@ -8568,7 +8570,8 @@ window.__gacho={
     var it=null;l.items=l.items.filter(function(x){if(x.iid===itemIid){it=x;return false;}return true;});
     if(it){others[idx].items.push(it);toast('「'+others[idx].name+'」へ移動しました');}
     saveState();render();
-  }
+  },
+  redraw:function(lid,itemIid){var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});render();if(!_drawMode)toggleDraw();toast('この境界を消しました。描き直してください（クリックで頂点→Wクリック確定）');}
 };
 
 function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=document.createElement('style');st.id='gachoStyle';st.textContent=''
