@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260811n / 🗂画層v2.0: (1)削除/描き直しが効かないバグ修正=ポップアップ内ボタンで自分の図形を消す時、先にclosePopupしsetTimeout(0)で削除・再描画(Leafletの同期削除の飲まれ対策)。removeItem/redraw両対応。(2)各ポップアップに🌐Googleマップ／🚶ストリートビューのリンクを追加(緯度経度で別タブ)。点・境界とも。前:v20260811m -->
 <!-- BUILD: farmland-tracker v20260811m / 🗂画層v1.9: 敷地境界ポップアップに「🗑 描き直す」(この境界を消して即・描画再開＝redraw)を追加。描画は削除を伴わないため、旧境界が残る問題を解消。境界の削除ボタンは「外す」→「🗑 削除」に明確化(removeItemは従来通り動作)。点フラグの外すは変更なし。前:v20260811l -->
 <!-- BUILD: farmland-tracker v20260811l / 🗂画層v1.8: 敷地境界の面積ラベルが常時出て邪魔だった件を修正。ズームを引いた時(z<15)は面積ラベルを自動で隠し(zoomendで.gacho-noarea切替)、寄った時だけ表示。パネルに「㎡ 面積ラベル」ON/OFFトグルも追加(手動で完全非表示可)。前:v20260811k -->
 <!-- BUILD: farmland-tracker v20260811k / 🗂画層v1.7: (1)ポップアップに「⇄ 別画層へ」を追加=筆/境界を別の画層へ移動(番号選択・入れ間違い/最初に別画層へ描いた境界の付け替えに)。(2)「✏️＋ 敷地境界の画層を作る」常設ワンクリックボタン=『敷地境界（実測）』をピンクで自動生成し取込先化(既存あれば再利用)。以後✏️描画はここに集約。前:v20260811j -->
@@ -8466,16 +8467,17 @@ function renderLayerGroups(){
       var areaTxt=(it.area!=null)?('面積 <b style="font-size:14px;color:'+(under?'#f85149':'#3fb950')+'">'+Math.round(it.area).toLocaleString()+' ㎡</b>'+(under?'<br><span style="color:#f85149">⚠ 800㎡未満：隣接を含め敷地境界を手描きで作成</span>':'')):'<span style="color:#8b949e">面積 不明</span>';
       var acts='<div style="margin-top:8px"><button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 敷地境界を描く</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.review(\''+l.id+'\',\''+(it.iid||'')+'\',false)">↺ 未確認</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')">外す</button></div>';
       var seen='<span style="color:#9aa4ae">'+(vd?'✓ 見た':'')+'</span>';
+      var gmap='<div style="margin-top:6px"><a href="https://www.google.com/maps/search/?api=1&query='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🌐 Googleマップ</a> ｜ <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🚶 ストリートビュー</a></div>';
       if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
         var bacts='<div style="margin-top:8px"><button onclick="window.__gacho.redraw(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 描き直す</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.review(\''+l.id+'\',\''+(it.iid||'')+'\',false)">↺ 未確認</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 削除</button></div>';
         var pg=L.polygon(it.latlngs,{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null});
-        pg.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+'<br>敷地境界<br>'+areaTxt+bacts+'</div>');
+        pg.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+'<br>敷地境界<br>'+areaTxt+gmap+bacts+'</div>');
         pg.bindTooltip(Math.round(it.area||0).toLocaleString()+'㎡',{permanent:true,direction:'center',className:'gacho-area-lbl',pane:'gachoPane'});
         pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{pg.setStyle({fillOpacity:0.08,dashArray:'4,4'});}catch(_){}saveState();renderPanel();}});
         g.addLayer(pg);
       }else{
         var mk=L.circleMarker([it.lat,it.lng],{pane:'gachoPane',radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95});
-        mk.bindPopup('<div style="font-size:12px;min-width:140px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+acts+'</div>');
+        mk.bindPopup('<div style="font-size:12px;min-width:140px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+acts+'</div>');
         mk.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{mk.setRadius(5);mk.setStyle({color:'#9aa4ae',weight:1,fillOpacity:0.35});}catch(_){}saveState();renderPanel();}});
         g.addLayer(mk);
       }
@@ -8557,7 +8559,7 @@ function bindPanel(){
 }
 
 window.__gacho={
-  removeItem:function(lid,itemIid){var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();render();},
+  removeItem:function(lid,itemIid){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();setTimeout(function(){render();},0);},
   review:function(lid,itemIid,val){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid)it.viewed=!!val;});saveState();render();},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   moveItem:function(lid,itemIid){
@@ -8571,7 +8573,7 @@ window.__gacho={
     if(it){others[idx].items.push(it);toast('「'+others[idx].name+'」へ移動しました');}
     saveState();render();
   },
-  redraw:function(lid,itemIid){var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});render();if(!_drawMode)toggleDraw();toast('この境界を消しました。描き直してください（クリックで頂点→Wクリック確定）');}
+  redraw:function(lid,itemIid){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();state.layers.forEach(function(x){x.active=(x.id===lid);});setTimeout(function(){render();if(!_drawMode)toggleDraw();toast('この境界を消しました。描き直してください（クリックで頂点→Wクリック確定）');},0);}
 };
 
 function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=document.createElement('style');st.id='gachoStyle';st.textContent=''
