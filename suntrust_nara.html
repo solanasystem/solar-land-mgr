@@ -19,7 +19,7 @@
 <div style="margin-top:6px"><b style="font-size:11px">表示:</b> <span class="b on" id="fAll" onclick="setF(null)">全部</span><span class="b" id="fG" onclick="setF('green')">良(緑)</span><span class="b" id="fA" onclick="setF('amber')">中(黄)</span><span class="b" id="fU" onclick="setF('unchecked')">未確認のみ</span></div>
 <div style="margin-top:4px"><span class="b" id="addBtn" onclick="toggleAdd()" style="border-color:#22c55e;color:#86efac">&#10133; 追加候補（クリックで記録）</span></div>
 <div style="margin-top:4px"><span class="b on" id="dBtn" onclick="toggleDense()">&#127968; 建物密集を隠す（確認済は常に表示）</span></div>
-<div style="margin-top:6px"><span class="b" id="saveOKBtn" onclick="saveOK()" style="background:#166534;border:1px solid #22c55e;color:#dcfce7;font-weight:700">&#128190; 確認済(OK)をDBに保存＋バックアップ表示</span></div>
+<div style="margin-top:6px"><span class="b" id="saveOKBtn" onclick="saveOK()" style="background:#166534;border:1px solid #22c55e;color:#dcfce7;font-weight:700">&#128190; 今の残りフラグ全部を保存（最新＝これが正解の数）</span></div>
 <textarea id="okDump" readonly style="display:none;width:100%;height:120px;margin-top:6px;font-size:10px;font-family:monospace;background:#0a0f1e;color:#9ee;border:1px solid #22c55e;border-radius:4px" placeholder="ここに確認済のバックアップが出ます"></textarea>
 <div id="okStat" style="margin-top:4px;font-size:11px;color:#4ade80"></div>
 <div class="lg"><span class="dot" style="background:#22c55e"></span>良　<span class="dot" style="background:#eab308"></span>中　<span class="dot" style="background:#f59e0b"></span>要注意　<span class="dot" style="background:#6b7280"></span>確認済　<span class="dot" style="background:transparent;border:2px solid #e879f9"></span>公式遊休</div></div>
@@ -61,23 +61,23 @@ function setF(x){ff=x;['fAll','fG','fA','fU'].forEach(function(i){document.getEl
 window.toggleDense=function(){hideDense=!hideDense;var b=document.getElementById('dBtn');if(b)b.classList.toggle('on',hideDense);render();toast(hideDense?'建物密集を隠しています（確認済は常に表示）':'建物密集も表示',true);};
 window.markChecked=function(fid){CHK[fid]=1;localStorage.setItem('nara_checked',JSON.stringify(CHK));map.closePopup();render();toast('確認済にしました（灰色）',true);};
 window.saveOK=async function(){
+  // 正解=削除後に残っている全フラグ(=このブラウザのF配列)。削除は復活させない。OK印(nara_checked)を付ける。
   var chk=JSON.parse(localStorage.getItem('nara_checked')||'{}');
-  var fids=Object.keys(chk).filter(function(k){return chk[k];});
-  var rows=fids.map(function(fid){var f=FMAP[fid]||{};return {fid:fid,city:f.city||'',area:f.a||null,lat:(f.lat!=null?f.lat:null),lng:(f.lng!=null?f.lng:null)};});
-  var dbrows=rows.filter(function(r){return r.lat!=null;});
-  var orphan=rows.length-dbrows.length;
-  var ta=document.getElementById('okDump'); if(ta){ta.style.display='block';ta.value=JSON.stringify(rows,null,0);}
+  var all=(window.F||[]).map(function(f){return {fid:f.fid,city:f.city||'',area:(f.a!=null?f.a:null),lat:(f.lat!=null?f.lat:null),lng:(f.lng!=null?f.lng:null),band:f.band,k:f.k,yukyu:!!f.yukyu,ok:!!chk[f.fid]};});
+  var okcount=all.filter(function(r){return r.ok;}).length;
+  var ta=document.getElementById('okDump'); if(ta){ta.style.display='block';ta.value=JSON.stringify(all,null,0);}
   var stat=document.getElementById('okStat');
-  if(stat)stat.textContent='確認済 '+rows.length+'件を上に全fid表示（消えないバックアップ・orphan'+orphan+'件のfidも保持）。DB保存中…';
-  if(!sb){if(stat)stat.textContent='確認済 '+rows.length+'件（上にバックアップ）。DB接続なし＝この文字列を保存してください';return;}
+  if(stat)stat.textContent='残っているフラグ '+all.length+'件（うちOK確認済 '+okcount+'件）を上に全表示。これが正解の数。DB保存中…';
+  if(!sb){if(stat)stat.textContent='残りフラグ '+all.length+'件（上にバックアップ）。DB接続なし＝この文字列を保存してください';return;}
+  var dbrows=all.filter(function(r){return r.lat!=null;});
   var saved=0,err='';
   for(var i=0;i<dbrows.length;i+=50){
-    var chunk=dbrows.slice(i,i+50).map(function(r){return {organization_id:'00000000-0000-0000-0000-000000000001',latitude:r.lat,longitude:r.lng,source:'pc_click',source_page:'nara_confirmed',memo:'確認済OK '+r.city+' '+(r.area||'')+'㎡ fid='+r.fid,status:'new'};});
+    var chunk=dbrows.slice(i,i+50).map(function(r){return {organization_id:'00000000-0000-0000-0000-000000000001',latitude:r.lat,longitude:r.lng,source:'pc_click',source_page:'nara_flag_all',memo:(r.ok?'★OK確認済 ':'未確認 ')+r.city+' '+(r.area||'')+'㎡ '+(r.k||'')+' '+(r.band||'')+(r.yukyu?' 公式遊休':'')+' fid='+r.fid,status:'new'};});
     try{var res=await sb.from('case_candidates').insert(chunk);if(res&&res.error){err=res.error.message||'err';}else{saved+=chunk.length;}}catch(e){err=(e&&e.message)||'exception';}
   }
-  var inDb=0;try{var v=await sb.from('case_candidates').select('id',{count:'exact',head:true}).eq('source_page','nara_confirmed');inDb=(v&&v.count)||0;}catch(e){}
-  if(stat)stat.textContent='確認済 '+rows.length+'件 → DB保存 '+saved+'件・DB検証 '+inDb+'件'+(err?(' / エラー:'+err):' ✓消えません');
-  toast('OK '+rows.length+'件 保存'+(err?('・一部失敗:'+err):('・DB検証'+inDb+'件 ✓')),true);
+  var inDb=0;try{var v=await sb.from('case_candidates').select('id',{count:'exact',head:true}).eq('source_page','nara_flag_all');inDb=(v&&v.count)||0;}catch(e){}
+  if(stat)stat.textContent='残りフラグ '+all.length+'件（OK '+okcount+'）→ DB保存 '+saved+'・DB検証 '+inDb+(err?(' / エラー:'+err):' ✓これが1つの正解の数');
+  toast('残りフラグ '+all.length+'件 保存（OK'+okcount+'）'+(err?('・一部失敗:'+err):('・DB検証'+inDb+' ✓')),true);
 };
 window.delParcel=async function(fid,lat,lng){
   if(!confirm('この土地を削除(NG)します。あなたの削除はAIの学習に反映されます。よろしいですか？'))return;
