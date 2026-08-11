@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<!-- BUILD: farmland-tracker v20260811a / 📍検索欄(#chibanInput)に緯度経度の直接入力を実装。"34.6277, 136.4917"(カンマ/空白/全角可・lat,lng逆順も許容・日本国内範囲で判定)を入れると候補を出さず即移動(jumpToChiban=setView z17+ピン)。入力確定(400ms)またはEnterでその地点へジャンプ。地名/地番検索は従来通り。_parseLatLng追加＋_searchChiban先頭に検出分岐(即jump)＋keydown(Enter)＋placeholder更新のみ。他機能無変更。前:v20260810b -->
+<!-- BUILD: farmland-tracker v20260811b / 📍検索欄(#chibanInput)に緯度経度入力→Enterで即ジャンプ(Googleマップ式)を実装。"34.6277, 136.4917"(カンマ/空白/全角可・lat,lng逆順も許容・日本国内範囲で判定)を入れてEnter→その座標へ移動(jumpToChiban=setView z17+ピン)。緯度経度入力中は地名候補を出さない(勝手に飛ばない・Enterのみ)。地名/地番検索は従来通り。_parseLatLng＋_searchChiban先頭の検出分岐(候補抑止)＋keydown(Enter)＋placeholder更新のみ。他機能無変更。前:v20260811a -->
+<!-- BUILD: farmland-tracker v20260811a / 📍緯度経度入力の初版(入力確定でも自動移動)。v20260811bでEnter専用に変更。 -->
 <!-- BUILD: farmland-tracker v20260810b / 🟣合筆提案108+保留37+対象外6=151(SUNトラスト関西)を紫フラグで常時表示(gappitsu_hold_151.js=cases_all.json由来=突合表と同一)。合筆で≥800を狙う作業レイヤ。ピンク(case_candidates)は非表示のまま。前:v20260810a -->
 <!-- BUILD: farmland-tracker v20260810a / 📊ヘッダーのダッシュボード(用途別3badge=太陽光1筆/合筆/低圧蓄電池 ＋ 復活候補/蓄電池合筆/三重候補)を全て非表示(display:none)。理由:開拓が増えるほどbadgeが破綻+SUNトラストの正しい数字は「突合表(397/納品246)」へ移行済み。データ・レイヤ・JS・トグル関数は保持=display:flexに戻せばいつでも復帰。前:v20260807a -->
 <!-- BUILD: farmland-tracker v20260807a / 🔗合筆確定(gappitsu_confirmed)に使った構成筆を低圧蓄電池の件数・表示から除外(_getGappitsuFids)。合筆へ昇格した筆が蓄電池に二重計上されない=蓄電池の実数が正しく減る。前:v20260806h -->
@@ -6689,11 +6690,9 @@ async function _searchChiban(q,res){
     }
   }catch(_){}
   _boundaryCache=[];
-  /* ===== 0) 緯度経度の直接入力を検出（例: 34.6277, 136.4917 / 34.6277 136.4917）→ その地点へ即移動 ===== */
-  var __ll=_parseLatLng(q);
-  if(__ll){
+  /* ===== 0) 緯度経度の直接入力を検出（例: 34.6277, 136.4917）→ 地名候補は出さず、Enterで移動(Googleマップ式) ===== */
+  if(_parseLatLng(q)){
     res.style.display='none';
-    jumpToChiban(__ll.lat,__ll.lng,__ll.lat.toFixed(6)+', '+__ll.lng.toFixed(6));
     return;
   }
   var html='';
