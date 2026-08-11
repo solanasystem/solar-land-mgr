@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260811k / 🗂画層v1.7: (1)ポップアップに「⇄ 別画層へ」を追加=筆/境界を別の画層へ移動(番号選択・入れ間違い/最初に別画層へ描いた境界の付け替えに)。(2)「✏️＋ 敷地境界の画層を作る」常設ワンクリックボタン=『敷地境界（実測）』をピンクで自動生成し取込先化(既存あれば再利用)。以後✏️描画はここに集約。前:v20260811j -->
 <!-- BUILD: farmland-tracker v20260811j / 🗂画層v1.6: 敷地境界の描画中に「↩1つ戻す」を追加(直前の頂点を取消)。パネルに描画中のみ[↩1つ戻す][✓確定]ボタン表示＋キーボード(Backspace/Ctrl+Z=戻す, Wクリック/確定=完成, ESC=全取消)。描き損じてもやり直せる。前:v20260811i -->
 <!-- BUILD: farmland-tracker v20260811i / 🗂画層v1.5: 確認進捗＋面積強調＋描画動線。(1)フラグを開いた瞬間に自動で「✓見た」=灰色に減光(popupopenでviewed保存)＝どこまで見たか一目。(2)「👀未確認のみ表示」トグルで見た筆を隠し残りだけ表示、画層名に(見たN/総数)。(3)ポップアップに面積を大きく表示・800㎡未満は赤字＋「隣接含め手描き要」警告。(4)ポップアップから「✏️敷地境界を描く」で即描画(その画層をアクティブ化)。(5)描画中はポップアップを閉じ画層paneのpointer-eventsを切って線が邪魔されない。前:v20260811h -->
 <!-- BUILD: farmland-tracker v20260811h / 🗂画層v1.4: 📦「SUNトラスト納品を画層に読込(確定397)」を追加。suntrust_cases_all.json(=突合表cases_all.json複製・確定/栗本さんOK済)をfetchし、県×区分(納品/合筆提案/保留・対象外)で画層を自動生成(色: 納品緑/合筆青/保留灰)。AIは数え直さず確定データをそのまま流し込むだけ。ポップアップに地番/区分追加。0画層(既存)は不変・再読込は同名画層をデータで置換(重複なし)。前:v20260811g -->
@@ -8301,6 +8302,14 @@ function collectInBounds(bounds){
 }
 
 function setActive(id){state.layers.forEach(function(l){l.active=(l.id===id);});saveState();render();}
+function addBoundaryLayer(){
+  var name='敷地境界（実測）';
+  var l=state.layers.filter(function(x){return x.name===name;})[0];
+  if(!l){l={id:uid(),name:name,color:'#ec4899',visible:true,active:false,items:[]};state.layers.push(l);}
+  state.layers.forEach(function(x){x.active=(x.id===l.id);});
+  saveState();render();
+  toast('「'+name+'」を取込先にしました。✏️で描いた敷地境界はここに入ります');
+}
 function addLayer(){var idx=state.layers.length;state.layers.forEach(function(x){x.active=false;});state.layers.push({id:uid(),name:'画層'+(idx+1),color:PALETTE[idx%PALETTE.length],visible:true,active:true,items:[]});saveState();render();}
 
 function captureBounds(bounds,opts){
@@ -8450,7 +8459,7 @@ function renderLayerGroups(){
       var vd=!!it.viewed;
       var under=(it.area!=null&&it.area<800);
       var areaTxt=(it.area!=null)?('面積 <b style="font-size:14px;color:'+(under?'#f85149':'#3fb950')+'">'+Math.round(it.area).toLocaleString()+' ㎡</b>'+(under?'<br><span style="color:#f85149">⚠ 800㎡未満：隣接を含め敷地境界を手描きで作成</span>':'')):'<span style="color:#8b949e">面積 不明</span>';
-      var acts='<div style="margin-top:8px"><button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 敷地境界を描く</button> <button onclick="window.__gacho.review(\''+l.id+'\',\''+(it.iid||'')+'\',false)">↺ 未確認</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')">外す</button></div>';
+      var acts='<div style="margin-top:8px"><button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 敷地境界を描く</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.review(\''+l.id+'\',\''+(it.iid||'')+'\',false)">↺ 未確認</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')">外す</button></div>';
       var seen='<span style="color:#9aa4ae">'+(vd?'✓ 見た':'')+'</span>';
       if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
         var pg=L.polygon(it.latlngs,{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null});
@@ -8503,6 +8512,7 @@ function renderPanel(){
     if(_drawMode){h+='<div class="gacho-master"><button id="gachoDrawUndo" class="gacho-btn">↩ 1つ戻す</button><button id="gachoDrawDone" class="gacho-btn" style="background:rgba(63,185,80,.2);border-color:#3fb950">✓ 確定</button></div>';}
     h+='<div class="gacho-exp">書き出し <button id="gachoExpKml" class="gacho-btn" title="Google Earthで開ける・クライアント納品用">KML</button><button id="gachoExpGeo" class="gacho-btn" title="GIS標準・AI連携用">GeoJSON</button><button id="gachoExpCopy" class="gacho-btn" title="コピーして貼付でAIへ">📋</button></div>';
   }else{h+='<div class="gacho-active-note">取込先の画層を選択/作成してください</div>';}
+  h+='<button id="gachoAddBoundary" class="gacho-btn wide" style="background:rgba(236,72,153,.18);border-color:#ec4899">✏️＋ 敷地境界の画層を作る</button>';
   h+='<button id="gachoLoadSuntrust" class="gacho-btn wide" style="background:rgba(245,158,11,.18);border-color:#f59e0b">📦 SUNトラスト納品を画層に読込（確定397）</button>';
   h+='<button id="gachoAdd" class="gacho-btn wide add">＋ 新規画層</button>';
   h+='</div>';
@@ -8534,6 +8544,7 @@ function bindPanel(){
   var ek=q('#gachoExpKml');if(ek)ek.onclick=function(){exportLayer('kml');};
   var ep=q('#gachoExpCopy');if(ep)ep.onclick=function(){exportLayer('copy');};
   var rb=q('#gachoRectBtn');if(rb)rb.onclick=toggleRect;
+  var ab=q('#gachoAddBoundary');if(ab)ab.onclick=addBoundaryLayer;
   var ls=q('#gachoLoadSuntrust');if(ls)ls.onclick=loadSuntrust;
   var ad=q('#gachoAdd');if(ad)ad.onclick=addLayer;
 }
@@ -8541,7 +8552,18 @@ function bindPanel(){
 window.__gacho={
   removeItem:function(lid,itemIid){var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();render();},
   review:function(lid,itemIid,val){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid)it.viewed=!!val;});saveState();render();},
-  drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();}
+  drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
+  moveItem:function(lid,itemIid){
+    var l=byId(lid);if(!l)return;
+    var others=state.layers.filter(function(x){return x.id!==lid;});
+    if(!others.length){toast('移動先の画層がありません（先に作成してください）');return;}
+    var msg='移動先の番号を入力:\n'+others.map(function(x,i){return (i+1)+': '+x.name;}).join('\n');
+    var s=prompt(msg,'1');if(s==null)return;var idx=parseInt(s,10)-1;
+    if(isNaN(idx)||idx<0||idx>=others.length){toast('番号が不正です');return;}
+    var it=null;l.items=l.items.filter(function(x){if(x.iid===itemIid){it=x;return false;}return true;});
+    if(it){others[idx].items.push(it);toast('「'+others[idx].name+'」へ移動しました');}
+    saveState();render();
+  }
 };
 
 function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=document.createElement('style');st.id='gachoStyle';st.textContent=''
