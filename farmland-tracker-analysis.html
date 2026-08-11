@@ -1291,6 +1291,7 @@ function getOwnerColorForItem(item){
 function switchGIS(mode){
   if(currentGIS===mode)return;
   currentGIS=mode;
+  try{localStorage.setItem('trackerBaseGIS',mode);}catch(_){}
   if(baseLayer){map.removeLayer(baseLayer);}
   var opts=BASE_TILE_OPTS[mode]||{attribution:'',maxZoom:22,maxNativeZoom:18,opacity:0.9};
   baseLayer=L.tileLayer(BASE_TILES[mode],opts);
@@ -2634,7 +2635,7 @@ function enforceZOrder(){
 }
 var _zTimer=null;
 function _scheduleZOrder(){ if(_zTimer)clearTimeout(_zTimer); _zTimer=setTimeout(enforceZOrder,80); }
-function initMap(){map=L.map('map',{zoomControl:false,maxZoom:22}).setView([36.5,138],5);map.on('layeradd',_scheduleZOrder);baseLayer=L.tileLayer(BASE_TILES['map'],BASE_TILE_OPTS['map']);baseLayer.addTo(map);map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();onZoomChangeForDouro();updateBlockLabelScale();});updateBlockLabelScale();_addCadEditorControl();}
+function initMap(){map=L.map('map',{zoomControl:false,maxZoom:22}).setView([36.5,138],5);map.on('layeradd',_scheduleZOrder);/* 前回選んだベース地図(地図/GSI衛星/最新衛星)を復元 v20260811 */var _sg='map';try{var _sv=localStorage.getItem('trackerBaseGIS');if(_sv&&BASE_TILES[_sv])_sg=_sv;}catch(_){}currentGIS=_sg;baseLayer=L.tileLayer(BASE_TILES[_sg],BASE_TILE_OPTS[_sg]||{attribution:'',maxZoom:22,maxNativeZoom:18,opacity:0.9});baseLayer.addTo(map);try{var _bmap={map:'gisMap',satellite:'gisSat',esri:'gisEsri'};Object.keys(_bmap).forEach(function(m){var el=document.getElementById(_bmap[m]);if(el)el.classList.toggle('active',m===_sg);});}catch(_){}map.on('zoomend',function(){document.getElementById('zoomLevel').textContent=map.getZoom();onZoomChangeForNoshin();onZoomChangeForDouro();updateBlockLabelScale();});updateBlockLabelScale();_addCadEditorControl();}
 
 /* v20260707a: CADエディタを別タブで開くフローティングコントロール（地図中心座標を引継ぎ） */
 function _addCadEditorControl(){
