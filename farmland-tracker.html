@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260812k / 性能改善(機能変更なし): 画層(gacho)の描画を軽量化。(1)Canvasレンダラ_gachoCanvas=L.canvas({pane:'gachoPane'})でマーカー/ポリゴンをSVGのDOM大量生成せず描画。(2)ポップアップを遅延生成=bindPopup(文字列)→bindPopup(function(){…})で毎回全件分(600+)のHTML文字列構築をやめる。「線を描き続けると重い」の主因(render()が全件マーカー+ポップアップHTMLを毎回作り直す)を解消。件数/OK-NG/描画/記録の挙動は不変。recorder.js無変更=?v=バンプなし。前:v20260812j -->
 <!-- BUILD: farmland-tracker v20260812j / 手動ピック(案件候補)を他フラグと同格に=ポップアップに✓OK/🚫NG(画層「手動ピック（判定）」へ計上=__ccJudge→judgeFeature)と✏️敷地境界を描く(__gacho.drawInLayerで同画層を取込先化し描画開始)を追加。記録/表示は既存。＋描画等の邪魔だった件を修正: 画層の描画/取込/範囲/記録モード中(window.__gachoMapMode)は地番ポップアップと手動ピック長押し確認モーダルを抑止。前:v20260812i -->
 <!-- BUILD: farmland-tracker v20260812i / 📍手動ピック記録を「確認モーダル→保存」から「1クリック=即DB記録(recordDirect)」に変更＋成功/失敗を画面トーストに明示(失敗時はDBエラー文言=RLS拒否等をそのまま表示)。診断: anonではcase_candidatesのSELECT0件/INSERT42501拒否を実測=表示は認証セッション依存。認証済みINSERT可否は要現場確認、不可ならcase_candidatesにINSERTポリシー追加が必要。前:v20260812h -->
 <!-- BUILD: farmland-tracker v20260812h / 🗂画層v2.9: 「📍地図クリックで新規地点追加」を栗本さん指示でローカル画層追加→正式な記録経路に変更。地図クリックで手動ピック（案件候補）としてcase_candidatesへDB記録(確認モーダル→保存→★案件マスター登録可)=既存PC長押し記録と同経路。CaseCandidatesRecorderにrecordAt(lat,lng)公開APIを追加(既存openConfirmModalを呼ぶだけ・ピンク本体不変)。recorder script ?v=20260812hにバンプ。可視バッジもhへ。前:v20260812g -->
@@ -780,7 +781,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260812j</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260812k</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8301,6 +8302,7 @@ var PALETTE=['#f59e0b','#ef4444','#3b82f6','#22c55e','#a855f7','#ec4899','#14b8a
 var _iidc=0;
 var state=loadState();
 var _pane=null,_groups={},_rectMode=false,_rectStart=null,_rectLayer=null;
+var _gachoCanvas=null; // v20260812k: 画層マーカー/ポリゴンをCanvas描画(SVGのDOM大量生成を回避=多数でも軽い)
 var _drawMode=false,_drawPts=[],_drawTemp=null,_drawMarkers=[];
 var _pickMode=false;
 var _addMode=false;
@@ -8551,6 +8553,7 @@ function updateAreaLabels(){var m=getMap();if(!m)return;var hide=(!state.showAre
 
 function renderLayerGroups(){
   var m=getMap();if(!m)return;ensurePane(m);
+  if(!_gachoCanvas){try{_gachoCanvas=L.canvas({pane:'gachoPane',padding:0.5});}catch(_){_gachoCanvas=null;}}
   Object.keys(_groups).forEach(function(id){try{m.removeLayer(_groups[id]);}catch(_){}delete _groups[id];});
   state.layers.forEach(function(l){
     var show=l.visible&&(!state.solo||state.solo===l.id);if(!show)return;
@@ -8558,23 +8561,31 @@ function renderLayerGroups(){
     l.items.forEach(function(it){
       if(state.hideReviewed&&it.viewed)return;
       var vd=!!it.viewed;
-      var under=(it.area!=null&&it.area<800);
-      var areaTxt=(it.area!=null)?('面積 <b style="font-size:14px;color:'+(under?'#f85149':'#3fb950')+'">'+Math.round(it.area).toLocaleString()+' ㎡</b>'+(under?'<br><span style="color:#f85149">⚠ 800㎡未満：隣接を含め敷地境界を手描きで作成</span>':'')):'<span style="color:#8b949e">面積 不明</span>';
-      var acts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 敷地境界を描く</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')" title="この画層から筆を取り除く（元データは無傷）">🗑 外す</button></div>';
-      var seen='<span style="color:#9aa4ae">'+(vd?'✓ 見た':'')+'</span>';
-      var stat=it.status==='ok'?' <b style="color:#3fb950">✓OK</b>':(it.status==='ng'?' <b style="color:#f85149">🚫NG(除外)</b>':'');
-      var gmap='<div style="margin-top:6px"><a href="https://www.google.com/maps/search/?api=1&query='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🌐 Googleマップ</a> ｜ <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🚶 ストリートビュー</a></div>';
+      /* v20260812k: ポップアップHTMLはクリック時のみ生成(遅延)=毎回全件分の文字列構築をやめて軽量化 */
+      function _areaTxt(){var under=(it.area!=null&&it.area<800);return (it.area!=null)?('面積 <b style="font-size:14px;color:'+(under?'#f85149':'#3fb950')+'">'+Math.round(it.area).toLocaleString()+' ㎡</b>'+(under?'<br><span style="color:#f85149">⚠ 800㎡未満：隣接を含め敷地境界を手描きで作成</span>':'')):'<span style="color:#8b949e">面積 不明</span>';}
+      function _seen(){return '<span style="color:#9aa4ae">'+(it.viewed?'✓ 見た':'')+'</span>';}
+      function _stat(){return it.status==='ok'?' <b style="color:#3fb950">✓OK</b>':(it.status==='ng'?' <b style="color:#f85149">🚫NG(除外)</b>':'');}
+      function _gmap(){return '<div style="margin-top:6px"><a href="https://www.google.com/maps/search/?api=1&query='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🌐 Googleマップ</a> ｜ <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🚶 ストリートビュー</a></div>';}
+      var _iid=(it.iid||'');
       if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
-        var bacts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.redraw(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 描き直す</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 削除</button></div>';
-        var pg=L.polygon(it.latlngs,it.status==='ng'?{pane:'gachoPane',color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.1,dashArray:'4,4'}:(it.status==='ok'?{pane:'gachoPane',color:'#3fb950',weight:3,fillColor:l.color,fillOpacity:0.3}:{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null}));
-        pg.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>敷地境界<br>'+areaTxt+gmap+bacts+'</div>');
+        var pgSty=it.status==='ng'?{color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.1,dashArray:'4,4'}:(it.status==='ok'?{color:'#3fb950',weight:3,fillColor:l.color,fillOpacity:0.3}:{color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null});
+        pgSty.pane='gachoPane';if(_gachoCanvas)pgSty.renderer=_gachoCanvas;
+        var pg=L.polygon(it.latlngs,pgSty);
+        pg.bindPopup(function(){
+          var bacts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+_iid+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+_iid+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.redraw(\''+l.id+'\',\''+_iid+'\')">🗑 描き直す</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+_iid+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+_iid+'\')">🗑 削除</button></div>';
+          return '<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+_seen()+_stat()+'<br>敷地境界<br>'+_areaTxt()+_gmap()+bacts+'</div>';
+        });
         pg.bindTooltip(Math.round(it.area||0).toLocaleString()+'㎡',{permanent:true,direction:'center',className:'gacho-area-lbl',pane:'gachoPane'});
         pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{pg.setStyle({fillOpacity:0.08,dashArray:'4,4'});}catch(_){}saveState();renderPanel();}});
         g.addLayer(pg);
       }else{
         var _sty=it.status==='ng'?{radius:5,color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.3}:(it.status==='ok'?{radius:7,color:'#3fb950',weight:3,fillColor:l.color,fillOpacity:0.95}:{radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95});
-        var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
-        mk.bindPopup('<div style="font-size:12px;min-width:140px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+acts+'</div>');
+        _sty.pane='gachoPane';if(_gachoCanvas)_sty.renderer=_gachoCanvas;
+        var mk=L.circleMarker([it.lat,it.lng],_sty);
+        mk.bindPopup(function(){
+          var acts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+_iid+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+_iid+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 敷地境界を描く</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+_iid+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+_iid+'\')" title="この画層から筆を取り除く（元データは無傷）">🗑 外す</button></div>';
+          return '<div style="font-size:12px;min-width:140px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+_seen()+_stat()+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+_areaTxt()+(it.deliver?'<br>区分 '+esc(it.deliver):'')+_gmap()+acts+'</div>';
+        });
         mk.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{mk.setRadius(5);mk.setStyle({color:'#9aa4ae',weight:1,fillOpacity:0.35});}catch(_){}saveState();renderPanel();}});
         g.addLayer(mk);
       }
