@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260812d / 🗂画層v2.6: 地図フラグを直接OK/NG判定できるように=御所218フラグのポップアップに✓OK/🚫NGボタンを追加(元は📍地図のみで判定手段が無く「カウンターが動かない」状態だった)。押すと__gacho.judgeFeatureが画層「御所218（低圧太陽光）」にfeature_idで筆を積み/トグルし、パネルのOK/NG件数と全画層合計が即動く。feature_id横断検索で重複防止・取込前でも即カウント。前:v20260812c -->
 <!-- BUILD: farmland-tracker v20260812c / 🗂画層v2.5: (1)御所218(GOSE218=御所市の低圧太陽光分析・面積800-1200の本命107件)を画層取込対象に追加(collectInBounds)＋「☀御所218を画層に読込（全OK）」ボタン=107件をstatus=okで一括ロード(栗本さん認識=黄色は全てOK)。※御所218はSUNトラスト397(奈良256+三重141)とは別エリア・別母集団。裸で合算しない。(2)パネル上部に「全画層合計 👁見た/OK・NG/計」を常時表示=システムが状態から自動集計(AIは数えない)。前:v20260812b -->
 <!-- BUILD: farmland-tracker v20260812b / 🗂画層v2.4: 判定カウントの穴を全部塞ぐ。(1)敷地境界のポップアップにも✓OK/🚫NGを追加(点だけでなく境界も判定でき数字が動く)＋境界をstatusで色分け(OK緑枠/NG灰点線)。(2)件数行に「👁見た○」を復活＝モーダルを開いた分(最初の"開いただけ"も)を全部カウント→👁見た○／OK○・NG○／計○。(3)「👁→✓ 見た分をOKに一括」ボタン=既に見た(未判定)を全画層まとめてOKへ(過去分を開き直さずに数字化・後で個別NG可)。前:v20260812a -->
 <!-- BUILD: farmland-tracker v20260812a / 🗂画層v2.3: OK/NG件数が「見えない」不具合を修正。原因=件数を画層名spanの末尾に入れていたため、名前が長いとellipsis(…)で切れて件数が隠れていた(表示バグ・機能は動作)。件数(OK○・NG○／計○)を画層名の下の独立行(.gacho-cnt)へ移動し、長い名前でも常に全表示。前:v20260811p -->
@@ -7134,6 +7135,16 @@ window.ghDelete=async function(fid,lat,lng){
       if(!map.getPane('gosePane')){ var pn=map.createPane('gosePane'); pn.style.zIndex=652; }
       var lyr=L.layerGroup([]); var shown=0;
       function yn(b){return b?'<span style="color:#22c55e">✓</span>':'<span style="color:#f87171">×</span>';}
+      /* v20260812d: フラグ直接判定→画層カウンターへ反映。ポップアップの✓OK/🚫NGから呼ぶ */
+      window.__goseJudge=function(btn){
+        try{
+          var no=btn.getAttribute('data-gj'),val=btn.getAttribute('data-v');
+          var c=(window.GOSE218.items||[]).filter(function(x){return String(x.no)===String(no);})[0];
+          if(!c){return;}
+          if(!(window.__gacho&&window.__gacho.judgeFeature)){alert('画層機能の初期化待ちです。少し待って再度お試しください');return;}
+          window.__gacho.judgeFeature('gose'+c.no,val,{layerName:'御所218（低圧太陽光）',color:'#f59e0b',lat:c.lat,lng:c.lng,address:c.addr||'',area:c.area,src:'gose'});
+        }catch(e){console.warn('[goseJudge]',e);}
+      };
       (window.GOSE218.items||[]).forEach(function(c){
         if(c.lat==null||c.lng==null) return;
         var col = c.honmei?'#22c55e':(c.pass>=3?'#f59e0b':(c.pass>=2?'#eab308':'#6b7280'));
@@ -7145,6 +7156,11 @@ window.ghDelete=async function(fid,lat,lng){
           +'①面積800-1200 '+yn(true)+' ／ ②③ハザ青地 <span style="color:#22c55e">✓済</span><br>'
           +'④接道('+(c.road_m!=null?c.road_m+'m':'-')+') '+yn(c.setsudo)+' ／ ⑤連系('+(c.power_m!=null?c.power_m+'m':'-')+') '+yn(c.renkei)+'<br>'
           +'⑥日照 '+yn(c.nissho)+' ／ 通過 '+c.pass+'/4<br>'
+          +'<div style="margin-top:8px;display:flex;gap:6px">'
+          +'<button data-gj="'+c.no+'" data-v="ok" onclick="__goseJudge(this)" style="flex:1;background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:4px 7px;cursor:pointer">✓ OK</button>'
+          +'<button data-gj="'+c.no+'" data-v="ng" onclick="__goseJudge(this)" style="flex:1;background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:4px 7px;cursor:pointer">🚫 NG</button>'
+          +'</div>'
+          +'<div style="margin-top:4px;color:#8b949e;font-size:10px">判定は画層「御所218（低圧太陽光）」のOK/NGカウンターに反映</div>'
           +'<div style="margin-top:6px"><a href="'+g+'" target="_blank" style="color:#38bdf8">📍地図</a></div></div>';
         m.bindPopup(h); m.addTo(lyr); shown++;
       });
@@ -8621,7 +8637,23 @@ window.__gacho={
     if(it){others[idx].items.push(it);toast('「'+others[idx].name+'」へ移動しました');}
     saveState();render();
   },
-  redraw:function(lid,itemIid){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();state.layers.forEach(function(x){x.active=(x.id===lid);});setTimeout(function(){render();if(!_drawMode)toggleDraw();toast('この境界を消しました。描き直してください（クリックで頂点→Wクリック確定）');},0);}
+  redraw:function(lid,itemIid){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();state.layers.forEach(function(x){x.active=(x.id===lid);});setTimeout(function(){render();if(!_drawMode)toggleDraw();toast('この境界を消しました。描き直してください（クリックで頂点→Wクリック確定）');},0);},
+  /* v20260812d: 地図フラグを直接OK/NG判定→画層カウンターに反映。feature_idで全画層を横断検索し既存なら同じ筆をトグル、無ければ専用画層へ追加(重複防止)。取込前でも押しただけで数字が動く */
+  judgeFeature:function(featureId,val,meta){
+    meta=meta||{};var m=getMap();if(m)m.closePopup();
+    var found=null,fl=null;
+    state.layers.forEach(function(l){l.items.forEach(function(x){if(!found&&x.feature_id===featureId){found=x;fl=l;}});});
+    if(!found){
+      var name=meta.layerName||'フラグ判定';
+      fl=state.layers.filter(function(x){return x.name===name;})[0];
+      if(!fl){fl={id:uid(),name:name,color:meta.color||'#f59e0b',visible:true,active:false,items:[]};state.layers.push(fl);}
+      found={iid:iid(),feature_id:featureId,lat:(meta.lat!=null?Number(meta.lat):null),lng:(meta.lng!=null?Number(meta.lng):null),address:meta.address||'',area:(meta.area!=null?Number(meta.area):null),src:meta.src||'flag'};
+      fl.items.push(found);
+    }
+    found.status=(found.status===val?null:val);found.viewed=true;
+    saveState();setTimeout(function(){render();},0);
+    toast('「'+fl.name+'」'+(found.status==='ok'?'✓OK':(found.status==='ng'?'🚫NG':'判定解除'))+' ／ この画層 計'+fl.items.length+'件（OK'+fl.items.filter(function(x){return x.status==='ok';}).length+'・NG'+fl.items.filter(function(x){return x.status==='ng';}).length+'）');
+  }
 };
 
 function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=document.createElement('style');st.id='gachoStyle';st.textContent=''
