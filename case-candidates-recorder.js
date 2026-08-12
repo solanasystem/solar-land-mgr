@@ -806,6 +806,13 @@
     init: init,
     _close: closeModal,
     _save: save,
+    // v20260812h: 外部(画層の「📍新規地点を追加」等)から、指定座標で手動ピック記録の確認モーダルを開く。
+    //   既存のPC長押し記録と同じ経路(openConfirmModal→save→case_candidatesへINSERT)。メモ入力→保存でDB記録。
+    recordAt: function(lat, lng) {
+      var la = Number(lat), ln = Number(lng);
+      if (isNaN(la) || isNaN(ln)) { showToast('座標が不正です', 'error'); return; }
+      openConfirmModal({ latitude: la, longitude: ln, source: 'pc_click', accuracy: null });
+    },
     // v20260702m: popup 内ボタンから呼ばれる
     _delete: _deleteCandidate,
     _updateStatus: _updateStatus,
