@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260812e / 🗂画層v2.7: 地図巡回中に見つけた場所を入れる手段を追加=「📍 地図をクリックして新規地点を追加」モード。既存の筆が無い場所でもクリックした座標を取込先画層へ新規地点(feature_id=null,src=手動追加)として追加(連続可・ESCで終了)。取込先が無ければ「地図で発見（手動追加）」画層を自動作成。追加した点はそのままOK/NG判定・カウント・KML/GeoJSON書き出しに乗る。他モード(取込/範囲/描画)と排他。前:v20260812d -->
 <!-- BUILD: farmland-tracker v20260812d / 🗂画層v2.6: 地図フラグを直接OK/NG判定できるように=御所218フラグのポップアップに✓OK/🚫NGボタンを追加(元は📍地図のみで判定手段が無く「カウンターが動かない」状態だった)。押すと__gacho.judgeFeatureが画層「御所218（低圧太陽光）」にfeature_idで筆を積み/トグルし、パネルのOK/NG件数と全画層合計が即動く。feature_id横断検索で重複防止・取込前でも即カウント。前:v20260812c -->
 <!-- BUILD: farmland-tracker v20260812c / 🗂画層v2.5: (1)御所218(GOSE218=御所市の低圧太陽光分析・面積800-1200の本命107件)を画層取込対象に追加(collectInBounds)＋「☀御所218を画層に読込（全OK）」ボタン=107件をstatus=okで一括ロード(栗本さん認識=黄色は全てOK)。※御所218はSUNトラスト397(奈良256+三重141)とは別エリア・別母集団。裸で合算しない。(2)パネル上部に「全画層合計 👁見た/OK・NG/計」を常時表示=システムが状態から自動集計(AIは数えない)。前:v20260812b -->
 <!-- BUILD: farmland-tracker v20260812b / 🗂画層v2.4: 判定カウントの穴を全部塞ぐ。(1)敷地境界のポップアップにも✓OK/🚫NGを追加(点だけでなく境界も判定でき数字が動く)＋境界をstatusで色分け(OK緑枠/NG灰点線)。(2)件数行に「👁見た○」を復活＝モーダルを開いた分(最初の"開いただけ"も)を全部カウント→👁見た○／OK○・NG○／計○。(3)「👁→✓ 見た分をOKに一括」ボタン=既に見た(未判定)を全画層まとめてOKへ(過去分を開き直さずに数字化・後で個別NG可)。前:v20260812a -->
@@ -8285,6 +8286,7 @@ var state=loadState();
 var _pane=null,_groups={},_rectMode=false,_rectStart=null,_rectLayer=null;
 var _drawMode=false,_drawPts=[],_drawTemp=null,_drawMarkers=[];
 var _pickMode=false;
+var _addMode=false;
 
 function loadState(){
   var s=null;try{s=JSON.parse(localStorage.getItem(LS_KEY));}catch(_){}
@@ -8358,7 +8360,7 @@ function togglePick(){
   var m=getMap();if(!m)return;
   if(!activeLayer()){toast('先に取込先の画層を選ぶ/作ってください');return;}
   _pickMode=!_pickMode;
-  if(_pickMode){if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();m.getContainer().style.cursor='pointer';m.on('click',pickClick);toast('地図の筆・フラグをクリックすると1件ずつ取込先画層へ追加（ESCで終了）');}
+  if(_pickMode){if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_addMode)cleanupAdd();m.getContainer().style.cursor='pointer';m.on('click',pickClick);toast('地図の筆・フラグをクリックすると1件ずつ取込先画層へ追加（ESCで終了）');}
   else{cleanupPick();}
   renderPanel();
 }
@@ -8372,6 +8374,31 @@ function pickClick(e){
   best.iid=iid();l.items.push(best);saveState();render();toast('1件を「'+l.name+'」に追加（'+(best.address||Number(best.lat).toFixed(5)+', '+Number(best.lng).toFixed(5))+'）');
 }
 function cleanupPick(){var m=getMap();if(m){m.off('click',pickClick);m.getContainer().style.cursor='';}_pickMode=false;renderPanel();}
+
+/* ===== 地図をクリックして新規地点を追加（既存の筆が無い場所でもOK。地図巡回中に見つけた候補を入れる） ===== */
+function toggleAdd(){
+  var m=getMap();if(!m)return;
+  if(!_addMode){
+    if(!activeLayer()){
+      var name='地図で発見（手動追加）';
+      var nl=state.layers.filter(function(x){return x.name===name;})[0];
+      if(!nl){nl={id:uid(),name:name,color:'#e879f9',visible:true,active:false,items:[]};state.layers.push(nl);}
+      state.layers.forEach(function(x){x.active=(x.id===nl.id);});saveState();
+    }
+    if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();
+    _addMode=true;m.getContainer().style.cursor='crosshair';m.on('click',addClick);
+    toast('地図をクリックすると、その地点を「'+activeLayer().name+'」に新規追加（連続可・ESCで終了）');
+  }else{cleanupAdd();}
+  renderPanel();
+}
+function addClick(e){
+  var l=activeLayer();if(!l)return;
+  var la=e.latlng.lat,ln=e.latlng.lng;
+  l.items.push({iid:iid(),feature_id:null,lat:la,lng:ln,address:'',area:null,src:'手動追加',viewed:true});
+  saveState();render();
+  toast('新規地点を「'+l.name+'」に追加（'+la.toFixed(5)+', '+ln.toFixed(5)+'／計'+l.items.length+'件）');
+}
+function cleanupAdd(){var m=getMap();if(m){m.off('click',addClick);m.getContainer().style.cursor='';}_addMode=false;renderPanel();}
 
 /* ===== 敷地境界を描く（CAD風・面積算出） ===== */
 function polyArea(latlngs){
@@ -8387,7 +8414,7 @@ function toggleDraw(){
   var m=getMap();if(!m)return;
   if(!activeLayer()){toast('先に取込先の画層を選ぶ/作ってください');return;}
   _drawMode=!_drawMode;
-  if(_drawMode){if(_rectMode)cleanupRect();if(_pickMode)cleanupPick();m.closePopup();if(_pane)_pane.style.pointerEvents='none';try{m.doubleClickZoom.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('click',drawClick);m.on('dblclick',drawFinish);toast('頂点をクリックで追加→ダブルクリックで確定（ESCで取消）');}
+  if(_drawMode){if(_rectMode)cleanupRect();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();m.closePopup();if(_pane)_pane.style.pointerEvents='none';try{m.doubleClickZoom.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('click',drawClick);m.on('dblclick',drawFinish);toast('頂点をクリックで追加→ダブルクリックで確定（ESCで取消）');}
   else{cancelDraw();}
   renderPanel();
 }
@@ -8397,7 +8424,7 @@ function drawUndo(){var m=getMap();if(!_drawPts.length){toast('戻す頂点が�
 function drawFinish(e){if(e){try{L.DomEvent.stop(e);}catch(_){}}if(_drawPts.length<3){toast('3点以上必要です');return;}var l=activeLayer();if(!l){cancelDraw();return;}var latlngs=_drawPts.slice();var area=polyArea(latlngs);var c=centroid(latlngs);l.items.push({iid:iid(),type:'boundary',latlngs:latlngs,area:area,lat:c[0],lng:c[1],address:'敷地境界'});saveState();cancelDraw();render();toast('敷地境界を「'+l.name+'」に追加（約'+Math.round(area).toLocaleString()+'㎡）');}
 function cancelDraw(){var m=getMap();_drawMarkers.forEach(function(mk){try{if(m)m.removeLayer(mk);}catch(_){}});_drawMarkers=[];if(_drawTemp){try{if(m)m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}_drawPts=[];if(_pane)_pane.style.pointerEvents='';if(m){m.off('click',drawClick);m.off('dblclick',drawFinish);try{m.doubleClickZoom.enable();}catch(_){}m.getContainer().style.cursor='';}_drawMode=false;renderPanel();}
 
-function toggleRect(){var m=getMap();if(!m)return;_rectMode=!_rectMode;if(_rectMode){if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();try{m.dragging.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('mousedown',rectDown);toast('地図上をドラッグで囲むと、その範囲の筆・フラグを取り込みます（ESCで終了）');}else{cleanupRect();}renderPanel();}
+function toggleRect(){var m=getMap();if(!m)return;_rectMode=!_rectMode;if(_rectMode){if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();try{m.dragging.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('mousedown',rectDown);toast('地図上をドラッグで囲むと、その範囲の筆・フラグを取り込みます（ESCで終了）');}else{cleanupRect();}renderPanel();}
 function rectDown(e){_rectStart=e.latlng;var m=getMap();m.on('mousemove',rectMove);m.on('mouseup',rectUp);}
 function rectMove(e){var m=getMap();if(!_rectStart)return;if(_rectLayer)m.removeLayer(_rectLayer);_rectLayer=L.rectangle(L.latLngBounds(_rectStart,e.latlng),{color:'#f59e0b',weight:1,dashArray:'5,5',fillOpacity:0.08}).addTo(m);}
 function rectUp(e){var m=getMap();var b=L.latLngBounds(_rectStart,e.latlng);m.off('mousemove',rectMove);m.off('mouseup',rectUp);if(_rectLayer){m.removeLayer(_rectLayer);_rectLayer=null;}_rectStart=null;if(b.isValid())captureBounds(b);}
@@ -8573,6 +8600,7 @@ function renderPanel(){
   if(al){
     h+='<div class="gacho-active-note">取込先: <b style="color:'+al.color+'">'+esc(al.name)+'</b></div>';
     h+='<button id="gachoPickBtn" class="gacho-btn wide'+(_pickMode?' on':'')+'">🖱 クリックで1件ずつ取込'+(_pickMode?'（ESCで終了）':'')+'</button>';
+    h+='<button id="gachoAddPt" class="gacho-btn wide'+(_addMode?' on':'')+'" style="background:rgba(232,121,249,.16);border-color:#e879f9">📍 地図をクリックして新規地点を追加'+(_addMode?'（連続可／ESCで終了）':'')+'</button>';
     h+='<button id="gachoCapView" class="gacho-btn wide">＋ 表示中の範囲を取り込む（全部）</button>';
     h+='<div class="gacho-cond">面積 ≥ <input id="gachoMinArea" type="number" min="0" step="50" value="'+(state.lastMinArea!=null?state.lastMinArea:800)+'"> ㎡ <button id="gachoCapCond" class="gacho-btn">条件で取込</button></div>';
     h+='<button id="gachoRectBtn" class="gacho-btn wide'+(_rectMode?' on':'')+'">▭ 範囲ドラッグで取り込む'+(_rectMode?'（ESCで終了）':'')+'</button>';
@@ -8608,6 +8636,7 @@ function bindPanel(){
   var cv=q('#gachoCapView');if(cv)cv.onclick=function(){captureViewport();};
   var cc=q('#gachoCapCond');if(cc)cc.onclick=function(){var el=q('#gachoMinArea');var v=el?Number(el.value):800;if(isNaN(v))v=0;state.lastMinArea=v;saveState();captureViewport({minArea:v});};
   var pk=q('#gachoPickBtn');if(pk)pk.onclick=togglePick;
+  var ap=q('#gachoAddPt');if(ap)ap.onclick=toggleAdd;
   var db=q('#gachoDrawBtn');if(db)db.onclick=toggleDraw;
   var du=q('#gachoDrawUndo');if(du)du.onclick=drawUndo;
   var dn=q('#gachoDrawDone');if(dn)dn.onclick=function(){drawFinish();};
@@ -8689,7 +8718,7 @@ function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=do
 +'.gacho-noarea .gacho-area-lbl{display:none !important;}';
 document.head.appendChild(st);}
 
-function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}injectStyle();buildPanel();ensurePane(m);render();m.on('zoomend',updateAreaLabels);updateAreaLabels();document.addEventListener('keydown',function(e){var tag=((e.target&&e.target.tagName)||'').toLowerCase();if(tag==='input'||tag==='textarea')return;if(e.key==='Escape'){if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();}if(_drawMode&&(e.key==='Backspace'||((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')))){e.preventDefault();drawUndo();}});}
+function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}injectStyle();buildPanel();ensurePane(m);render();m.on('zoomend',updateAreaLabels);updateAreaLabels();document.addEventListener('keydown',function(e){var tag=((e.target&&e.target.tagName)||'').toLowerCase();if(tag==='input'||tag==='textarea')return;if(e.key==='Escape'){if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();}if(_drawMode&&(e.key==='Backspace'||((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')))){e.preventDefault();drawUndo();}});}
 boot();
 })();
 </script>
