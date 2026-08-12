@@ -373,6 +373,8 @@
 
       pressTimer = setTimeout(function() {
         pressTriggered = true;
+        // v20260812j: 画層の描画/取込/範囲/記録モード中は長押し確認モーダルを出さない(線描画等の邪魔をしない)
+        if (window.__gachoMapMode) { clearPress(); return; }
         if (startLatLng) {
           openConfirmModal({
             latitude: startLatLng.lat,
@@ -622,6 +624,14 @@
     _candidateMarkers[rec.id] = { marker: marker, record: rec };
   }
 
+  /* v20260812j: 手動ピックにOK/NG(画層計上)を配線。ピンク本体(case_candidates)不変・DB非書込。別系統(gacho)へfeature_id='cc'+idで積む/トグル。 */
+  window.__ccJudge = function(id, val, lat, lng) {
+    try {
+      if (!(window.__gacho && window.__gacho.judgeFeature)) { alert('画層機能の初期化待ちです。少し待って再度お試しください'); return; }
+      window.__gacho.judgeFeature('cc' + id, val, { layerName: '手動ピック（判定）', color: '#ff1493', lat: Number(lat), lng: Number(lng), address: '', area: null, src: '手動ピック' });
+    } catch (e) { try { console.warn('[ccJudge]', e); } catch (_) {} }
+  };
+
   function _buildCandidatePopup(rec) {
     const sourceLabel = rec.source === 'pc_click' ? '🖱 PC地図クリック'
                       : rec.source === 'mobile_gps' ? '📱 モバイルGPS'
@@ -668,11 +678,19 @@
       ? '<button onclick="promoteToCase('+_lat+','+_lng+',&quot;\u4f4e\u5727\u592a\u967d\u5149&quot;,&quot;&quot;,this)" style="margin-top:9px;width:100%;padding:6px 8px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">\u2605 \u6848\u4ef6\u30de\u30b9\u30bf\u30fc\u3078\u767b\u9332</button>'
       : '';
     var _delBtn = '<button onclick="CaseCandidatesRecorder._delete(\'' + rec.id + '\')" style="margin-top:9px;width:100%;padding:6px 8px;border:1px solid #B71C1C;background:#3a1414;color:#ff8a80;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">\ud83d\uddd1 \u3053\u306e\u6848\u4ef6\u5019\u88dc\u3092\u524a\u9664</button>';
+    var _pickBtns = (typeof window !== 'undefined' && window.__gacho && window.__gacho.judgeFeature)
+      ? '<div style="display:flex;gap:6px;margin-top:9px">'
+        + '<button onclick="__ccJudge(&quot;'+rec.id+'&quot;,&quot;ok&quot;,'+_lat+','+_lng+')" style="flex:1;padding:6px;border:1px solid #3fb950;background:rgba(63,185,80,.22);color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">\u2713 OK\uff08\u8a08\u4e0a\uff09</button>'
+        + '<button onclick="__ccJudge(&quot;'+rec.id+'&quot;,&quot;ng&quot;,'+_lat+','+_lng+')" style="flex:1;padding:6px;border:1px solid #f85149;background:rgba(248,81,73,.22);color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">\ud83d\udeab NG\uff08\u8a08\u4e0a\uff09</button>'
+        + '</div>'
+        + '<button onclick="window.__gacho.drawInLayer(&quot;\u624b\u52d5\u30d4\u30c3\u30af\uff08\u5224\u5b9a\uff09&quot;,&quot;#ff1493&quot;)" style="margin-top:6px;width:100%;padding:6px;border:1px solid #ff1493;background:rgba(255,20,147,.18);color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">\u270f\ufe0f \u6577\u5730\u5883\u754c\u3092\u63cf\u304f\uff08\u9762\u7a4d\uff09</button>'
+        + '<div style="font-size:9px;color:#94a3b8;margin-top:3px;line-height:1.5">OK/NG\u306f\u753b\u5c64\u300c\u624b\u52d5\u30d4\u30c3\u30af\uff08\u5224\u5b9a\uff09\u300d\u306b\u8a08\u4e0a\uff08\u30d4\u30f3\u30af\u672c\u4f53\u30fbDB\u306f\u4e0d\u5909\uff09</div>'
+      : '';
     return '<div style="min-width:210px">'
       + '<div style="color:#ff1493;font-weight:800;font-size:13px;margin-bottom:6px">\u270b \u624b\u52d5\u30d4\u30c3\u30af\uff08\u6848\u4ef6\u5019\u88dc\uff09'
       + (_dstr?'<span style="font-size:10px;color:#94a3b8;font-weight:400;margin-left:6px">'+_dstr+'</span>':'') + '</div>'
       + '<div style="font-size:12px;line-height:1.9">\u9762\u7a4d: '+_areaHtml+'<br>\u30e1\u30e2: '+_memoHtml+'</div>'
-      + _mapBtns + _caseBtn + _delBtn
+      + _mapBtns + _pickBtns + _caseBtn + _delBtn
       + '</div>';
   }
 
