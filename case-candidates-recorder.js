@@ -813,6 +813,21 @@
       if (isNaN(la) || isNaN(ln)) { showToast('座標が不正です', 'error'); return; }
       openConfirmModal({ latitude: la, longitude: ln, source: 'pc_click', accuracy: null });
     },
+    // v20260812i: 確認モーダルを介さず、指定座標を手動ピックとして即DB記録(1クリック=1記録)。
+    //   Promiseで{ok,id,error}を返す。失敗理由(RLS等)を呼び出し側で画面表示できる。ピンク本体不変・新規INSERTのみ。
+    recordDirect: async function(lat, lng, memo) {
+      var la = Number(lat), ln = Number(lng);
+      if (isNaN(la) || isNaN(ln)) return { ok: false, error: '座標が不正です' };
+      if (!_db) return { ok: false, error: '記録機能が初期化されていません' };
+      var payload = { organization_id: DUMMY_ORG_ID, latitude: la, longitude: ln, source: 'pc_click', source_page: _sourcePage, accuracy: null, memo: (memo && String(memo).trim()) || null, status: 'new' };
+      try {
+        var res = await _db.from('case_candidates').insert(payload).select();
+        if (res.error) return { ok: false, error: res.error.message || String(res.error) };
+        var rec = res.data && res.data[0];
+        if (rec) _addCandidateMarker(rec);
+        return { ok: true, id: rec ? rec.id : null, lat: la, lng: ln };
+      } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+    },
     // v20260702m: popup 内ボタンから呼ばれる
     _delete: _deleteCandidate,
     _updateStatus: _updateStatus,
