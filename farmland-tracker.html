@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260812m / 🔆既存太陽光トグルを非表示化(栗本さん指示)。fit_solar.jsonの地番→座標化が大字/町の重心に丸まり、1,887件中1,452件(77%)が他所と同一座標に山積み=フラグ位置に実パネルが無く情報として無意味だったため休止。injectBtnを早期return(データ/ロジックは残置)。実フットプリント(OSM太陽光/衛星パネル検出)へ置換できたら再開。※v20260812k(Canvas性能改善)は線画干渉でrevert済のため欠番。前:v20260812j -->
 <!-- BUILD: farmland-tracker v20260812j / 手動ピック(案件候補)を他フラグと同格に=ポップアップに✓OK/🚫NG(画層「手動ピック（判定）」へ計上=__ccJudge→judgeFeature)と✏️敷地境界を描く(__gacho.drawInLayerで同画層を取込先化し描画開始)を追加。記録/表示は既存。＋描画等の邪魔だった件を修正: 画層の描画/取込/範囲/記録モード中(window.__gachoMapMode)は地番ポップアップと手動ピック長押し確認モーダルを抑止。前:v20260812i -->
 <!-- BUILD: farmland-tracker v20260812i / 📍手動ピック記録を「確認モーダル→保存」から「1クリック=即DB記録(recordDirect)」に変更＋成功/失敗を画面トーストに明示(失敗時はDBエラー文言=RLS拒否等をそのまま表示)。診断: anonではcase_candidatesのSELECT0件/INSERT42501拒否を実測=表示は認証セッション依存。認証済みINSERT可否は要現場確認、不可ならcase_candidatesにINSERTポリシー追加が必要。前:v20260812h -->
 <!-- BUILD: farmland-tracker v20260812h / 🗂画層v2.9: 「📍地図クリックで新規地点追加」を栗本さん指示でローカル画層追加→正式な記録経路に変更。地図クリックで手動ピック（案件候補）としてcase_candidatesへDB記録(確認モーダル→保存→★案件マスター登録可)=既存PC長押し記録と同経路。CaseCandidatesRecorderにrecordAt(lat,lng)公開APIを追加(既存openConfirmModalを呼ぶだけ・ピンク本体不変)。recorder script ?v=20260812hにバンプ。可視バッジもhへ。前:v20260812g -->
@@ -780,7 +781,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260812j</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260812m</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8787,6 +8788,11 @@ function toggle(){
 }
 window.__fitsolar={toSearch:function(addr){var el=document.getElementById('chibanInput');if(el){el.value=addr;el.focus();try{el.dispatchEvent(new Event('input',{bubbles:true}));}catch(_){}}}};
 function injectBtn(){
+  /* v20260812m: 非表示化(栗本さん指示 2026-08-12)。fit_solar.jsonの地番→座標化が大字/町の重心に丸まり、
+     1,887件中1,452件(77%)が他所と同一座標に山積み=フラグ位置に実パネルが無く「情報として無意味」だったため、
+     🔆既存太陽光トグルを休止。データ/ロジックは残置(下記そのまま)。実フットプリント(OSM太陽光/衛星パネル検出)へ
+     置換できたら再開する。 */
+  return;
   if(document.getElementById('fitSolarBtn'))return;
   var st=document.createElement('style');st.textContent='.fitsolar-btn{position:fixed;top:150px;right:14px;z-index:1150;background:rgba(13,17,23,.9);color:#f59e0b;border:1px solid #f59e0b;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.4);}.fitsolar-btn.on{background:#f59e0b;color:#111;font-weight:700;}';document.head.appendChild(st);
   var b=document.createElement('button');b.id='fitSolarBtn';b.className='fitsolar-btn';b.textContent='🔆 既存太陽光';b.title='FIT認定・運転開始済×50kW以上（開拓予定の全県）を表示';b.onclick=toggle;document.body.appendChild(b);
