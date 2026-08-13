@@ -44,6 +44,13 @@
   function isOwner(email) {
     return !!email && OWNER_EMAILS.indexOf(String(email).trim().toLowerCase()) !== -1;
   }
+  // メンテナンス中でもアプリ利用を許可するメール（login.htmlのMAINTENANCE_ALLOW_EMAILSと一致させる。
+  // 2026-08-13修正: 従来ここはisOwner(takumiのみ)判定で、login.htmlで許可した黒木さん九州が
+  // ログイン後にcommon-auth.jsで弾かれていた。両ファイルの許可リストを揃える。）
+  var MAINTENANCE_ALLOW_EMAILS = ['takumi.kurimoto@gmail.com', 'yumi.kurogi117@gmail.com'];
+  function isMaintenanceAllowed(email) {
+    return !!email && MAINTENANCE_ALLOW_EMAILS.indexOf(String(email).trim().toLowerCase()) !== -1;
+  }
 
   // ============================================================
   // ヘルパー
@@ -88,8 +95,8 @@
   }
 
   // ★メンテナンスロック（同期: キャッシュにemailがある場合は即弾く）
-  if (MAINTENANCE_OWNER_ONLY && profile.email && !isOwner(profile.email)) {
-    bailToLogin('Maintenance: owner only');
+  if (MAINTENANCE_OWNER_ONLY && profile.email && !isMaintenanceAllowed(profile.email)) {
+    bailToLogin('Maintenance: not in allow list');
     throw new Error('GRID LAND MGR: Maintenance owner-only');
   }
 
@@ -187,7 +194,7 @@
               return;
             }
             // ★メンテナンスロック（非同期: 認証セッションのemail優先＝profiles.emailがnullでもオーナーを誤ロックしない。既存セッションも弾く）
-            if (MAINTENANCE_OWNER_ONLY && !isOwner((session.user && session.user.email) || newProfile.email)) {
+            if (MAINTENANCE_OWNER_ONLY && !isMaintenanceAllowed((session.user && session.user.email) || newProfile.email)) {
               window.__auth.logout();
               return;
             }
