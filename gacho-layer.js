@@ -493,6 +493,18 @@ window.__gacho={
     toast('「'+fl.name+'」'+(found.status==='ok'?'✓OK':(found.status==='ng'?'🚫NG':'判定解除'))+' ／ この画層 計'+fl.items.length+'件（OK'+fl.items.filter(function(x){return x.status==='ok';}).length+'・NG'+fl.items.filter(function(x){return x.status==='ng';}).length+'）');
   },
   /* AI候補等を画層に中立(未判定)で一括読込。feature_idで重複防止。以後は画層のフラグ=標準モーダル・OK/NGがその場で効く。 */
+  // 手動ピックを常時可視の画層(gachoPane)へ積む。0画層OFF(base0非表示)でも必ず見える=「フラグが立たない」の根治。
+  addManualPick:function(lat,lng,memo){
+    var la=Number(lat),ln=Number(lng);if(isNaN(la)||isNaN(ln))return null;
+    var name='手動ピック（判定）';
+    var l=state.layers.filter(function(x){return x.name===name&&!x.archived;})[0];
+    if(!l){l={id:uid(),name:name,color:'#ff1493',visible:true,active:false,items:[]};state.layers.push(l);}
+    l.visible=true;
+    var it={iid:iid(),lat:la,lng:ln,address:(memo&&String(memo).trim())||('手動ピック '+la.toFixed(5)+', '+ln.toFixed(5)),src:'manualpick',status:null};
+    l.items.push(it);saveState();setTimeout(function(){render();},0);
+    toast('📍 手動ピックのフラグを表示（'+la.toFixed(5)+', '+ln.toFixed(5)+'）／画層「'+name+'」');
+    return it.iid;
+  },
   loadNeutral:function(items,layerName,color,prefix){
     if(!items||!items.length)return;
     var l=state.layers.filter(function(x){return x.name===layerName;})[0];

@@ -788,6 +788,8 @@
         // v20260702m: 保存成功直後に地図へマーカーを追加（リロード不要）
         if (data && data[0]) {
           _addCandidateMarker(data[0]);
+          // ★常時可視の画層(gachoPane)にも積む=「0画層｜既存すべて」OFF(candidatePane非表示)でも必ずフラグが見える。栗本さん:手動ピックのフラグが立たない の根治。
+          try { if (window.__gacho && window.__gacho.addManualPick) window.__gacho.addManualPick(data[0].latitude, data[0].longitude, memo); } catch(_) {}
         }
         showToast('案件候補を記録しました', 'success');
         closeModal();
