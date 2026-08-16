@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260816a / 🔬「AI分析結果（検証中）」レイヤーを追加(自己完結・専用pane aiAnalysisPane・シアン別色・自動表示)。新行政区域のAI全条件パス(白地/面積800/ハザCLEAR/AI残す)を ai_analysis_flags.geojson から読み一時フラグ表示→確認後に本番へ昇格する運用。初回データ=三重県 桑名市・いなべ市 414筆(AUC0.857)。本番トラッカーには出さない・既存レイヤー無変更。前:v20260811a -->
 <!-- BUILD: farmland-tracker-analysis v20260811a / 🔬農地変化トラッカー＜分析ページ＞新設。farmland-tracker v20260810b を全機能そのまま複製した社内専用ページ。用途=案件ごとに地図上で土地を探すための分析専用。差分は3点のみ:(1)社内限定ガード追加(external/partner=社外はmode-select.htmlへ退避)(2)<title>と画面ヘッダに＜分析ページ＞表記(3)本コメント。データ/レイヤ/JS/判定ロジックは farmland-tracker と完全同一。クライアント系ページ(client-portal等)には未登録=非表示。 -->
 <!-- BUILD: farmland-tracker v20260810b / 🟣合筆提案108+保留37+対象外6=151(SUNトラスト関西)を紫フラグで常時表示(gappitsu_hold_151.js=cases_all.json由来=突合表と同一)。合筆で≥800を狙う作業レイヤ。ピンク(case_candidates)は非表示のまま。前:v20260810a -->
 <!-- BUILD: farmland-tracker v20260810a / 📊ヘッダーのダッシュボード(用途別3badge=太陽光1筆/合筆/低圧蓄電池 ＋ 復活候補/蓄電池合筆/三重候補)を全て非表示(display:none)。理由:開拓が増えるほどbadgeが破綻+SUNトラストの正しい数字は「突合表(397/納品246)」へ移行済み。データ・レイヤ・JS・トグル関数は保持=display:flexに戻せばいつでも復帰。前:v20260807a -->
@@ -772,7 +773,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260810c</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260816a 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8252,6 +8253,67 @@ if(typeof map!=='undefined'&&map&&map.on){
     },300);
   });
 }
+</script>
+
+<!-- ===== 🔬 AI分析結果（検証中）レイヤー v1 (2026-08-16) 分析ページ専用・自己完結 =====
+     新行政区域のAI分析結果(全条件パス)を一時フラグで表示。確認後に本番トラッカーへ昇格する運用。
+     本番の常駐フラグとは別pane(aiAnalysisPane)・別色(シアン)で混同しない。データ=ai_analysis_flags.geojson。
+     既存レイヤー/判定ロジックには一切触れない(追加のみ)。 -->
+<script>
+(function(){
+'use strict';
+var _on=false,_loaded=false,_layer=null,_pane=null,_data=null,_meta=null;
+function getMap(){return (typeof map!=='undefined'&&map)?map:(window.map||null);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function ensurePane(m){if(_pane)return;_pane=m.createPane('aiAnalysisPane');_pane.style.zIndex=662;}
+function toastSafe(m){if(typeof showToast==='function'){try{showToast(m);}catch(_){}}}
+function col(r){return r<0.2?'#22c55e':(r<0.35?'#84cc16':(r<0.45?'#eab308':'#f97316'));}
+function render(){
+  var m=getMap();if(!m||!_data)return;ensurePane(m);
+  if(_layer){try{m.removeLayer(_layer);}catch(_){}_layer=null;}
+  var g=L.layerGroup([],{pane:'aiAnalysisPane'});
+  _data.forEach(function(d){
+    var p=d.properties||{},c=d.geometry.coordinates;
+    var mk=L.circleMarker([c[1],c[0]],{pane:'aiAnalysisPane',radius:6,color:'#00e5ff',weight:2,fillColor:col(p.reject),fillOpacity:0.9});
+    var gm='<a href="https://www.google.com/maps/search/?api=1&query='+c[1]+','+c[0]+'" target="_blank" rel="noopener" style="color:#58a6ff">🌐Google</a> ｜ <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+c[1]+','+c[0]+'" target="_blank" rel="noopener" style="color:#58a6ff">🚶SV</a>';
+    mk.bindPopup('<div style="font-size:12px;min-width:180px"><b style="color:#00e5ff">🔬 AI分析（検証中）</b><br><b>'+esc(p.city||'')+'</b> 地番'+esc(p.chiban||'?')+'<br>面積 <b>'+Math.round(p.area_sqm||0).toLocaleString()+'㎡</b><br>AI reject <b>'+p.reject+'</b>（低いほど良）<br>'+esc(p.address||'')+'<br>'+gm+'<div style="margin-top:5px;color:#8b949e;font-size:10px">全条件パス(白地/面積800/ハザCLEAR/AI残す)。確認後に本番へ昇格。</div></div>');
+    g.addLayer(mk);
+  });
+  g.addTo(m);_layer=g;
+}
+function banner(){
+  var b=document.getElementById('aiAnalysisBanner');if(b)return b;
+  b=document.createElement('div');b.id='aiAnalysisBanner';
+  b.style.cssText='position:fixed;top:120px;left:50%;transform:translateX(-50%);z-index:1150;background:rgba(0,30,40,.92);color:#e6edf3;border:1px solid #00e5ff;border-radius:8px;padding:6px 14px;font-size:12px;box-shadow:0 2px 12px rgba(0,0,0,.5);display:none';
+  document.body.appendChild(b);return b;
+}
+function toggle(){
+  var m=getMap();if(!m)return;_on=!_on;
+  var btn=document.getElementById('aiAnalysisBtn');if(btn)btn.classList.toggle('on',_on);
+  var bn=banner();
+  if(_on){
+    if(!_loaded){
+      toastSafe('AI分析結果を読込中…');
+      fetch('ai_analysis_flags.geojson?v='+Date.now()).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(j){_data=j.features;_meta=j.meta||{};_loaded=true;render();
+        bn.innerHTML='🔬 分析中（検証）: <b>'+esc(_meta.region||'')+'</b> ／ 全条件パス <b>'+(_meta.count||_data.length)+'筆</b> ／ AUC'+esc(_meta.model_auc||'')+' ／ 確認後に本番へ昇格';
+        bn.style.display='';
+        toastSafe('AI分析結果 '+_data.length+'筆を表示（検証中）');
+        try{if(_data.length){var b0=L.latLngBounds(_data.map(function(d){return [d.geometry.coordinates[1],d.geometry.coordinates[0]];}));m.fitBounds(b0.pad(0.1));}}catch(_){}
+      }).catch(function(){_on=false;if(btn)btn.classList.remove('on');toastSafe('ai_analysis_flags.geojson が見つかりません（本番反映待ちかも）');});
+    }else{render();bn.style.display='';}
+  }else{
+    if(_layer){try{m.removeLayer(_layer);}catch(_){}_layer=null;}
+    bn.style.display='none';
+  }
+}
+function injectBtn(){
+  if(document.getElementById('aiAnalysisBtn'))return;
+  var st=document.createElement('style');st.textContent='.aianalysis-btn{position:fixed;top:186px;right:14px;z-index:1150;background:rgba(13,17,23,.9);color:#00e5ff;border:1px solid #00e5ff;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.4)}.aianalysis-btn.on{background:#00e5ff;color:#04222b;font-weight:700}';document.head.appendChild(st);
+  var b=document.createElement('button');b.id='aiAnalysisBtn';b.className='aianalysis-btn';b.textContent='🔬 AI分析結果';b.title='新行政区域のAI分析(全条件パス)を検証表示。確認後に本番へ昇格。';b.onclick=toggle;document.body.appendChild(b);
+}
+function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,300);}injectBtn();toggle();}
+boot();
+})();
 </script>
 </body>
 </html>
