@@ -112,19 +112,24 @@ function toggleAdd(){
   renderPanel();
 }
 function addClick(e){
-  var rec=window.CaseCandidatesRecorder;
-  if(!(rec&&rec.recordDirect)){toast('記録機能(手動ピック)が使えません（初期化待ち）');return;}
   var la=e.latlng.lat,ln=e.latlng.lng;
+  // ★まず「必ず」フラグを立てる(記録の成否・モーダルに依存しない。栗本さん:手動ピックのフラグが出ない の根治)。
+  // 取込先が無ければ「手動ピック（判定）」画層を自動で用意して可視化。
   var l=activeLayer();
-  // 記録成功時に、アクティブ画層へフラグを立てて即可視化(栗本さん指摘:記録してもフラグが出ない の是正)。
-  function addFlag(){ if(l){l.items.push({iid:iid(),lat:la,lng:ln,address:'手動ピック '+la.toFixed(5)+', '+ln.toFixed(5),src:'manualpick',status:null});saveState();render();} }
-  toast('記録中… '+la.toFixed(5)+', '+ln.toFixed(5));
-  try{
-    rec.recordDirect(la,ln,'').then(function(r){
-      if(r&&r.ok){addFlag();toast('✅ 手動ピックを記録＋フラグ表示（'+la.toFixed(5)+', '+ln.toFixed(5)+'）'+(l?'／画層「'+l.name+'」':''));}
-      else{toast('❌ 記録に失敗: '+((r&&r.error)||'不明（キャンセル/RLS）'));}
-    }).catch(function(err){toast('❌ 記録に失敗: '+String((err&&err.message)||err));});
-  }catch(_){toast('記録の起動に失敗しました');}
+  if(!l){
+    l=state.layers.filter(function(x){return x.name==='手動ピック（判定）'&&!x.archived;})[0];
+    if(!l){l={id:uid(),name:'手動ピック（判定）',color:'#ff1493',visible:true,active:true,items:[]};state.layers.push(l);}
+    state.layers.forEach(function(x){x.active=(x.id===l.id);});
+  }
+  if(l.archived)l.archived=false; l.visible=true;
+  l.items.push({iid:iid(),lat:la,lng:ln,address:'手動ピック '+la.toFixed(5)+', '+ln.toFixed(5),src:'manualpick',status:null});
+  saveState();render();
+  toast('📍 手動ピックのフラグを表示（'+la.toFixed(5)+', '+ln.toFixed(5)+'）／画層「'+l.name+'」。クリックで✓OK/🚫NG');
+  // DB記録(case_candidates)は裏でベストエフォート。失敗してもフラグは残す。
+  var rec=window.CaseCandidatesRecorder;
+  if(rec&&rec.recordDirect){
+    try{rec.recordDirect(la,ln,'').then(function(r){if(!(r&&r.ok))toast('（フラグは表示済／DB記録は保留: '+((r&&r.error)||'未確定')+'）');}).catch(function(){});}catch(_){}
+  }
 }
 function cleanupAdd(){var m=getMap();if(m){m.off('click',addClick);m.getContainer().style.cursor='';}_addMode=false;renderPanel();}
 
