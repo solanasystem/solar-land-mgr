@@ -353,6 +353,7 @@ function renderPanel(){
       +'<span class="gacho-solo'+(state.solo===l.id?' on':'')+'" data-solo="'+l.id+'" title="この画層だけ表示">◎</span>'
       +'<span class="gacho-ren" data-ren="'+l.id+'" title="名前変更">✎</span>'
       +'<span class="gacho-tag" data-tag="'+l.id+'" title="分類変更(①客/②時期/③区域)" style="cursor:pointer">🏷</span>'
+      +(l.archived?'':'<span class="gacho-arch" data-arch="'+l.id+'" title="この画層を退避(SWルームへ書出+地図・作業台から外す・↩で戻せる)" style="cursor:pointer">🗄</span>')
       +'<span class="gacho-del" data-del="'+l.id+'" title="削除">🗑</span>'
       +'</div>';
     if(l.items.length)r+='<div class="gacho-cnt" style="margin-left:26px">'+cnt+'</div>';
@@ -447,6 +448,8 @@ function bindPanel(){
   // 退避（SWルームへ）
   all('.gacho-evac[data-evac]').forEach(function(el){el.onclick=function(ev){ev.stopPropagation();var key=el.getAttribute('data-evac');var i=key.indexOf('||');var cli=key.slice(0,i).replace(/^C:/,'');var per=key.slice(i+2);var ls=state.layers.filter(function(l){if(l.archived)return false;var m=layerMeta(l);return m.client===cli&&m.period===per;});if(!ls.length)return;if(!confirm('「'+cli+' ／ '+per+'」の'+ls.length+'画層をSWルームへ書き出し、作業台から退避します。\n（データは消えません。アーカイブに畳まれ、必要時に戻せます）\n実行しますか？'))return;evacuateLayers(ls,cli,per);};});
   all('.gacho-restore[data-restore]').forEach(function(el){el.onclick=function(ev){ev.stopPropagation();var l=byId(el.getAttribute('data-restore'));if(!l)return;l.archived=false;l.visible=true;saveState();render();toast('「'+l.name+'」を作業台へ戻しました');};});
+  // 各画層を1つずつ退避
+  all('.gacho-arch[data-arch]').forEach(function(el){el.onclick=function(ev){ev.stopPropagation();var l=byId(el.getAttribute('data-arch'));if(!l)return;var m=layerMeta(l);if(!confirm('画層「'+l.name+'」を退避します。\n（SWルームへ書き出し＋地図・作業台から外す。↩で戻せる）\n実行しますか？'))return;evacuateLayers([l],m.client,m.period);};});
 }
 
 window.__gacho={
