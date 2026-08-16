@@ -214,6 +214,7 @@ function loadSuntrust(){
     Object.keys(groups).sort().forEach(function(key){
       var g=groups[key],name=g.pref+'｜'+g.cat;
       var l=state.layers.filter(function(x){return x.name===name;})[0];
+      if(l&&l.archived)return; // ★退避済みは復活させない(この納品グループを再投入しない)
       if(!l){l={id:uid(),name:name,color:CATCOL[g.cat]||'#f59e0b',visible:true,active:false,items:[]};state.layers.push(l);}
       l.color=CATCOL[g.cat]||l.color;l.items=[];
       g.rows.forEach(function(r){l.items.push({iid:iid(),feature_id:null,lat:Number(r.lat),lng:Number(r.lng),address:r.address||'',city:r.city||'',area:(r.area_m2!=null?Number(r.area_m2):null),chiban:r.chiban||'',deliver:r.deliver||'',src:'suntrust'});});
@@ -230,6 +231,7 @@ function loadGose(){
   if(!(window.GOSE218&&window.GOSE218.items&&window.GOSE218.items.length)){toast('御所218データが読み込まれていません');return;}
   var name='御所218（低圧太陽光）';
   var l=state.layers.filter(function(x){return x.name===name;})[0];
+  if(l&&l.archived){toast('御所218は退避済みです（🗄納品済→↩で戻せます）');return;} // ★退避済みは復活させない
   if(!l){l={id:uid(),name:name,color:'#f59e0b',visible:true,active:false,items:[]};state.layers.push(l);}
   l.items=[];
   window.GOSE218.items.forEach(function(c){
@@ -486,6 +488,7 @@ window.__gacho={
   loadNeutral:function(items,layerName,color,prefix){
     if(!items||!items.length)return;
     var l=state.layers.filter(function(x){return x.name===layerName;})[0];
+    if(l&&l.archived)return; // ★退避済み画層は自動読込で復活/再投入しない(栗本さん:退避が毎回復活するのを防ぐ)。戻すのは↩のみ
     if(!l){l={id:uid(),name:layerName,color:color||'#00e5ff',visible:true,active:false,items:[]};state.layers.push(l);}
     var ex={};l.items.forEach(function(it){if(it.feature_id)ex[it.feature_id]=1;});
     var added=0;
