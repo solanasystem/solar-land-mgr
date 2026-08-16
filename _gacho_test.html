@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ja"><head>
+<meta charset="UTF-8">
+<title>gacho-layer 独立テスト台(一時)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>html,body{margin:0;height:100%}#map{position:absolute;inset:0}
+#tlog{position:fixed;left:8px;top:8px;z-index:3000;background:#000c;color:#0f0;font:12px monospace;padding:8px;max-width:440px;max-height:70vh;overflow:auto;white-space:pre-wrap}</style>
+</head><body>
+<div id="map"></div>
+<div id="tlog">test log:
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  function tlog(m){var e=document.getElementById('tlog');if(e)e.textContent+=m+"\n";try{console.log('[TEST]',m);}catch(_){}}
+  window.map = L.map('map').setView([34.51,136.30],14);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19}).addTo(window.map);
+  window.showToast=function(m){tlog('TOAST: '+m);};
+  window.CaseCandidatesRecorder={recordDirect:function(la,ln){tlog('recordDirect ok');return Promise.resolve({ok:true});}};
+  // 破壊的クリアはしない(内蔵ブラウザは本番と別ストレージだが保険)。テストは"ピックで件数が増える"で判定。
+  var s=document.createElement('script');
+  s.src='gacho-layer.js?test='+Date.now();
+  s.onload=function(){tlog('gacho-layer.js loaded (local)');};
+  s.onerror=function(){tlog('ERROR: gacho-layer.js load failed');};
+  document.body.appendChild(s);
+  window.__countFlags=function(){return document.querySelectorAll('.leaflet-pane path.leaflet-interactive, .leaflet-pane .leaflet-marker-icon').length;};
+  window.__state=function(){return JSON.parse(localStorage.getItem('trackerGacho_v1')||'{}');};
+  window.__simPick=function(){
+    var btn=document.getElementById('gachoAddPt');
+    if(!btn){tlog('NG: 📍(gachoAddPt)ボタンが無い→パネル未生成?');return;}
+    btn.click(); tlog('clicked 📍');
+    var c=window.map.getCenter();
+    window.map.fire('click',{latlng:L.latLng(c.lat,c.lng)});
+    tlog('fired map click');
+    setTimeout(function(){
+      var st=window.__state();var total=(st.layers||[]).reduce(function(a,l){return a+(l.items?l.items.length:0);},0);
+      tlog('画層数='+((st.layers||[]).length)+' 総item='+total);
+      (st.layers||[]).forEach(function(l){tlog('  「'+l.name+'」items='+l.items.length+' vis='+l.visible+' arch='+!!l.archived);});
+      var fl=window.__countFlags();tlog('地図フラグ数='+fl);
+      tlog((total>0&&fl>0)?'✅ PASS ピック→フラグ描画OK':'❌ FAIL フラグが立たない');
+    },700);
+  };
+  window.__simEvac=function(){
+    // 手動ピック画層を1つ退避してみる
+    var g=window.__gacho; var st=window.__state();
+    tlog('--- 退避テスト ---');
+    // パネルの各画層行の🗄(data-arch)を探して最初を押す
+    var el=document.querySelector('.gacho-arch[data-arch]');
+    if(!el){tlog('NG: 🗄(data-arch)が無い');return;}
+    // confirmを自動承認
+    var _c=window.confirm;window.confirm=function(){return true;};
+    el.click();window.confirm=_c;
+    setTimeout(function(){
+      var st2=window.__state();var arch=(st2.layers||[]).filter(function(l){return l.archived;});
+      tlog('退避後 archived画層数='+arch.length);
+      var fl=window.__countFlags();tlog('退避後 地図フラグ数='+fl);
+      tlog(arch.length>0?'✅ 退避=archived記録OK':'❌ 退避されない');
+    },500);
+  };
+</script>
+</body></html>
