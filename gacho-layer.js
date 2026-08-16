@@ -17,6 +17,7 @@ function loadState(){
   if(typeof s.solo==='undefined')s.solo=null;
   if(typeof s.hideReviewed==='undefined')s.hideReviewed=false;
   if(typeof s.showArea==='undefined')s.showArea=true;
+  if(typeof s.grpOpen!=='object'||!s.grpOpen)s.grpOpen={};
   if(!Array.isArray(s.layers))s.layers=[];
   s.layers.forEach(function(l){if(!Array.isArray(l.items))l.items=[];l.items.forEach(function(it){if(it&&!it.iid)it.iid=iid();});});
   return s;
@@ -258,6 +259,7 @@ function renderLayerGroups(){
   var m=getMap();if(!m)return;ensurePane(m);
   Object.keys(_groups).forEach(function(id){try{m.removeLayer(_groups[id]);}catch(_){}delete _groups[id];});
   state.layers.forEach(function(l){
+    if(l.archived)return; // 退避済は地図に描かない
     var show=l.visible&&(!state.solo||state.solo===l.id);if(!show)return;
     var g=L.layerGroup([],{pane:'gachoPane'});
     l.items.forEach(function(it){
@@ -291,6 +293,29 @@ function renderLayerGroups(){
 
 function render(){renderPanel();renderLayerGroups();}
 
+/* ===== 画層の分類(①クライアント②納品時期③行政区域) — レイヤー構造を明確化 ===== */
+function layerMeta(l){
+  if(l.meta && l.meta.client) return l.meta;
+  var n=String(l.name||'');
+  var client=/SUN|サントラスト|奈良|御所|三重|松阪|桑名|いなべ|玉城|多気/i.test(n)?'SUNトラスト':'共通・自社';
+  var region=/奈良|御所/.test(n)?'奈良県':(/三重|松阪|桑名|いなべ|玉城|多気/.test(n)?'三重県':'（区域横断）');
+  var delivered=/納品|合筆提案|敷地境界|実測/.test(n) && !/AI候補|要確認|精査/.test(n);
+  l.meta={client:client, region:region,
+    period:delivered?'第1回納品（〜2026-08-06 確定）':'精査中（作業台）',
+    phase:delivered?'納品済':'精査中'};
+  return l.meta;
+}
+function _grpDefOpen(k){ if(k==='ARCH')return false; if(k.indexOf('|R:')>=0)return true; if(k.indexOf('|P:')>=0)return /精査/.test(k); return true; }
+/* 退避: 納品完了の画層をSWルーム保存用GeoJSONへ書出し、作業台からは archived で外す(データは消えない・戻せる)。＝AIの外の仕組み(ボタン) */
+function evacuateLayers(ls,cli,per){
+  var feats=[];ls.forEach(function(l){var gj=toGeoJSON(l);(gj.features||[]).forEach(function(f){f.properties=f.properties||{};f.properties._layer=l.name;f.properties._client=cli;f.properties._period=per;feats.push(f);});});
+  var fc={type:'FeatureCollection',_meta:{client:cli,period:per,evacuated_at:_stamp(),layers:ls.map(function(l){return l.name;})},features:feats};
+  download('SWルーム退避_'+_fnsafe(cli)+'_'+_fnsafe(per)+'_'+_stamp()+'.geojson',JSON.stringify(fc,null,2),'application/geo+json');
+  ls.forEach(function(l){l.archived=true;l.visible=false;if(state.solo===l.id)state.solo=null;});
+  saveState();render();
+  toast(ls.length+'画層を退避しました。SWルーム保存用GeoJSONを書き出し、作業台から外しました（アーカイブから戻せます）。');
+}
+
 function buildPanel(){if(document.getElementById('gachoPanel'))return;var box=document.createElement('div');box.id='gachoPanel';box.className='gacho-panel';document.body.appendChild(box);renderPanel();}
 
 function renderPanel(){
@@ -302,24 +327,60 @@ function renderPanel(){
   h+='<div class="gacho-master"><button id="gachoOnlyUnrev" class="gacho-btn'+(state.hideReviewed?' on':'')+'" title="見た筆を隠して未確認だけ表示">👀 未確認のみ表示'+(state.hideReviewed?'（ON）':'')+'</button><button id="gachoAreaLbl" class="gacho-btn'+(state.showArea?' on':'')+'" title="敷地境界の面積ラベル表示（ズーム15以上で表示）">㎡ 面積ラベル</button></div>';
   h+='<div class="gacho-master"><button id="gachoBulkOk" class="gacho-btn" title="既に開いて見た(未判定)を全画層でまとめてOKに（開き直し不要）">👁→✓ 見た分をOKに一括</button></div>';
   var _tOk=0,_tNg=0,_tV=0,_tAll=0;
-  state.layers.forEach(function(l){l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;});});
+  state.layers.forEach(function(l){if(l.archived)return;l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;});});
   h+='<div class="gacho-total">全画層合計　👁'+_tV+' ／ <span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span> ／ 計'+_tAll+'</div>';
   h+='<div class="gacho-row gacho-base"><span class="gacho-eye" data-b0="1">'+(state.base0Visible?'👁':'🚫')+'</span><span class="gacho-name">0画層｜既存すべて</span></div>';
-  state.layers.forEach(function(l){
+  // ===== ①クライアント→②納品時期→③行政区域 の階層表示（作業台を見やすく） =====
+  if(!state.grpOpen)state.grpOpen={};
+  var _gopen=function(k){return (k in state.grpOpen)?!!state.grpOpen[k]:_grpDefOpen(k);};
+  var _lcnt=function(ls){var o=0,g=0,v=0,a=0;ls.forEach(function(l){l.items.forEach(function(it){a++;if(it.status==='ok')o++;else if(it.status==='ng')g++;if(it.viewed)v++;});});return '👁'+v+' ／ <span style="color:#3fb950">OK'+o+'</span>・<span style="color:#f85149">NG'+g+'</span> ／ 計'+a;};
+  var _row=function(l){
     var okc=l.items.filter(function(it){return it.status==='ok';}).length;
     var ngc=l.items.filter(function(it){return it.status==='ng';}).length;
     var vc=l.items.filter(function(it){return it.viewed;}).length;
     var cnt=l.items.length?('👁見た'+vc+' ／ <span style="color:#3fb950">OK'+okc+'</span>・<span style="color:#f85149">NG'+ngc+'</span> ／ 計'+l.items.length):'0';
-    h+='<div class="gacho-row'+(l.active?' active':'')+'">'
+    var r='<div class="gacho-row'+(l.active?' active':'')+'" style="margin-left:26px">'
       +'<span class="gacho-eye" data-eye="'+l.id+'">'+(l.visible?'👁':'🚫')+'</span>'
       +'<span class="gacho-dot" data-dot="'+l.id+'" style="background:'+l.color+'" title="色変更"></span>'
       +'<span class="gacho-name" data-sel="'+l.id+'" title="取込先に選択">'+esc(l.name)+'</span>'
       +'<span class="gacho-solo'+(state.solo===l.id?' on':'')+'" data-solo="'+l.id+'" title="この画層だけ表示">◎</span>'
       +'<span class="gacho-ren" data-ren="'+l.id+'" title="名前変更">✎</span>'
+      +'<span class="gacho-tag" data-tag="'+l.id+'" title="分類変更(①客/②時期/③区域)" style="cursor:pointer">🏷</span>'
       +'<span class="gacho-del" data-del="'+l.id+'" title="削除">🗑</span>'
       +'</div>';
-    if(l.items.length)h+='<div class="gacho-cnt">'+cnt+'</div>';
+    if(l.items.length)r+='<div class="gacho-cnt" style="margin-left:26px">'+cnt+'</div>';
+    return r;
+  };
+  var _live=state.layers.filter(function(l){return !l.archived;});
+  var _arch=state.layers.filter(function(l){return l.archived;});
+  var _tree={};
+  _live.forEach(function(l){var mt=layerMeta(l);(_tree[mt.client]=_tree[mt.client]||{});(_tree[mt.client][mt.period]=_tree[mt.client][mt.period]||{});(_tree[mt.client][mt.period][mt.region]=_tree[mt.client][mt.period][mt.region]||[]).push(l);});
+  Object.keys(_tree).sort().forEach(function(cli){
+    var ck='C:'+cli; var co=_gopen(ck);
+    var call=[];Object.keys(_tree[cli]).forEach(function(p){Object.keys(_tree[cli][p]).forEach(function(rr){call=call.concat(_tree[cli][p][rr]);});});
+    h+='<div class="gacho-grp" data-grp="'+esc(ck)+'" style="cursor:pointer;margin-top:8px;padding:5px 6px;background:rgba(88,166,255,.10);border:1px solid #2a3742;border-radius:6px;font-weight:800"><span style="width:12px;display:inline-block">'+(co?'▾':'▸')+'</span>🏢 '+esc(cli)+'<span style="float:right;font-weight:400;color:#8b949e;font-size:11px">'+_lcnt(call)+'</span></div>';
+    if(!co)return;
+    var periods=Object.keys(_tree[cli]).sort(function(a,b){var pa=/精査/.test(a)?0:1,pb=/精査/.test(b)?0:1;return pa-pb||a.localeCompare(b);});
+    periods.forEach(function(per){
+      var pk=ck+'|P:'+per; var isWip=/精査/.test(per); var po=_gopen(pk);
+      var pall=[];Object.keys(_tree[cli][per]).forEach(function(rr){pall=pall.concat(_tree[cli][per][rr]);});
+      h+='<div class="gacho-grp" data-grp="'+esc(pk)+'" style="cursor:pointer;margin-left:12px;margin-top:4px;padding:4px 6px;background:rgba(255,255,255,.03);border-left:2px solid '+(isWip?'#f59e0b':'#3fb950')+';font-weight:700;color:'+(isWip?'#f0b429':'#7ee787')+'"><span style="width:12px;display:inline-block">'+(po?'▾':'▸')+'</span>🗓 '+esc(per)+'<span style="float:right;font-weight:400;color:#8b949e;font-size:11px">'+_lcnt(pall)+'</span></div>';
+      if(!po)return;
+      Object.keys(_tree[cli][per]).sort().forEach(function(rg){
+        var rk=pk+'|R:'+rg; var ro=_gopen(rk);
+        h+='<div class="gacho-grp" data-grp="'+esc(rk)+'" style="cursor:pointer;margin-left:24px;margin-top:2px;padding:2px 6px;color:#58a6ff;font-weight:600"><span style="width:12px;display:inline-block">'+(ro?'▾':'▸')+'</span>📍 '+esc(rg)+'</div>';
+        if(ro)_tree[cli][per][rg].forEach(function(l){h+=_row(l);});
+      });
+      if(!isWip){
+        h+='<div style="margin-left:24px;margin:3px 0 4px 24px"><button class="gacho-btn gacho-evac" data-evac="'+esc(ck+'||'+per)+'" style="background:rgba(139,148,158,.15);border-color:#8b949e;font-size:11px" title="この納品時期の画層をSWルームへ書き出し、作業台から退避（非表示化・戻せる）">🗄 「'+esc(per)+'」を退避（SWルームへ書出＋作業台から外す）</button></div>';
+      }
+    });
   });
+  if(_arch.length){
+    var ako=_gopen('ARCH');
+    h+='<div class="gacho-grp" data-grp="ARCH" style="cursor:pointer;margin-top:10px;padding:5px 6px;background:rgba(139,148,158,.08);border:1px dashed #3a4650;border-radius:6px;color:#8b949e;font-weight:700"><span style="width:12px;display:inline-block">'+(ako?'▾':'▸')+'</span>🗄 納品済（退避済 '+_arch.length+'画層）<span style="float:right;font-size:11px">'+_lcnt(_arch)+'</span></div>';
+    if(ako)_arch.forEach(function(l){h+=_row(l)+'<div style="margin-left:26px;margin-bottom:4px"><button class="gacho-btn gacho-restore" data-restore="'+l.id+'" style="font-size:11px">↩ 作業台へ戻す</button></div>';});
+  }
   h+='<div class="gacho-actions">';
   if(al){
     h+='<div class="gacho-active-note">取込先: <b style="color:'+al.color+'">'+esc(al.name)+'</b></div>';
@@ -372,6 +433,13 @@ function bindPanel(){
   var ls=q('#gachoLoadSuntrust');if(ls)ls.onclick=loadSuntrust;
   var lg=q('#gachoLoadGose');if(lg)lg.onclick=loadGose;
   var ad=q('#gachoAdd');if(ad)ad.onclick=addLayer;
+  // グループ折りたたみ（①客/②時期/③区域/アーカイブ）
+  all('.gacho-grp[data-grp]').forEach(function(el){el.addEventListener('click',function(ev){var t=ev.target;if(t&&(t.hasAttribute('data-evac')||t.hasAttribute('data-restore')))return;var k=el.getAttribute('data-grp');if(!state.grpOpen)state.grpOpen={};var cur=(k in state.grpOpen)?!!state.grpOpen[k]:_grpDefOpen(k);state.grpOpen[k]=!cur;saveState();renderPanel();});});
+  // 分類変更（🏷）
+  all('.gacho-tag[data-tag]').forEach(function(el){el.onclick=function(ev){ev.stopPropagation();var l=byId(el.getAttribute('data-tag'));if(!l)return;var m=layerMeta(l);var c=prompt('① クライアント',m.client);if(c==null)return;var p=prompt('② 納品時期（「納品」「確定」を含むと納品済＝退避対象）',m.period);if(p==null)return;var r=prompt('③ 行政区域',m.region);if(r==null)return;l.meta={client:(c.trim()||m.client),period:(p.trim()||m.period),region:(r.trim()||m.region),phase:/納品|確定/.test(p)?'納品済':'精査中'};saveState();renderPanel();};});
+  // 退避（SWルームへ）
+  all('.gacho-evac[data-evac]').forEach(function(el){el.onclick=function(ev){ev.stopPropagation();var key=el.getAttribute('data-evac');var i=key.indexOf('||');var cli=key.slice(0,i).replace(/^C:/,'');var per=key.slice(i+2);var ls=state.layers.filter(function(l){if(l.archived)return false;var m=layerMeta(l);return m.client===cli&&m.period===per;});if(!ls.length)return;if(!confirm('「'+cli+' ／ '+per+'」の'+ls.length+'画層をSWルームへ書き出し、作業台から退避します。\n（データは消えません。アーカイブに畳まれ、必要時に戻せます）\n実行しますか？'))return;evacuateLayers(ls,cli,per);};});
+  all('.gacho-restore[data-restore]').forEach(function(el){el.onclick=function(ev){ev.stopPropagation();var l=byId(el.getAttribute('data-restore'));if(!l)return;l.archived=false;l.visible=true;saveState();render();toast('「'+l.name+'」を作業台へ戻しました');};});
 }
 
 window.__gacho={
