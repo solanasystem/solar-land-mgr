@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260816u / 🔬診断ビルド。農振農用地が実機で描画されない(データも座標も面が実在するのに出ない=隔離テストで描画コードは正常と実証・被り消しても出ない=B2描画未起動)件の原因特定用。_renderNoshinInViewに画面HUD診断(#noshinDiag左下)とtry/catchを追加し、どの段階(ボタンOFF/ズーム不足/画面内0面/例外)で止まるかを日本語表示。原因特定後に撤去予定。前:v20260816t -->
 <!-- BUILD: farmland-tracker-analysis v20260816t / 🌾農振農用地が全域(愛知含む)で出ない件の【真因】=R2ワーカー(reinfolib-proxy.../r2/noshin_*.geojson)がAccess-Control-Allow-Originを返さずCORSでブラウザfetch全ブロック(コンソール実証)。同一オリジンのdata/noshin/配信(三重/岐阜/静岡/滋賀/長野/栃木/群馬/埼玉/千葉)は出ていた。稼働テリトリー4県(愛知/兵庫/奈良/福岡)のnoshinをサーバー側DL→data/noshin/へ同梱し参照先を同一オリジンに差替=CORS回避で表示復活。残り約27県のR2依存はワーカーにCORSヘッダ追加が恒久解(380MBの同梱回避)。前:v20260816s -->
 <!-- BUILD: farmland-tracker-analysis v20260816s / 🌾農振農用地が出ない件の是正2点。①ON状態をlocalStorage('trackerNoshinOn')に保存し、リロード後は既定ONで自動復元(明示OFF時のみ'0'で復元しない)=Ctrl+F5の度に消えていた問題を解消。起動時の自動ONはトーストを出さない。②NOSHIN_PREF_BOUNDS.mie の latMax 35.1→35.35(いなべ35.14・桑名・東員が範囲外で三重noshinが読まれなかった)。前:v20260816r -->
 <!-- BUILD: farmland-tracker-analysis v20260816g / 🐛waitAIKIローダの重大バグ修正(以前の置換で'+chr(39)+'がJSに直書きされchrエラーでAI候補が読めていなかった)を正しいクォートに是正。＋「確定300のうちAIがremoved_ai_garbageで削除した72件(突合外・全て300内)」を専用レイヤー「SUNトラスト｜AI削除の要確認(松阪72)」(桃色/prefix m72)で分離表示=栗本さんが確認。他案件と混ぜない。ai_maisaka_72.js。前:v20260816f -->
@@ -782,7 +783,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260816t 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260816u 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -1583,11 +1584,23 @@ function _calcNoshinFeatureBbox(geom){
   return [minX,minY,maxX,maxY];
 }
 // \u753b\u9762\u8868\u793a\u30a8\u30ea\u30a2\u5185\u306e\u30d5\u30a3\u30fc\u30c1\u30e3\u3060\u3051\u63cf\u753b\uff08\u8907\u6570\u770c\u30de\u30fc\u30b8\u30fbviewport filtering\uff09
+// v20260816u \u8a3a\u65adHUD: \u8fb2\u632f\u306e\u63cf\u753b\u304c\u3069\u3053\u3067\u6b62\u307e\u308b\u304b\u3092\u753b\u9762\u306b\u51fa\u3059(console\u4e0d\u8981)\u3002\u539f\u56e0\u7279\u5b9a\u5f8c\u306b\u64a4\u53bb\u3002
+function _noshinDiag(msg){
+  try{
+    var h=document.getElementById('noshinDiag');
+    if(!h){h=document.createElement('div');h.id='noshinDiag';
+      h.style.cssText='position:fixed;left:8px;bottom:8px;z-index:100000;background:rgba(0,0,0,.85);color:#7CFC00;font:12px/1.4 monospace;padding:6px 8px;border:1px solid #7CFC00;border-radius:4px;max-width:60vw;white-space:pre-wrap;pointer-events:none';
+      document.body.appendChild(h);}
+    h.textContent='[\u8fb2\u632f\u8a3a\u65ad] '+msg;
+  }catch(e){}
+}
 function _renderNoshinInView(){
-  if(!noshinEnabled)return;
-  if(map.getZoom()<NOSHIN_MIN_ZOOM){if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}return;}
+ try{
+  if(!noshinEnabled){_noshinDiag('\u505c\u6b62: \u30dc\u30bf\u30f3OFF(noshinEnabled=false)');return;}
+  if(map.getZoom()<NOSHIN_MIN_ZOOM){if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}_noshinDiag('\u505c\u6b62: \u30ba\u30fc\u30e0'+map.getZoom()+'<'+NOSHIN_MIN_ZOOM+'\u3002\u62e1\u5927\u304c\u5fc5\u8981');return;}
   var prefs=detectNoshinPrefsInView();
   _ensureNoshinPrefs(prefs);
+  var cacheState=prefs.map(function(k){return k+'='+(noshinCache[k]?noshinCache[k].features.length+'\u9762':(noshinFetching[k]?'\u53d6\u5f97\u4e2d':'\u672a\u53d6\u5f97'));}).join(' ');
   var mb=map.getBounds();
   var west=mb.getWest(),east=mb.getEast(),south=mb.getSouth(),north=mb.getNorth();
   var visibleFeatures=[];
@@ -1603,7 +1616,7 @@ function _renderNoshinInView(){
     }
   }
   if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}
-  if(visibleFeatures.length===0)return;
+  if(visibleFeatures.length===0){_noshinDiag('\u505c\u6b62: \u753b\u9762\u51850\u9762\u3002z='+map.getZoom()+' prefs=['+prefs.join(',')+'] cache{'+cacheState+'}');return;}
   noshinLayer=L.geoJSON({type:'FeatureCollection',features:visibleFeatures},{
     interactive:false,
     style:{color:'#eab308',weight:2,fillColor:'#fef08a',fillOpacity:0.35,dashArray:'6,4'},
@@ -1615,6 +1628,8 @@ function _renderNoshinInView(){
   noshinLayer.addTo(map);
   noshinLayer.bringToFront();
   if(markersLayer)markersLayer.bringToFront();
+  _noshinDiag('\u63cf\u753bOK: '+visibleFeatures.length+'\u9762 z='+map.getZoom()+' prefs=['+prefs.join(',')+'] pane='+(noshinLayer.getPane?(noshinLayer.getPane().style.zIndex||'overlay(400)'):'?'));
+ }catch(err){ _noshinDiag('\u4f8b\u5916\u3067\u505c\u6b62: '+(err&&err.message?err.message:err)); }
 }
 // \u30ba\u30fc\u30e0\u5909\u66f4\u6642\uff1a\u95be\u5024\u30fb\u770c\u5224\u5b9a\u30fb\u63cf\u753b\u306f _renderNoshinInView \u304c\u4e00\u62ec\u51e6\u7406
 function onZoomChangeForNoshin(){
