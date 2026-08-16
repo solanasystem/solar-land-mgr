@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260816g / 🐛waitAIKIローダの重大バグ修正(以前の置換で'+chr(39)+'がJSに直書きされchrエラーでAI候補が読めていなかった)を正しいクォートに是正。＋「確定300のうちAIがremoved_ai_garbageで削除した72件(突合外・全て300内)」を専用レイヤー「SUNトラスト｜AI削除の要確認(松阪72)」(桃色/prefix m72)で分離表示=栗本さんが確認。他案件と混ぜない。ai_maisaka_72.js。前:v20260816f -->
 <!-- BUILD: farmland-tracker-analysis v20260816f / 🔧「OKボタンが更新しない」是正: AI候補を別フラグでなく画層「三重県｜AI候補(桑名・いなべ)」へ中立(未判定)で一括読込(__gacho.loadNeutral)。=画層のフラグそのものになり、標準モーダルの✓OK(setStatus)がその場で反映(緑化)。別フラグ方式(waitAIKI/aikiPane)は廃止。前:v20260816e -->
 <!-- BUILD: farmland-tracker-analysis v20260816e / 🔧栗本さん指摘の根本是正: 分析ページに画層(gacho)システムを移植(外部gacho-layer.js=本番トラッカーのIIFEを外部化・内容同一)。勝手に作った貧弱なカスタムAIレイヤーを廃止し、AI候補83(ai_kuwana_inabe.js)を御所218方式で画層へ=フラグOK/NG→judgeFeature→画層「三重県｜AI候補(桑名・いなべ)」→標準モーダル(✓OK/🚫NG/✏️敷地境界を描く/⇄別画層へ/🗑削除)。SUNトラストの土地確認と同じ操作。本番トラッカーは無変更。前:v20260816d -->
 <!-- BUILD: farmland-tracker-analysis v20260816d / 🔧栗本さん指摘の是正: AI分析フラグの登録を、勝手に作った貧弱な★案件登録(bare case_candidates)から、既存の正式フロー promoteToCase(区分=低圧太陽光・エリア名で採番→cases+land_info登録=前回と同じモーダル)に繋ぎ直し。ボタン名も「★案件マスターへ登録」に統一。🗑削除(NG=夜間負例)は維持。前:v20260816c -->
@@ -778,7 +779,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260816f 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260816g 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8267,10 +8268,20 @@ if(typeof map!=='undefined'&&map&&map.on){
 <script src="ai_kuwana_inabe.js?v=20260816b"></script>
 <script>
 (function waitAIKI(){
-  if (typeof map!=='+chr(39)+'undefined'+chr(39)+' && map && window.AI_KI && window.__gacho && window.__gacho.loadNeutral) {
-    try{ window.__gacho.loadNeutral(window.AI_KI.items, '+chr(39)+'三重県｜AI候補(桑名・いなべ)'+chr(39)+', '+chr(39)+'#00e5ff'+chr(39)+'); }
-    catch(e){ console.warn('+chr(39)+'[aiKI]'+chr(39)+',e); }
+  if (typeof map!=='undefined' && map && window.AI_KI && window.__gacho && window.__gacho.loadNeutral) {
+    try{ window.__gacho.loadNeutral(window.AI_KI.items, '三重県｜AI候補(桑名・いなべ)', '#00e5ff', 'aiKI'); }
+    catch(e){ console.warn('[aiKI]',e); }
   } else { setTimeout(waitAIKI,200); }
+})();
+</script>
+<!-- SUNトラスト確定300のうちAIが削除した72件=突合外。専用レイヤーで栗本さんが確認。他案件と混ぜない。 -->
+<script src="ai_maisaka_72.js?v=20260816a"></script>
+<script>
+(function wait72(){
+  if (typeof map!=='undefined' && map && window.AI_72 && window.__gacho && window.__gacho.loadNeutral) {
+    try{ window.__gacho.loadNeutral(window.AI_72.items, 'SUNトラスト｜AI削除の要確認(松阪72)', '#f472b6', 'm72'); }
+    catch(e){ console.warn('[ai72]',e); }
+  } else { setTimeout(wait72,200); }
 })();
 </script>
 

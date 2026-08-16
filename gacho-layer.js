@@ -410,7 +410,7 @@ window.__gacho={
     toast('「'+fl.name+'」'+(found.status==='ok'?'✓OK':(found.status==='ng'?'🚫NG':'判定解除'))+' ／ この画層 計'+fl.items.length+'件（OK'+fl.items.filter(function(x){return x.status==='ok';}).length+'・NG'+fl.items.filter(function(x){return x.status==='ng';}).length+'）');
   },
   /* AI候補等を画層に中立(未判定)で一括読込。feature_idで重複防止。以後は画層のフラグ=標準モーダル・OK/NGがその場で効く。 */
-  loadNeutral:function(items,layerName,color){
+  loadNeutral:function(items,layerName,color,prefix){
     if(!items||!items.length)return;
     var l=state.layers.filter(function(x){return x.name===layerName;})[0];
     if(!l){l={id:uid(),name:layerName,color:color||'#00e5ff',visible:true,active:false,items:[]};state.layers.push(l);}
@@ -418,7 +418,7 @@ window.__gacho={
     var added=0;
     items.forEach(function(c){
       if(c.lat==null||c.lng==null)return;
-      var fid='aiKI'+c.no;
+      var fid=(prefix||'aiKI')+c.no;
       if(ex[fid])return;
       l.items.push({iid:iid(),feature_id:fid,lat:Number(c.lat),lng:Number(c.lng),address:(c.addr||c.city||''),area:(c.area!=null?Number(c.area):null),chiban:c.chiban,src:'aiKI',status:null});
       ex[fid]=1;added++;
