@@ -104,10 +104,10 @@ function cleanupPick(){var m=getMap();if(m){m.off('click',pickClick);m.getContai
 function toggleAdd(){
   var m=getMap();if(!m)return;
   if(!_addMode){
-    if(!(window.CaseCandidatesRecorder&&window.CaseCandidatesRecorder.recordAt)){toast('記録機能(手動ピック)が初期化されていません。少し待って再度お試しください');return;}
+    // ★DB記録機能の初期化を待たない(待つと『フラグが立たない』の原因)。フラグは無条件で立てる。
     if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();
     _addMode=true;m.getContainer().style.cursor='crosshair';m.on('click',addClick);
-    toast('地図をクリックすると、その地点を手動ピック（案件候補）として記録（確認モーダル→保存・連続可・ESCで終了）');
+    toast('地図をクリックすると、その地点に即フラグを立てます（連続可・ESCで終了）');
   }else{cleanupAdd();}
   renderPanel();
 }
