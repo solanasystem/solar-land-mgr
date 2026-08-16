@@ -17,6 +17,7 @@ function loadState(){
   if(typeof s.solo==='undefined')s.solo=null;
   if(typeof s.hideReviewed==='undefined')s.hideReviewed=false;
   if(typeof s.showArea==='undefined')s.showArea=true;
+  if(typeof s.showNg==='undefined')s.showNg=false; // NG(除外)は既定で地図に描かない
   if(typeof s.grpOpen!=='object'||!s.grpOpen)s.grpOpen={};
   if(!Array.isArray(s.layers))s.layers=[];
   s.layers.forEach(function(l){if(!Array.isArray(l.items))l.items=[];l.items.forEach(function(it){if(it&&!it.iid)it.iid=iid();});});
@@ -264,6 +265,7 @@ function renderLayerGroups(){
     var g=L.layerGroup([],{pane:'gachoPane'});
     l.items.forEach(function(it){
       if(state.hideReviewed&&it.viewed)return;
+      if(!state.showNg && it.status==='ng')return; // NG(除外)=削除＝地図から消す（既定）。「除外も表示」で戻せる
       var vd=!!it.viewed;
       var under=(it.area!=null&&it.area<800);
       var areaTxt=(it.area!=null)?('面積 <b style="font-size:14px;color:'+(under?'#f85149':'#3fb950')+'">'+Math.round(it.area).toLocaleString()+' ㎡</b>'+(under?'<br><span style="color:#f85149">⚠ 800㎡未満：隣接を含め敷地境界を手描きで作成</span>':'')):'<span style="color:#8b949e">面積 不明</span>';
@@ -325,7 +327,7 @@ function renderPanel(){
   h+='<div class="gacho-body" id="gachoBody">';
   h+='<div class="gacho-master"><button id="gachoShowAll" class="gacho-btn">👁 全て表示</button><button id="gachoHideAll" class="gacho-btn">🚫 全て隠す</button></div>';
   h+='<div class="gacho-master"><button id="gachoOnlyUnrev" class="gacho-btn'+(state.hideReviewed?' on':'')+'" title="見た筆を隠して未確認だけ表示">👀 未確認のみ表示'+(state.hideReviewed?'（ON）':'')+'</button><button id="gachoAreaLbl" class="gacho-btn'+(state.showArea?' on':'')+'" title="敷地境界の面積ラベル表示（ズーム15以上で表示）">㎡ 面積ラベル</button></div>';
-  h+='<div class="gacho-master"><button id="gachoBulkOk" class="gacho-btn" title="既に開いて見た(未判定)を全画層でまとめてOKに（開き直し不要）">👁→✓ 見た分をOKに一括</button></div>';
+  h+='<div class="gacho-master"><button id="gachoBulkOk" class="gacho-btn" title="既に開いて見た(未判定)を全画層でまとめてOKに（開き直し不要）">👁→✓ 見た分をOKに一括</button><button id="gachoShowNg" class="gacho-btn'+(state.showNg?' on':'')+'" title="NG(除外)にした筆を地図に表示するか。既定OFF＝除外は地図から消える">'+(state.showNg?'🚫 除外も表示（ON）':'🚫 除外は非表示')+'</button></div>';
   var _tOk=0,_tNg=0,_tV=0,_tAll=0;
   state.layers.forEach(function(l){if(l.archived)return;l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;});});
   h+='<div class="gacho-total">全画層合計　👁'+_tV+' ／ <span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span> ／ 計'+_tAll+'</div>';
@@ -410,6 +412,7 @@ function bindPanel(){
   var ou=q('#gachoOnlyUnrev');if(ou)ou.onclick=function(){state.hideReviewed=!state.hideReviewed;saveState();render();};
   var alb=q('#gachoAreaLbl');if(alb)alb.onclick=function(){state.showArea=!state.showArea;saveState();updateAreaLabels();renderPanel();};
   var bo=q('#gachoBulkOk');if(bo)bo.onclick=bulkViewedOk;
+  var sn=q('#gachoShowNg');if(sn)sn.onclick=function(){state.showNg=!state.showNg;saveState();render();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();};
   all('.gacho-eye[data-eye]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-eye'));if(l){l.visible=!l.visible;saveState();render();}};});
   all('.gacho-dot[data-dot]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-dot'));if(l){var i=PALETTE.indexOf(l.color);l.color=PALETTE[(i+1)%PALETTE.length];saveState();render();}};});
