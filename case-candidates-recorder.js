@@ -759,6 +759,29 @@
     }
   }
 
+  /* STEP1(2026-08-16): 手動ピック地点を農地ナビ(get_farmland_in_bbox)へスナップし面積/住所を返す。
+     60m以内の最寄り農地点を採用。無ければnull(=非農地/山林等は手書きのまま)。栗本さん:手書き敷地境界の省略・面積正確化。 */
+  async function _snapFarmland(lat, lng) {
+    if (!_db) return null;
+    try {
+      var d = 0.0009; // 約100mのbbox
+      var res = await _db.rpc('get_farmland_in_bbox', {
+        lat_min: lat - d, lat_max: lat + d, lng_min: lng - d, lng_max: lng + d, row_limit: 300
+      });
+      if (res.error || !res.data || !res.data.length) return null;
+      var best = null, bestD = Infinity, cosLat = Math.cos(lat * Math.PI / 180);
+      res.data.forEach(function(f) {
+        if (f.lat == null || f.lng == null) return;
+        var dy = (Number(f.lat) - lat) * 111000;
+        var dx = (Number(f.lng) - lng) * 111000 * cosLat;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < bestD) { bestD = dist; best = f; }
+      });
+      if (!best || bestD > 60) return null; // 60m超は別筆とみなしスナップしない
+      return { area: (best.area_sqm != null ? Number(best.area_sqm) : null), address: best.address || '', dist: Math.round(bestD) };
+    } catch (e) { return null; }
+  }
+
   async function save() {
     if (!_pendingRecord || !_db) {
       showToast('記録できません（初期化エラー）', 'error');
@@ -789,7 +812,14 @@
         if (data && data[0]) {
           _addCandidateMarker(data[0]);
           // ★常時可視の画層(gachoPane)にも積む=「0画層｜既存すべて」OFF(candidatePane非表示)でも必ずフラグが見える。栗本さん:手動ピックのフラグが立たない の根治。
-          try { if (window.__gacho && window.__gacho.addManualPick) window.__gacho.addManualPick(data[0].latitude, data[0].longitude, memo); } catch(_) {}
+          try {
+            var _la = data[0].latitude, _ln = data[0].longitude;
+            var _iid = (window.__gacho && window.__gacho.addManualPick) ? window.__gacho.addManualPick(_la, _ln, memo) : null;
+            // STEP1: 農地ナビへスナップして面積/住所を後追いで反映(瞬間フラグは維持)
+            if (_iid) _snapFarmland(_la, _ln).then(function(sn){
+              if (sn && window.__gacho && window.__gacho.setPickInfo) window.__gacho.setPickInfo(_iid, sn);
+            });
+          } catch(_) {}
         }
         showToast('案件候補を記録しました', 'success');
         closeModal();

@@ -505,6 +505,21 @@ window.__gacho={
     toast('📍 手動ピックのフラグを表示（'+la.toFixed(5)+', '+ln.toFixed(5)+'）／画層「'+name+'」');
     return it.iid;
   },
+  // STEP1: 手動ピックに農地ナビの面積/住所/地番を後追いで埋める(瞬間フラグの後にスナップ結果を反映)。
+  setPickInfo:function(iid,info){
+    if(!iid||!info)return;
+    var found=false;
+    state.layers.forEach(function(l){l.items.forEach(function(it){if(it.iid===iid){
+      if(info.area!=null)it.area=Number(info.area);
+      if(info.address)it.address=info.address;
+      if(info.chiban)it.chiban=info.chiban;
+      it.src='農地ナビ紐付';found=true;
+    }});});
+    if(found){saveState();setTimeout(function(){render();},0);
+      var a=(info.area!=null)?Math.round(Number(info.area)).toLocaleString()+'㎡':'不明';
+      toast('📐 農地ナビ紐付: 面積 '+a+(info.address?'／'+info.address:'')+((info.area!=null&&Number(info.area)<800)?'（<800㎡:合筆/手書き検討）':''));
+    }
+  },
   loadNeutral:function(items,layerName,color,prefix){
     if(!items||!items.length)return;
     var l=state.layers.filter(function(x){return x.name===layerName;})[0];
