@@ -115,11 +115,14 @@ function addClick(e){
   var rec=window.CaseCandidatesRecorder;
   if(!(rec&&rec.recordDirect)){toast('記録機能(手動ピック)が使えません（初期化待ち）');return;}
   var la=e.latlng.lat,ln=e.latlng.lng;
+  var l=activeLayer();
+  // 記録成功時に、アクティブ画層へフラグを立てて即可視化(栗本さん指摘:記録してもフラグが出ない の是正)。
+  function addFlag(){ if(l){l.items.push({iid:iid(),lat:la,lng:ln,address:'手動ピック '+la.toFixed(5)+', '+ln.toFixed(5),src:'manualpick',status:null});saveState();render();} }
   toast('記録中… '+la.toFixed(5)+', '+ln.toFixed(5));
   try{
     rec.recordDirect(la,ln,'').then(function(r){
-      if(r&&r.ok){toast('✅ 手動ピックを記録しました（'+la.toFixed(5)+', '+ln.toFixed(5)+'）');}
-      else{toast('❌ 記録に失敗: '+((r&&r.error)||'不明')+' ／ DBの許可設定(RLS)の可能性');}
+      if(r&&r.ok){addFlag();toast('✅ 手動ピックを記録＋フラグ表示（'+la.toFixed(5)+', '+ln.toFixed(5)+'）'+(l?'／画層「'+l.name+'」':''));}
+      else{toast('❌ 記録に失敗: '+((r&&r.error)||'不明（キャンセル/RLS）'));}
     }).catch(function(err){toast('❌ 記録に失敗: '+String((err&&err.message)||err));});
   }catch(_){toast('記録の起動に失敗しました');}
 }
