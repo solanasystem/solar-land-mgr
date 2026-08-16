@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- BUILD: farmland-tracker-analysis v20260816v / 🌾農振農用地が実機で見えない件の【真因確定・根治】。診断HUDが「描画OK 19面 overlay(400)」を示し=描画はされていた。真因=私が作った画層(gacho)システムの applyBase0()(gacho-layer.js 265行)が「0画層｜既存すべて」OFF時に gachoPane等を除く全paneを display:none にし、農振の居る overlayPane を丸ごと非表示にしていた(個別レイヤー操作で変わらなかったのはこのため)。根治2点=①農振を専用pane 'noshinPane'(zIndex460=筆450より上・ピン610/候補640より下)へ描画 ②applyBase0の非表示除外に noshinPane を追加→base0 OFFでも農振は常時表示(栗本さん「常にon」運用)。診断HUDは確認用に残置(次版で撤去)。前:v20260816u -->
+<!-- BUILD: farmland-tracker-analysis v20260816w / 🌾農振農用地の可視化を確認できたので診断HUDを撤去(#noshinDiag/_noshinDiag/try-catch削除)。根治(noshinPane z460描画＋gacho applyBase0除外)は残置。農振は「0画層」OFFでも常時表示。前:v20260816v(診断)/v20260816v根治 -->
 <!-- BUILD: farmland-tracker-analysis v20260816u / 🔬診断ビルド。農振農用地が実機で描画されない(データも座標も面が実在するのに出ない=隔離テストで描画コードは正常と実証・被り消しても出ない=B2描画未起動)件の原因特定用。_renderNoshinInViewに画面HUD診断(#noshinDiag左下)とtry/catchを追加し、どの段階(ボタンOFF/ズーム不足/画面内0面/例外)で止まるかを日本語表示。原因特定後に撤去予定。前:v20260816t -->
 <!-- BUILD: farmland-tracker-analysis v20260816t / 🌾農振農用地が全域(愛知含む)で出ない件の【真因】=R2ワーカー(reinfolib-proxy.../r2/noshin_*.geojson)がAccess-Control-Allow-Originを返さずCORSでブラウザfetch全ブロック(コンソール実証)。同一オリジンのdata/noshin/配信(三重/岐阜/静岡/滋賀/長野/栃木/群馬/埼玉/千葉)は出ていた。稼働テリトリー4県(愛知/兵庫/奈良/福岡)のnoshinをサーバー側DL→data/noshin/へ同梱し参照先を同一オリジンに差替=CORS回避で表示復活。残り約27県のR2依存はワーカーにCORSヘッダ追加が恒久解(380MBの同梱回避)。前:v20260816s -->
 <!-- BUILD: farmland-tracker-analysis v20260816s / 🌾農振農用地が出ない件の是正2点。①ON状態をlocalStorage('trackerNoshinOn')に保存し、リロード後は既定ONで自動復元(明示OFF時のみ'0'で復元しない)=Ctrl+F5の度に消えていた問題を解消。起動時の自動ONはトーストを出さない。②NOSHIN_PREF_BOUNDS.mie の latMax 35.1→35.35(いなべ35.14・桑名・東員が範囲外で三重noshinが読まれなかった)。前:v20260816r -->
@@ -784,7 +785,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260816v 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260816w 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -1585,23 +1586,11 @@ function _calcNoshinFeatureBbox(geom){
   return [minX,minY,maxX,maxY];
 }
 // \u753b\u9762\u8868\u793a\u30a8\u30ea\u30a2\u5185\u306e\u30d5\u30a3\u30fc\u30c1\u30e3\u3060\u3051\u63cf\u753b\uff08\u8907\u6570\u770c\u30de\u30fc\u30b8\u30fbviewport filtering\uff09
-// v20260816u \u8a3a\u65adHUD: \u8fb2\u632f\u306e\u63cf\u753b\u304c\u3069\u3053\u3067\u6b62\u307e\u308b\u304b\u3092\u753b\u9762\u306b\u51fa\u3059(console\u4e0d\u8981)\u3002\u539f\u56e0\u7279\u5b9a\u5f8c\u306b\u64a4\u53bb\u3002
-function _noshinDiag(msg){
-  try{
-    var h=document.getElementById('noshinDiag');
-    if(!h){h=document.createElement('div');h.id='noshinDiag';
-      h.style.cssText='position:fixed;left:8px;bottom:8px;z-index:100000;background:rgba(0,0,0,.85);color:#7CFC00;font:12px/1.4 monospace;padding:6px 8px;border:1px solid #7CFC00;border-radius:4px;max-width:60vw;white-space:pre-wrap;pointer-events:none';
-      document.body.appendChild(h);}
-    h.textContent='[\u8fb2\u632f\u8a3a\u65ad] '+msg;
-  }catch(e){}
-}
 function _renderNoshinInView(){
- try{
-  if(!noshinEnabled){_noshinDiag('\u505c\u6b62: \u30dc\u30bf\u30f3OFF(noshinEnabled=false)');return;}
-  if(map.getZoom()<NOSHIN_MIN_ZOOM){if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}_noshinDiag('\u505c\u6b62: \u30ba\u30fc\u30e0'+map.getZoom()+'<'+NOSHIN_MIN_ZOOM+'\u3002\u62e1\u5927\u304c\u5fc5\u8981');return;}
+  if(!noshinEnabled)return;
+  if(map.getZoom()<NOSHIN_MIN_ZOOM){if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}return;}
   var prefs=detectNoshinPrefsInView();
   _ensureNoshinPrefs(prefs);
-  var cacheState=prefs.map(function(k){return k+'='+(noshinCache[k]?noshinCache[k].features.length+'\u9762':(noshinFetching[k]?'\u53d6\u5f97\u4e2d':'\u672a\u53d6\u5f97'));}).join(' ');
   var mb=map.getBounds();
   var west=mb.getWest(),east=mb.getEast(),south=mb.getSouth(),north=mb.getNorth();
   var visibleFeatures=[];
@@ -1617,8 +1606,8 @@ function _renderNoshinInView(){
     }
   }
   if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}
-  if(visibleFeatures.length===0){_noshinDiag('\u505c\u6b62: \u753b\u9762\u51850\u9762\u3002z='+map.getZoom()+' prefs=['+prefs.join(',')+'] cache{'+cacheState+'}');return;}
-  // v20260816v: \u8fb2\u632f\u3092\u5c02\u7528pane(zIndex460=\u7b46450\u3088\u308a\u4e0a\u30fb\u30d4\u30f3610/\u5019\u88dc640\u3088\u308a\u4e0b)\u3078\u3002overlayPane(400)\u3060\u3068\u7528\u9014/\u533a\u57df/\u885b\u661f\u7b49\u306b\u8986\u308f\u308cenforceZOrder\u3067\u80cc\u9762\u5316\u3057\u898b\u3048\u306a\u304b\u3063\u305f\u6839\u6cbb\u3002
+  if(visibleFeatures.length===0)return;
+  // v20260816w: \u8fb2\u632f\u306f\u5c02\u7528pane(zIndex460=\u7b46450\u3088\u308a\u4e0a\u30fb\u30d4\u30f3610/\u5019\u88dc640\u3088\u308a\u4e0b)\u3078\u63cf\u753b\u3002gacho applyBase0()\u304c\u300c0\u753b\u5c64\u300dOFF\u6642\u306boverlayPane\u3054\u3068display:none\u5316=\u8fb2\u632f\u304c\u6d88\u3048\u308b\u6839\u6cbb(applyBase0\u306e\u9664\u5916\u306bnoshinPane\u8ffd\u52a0\u3068\u5bfe)\u3002
   if(!map.getPane('noshinPane')){var _np=map.createPane('noshinPane');_np.style.zIndex=460;_np.style.pointerEvents='none';}
   noshinLayer=L.geoJSON({type:'FeatureCollection',features:visibleFeatures},{
     pane:'noshinPane',
@@ -1632,8 +1621,6 @@ function _renderNoshinInView(){
   noshinLayer.addTo(map);
   noshinLayer.bringToFront();
   if(markersLayer)markersLayer.bringToFront();
-  _noshinDiag('\u63cf\u753bOK: '+visibleFeatures.length+'\u9762 z='+map.getZoom()+' prefs=['+prefs.join(',')+'] pane='+(noshinLayer.getPane?(noshinLayer.getPane().style.zIndex||'overlay(400)'):'?'));
- }catch(err){ _noshinDiag('\u4f8b\u5916\u3067\u505c\u6b62: '+(err&&err.message?err.message:err)); }
 }
 // \u30ba\u30fc\u30e0\u5909\u66f4\u6642\uff1a\u95be\u5024\u30fb\u770c\u5224\u5b9a\u30fb\u63cf\u753b\u306f _renderNoshinInView \u304c\u4e00\u62ec\u51e6\u7406
 function onZoomChangeForNoshin(){
@@ -7093,7 +7080,7 @@ window.toggleEdgePanel = function(id){
   });
 })();
 </script>
-<script src="case-candidates-recorder.js?v=20260816v"></script>
+<script src="case-candidates-recorder.js?v=20260816w"></script>
 <script src="nara_revival.js?v=20260808a"></script><!-- 復活(cyan)レイヤーのデータ(file://でも読める) -->
 <script src="gappitsu_ai.js?v=20260808a"></script><!-- 合筆・太陽光候補のreject AI判定(①適当/②検討/③不可) -->
 <script src="solar1_ai.js?v=20260808a"></script><!-- 太陽光(1筆)のreject AI判定(feature_id別・①適当/②検討/③不可) -->
@@ -8309,7 +8296,7 @@ if(typeof map!=='undefined'&&map&&map.on){
 
 
 <!-- 画層システム(外部)＋AI候補ローダ。分析ページ=検証ステージ。本番は無関係。 -->
-<script src="gacho-layer.js?v=20260816v"></script>
+<script src="gacho-layer.js?v=20260816w"></script>
 <script src="ai_kuwana_inabe.js?v=20260816b"></script>
 <script>
 (function waitAIKI(){
