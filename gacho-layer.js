@@ -364,16 +364,15 @@ function renderPanel(){
     periods.forEach(function(per){
       var pk=ck+'|P:'+per; var isWip=/精査/.test(per); var po=_gopen(pk);
       var pall=[];Object.keys(_tree[cli][per]).forEach(function(rr){pall=pall.concat(_tree[cli][per][rr]);});
-      h+='<div class="gacho-grp" data-grp="'+esc(pk)+'" style="cursor:pointer;margin-left:12px;margin-top:4px;padding:4px 6px;background:rgba(255,255,255,.03);border-left:2px solid '+(isWip?'#f59e0b':'#3fb950')+';font-weight:700;color:'+(isWip?'#f0b429':'#7ee787')+'"><span style="width:12px;display:inline-block">'+(po?'▾':'▸')+'</span>🗓 '+esc(per)+'<span style="float:right;font-weight:400;color:#8b949e;font-size:11px">'+_lcnt(pall)+'</span></div>';
+      // 退避ボタンは見出しに常時表示（畳んでいても押せる）。納品済のみ。
+      var evacBtn=isWip?'':'<button class="gacho-btn gacho-evac" data-evac="'+esc(ck+'||'+per)+'" style="background:rgba(210,153,34,.22);border-color:#d29922;color:#ffd67a;font-size:10px;padding:1px 7px;margin-left:8px;vertical-align:middle;font-weight:700" title="この納品時期の全画層をSWルームへ書き出し、地図・作業台から外す（データは消えず戻せる）">🗄 退避</button>';
+      h+='<div class="gacho-grp" data-grp="'+esc(pk)+'" style="cursor:pointer;margin-left:12px;margin-top:4px;padding:4px 6px;background:rgba(255,255,255,.03);border-left:2px solid '+(isWip?'#f59e0b':'#3fb950')+';font-weight:700;color:'+(isWip?'#f0b429':'#7ee787')+'"><span style="width:12px;display:inline-block">'+(po?'▾':'▸')+'</span>🗓 '+esc(per)+evacBtn+'<span style="float:right;font-weight:400;color:#8b949e;font-size:11px">'+_lcnt(pall)+'</span></div>';
       if(!po)return;
       Object.keys(_tree[cli][per]).sort().forEach(function(rg){
         var rk=pk+'|R:'+rg; var ro=_gopen(rk);
         h+='<div class="gacho-grp" data-grp="'+esc(rk)+'" style="cursor:pointer;margin-left:24px;margin-top:2px;padding:2px 6px;color:#58a6ff;font-weight:600"><span style="width:12px;display:inline-block">'+(ro?'▾':'▸')+'</span>📍 '+esc(rg)+'</div>';
         if(ro)_tree[cli][per][rg].forEach(function(l){h+=_row(l);});
       });
-      if(!isWip){
-        h+='<div style="margin-left:24px;margin:3px 0 4px 24px"><button class="gacho-btn gacho-evac" data-evac="'+esc(ck+'||'+per)+'" style="background:rgba(139,148,158,.15);border-color:#8b949e;font-size:11px" title="この納品時期の画層をSWルームへ書き出し、作業台から退避（非表示化・戻せる）">🗄 「'+esc(per)+'」を退避（SWルームへ書出＋作業台から外す）</button></div>';
-      }
     });
   });
   if(_arch.length){
