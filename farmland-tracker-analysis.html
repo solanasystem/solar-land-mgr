@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260816s / 🌾農振農用地が出ない件の是正2点。①ON状態をlocalStorage('trackerNoshinOn')に保存し、リロード後は既定ONで自動復元(明示OFF時のみ'0'で復元しない)=Ctrl+F5の度に消えていた問題を解消。起動時の自動ONはトーストを出さない。②NOSHIN_PREF_BOUNDS.mie の latMax 35.1→35.35(いなべ35.14・桑名・東員が範囲外で三重noshinが読まれなかった)。前:v20260816r -->
 <!-- BUILD: farmland-tracker-analysis v20260816g / 🐛waitAIKIローダの重大バグ修正(以前の置換で'+chr(39)+'がJSに直書きされchrエラーでAI候補が読めていなかった)を正しいクォートに是正。＋「確定300のうちAIがremoved_ai_garbageで削除した72件(突合外・全て300内)」を専用レイヤー「SUNトラスト｜AI削除の要確認(松阪72)」(桃色/prefix m72)で分離表示=栗本さんが確認。他案件と混ぜない。ai_maisaka_72.js。前:v20260816f -->
 <!-- BUILD: farmland-tracker-analysis v20260816h / 🗂画層パネルを①クライアント→②納品時期→③行政区域の折りたたみ階層に再編(gacho-layer.js)。フラットで見難い問題を解消。納品済(第1回納品300)は既定で畳み、「🗄退避(SWルームへ書出+作業台から外す/戻せる)」ボタンを新設=完了納品を作業台から退避しSWルームへ。精査中(桑名いなべAI候補等)を先頭に表示。各画層に🏷分類変更。東員町は納品300に含めない。前:v20260816f/g -->
 <!-- BUILD: farmland-tracker-analysis v20260816f / 🔧「OKボタンが更新しない」是正: AI候補を別フラグでなく画層「三重県｜AI候補(桑名・いなべ)」へ中立(未判定)で一括読込(__gacho.loadNeutral)。=画層のフラグそのものになり、標準モーダルの✓OK(setStatus)がその場で反映(緑化)。別フラグ方式(waitAIKI/aikiPane)は廃止。前:v20260816e -->
@@ -780,7 +781,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260816r 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260816s 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -1463,7 +1464,7 @@ var NOSHIN_PREF_BOUNDS={
   shizuoka: {latMin:34.55, latMax:35.4,  lngMin:137.5,  lngMax:139.2,  file:'data/noshin/noshin_shizuoka.geojson',name:'静岡県'},
   aichi:    {latMin:34.5,  latMax:35.4,  lngMin:136.5,  lngMax:137.7,  file:WORKER_BASE+'/r2/noshin_aichi.geojson',name:'愛知県'},
   // 近畿
-  mie:      {latMin:33.7,  latMax:35.1,  lngMin:135.9,  lngMax:136.9,  file:'data/noshin/noshin_mie.geojson',     name:'三重県'},
+  mie:      {latMin:33.7,  latMax:35.35, lngMin:135.9,  lngMax:136.9,  file:'data/noshin/noshin_mie.geojson',     name:'三重県'},
   shiga:    {latMin:34.8,  latMax:35.7,  lngMin:135.8,  lngMax:136.5,  file:'data/noshin/noshin_shiga.geojson',   name:'滋賀県'},
   hyogo:    {latMin:34.1,  latMax:35.7,  lngMin:134.2,  lngMax:135.5,  file:WORKER_BASE+'/r2/noshin_hyogo.geojson', name:'兵庫県'},
   // ===== v20260727b 追加30県（全てR2） 北海道・四国・沖縄を除く =====
@@ -1530,11 +1531,13 @@ function toggleNoshin(){
     if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}
     if(_noshinMoveHandler){map.off('moveend',_noshinMoveHandler);_noshinMoveHandler=null;}
     btn.classList.remove('active');
+    try{localStorage.setItem('trackerNoshinOn','0');}catch(e){}
     showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3057\u305f','success');
     return;
   }
   noshinEnabled=true;
   btn.classList.add('active');
+  try{localStorage.setItem('trackerNoshinOn','1');}catch(e){}
   if(!_noshinMoveHandler){_noshinMoveHandler=function(){_renderNoshinInView();};map.on('moveend',_noshinMoveHandler);}
   if(map.getZoom()<NOSHIN_MIN_ZOOM){
     showToast('\u8fb2\u632f\u8fb2\u7528\u5730\u306f\u30ba\u30fc\u30e0'+NOSHIN_MIN_ZOOM+'\u4ee5\u4e0a\u3067\u8868\u793a\u3055\u308c\u307e\u3059\uff08\u73fe\u5728: '+map.getZoom()+'\uff09\u3002\u62e1\u5927\u3059\u308b\u3068\u8868\u793a\u4e2d\u30a8\u30ea\u30a2\u306e\u5168\u5bfe\u5fdc\u770c\u3092\u8868\u793a\u3057\u307e\u3059','success');
@@ -7070,7 +7073,7 @@ window.toggleEdgePanel = function(id){
   });
 })();
 </script>
-<script src="case-candidates-recorder.js?v=20260816r"></script>
+<script src="case-candidates-recorder.js?v=20260816s"></script>
 <script src="nara_revival.js?v=20260808a"></script><!-- 復活(cyan)レイヤーのデータ(file://でも読める) -->
 <script src="gappitsu_ai.js?v=20260808a"></script><!-- 合筆・太陽光候補のreject AI判定(①適当/②検討/③不可) -->
 <script src="solar1_ai.js?v=20260808a"></script><!-- 太陽光(1筆)のreject AI判定(feature_id別・①適当/②検討/③不可) -->
@@ -8260,12 +8263,33 @@ if(typeof map!=='undefined'&&map&&map.on){
     },300);
   });
 }
+
+/* v20260816s: 農振農用地レイヤーのON状態を保存し、リロード後も復元する(既定ON=常時ON運用)。
+   明示的にOFFにした場合のみ 'trackerNoshinOn'='0' が入り、復元をスキップする。 */
+(function restoreNoshinState(){
+  try{ if(localStorage.getItem('trackerNoshinOn')==='0') return; }catch(e){}
+  var tries=0;
+  var t=setInterval(function(){
+    tries++;
+    var btn=document.getElementById('hzNoshin');
+    if(typeof map!=='undefined'&&map&&map.getZoom&&btn&&typeof toggleNoshin==='function'){
+      clearInterval(t);
+      if(typeof noshinEnabled!=='undefined'&&noshinEnabled)return;
+      var orig=window.showToast;
+      try{
+        window.showToast=function(){};   /* 起動時の自動ONではトーストを出さない */
+        toggleNoshin();
+      }catch(e){ console.warn('noshin restore failed',e); }
+      finally{ window.showToast=orig; }
+    }else if(tries>80){ clearInterval(t); }
+  },300);
+})();
 </script>
 
 
 
 <!-- 画層システム(外部)＋AI候補ローダ。分析ページ=検証ステージ。本番は無関係。 -->
-<script src="gacho-layer.js?v=20260816r"></script>
+<script src="gacho-layer.js?v=20260816s"></script>
 <script src="ai_kuwana_inabe.js?v=20260816b"></script>
 <script>
 (function waitAIKI(){
