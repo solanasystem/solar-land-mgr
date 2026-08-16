@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<!-- BUILD: nouhin-structure v20260816a / 納品情報を3軸(①クライアント×②納品時期(period)×③行政区域(pref/city))で階層表示する構造ビュー。データ駆動(client_deliveries/client_delivery_items)・読み取り専用・検索・ログイン必須。栗本さんのクライアント問い合わせ即応の参照台帳。 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>納品情報 構造ビュー // GRID LAND MGR</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="common-auth.js?v=20260813kuroki"></script>
+<style>
+  :root{--bg:#0d1117;--surf:#161c22;--surf2:#1b2530;--bd:#2a3742;--ink:#e6edf3;--soft:#9fb0bd;--acc:#00d4ff;
+    --ok:#3fb950;--warn:#d29922;--danger:#f0736a;--mono:Consolas,"Yu Gothic",monospace;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:system-ui,"Yu Gothic",Meiryo,sans-serif;font-size:14px}
+  .top{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,#0d1117,rgba(13,17,23,.92));border-bottom:1px solid var(--bd);padding:12px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .top h1{font-size:17px;font-weight:800}
+  .top .sub{color:var(--soft);font-size:12px}
+  .top .sp{margin-left:auto;display:flex;gap:10px;align-items:center}
+  input#q{background:var(--surf);border:1px solid var(--bd);border-radius:7px;color:var(--ink);padding:7px 12px;font-size:13px;width:240px}
+  select#st{background:var(--surf);border:1px solid var(--bd);border-radius:7px;color:var(--ink);padding:7px 10px;font-size:13px}
+  .wrap{padding:16px 20px 60px;max-width:1100px;margin:0 auto}
+  .node{margin:2px 0}
+  .row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;cursor:pointer;user-select:none}
+  .row:hover{background:var(--surf)}
+  .tw{width:14px;color:var(--soft);font-family:var(--mono);flex:none}
+  .lv1>.row{background:var(--surf);border:1px solid var(--bd);font-weight:800;font-size:15px}
+  .lv2>.row{margin-left:16px;font-weight:700;color:var(--acc)}
+  .lv3>.row{margin-left:32px;font-weight:600}
+  .cnt{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--soft)}
+  .badge{font-family:var(--mono);font-size:10px;border-radius:999px;padding:1px 8px;border:1px solid var(--bd);color:var(--soft)}
+  .kids{display:none}
+  .node.open>.kids{display:block}
+  table.cases{width:calc(100% - 48px);margin:4px 0 8px 48px;border-collapse:collapse;font-size:12.5px}
+  table.cases th,table.cases td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd);vertical-align:top}
+  table.cases th{color:var(--soft);font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+  td.no{color:var(--acc);font-family:var(--mono);text-align:right}
+  td.mono{font-family:var(--mono)}
+  .st-confirmed{color:var(--ok)} .st-hold{color:var(--warn)} .st-removed{color:var(--danger)}
+  a{color:var(--acc)}
+  .loading{padding:40px;text-align:center;color:var(--soft)}
+</style>
+</head>
+<body>
+<div class="top">
+  <div><h1>📦 納品情報 構造ビュー</h1><div class="sub">①クライアント × ②納品時期 × ③行政区域 で階層表示（データ駆動・読み取り専用）</div></div>
+  <div class="sp">
+    <select id="st">
+      <option value="confirmed">確定納品のみ(confirmed)</option>
+      <option value="all">全ステータス</option>
+    </select>
+    <input id="q" placeholder="検索：地番・所在・市・県…">
+    <a href="mode-select.html" style="font-size:12px">← 戻る</a>
+  </div>
+</div>
+<div class="wrap"><div id="tree" class="loading">読み込み中…</div></div>
+
+<script>
+(function(){
+  'use strict';
+  var SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
+  var SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+  var db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+  var esc=function(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
+  var CLIENTS={}, DELIV={}, ITEMS=[];
+
+  async function loadAll(){
+    var c=await db.from('clients').select('id,name'); (c.data||[]).forEach(function(x){CLIENTS[x.id]=x.name;});
+    var d=await db.from('client_deliveries').select('id,period,delivered_at,notes,status,case_count'); (d.data||[]).forEach(function(x){DELIV[x.id]=x;});
+    var all=[],from=0;
+    while(true){
+      var r=await db.from('client_delivery_items').select('client_id,delivery_id,pref,city,town,chiban,area_m2,chimoku,zone,address,status,lat,lng').range(from,from+999);
+      if(r.error)throw r.error; var b=r.data||[]; all=all.concat(b); if(b.length<1000)break; from+=1000;
+    }
+    ITEMS=all;
+  }
+
+  function build(){
+    var q=(document.getElementById('q').value||'').trim().toLowerCase();
+    var stf=document.getElementById('st').value;
+    var items=ITEMS.filter(function(it){
+      if(stf==='confirmed' && it.status!=='confirmed')return false;
+      if(q){ var hay=[it.chiban,it.address,it.city,it.pref,it.town].join(' ').toLowerCase(); if(hay.indexOf(q)<0)return false; }
+      return true;
+    });
+    // client -> delivery(period) -> pref -> city -> items
+    var tree={};
+    items.forEach(function(it){
+      var cl=CLIENTS[it.client_id]||it.client_id||'(不明client)';
+      var dv=DELIV[it.delivery_id]||{}; var per=(dv.period||'期不明')+(dv.notes?(' '+dv.notes):'');
+      var pf=it.pref||'県不明'; var ct=it.city||'市不明';
+      tree[cl]=tree[cl]||{n:0,ch:{}};
+      var a=tree[cl]; a.n++;
+      a.ch[per]=a.ch[per]||{n:0,meta:dv,ch:{}}; var b=a.ch[per]; b.n++;
+      b.ch[pf]=b.ch[pf]||{n:0,ch:{}}; var c=b.ch[pf]; c.n++;
+      c.ch[ct]=c.ch[ct]||{n:0,items:[]}; var d=c.ch[ct]; d.n++; d.items.push(it);
+    });
+    var stCls=function(s){return s==='confirmed'?'st-confirmed':(/hold/.test(s)?'st-hold':(/removed/.test(s)?'st-removed':''));};
+    var H='';
+    Object.keys(tree).sort().forEach(function(cl){
+      var a=tree[cl];
+      H+='<div class="node lv1 open"><div class="row" onclick="this.parentNode.classList.toggle(\'open\')"><span class="tw">▸</span>🏢 '+esc(cl)+'<span class="cnt">'+a.n+'件</span></div><div class="kids">';
+      Object.keys(a.ch).sort().forEach(function(per){
+        var b=a.ch[per];
+        var dd=b.meta&&b.meta.delivered_at?(' / 納品:'+String(b.meta.delivered_at).slice(0,10)):'';
+        H+='<div class="node lv2 open"><div class="row" onclick="this.parentNode.classList.toggle(\'open\')"><span class="tw">▸</span>🗓 '+esc(per)+'<span class="badge">'+esc((b.meta&&b.meta.status)||'')+'</span>'+esc(dd)+'<span class="cnt">'+b.n+'件</span></div><div class="kids">';
+        Object.keys(b.ch).sort().forEach(function(pf){
+          var c=b.ch[pf];
+          H+='<div class="node lv3"><div class="row" onclick="this.parentNode.classList.toggle(\'open\')"><span class="tw">▸</span>📍 '+esc(pf)+'<span class="cnt">'+c.n+'件</span></div><div class="kids">';
+          Object.keys(c.ch).sort().forEach(function(ct){
+            var d=c.ch[ct];
+            H+='<div class="node" style="margin-left:48px"><div class="row" onclick="this.parentNode.classList.toggle(\'open\')"><span class="tw">▸</span>🏘 '+esc(ct)+'<span class="cnt">'+d.n+'件</span></div><div class="kids">';
+            H+='<table class="cases"><tr><th>No</th><th>地番</th><th>面積㎡</th><th>地目</th><th>区域</th><th>所在</th><th>状態</th><th>地図</th></tr>';
+            d.items.sort(function(x,y){return String(x.chiban).localeCompare(String(y.chiban));}).forEach(function(it,i){
+              var g=it.lat?('<a href="https://www.google.com/maps/search/?api=1&query='+it.lat+','+it.lng+'" target="_blank">🌐</a>'):'';
+              H+='<tr><td class="no">'+(i+1)+'</td><td class="mono">'+esc(it.chiban)+'</td><td class="mono" style="text-align:right">'+(it.area_m2!=null?Number(it.area_m2).toLocaleString():'')+'</td><td>'+esc(it.chimoku)+'</td><td>'+esc(it.zone)+'</td><td>'+esc(it.address)+'</td><td class="'+stCls(it.status)+'">'+esc(it.status)+'</td><td>'+g+'</td></tr>';
+            });
+            H+='</table></div></div>';
+          });
+          H+='</div></div>';
+        });
+        H+='</div></div>';
+      });
+      H+='</div></div>';
+    });
+    document.getElementById('tree').className='';
+    document.getElementById('tree').innerHTML=H||'<div class="loading">該当なし</div>';
+  }
+
+  loadAll().then(function(){ build(); document.getElementById('q').addEventListener('input',build); document.getElementById('st').addEventListener('change',build); })
+    .catch(function(e){ document.getElementById('tree').innerHTML='<div class="loading">読み込み失敗: '+esc(e.message||e)+'</div>'; });
+})();
+</script>
+</body>
+</html>
