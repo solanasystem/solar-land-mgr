@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: nouhin-structure v20260816a / 納品情報を3軸(①クライアント×②納品時期(period)×③行政区域(pref/city))で階層表示する構造ビュー。データ駆動(client_deliveries/client_delivery_items)・読み取り専用・検索・ログイン必須。栗本さんのクライアント問い合わせ即応の参照台帳。 -->
+<!-- BUILD: nouhin-structure v20260816b / 納品情報を3軸(①クライアント×②納品時期(period)×③行政区域(pref/city))で階層表示する構造ビュー。データ駆動(client_deliveries/client_delivery_items)・読み取り専用・検索・ログイン必須。栗本さんのクライアント問い合わせ即応の参照台帳。 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -60,17 +60,49 @@
   'use strict';
   var SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
   var SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
-  var db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
   var esc=function(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
   var CLIENTS={}, DELIV={}, ITEMS=[];
+  var db=null;
+  var TREE=document.getElementById('tree');
+  function show(msg){ if(TREE){ TREE.className='loading'; TREE.innerHTML=msg; } }
+
+  // ★東員町は「納品300」に含めない（栗本さん指示 2026-08-16）。confirmedであっても町名で除外表示。
+  var EXCLUDE_TOWNS=['東員町','東員'];
+  function isExcludedTown(it){
+    var t=String((it.town||'')+' '+(it.city||'')+' '+(it.address||''));
+    for(var i=0;i<EXCLUDE_TOWNS.length;i++){ if(t.indexOf(EXCLUDE_TOWNS[i])>=0) return true; }
+    return false;
+  }
+
+  // supabase-js(CDN) のロードを最大~6秒待つ。待っても無ければ明示エラー。
+  function waitSupabase(){
+    return new Promise(function(resolve,reject){
+      var n=0;
+      (function poll(){
+        if(typeof window.supabase!=='undefined' && window.supabase.createClient) return resolve();
+        if(n++>60) return reject(new Error('supabase-js(CDN)が読み込めませんでした。ネットワーク/広告ブロッカーをご確認ください。'));
+        setTimeout(poll,100);
+      })();
+    });
+  }
+  function getClient(){
+    // アプリ標準の認証済みクライアントを最優先で再利用（RLS整合）。無ければ自前生成。
+    if(window.__auth && window.__auth.sb) return window.__auth.sb;
+    return window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+  }
 
   async function loadAll(){
-    var c=await db.from('clients').select('id,name'); (c.data||[]).forEach(function(x){CLIENTS[x.id]=x.name;});
-    var d=await db.from('client_deliveries').select('id,period,delivered_at,notes,status,case_count'); (d.data||[]).forEach(function(x){DELIV[x.id]=x;});
+    var c=await db.from('clients').select('id,name');
+    if(c.error) throw new Error('clients: '+(c.error.message||c.error));
+    (c.data||[]).forEach(function(x){CLIENTS[x.id]=x.name;});
+    var d=await db.from('client_deliveries').select('id,period,delivered_at,notes,status,case_count');
+    if(d.error) throw new Error('client_deliveries: '+(d.error.message||d.error));
+    (d.data||[]).forEach(function(x){DELIV[x.id]=x;});
     var all=[],from=0;
     while(true){
       var r=await db.from('client_delivery_items').select('client_id,delivery_id,pref,city,town,chiban,area_m2,chimoku,zone,address,status,lat,lng').range(from,from+999);
-      if(r.error)throw r.error; var b=r.data||[]; all=all.concat(b); if(b.length<1000)break; from+=1000;
+      if(r.error)throw new Error('client_delivery_items: '+(r.error.message||r.error));
+      var b=r.data||[]; all=all.concat(b); if(b.length<1000)break; from+=1000;
     }
     ITEMS=all;
   }
@@ -80,6 +112,7 @@
     var stf=document.getElementById('st').value;
     var items=ITEMS.filter(function(it){
       if(stf==='confirmed' && it.status!=='confirmed')return false;
+      if(isExcludedTown(it))return false; // 東員町は納品300に含めない
       if(q){ var hay=[it.chiban,it.address,it.city,it.pref,it.town].join(' ').toLowerCase(); if(hay.indexOf(q)<0)return false; }
       return true;
     });
@@ -127,8 +160,28 @@
     document.getElementById('tree').innerHTML=H||'<div class="loading">該当なし</div>';
   }
 
-  loadAll().then(function(){ build(); document.getElementById('q').addEventListener('input',build); document.getElementById('st').addEventListener('change',build); })
-    .catch(function(e){ document.getElementById('tree').innerHTML='<div class="loading">読み込み失敗: '+esc(e.message||e)+'</div>'; });
+  // 起動: 絶対に「読み込み中」で固まらせない。supabase待ち→タイムアウト→必ず結果かエラーを表示。
+  var done=false;
+  var killer=setTimeout(function(){
+    if(done)return; done=true;
+    show('<div>⏳ タイムアウト（20秒）: データ取得が返りませんでした。<br>再読み込みしても直らない場合はご連絡ください。</div>');
+  },20000);
+
+  (async function boot(){
+    try{
+      await waitSupabase();
+      db=getClient();
+      if(!db) throw new Error('Supabaseクライアントを初期化できませんでした。');
+      await loadAll();
+      if(done)return; done=true; clearTimeout(killer);
+      build();
+      document.getElementById('q').addEventListener('input',build);
+      document.getElementById('st').addEventListener('change',build);
+    }catch(e){
+      if(done)return; done=true; clearTimeout(killer);
+      show('<div>⚠ 読み込み失敗: '+esc((e&&e.message)||e)+'</div>');
+    }
+  })();
 })();
 </script>
 </body>

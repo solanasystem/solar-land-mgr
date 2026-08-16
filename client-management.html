@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<!-- BUILD: client-management v20260807a / 顧客(クライアント)管理画面。4層スキーマ(clients/client_contracts/client_search_profiles/client_deliveries/case_proposals)のCRUD。モードセレクトの前段=顧客を選んで開始。自社開拓(own)とクライアント紹介(referral)を分離。partner(社外)はリダイレクト。 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>CLIENT MANAGEMENT // GRID LAND MGR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700;800&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="common-auth.js?v=20260813kuroki"></script>
+<style>
+  :root{
+    --void:#020817;--abyss:#060e26;--deep:#0c1733;--steel:#15203d;--steel2:#1f2c4d;
+    --line:#2a3a5c;--line2:#3a4d75;--plasma:#00d4ff;--plasma-dim:#0891b2;--charge:#10ffb3;
+    --voltage:#a78bfa;--warn:#fbbf24;--signal:#ff3a3a;--mint:#34d399;--gold:#f59e0b;--rose:#f472b6;
+    --text:#eef2ff;--muted:#8492b3;--dim:#4a5b80;
+    --display:'Syne','Zen Kaku Gothic New',sans-serif;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{background:var(--void);color:var(--text);font-family:var(--jp);min-height:100vh;-webkit-font-smoothing:antialiased}
+  body{background-image:linear-gradient(rgba(0,212,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.03) 1px,transparent 1px);background-size:64px 64px}
+  a{color:inherit;text-decoration:none}
+  .topbar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:16px;padding:14px 22px;background:rgba(6,14,38,.92);border-bottom:1px solid var(--line);backdrop-filter:blur(8px)}
+  .brand{font-family:var(--display);font-weight:800;letter-spacing:.04em;font-size:17px;color:var(--text)}
+  .brand b{color:var(--plasma)}
+  .crumb{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.08em}
+  .sp{flex:1}
+  .who{font-size:12px;color:var(--muted);text-align:right;line-height:1.4}
+  .who b{color:var(--text)}
+  .btn{font-family:var(--display);font-weight:700;font-size:12px;padding:8px 14px;border-radius:9px;border:1px solid var(--line2);background:var(--steel);color:var(--text);cursor:pointer;transition:.15s;letter-spacing:.03em}
+  .btn:hover{border-color:var(--plasma);color:var(--plasma)}
+  .btn.primary{background:linear-gradient(135deg,#0a3a52,#0c2340);border-color:var(--plasma-dim);color:var(--plasma)}
+  .btn.go{background:linear-gradient(135deg,#0a5240,#0c3324);border-color:var(--charge);color:var(--charge)}
+  .btn.sm{font-size:11px;padding:5px 10px}
+  .btn.ghost{background:transparent}
+  .wrap{max-width:1240px;margin:0 auto;padding:26px 22px 80px}
+  .pageh{display:flex;align-items:flex-end;gap:14px;margin-bottom:6px;flex-wrap:wrap}
+  .pageh h1{font-family:var(--display);font-weight:800;font-size:26px;letter-spacing:.02em}
+  .pageh .en{font-family:var(--mono);font-size:11px;color:var(--plasma);letter-spacing:.22em;padding-bottom:5px}
+  .lead{color:var(--muted);font-size:13px;margin:6px 0 22px;line-height:1.7}
+  .notice{border:1px solid var(--warn);background:rgba(251,191,36,.08);color:#fde68a;border-radius:12px;padding:14px 16px;font-size:13px;line-height:1.7;margin-bottom:22px;display:none}
+  .notice code{font-family:var(--mono);color:#fff;background:#000;padding:1px 6px;border-radius:4px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+  .card{background:linear-gradient(160deg,var(--deep),var(--abyss));border:1px solid var(--line);border-radius:16px;padding:18px;transition:.18s;cursor:pointer;position:relative;overflow:hidden}
+  .card:hover{border-color:var(--plasma-dim);transform:translateY(-2px)}
+  .card .rail{position:absolute;left:0;top:0;bottom:0;width:4px}
+  .card.own .rail{background:var(--gold)}
+  .card.referral .rail{background:var(--plasma)}
+  .card h3{font-family:var(--display);font-weight:700;font-size:17px;margin-bottom:2px;padding-left:6px}
+  .sub{font-size:11px;color:var(--muted);padding-left:6px;min-height:15px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 4px;padding-left:6px}
+  .chip{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:20px;border:1px solid var(--line2);color:var(--muted)}
+  .chip.on{border-color:var(--charge);color:var(--charge)}
+  .chip.type{border-color:var(--plasma-dim);color:var(--plasma)}
+  .badge{font-family:var(--mono);font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;letter-spacing:.05em}
+  .badge.active{background:rgba(16,255,179,.13);color:var(--charge)}
+  .badge.prospect{background:rgba(167,139,250,.14);color:var(--voltage)}
+  .badge.paused,.badge.ended{background:rgba(132,146,179,.14);color:var(--muted)}
+  .stats{display:flex;gap:16px;padding:12px 6px 2px;margin-top:10px;border-top:1px solid var(--line)}
+  .stat{font-size:11px;color:var(--muted)}
+  .stat b{display:block;font-family:var(--mono);font-size:18px;color:var(--text);font-weight:700}
+  .card .cardact{display:flex;gap:8px;margin-top:14px;padding-left:6px}
+  .addcard{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border:1.5px dashed var(--line2);background:transparent;color:var(--muted);min-height:150px;font-size:13px}
+  .addcard:hover{border-color:var(--plasma);color:var(--plasma)}
+  .addcard .plus{font-size:34px;line-height:1}
+  /* drawer */
+  .scrim{position:fixed;inset:0;background:rgba(2,8,23,.7);backdrop-filter:blur(3px);z-index:40;display:none}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--abyss);border-left:1px solid var(--line2);z-index:50;transform:translateX(100%);transition:transform .22s;overflow-y:auto;display:none}
+  .drawer.open{transform:translateX(0)}
+  .dh{position:sticky;top:0;background:rgba(6,14,38,.96);border-bottom:1px solid var(--line);padding:16px 20px;display:flex;align-items:center;gap:12px;z-index:2}
+  .dh h2{font-family:var(--display);font-weight:800;font-size:18px;flex:1}
+  .dbody{padding:20px}
+  .sec{margin-bottom:24px}
+  .sec>h4{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--plasma);text-transform:uppercase;margin-bottom:12px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  .fld{margin-bottom:12px}
+  .fld label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
+  .fld input,.fld select,.fld textarea{width:100%;background:var(--steel);border:1px solid var(--line);border-radius:8px;color:var(--text);font-family:var(--jp);font-size:13px;padding:8px 10px}
+  .fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:var(--plasma)}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .prof{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--deep)}
+  .prof .pt{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .prof .pt b{font-family:var(--display);font-size:14px;flex:1}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--steel2);border:1px solid var(--plasma-dim);color:var(--text);padding:11px 18px;border-radius:10px;font-size:13px;z-index:80;opacity:0;transition:.2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .toast.err{border-color:var(--signal);color:#ffb4b4}
+  .empty{color:var(--dim);font-size:12px;text-align:center;padding:20px}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">GRID LAND <b>MGR</b></span>
+  <span class="crumb">/ CLIENT_MANAGEMENT</span>
+  <span class="sp"></span>
+  <span class="who"><b id="whoName">—</b><br><span id="whoRole" style="font-family:var(--mono);font-size:10px"></span></span>
+  <a href="mode-select.html" class="btn ghost">MODE SELECT →</a>
+  <button class="btn ghost" onclick="logout()" title="ログアウト">⏻</button>
+</div>
+
+<div class="wrap">
+  <div class="pageh"><h1>顧客管理</h1><span class="en">CLIENT MANAGEMENT</span></div>
+  <p class="lead">クライアントごとに <b>契約・探索条件・提案実績</b> を一元管理。顧客を選んでシステムを開始すると、その顧客にスコープした案件だけを扱います。<br>
+    <span style="color:var(--gold)">自社開拓(own)</span> と <span style="color:var(--plasma)">クライアント紹介(referral)</span> は完全分離。</p>
+
+  <div class="notice" id="schemaNotice">
+    ⚠ クライアント用テーブルが見つかりません。Supabase の SQL Editor で <code>sql/clients_schema.sql</code> を実行してからご利用ください（4層スキーマ＋サントラスト初期登録）。
+  </div>
+
+  <div class="grid" id="cardGrid"></div>
+</div>
+
+<!-- 詳細ドロワー -->
+<div class="scrim" id="scrim" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="dh"><h2 id="dTitle">クライアント</h2><button class="btn go sm" id="dStart">この顧客で開始 →</button><button class="btn ghost sm" onclick="closeDrawer()">✕</button></div>
+  <div class="dbody" id="dBody"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var sb=null, ME=null, clients=[], byId={};
+function toast(m,ok){var t=document.getElementById('toast');t.textContent=m;t.className='toast show'+(ok===false?' err':'');setTimeout(function(){t.className='toast';},2600);}
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+
+async function boot(){
+  var t=0; while(!(window.__auth&&window.__auth.sb)&&t<200){await new Promise(function(r){setTimeout(r,50);});t++;}
+  if(window.__auth){
+    // partner(社外)は内部管理画面を見せない
+    try{ if(typeof window.__auth.isPartner==='function'&&window.__auth.isPartner()){ location.replace('main.html'); return; } }catch(e){}
+    sb=window.__auth.sb;
+    var t2=0; while(!window.__auth.profile&&t2<100){await new Promise(function(r){setTimeout(r,50);});t2++;}
+    var p=window.__auth.profile||{}; ME=p;
+    document.getElementById('whoName').textContent=p.display_name||p.email||'—';
+    document.getElementById('whoRole').textContent=(window.__auth.role||'').toUpperCase();
+  }
+  if(!sb){toast('認証が必要です',false);return;}
+  await loadAll();
+}
+
+async function loadAll(){
+  try{
+    var cs=await sb.from('clients').select('*').order('created_at',{ascending:true});
+    if(cs.error){ if((cs.error.message||'').match(/relation|does not exist|schema/i)){document.getElementById('schemaNotice').style.display='block';} throw cs.error; }
+    clients=cs.data||[]; byId={}; clients.forEach(function(c){byId[c.id]=c;c._contracts=[];c._profiles=[];c._prop={};});
+    var ids=clients.map(function(c){return c.id;});
+    if(ids.length){
+      var ct=await sb.from('client_contracts').select('*').in('client_id',ids);
+      (ct.data||[]).forEach(function(x){ (byId[x.client_id]||{})._contracts && byId[x.client_id]._contracts.push(x); });
+      var pr=await sb.from('client_search_profiles').select('*').in('client_id',ids);
+      (pr.data||[]).forEach(function(x){ byId[x.client_id]&&byId[x.client_id]._profiles.push(x); });
+      var cp=await sb.from('case_proposals').select('client_id,status').in('client_id',ids);
+      (cp.data||[]).forEach(function(x){ var c=byId[x.client_id]; if(c){c._prop[x.status]=(c._prop[x.status]||0)+1;} });
+    }
+    render();
+  }catch(e){ console.error(e); render(); }
+}
+
+function render(){
+  var g=document.getElementById('cardGrid'); g.innerHTML='';
+  // 自社開拓カード（固定）
+  g.appendChild(ownCard());
+  clients.forEach(function(c){ g.appendChild(clientCard(c)); });
+  // 追加カード
+  var add=document.createElement('div'); add.className='card addcard';
+  add.innerHTML='<span class="plus">＋</span>新規クライアントを追加';
+  add.onclick=function(){ openDrawer(null); }; g.appendChild(add);
+}
+
+function ownCard(){
+  var d=document.createElement('div'); d.className='card own';
+  d.innerHTML='<span class="rail"></span><h3>自社開拓</h3><div class="sub">OWN DEVELOPMENT — 我が直接、地権者を開拓</div>'
+    +'<div class="chips"><span class="chip type">deal_type=own</span><span class="chip">福岡 低圧蓄電池 ほか</span></div>'
+    +'<div class="cardact"><a class="btn go sm" href="mode-select.html?deal=own">この区分で開始 →</a></div>';
+  return d;
+}
+
+function clientCard(c){
+  var ct=(c._contracts||[])[0]||{};
+  var d=document.createElement('div'); d.className='card referral';
+  var prof=(c._profiles||[]);
+  var chips=prof.slice(0,3).map(function(p){return '<span class="chip type">'+esc(p.name||p.use_type||'profile')+'</span>';}).join('');
+  var adopted=(c._prop.adopted||0)+(c._prop.contracted||0);
+  var proposed=Object.values(c._prop).reduce(function(a,b){return a+b;},0);
+  d.innerHTML='<span class="rail"></span>'
+    +'<div style="display:flex;align-items:flex-start;padding-left:6px"><h3 style="padding-left:0;flex:1">'+esc(c.name)+'</h3><span class="badge '+(c.status||'active')+'">'+esc((c.status||'active').toUpperCase())+'</span></div>'
+    +'<div class="sub">'+esc(c.end_client?('最終顧客: '+c.end_client):(c.contact_name||'クライアント紹介'))+'</div>'
+    +'<div class="chips">'+(chips||'<span class="chip">探索プロファイル未設定</span>')+'</div>'
+    +'<div class="chips" style="margin-top:0">'
+      +(ct.monthly_quota?'<span class="chip on">月'+ct.monthly_quota+'件</span>':'')
+      +(ct.end_date?'<span class="chip">〜'+esc(ct.end_date)+'</span>':'')
+      +(ct.exclusive_area?'<span class="chip">独占</span>':'')+'</div>'
+    +'<div class="stats"><div class="stat"><b>'+prof.length+'</b>探索条件</div><div class="stat"><b>'+proposed+'</b>提案</div><div class="stat"><b>'+adopted+'</b>採用/成約</div></div>'
+    +'<div class="cardact"><button class="btn primary sm" onclick="event.stopPropagation();openDrawer(\''+c.id+'\')">管理</button>'
+      +'<a class="btn go sm" href="mode-select.html?client='+c.id+'&cn='+encodeURIComponent(c.name)+'" onclick="event.stopPropagation()">この顧客で開始 →</a></div>';
+  d.onclick=function(){ openDrawer(c.id); };
+  return d;
+}
+
+// ===== ドロワー（新規/編集） =====
+var editId=null;
+function openDrawer(id){
+  editId=id; var c=id?byId[id]:null; var ct=(c&&c._contracts[0])||{};
+  document.getElementById('dTitle').textContent=c?c.name:'新規クライアント';
+  var st=document.getElementById('dStart');
+  if(c){ st.style.display=''; st.onclick=function(){ location.href='mode-select.html?client='+c.id+'&cn='+encodeURIComponent(c.name); }; }
+  else { st.style.display='none'; }
+  var b=document.getElementById('dBody');
+  b.innerHTML=''
+   +sec('基本情報',[
+       fld('name','法人名',c?c.name:''),
+       row(fld('corp_type','法人格',c?c.corp_type:''),fld('status','ステータス',c?c.status:'active','select',['prospect','active','paused','ended'])),
+       row(fld('contact_name','担当者',c?c.contact_name:''),fld('contact_title','役職',c?c.contact_title:'')),
+       row(fld('email','Email',c?c.email:''),fld('phone','電話',c?c.phone:'')),
+       fld('address','住所',c?c.address:''),
+       row(fld('business_type','事業分野',c?c.business_type:''),fld('end_client','最終顧客',c?c.end_client:'')),
+       fld('notes','備考',c?c.notes:'','textarea')
+     ])
+   +sec('契約',[
+       row(fld('c_contract_type','契約種別',ct.contract_type||''),fld('c_status','契約ステータス',ct.status||'active','select',['draft','active','expired'])),
+       row(fld('c_start_date','開始日',ct.start_date||'','date'),fld('c_end_date','終了日',ct.end_date||'','date')),
+       row(fld('c_monthly_fee','月額(税抜)',ct.monthly_fee||'','number'),fld('c_monthly_fee_incl','月額(税込)',ct.monthly_fee_incl||'','number')),
+       row(fld('c_monthly_quota','月間提供件数',ct.monthly_quota||'','number'),fld('c_confidentiality_yrs','秘密保持(年)',ct.confidentiality_yrs||'','number')),
+       fld('c_exclusive_area','独占エリア',ct.exclusive_area||''),
+       fld('c_success_condition','成約条件',ct.success_condition||'','textarea'),
+       row(fld('c_jurisdiction','管轄',ct.jurisdiction||''),fld('c_doc_url','契約書URL',ct.doc_url||''))
+     ])
+   +'<div class="sec"><h4>探索プロファイル</h4><div id="profList"></div>'
+     +(id?'<button class="btn sm" onclick="addProfile()">＋ プロファイル追加</button>':'<div class="empty">クライアント保存後に追加できます</div>')+'</div>'
+   +'<div style="display:flex;gap:10px;margin-top:8px"><button class="btn primary" style="flex:1" onclick="saveClient()">保存</button>'
+     +(id?'<button class="btn ghost" onclick="delClient()" style="color:var(--signal);border-color:var(--signal)">削除</button>':'')+'</div>';
+  if(id) renderProfiles(c);
+  document.getElementById('scrim').style.display='block';
+  var dr=document.getElementById('drawer'); dr.style.display='block'; setTimeout(function(){dr.classList.add('open');},10);
+}
+function closeDrawer(){var dr=document.getElementById('drawer');dr.classList.remove('open');document.getElementById('scrim').style.display='none';setTimeout(function(){dr.style.display='none';},220);}
+function sec(title,flds){return '<div class="sec"><h4>'+title+'</h4>'+flds.join('')+'</div>';}
+function fld(id,label,val,type,opts){
+  val=val==null?'':val;
+  if(type==='select'){ return '<div class="fld"><label>'+label+'</label><select id="f_'+id+'">'+opts.map(function(o){return '<option '+(o===val?'selected':'')+'>'+o+'</option>';}).join('')+'</select></div>'; }
+  if(type==='textarea'){ return '<div class="fld"><label>'+label+'</label><textarea id="f_'+id+'" rows="2">'+esc(val)+'</textarea></div>'; }
+  return '<div class="fld"><label>'+label+'</label><input id="f_'+id+'" type="'+(type||'text')+'" value="'+esc(val)+'"></div>';
+}
+function row(a,b){return '<div class="row2">'+a+b+'</div>';}
+function gv(id){var e=document.getElementById('f_'+id);return e?(e.value===''?null:e.value):null;}
+
+async function saveClient(){
+  var crow={name:gv('name'),corp_type:gv('corp_type'),status:gv('status'),contact_name:gv('contact_name'),
+    contact_title:gv('contact_title'),email:gv('email'),phone:gv('phone'),address:gv('address'),
+    business_type:gv('business_type'),end_client:gv('end_client'),notes:gv('notes')};
+  if(!crow.name){toast('法人名は必須です',false);return;}
+  try{
+    var cid=editId;
+    if(cid){ var u=await sb.from('clients').update(crow).eq('id',cid); if(u.error)throw u.error; }
+    else { var ins=await sb.from('clients').insert(crow).select(); if(ins.error)throw ins.error; cid=ins.data[0].id; }
+    // 契約 upsert（1クライアント1契約を基本・存在すれば更新）
+    var ctrow={client_id:cid,contract_type:gv('c_contract_type'),status:gv('c_status'),
+      start_date:gv('c_start_date'),end_date:gv('c_end_date'),
+      monthly_fee:gv('c_monthly_fee'),monthly_fee_incl:gv('c_monthly_fee_incl'),
+      monthly_quota:gv('c_monthly_quota'),confidentiality_yrs:gv('c_confidentiality_yrs'),
+      exclusive_area:gv('c_exclusive_area'),success_condition:gv('c_success_condition'),
+      jurisdiction:gv('c_jurisdiction'),doc_url:gv('c_doc_url')};
+    var existing=(byId[cid]&&byId[cid]._contracts&&byId[cid]._contracts[0]);
+    if(existing){ var cu=await sb.from('client_contracts').update(ctrow).eq('id',existing.id); if(cu.error)throw cu.error; }
+    else if(Object.keys(ctrow).some(function(k){return k!=='client_id'&&ctrow[k];})){ var ci=await sb.from('client_contracts').insert(ctrow); if(ci.error)throw ci.error; }
+    toast('保存しました',true); closeDrawer(); await loadAll();
+  }catch(e){ toast('保存失敗: '+((e&&e.message)||e),false); }
+}
+
+async function delClient(){
+  if(!editId)return; var c=byId[editId];
+  if(!confirm('クライアント「'+(c&&c.name)+'」と関連(契約/探索条件)を削除します。案件(cases)は残ります。よろしいですか？'))return;
+  try{ var r=await sb.from('clients').delete().eq('id',editId); if(r.error)throw r.error; toast('削除しました',true); closeDrawer(); await loadAll(); }
+  catch(e){ toast('削除失敗: '+((e&&e.message)||e),false); }
+}
+
+// ===== 探索プロファイル =====
+function renderProfiles(c){
+  var el=document.getElementById('profList'); if(!el)return; var ps=c._profiles||[];
+  if(!ps.length){ el.innerHTML='<div class="empty">探索プロファイル未設定</div>'; return; }
+  el.innerHTML=ps.map(function(p){
+    return '<div class="prof"><div class="pt"><b>'+esc(p.name||'')+'</b><span class="chip '+(p.active?'on':'')+'">'+(p.active?'有効':'無効')+'</span>'
+      +'<button class="btn sm ghost" onclick="editProfile(\''+p.id+'\')">編集</button></div>'
+      +'<div class="chips" style="padding-left:0">'
+        +chip(p.use_type)+chip(p.voltage)
+        +chip((p.area_min||'?')+'〜'+(p.area_max||'?')+'㎡')
+        +chip((p.zone_types||[]).join('/'))
+        +chip(p.shading_condition==='not_required'?'日照不問':(p.shading_condition==='required'?'日照要':''))
+      +'</div></div>';
+  }).join('');
+}
+function chip(v){return v?('<span class="chip">'+esc(v)+'</span>'):'';}
+function addProfile(){ editProfile(null); }
+function editProfile(pid){
+  var c=byId[editId]; var p=pid?(c._profiles||[]).filter(function(x){return x.id===pid;})[0]:{};p=p||{};
+  var name=prompt('プロファイル名（例: 奈良 太陽光）',p.name||''); if(name===null)return;
+  var use=prompt('用途（太陽光 / 合筆太陽光 / 低圧蓄電池 / 高圧蓄電池）',p.use_type||'太陽光'); if(use===null)return;
+  var amin=prompt('最小面積㎡',p.area_min||'800'); if(amin===null)return;
+  var amax=prompt('最大面積㎡',p.area_max||'1200'); if(amax===null)return;
+  var zones=prompt('区域(カンマ区切: control,non_zoned,outside,urbanization)',(p.zone_types||['control','non_zoned','outside']).join(',')); if(zones===null)return;
+  var shade=prompt('日照(required=太陽光要 / not_required=蓄電池)',p.shading_condition||(use.indexOf('蓄電池')>=0?'not_required':'required')); if(shade===null)return;
+  var row={client_id:editId,name:name,use_type:use,voltage:(use.indexOf('高圧')>=0?'高圧':'低圧'),
+    area_min:amin||null,area_max:amax||null,zone_types:zones?zones.split(',').map(function(s){return s.trim();}):null,
+    shading_condition:shade,active:true};
+  (async function(){
+    try{
+      if(pid){ var u=await sb.from('client_search_profiles').update(row).eq('id',pid); if(u.error)throw u.error; }
+      else { var i=await sb.from('client_search_profiles').insert(row); if(i.error)throw i.error; }
+      toast('プロファイルを保存',true); await loadAll(); openDrawer(editId);
+    }catch(e){ toast('保存失敗: '+((e&&e.message)||e),false); }
+  })();
+}
+
+async function logout(){ if(!confirm('ログアウトしますか？'))return; try{ if(window.__auth&&window.__auth.signOut)await window.__auth.signOut(); else localStorage.clear(); location.href='index.html'; }catch(e){ location.href='index.html'; } }
+boot();
+</script>
+</body>
+</html>
