@@ -93,7 +93,29 @@
     </div>
   </div>
 
-  <div class="clients" id="clients"><div style="color:#8492b3;grid-column:1/-1">クライアントを読込中…</div></div>
+  <!-- 第1段階: 自社 か クライアント の2択 -->
+  <div class="clients" id="choices">
+    <div class="client c-own" onclick="pick('own','自社（Grid Land MGR）')">
+      <div class="c-glyph">O</div>
+      <div class="c-badge">Internal / 自社</div>
+      <div class="c-name">自社（Grid Land MGR）</div>
+      <div class="c-en">// OWN OPERATION</div>
+      <div class="c-desc">自社の全国探索・全機能（トラッカー・AI判定・sourcing）。社内用の探索エンジン。</div>
+      <div class="c-foot"><div class="c-stat">ALL<small>全機能・全地域</small></div><div class="c-go">選択 ▸</div></div>
+    </div>
+    <div class="client c-sun" onclick="showClients()">
+      <div class="c-glyph">C</div>
+      <div class="c-badge">Client / 紹介先</div>
+      <div class="c-name">クライアント</div>
+      <div class="c-en">// CLIENT WORLD</div>
+      <div class="c-desc">紹介先クライアントの世界へ。選ぶと、そのクライアントの範囲だけが下流に流れます。</div>
+      <div class="c-foot"><div class="c-stat" id="cliCnt">—<small>登録クライアント</small></div><div class="c-go">クライアントを選ぶ ▸</div></div>
+    </div>
+  </div>
+
+  <!-- 第2段階: クライアント一覧（クライアントを選んだ時だけ表示） -->
+  <div id="backRow" style="display:none;margin:0 0 14px"><a href="javascript:void(0)" onclick="showChoices()" style="color:#00d4ff;text-decoration:none;font-size:13px;border:1px solid #26375c;padding:7px 13px;border-radius:6px">◀ 自社／クライアント の選択に戻る</a></div>
+  <div class="clients" id="clients" style="display:none"></div>
 
   <div class="foot">選択したクライアントは全下流（MODE SELECT・各ツール）にスコープされ、他クライアント・他地域と物理的に混ざりません。</div>
 </main>
@@ -111,7 +133,9 @@ function pick(id,name){
 }
 function esc(v){return (v==null)?'':String(v).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function slugOf(c){var n=c.name||'';if(/SUN|サントラスト|トラスト/i.test(n))return 'suntrust';if(/黒木/.test(n))return 'kurogi';return c.id;}
-async function loadClients(){
+var _clientsLoaded=false;
+async function renderClientList(){
+  _clientsLoaded=true;
   var grid=document.getElementById('clients');
   var cs=await db.from('clients').select('id,name,business_type,notes').order('created_at',{ascending:true});
   var clients=(cs&&cs.data)||[];
@@ -129,13 +153,6 @@ async function loadClients(){
       '<div class="c-foot"><div class="c-stat">'+cnt+'<small>確定納品</small></div><div class="c-go">選択 ▸</div></div>'+
     '</div>';
   }
-  // 自社（内部・固定）
-  cards+='<div class="client c-own" onclick="pick(\'own\',\'自社（Grid Land MGR）\')">'+
-    '<div class="c-glyph">O</div><div class="c-badge">Internal / 自社開拓</div><div class="c-name">自社（Grid Land MGR）</div>'+
-    '<div class="c-en">// OWN OPERATION</div>'+
-    '<div class="c-desc">自社の全国探索・全機能（トラッカー・AI判定・sourcing）。社内用の探索エンジン。クライアントには見せない層。</div>'+
-    '<div class="c-foot"><div class="c-stat">ALL<small>全機能・全地域</small></div><div class="c-go">選択 ▸</div></div></div>';
-  // 新規クライアント → 顧客管理へ
   cards+='<div class="client c-new" onclick="location.href=\'client-management.html\'">'+
     '<div class="c-glyph">+</div><div class="c-badge">Add / 顧客管理</div><div class="c-name">＋ 新規クライアント</div>'+
     '<div class="c-en">// NEW TERRITORY PARTNER</div>'+
@@ -143,7 +160,10 @@ async function loadClients(){
     '<div class="c-foot"><div class="c-stat" style="font-size:20px">'+clients.length+'<small>登録クライアント</small></div><div class="c-go">顧客管理 ▸</div></div></div>';
   grid.innerHTML=cards;
 }
-loadClients();
+function showClients(){ document.getElementById('choices').style.display='none'; document.getElementById('clients').style.display='grid'; document.getElementById('backRow').style.display='block'; if(!_clientsLoaded){ document.getElementById('clients').innerHTML='<div style="color:#8492b3;grid-column:1/-1">読込中…</div>'; renderClientList(); } }
+function showChoices(){ document.getElementById('choices').style.display='grid'; document.getElementById('clients').style.display='none'; document.getElementById('backRow').style.display='none'; }
+async function loadCount(){ try{ var q=await db.from('clients').select('id',{count:'exact',head:true}); document.getElementById('cliCnt').innerHTML=((q&&typeof q.count==='number')?q.count:'—')+'<small>登録クライアント</small>'; }catch(e){} }
+loadCount();
 function pad(n){return String(n).padStart(2,'0');}
 function tick(){var d=new Date();var el=document.getElementById('clock');if(el)el.textContent=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());}
 tick();setInterval(tick,1000);
