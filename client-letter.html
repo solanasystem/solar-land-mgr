@@ -1,16 +1,17 @@
 <!DOCTYPE html>
-<!-- BUILD: client-letter v20260817a / クライアント用「手紙・ラベル」。現行の内部文面は"サンプル"として提示し、御社が自社オリジナルの手紙文を作成・保存(localStorage)・印刷できる。確定納品から宛名ラベルを差し込み。内部ページ非依存。 -->
+<!-- BUILD: client-letter v20260817b / 案件マスター(地権者情報・暗号)とリンクした差し込み手紙。金庫パスフレーズで解錠→ブラウザ内で地権者情報を復号→御社作成の文面テンプレに差し込みタグ(【地権者氏名】【地権者住所】【所在】【地番】【面積】【地目】【区域】)を差し込み、一人ひとりの手紙・宛名ラベルを生成/印刷。運用者ブラインド維持。テンプレはlocalStorage保存。内部ページ非依存。 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>手紙・ラベル（サンプル） // GRID LAND MGR</title>
+<title>手紙・ラベル（差し込み） // GRID LAND MGR</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="client-functions.js?v=20260817d"></script>
+<script src="client-functions.js?v=20260817e"></script>
+<script src="client-crypto.js?v=20260817a"></script>
 <style>
-  :root{--void:#050b1a;--panel:#0d1730;--panel2:#12203f;--line:#26375c;--plasma:#00d4ff;--gold:#f59e0b;--mint:#34d399;--text:#eaf0ff;--muted:#8698bd;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
+  :root{--void:#050b1a;--panel:#0d1730;--panel2:#12203f;--line:#26375c;--plasma:#00d4ff;--gold:#f59e0b;--mint:#34d399;--rose:#f472b6;--text:#eaf0ff;--muted:#8698bd;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
   *{margin:0;padding:0;box-sizing:border-box;}
   body{background:var(--void);color:var(--text);font-family:var(--jp);min-height:100vh;}
   .top{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#081124,#050b1a);}
@@ -21,18 +22,29 @@
   .cnav{display:flex;gap:8px;flex-wrap:wrap;padding:10px 24px;border-bottom:1px solid var(--line);background:#0a1326;}
   .cnav-i{color:var(--muted);text-decoration:none;font-size:13px;font-weight:700;padding:7px 14px;border:1px solid var(--line);border-radius:7px;}
   .cnav-i.on{color:var(--gold);border-color:var(--gold);background:rgba(245,158,11,0.08);}
-  main{max-width:1000px;margin:0 auto;padding:20px 24px 60px;}
+  main{max-width:1040px;margin:0 auto;padding:20px 24px 60px;}
   h1{font-size:20px;font-weight:900;}
   .sub{color:var(--muted);font-size:13px;margin-top:4px;}
-  .samplebadge{display:inline-block;font-size:11px;font-weight:800;color:#7a4a00;background:var(--gold);padding:2px 10px;border-radius:20px;margin-left:8px;}
+  .lockbadge{display:inline-flex;gap:6px;align-items:center;font-size:12px;font-weight:700;padding:5px 11px;border-radius:20px;margin-left:8px;}
+  .lockbadge.locked{background:rgba(244,114,182,0.12);color:var(--rose);border:1px solid var(--rose);}
+  .lockbadge.open{background:rgba(52,211,153,0.12);color:var(--mint);border:1px solid var(--mint);}
   .note{background:rgba(245,158,11,0.08);border:1px solid var(--gold);color:#ffd67a;border-radius:8px;padding:10px 14px;font-size:12.5px;margin:14px 0;}
-  .bar{display:flex;gap:12px;align-items:center;margin:16px 0;flex-wrap:wrap;}
-  .btn{padding:10px 18px;border-radius:8px;border:2px solid var(--mint);background:#06331f;color:#7ef0b6;font-size:14px;font-weight:800;cursor:pointer;font-family:var(--jp);}
-  .btn.ghost{border-color:var(--line);background:var(--panel2);color:var(--text);}
-  .doc{background:#fff;color:#111;border-radius:10px;padding:40px 46px;margin-top:14px;line-height:2.1;font-size:15px;box-shadow:0 8px 30px rgba(0,0,0,.4);white-space:pre-line;}
-  .edit{width:100%;min-height:220px;background:var(--panel);border:1px dashed var(--gold);color:var(--text);border-radius:8px;padding:14px;font-size:14px;line-height:1.9;font-family:var(--jp);}
-  .labels{display:grid;grid-template-columns:repeat(2,1fr);gap:0;background:#fff;color:#111;border-radius:10px;margin-top:14px;overflow:hidden;}
-  .lbl{border:1px solid #bbb;padding:14px 16px;min-height:80px;font-size:13px;line-height:1.7;}
+  .bar{display:flex;gap:10px;align-items:center;margin:14px 0;flex-wrap:wrap;}
+  .btn{padding:9px 15px;border-radius:8px;border:2px solid var(--mint);background:#06331f;color:#7ef0b6;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--jp);}
+  .btn.ghost{border-color:var(--line);background:var(--panel2);color:var(--text);border-width:1px;}
+  .btn.gold{border-color:var(--gold);background:rgba(245,158,11,0.08);color:var(--gold);border-width:1px;}
+  select,input{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:8px 10px;font-size:13px;font-family:var(--jp);}
+  .tags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;}
+  .tagbtn{font-family:var(--mono);font-size:11px;background:var(--panel);border:1px dashed var(--plasma);color:var(--plasma);border-radius:6px;padding:4px 8px;cursor:pointer;}
+  .edit{width:100%;min-height:230px;background:var(--panel);border:1px dashed var(--gold);color:var(--text);border-radius:8px;padding:14px;font-size:14px;line-height:1.9;font-family:var(--jp);}
+  .doc{background:#fff;color:#111;border-radius:10px;padding:40px 46px;margin-top:12px;line-height:2.1;font-size:15px;box-shadow:0 8px 30px rgba(0,0,0,.4);white-space:pre-line;}
+  .labels{display:grid;grid-template-columns:repeat(2,1fr);background:#fff;color:#111;border-radius:10px;margin-top:12px;overflow:hidden;}
+  .lbl{border:1px solid #bbb;padding:14px 16px;min-height:82px;font-size:13px;line-height:1.7;}
+  .ov{position:fixed;inset:0;background:rgba(3,8,20,0.92);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:26px;max-width:500px;width:100%;}
+  .card h2{font-size:18px;margin-bottom:6px;} .card p{color:var(--muted);font-size:13px;line-height:1.7;margin-bottom:14px;}
+  .card input{width:100%;padding:12px;font-size:15px;margin-bottom:12px;}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0d2a1a;border:1px solid var(--mint);color:#a7f3d0;padding:12px 20px;border-radius:8px;font-weight:700;display:none;z-index:200;}
   @media print{ body *{visibility:hidden;} #printArea,#printArea *{visibility:visible;} #printArea{position:absolute;left:0;top:0;width:100%;} .doc,.labels{box-shadow:none;border-radius:0;} }
 </style>
 </head>
@@ -47,27 +59,39 @@
 </div>
 <nav class="cnav" id="cnav"></nav>
 <main>
-  <h1>📝 手紙・ラベル <span class="samplebadge">サンプル</span></h1>
-  <div class="sub">下は<b>手紙文のサンプル</b>です。御社オリジナルの文面に編集して保存・印刷できます。宛名ラベルは確定納品の所在から差し込みます。</div>
-  <div class="note">⚠ この手紙文はサンプルです。御社の正式な文面に置き換えてご利用ください。編集内容は御社ブラウザにのみ保存されます（当社は関与しません）。</div>
+  <h1>📝 手紙・ラベル（案件マスター差し込み）<span id="lockBadge" class="lockbadge locked">🔒 施錠中</span></h1>
+  <div class="sub">御社が作成した文面に<b>差し込みタグ</b>を置くと、<b>案件マスターの地権者情報</b>を差し込んで一人ひとりの手紙・宛名を作成します。地権者情報は御社のブラウザ内で復号され、当社には見えません。</div>
+  <div class="note">⚠ 文面は御社オリジナルを作成してください（下のサンプルは例）。差し込みタグの箇所が、選んだ案件の地権者情報・土地情報に置き換わります。編集内容は御社ブラウザに保存されます。</div>
 
   <div class="bar">
-    <button class="btn ghost" onclick="loadDraft()">保存した自社文面を読込</button>
-    <button class="btn ghost" onclick="saveDraft()">自社文面を保存</button>
-    <button class="btn ghost" onclick="useSample()">サンプル文面に戻す</button>
-    <button class="btn" onclick="window.print()">🖨 印刷 / PDF</button>
+    <label class="sub">差し込む案件：</label>
+    <select id="caseSel" style="min-width:320px"><option value="">（解錠後に選択）</option></select>
+    <span class="sub" id="secState"></span>
   </div>
 
-  <p class="sub">▼ 手紙文（編集して保存できます）</p>
-  <textarea class="edit" id="ownText"></textarea>
+  <div class="bar">
+    <button class="btn ghost" onclick="loadDraft()">保存文面を読込</button>
+    <button class="btn ghost" onclick="saveDraft()">文面を保存</button>
+    <button class="btn ghost" onclick="useSample()">サンプルを挿入</button>
+    <button class="btn" onclick="window.print()">🖨 この案件を印刷 / PDF</button>
+  </div>
+
+  <p class="sub">▼ 差し込みタグ（クリックで本文に挿入）</p>
+  <div class="tags" id="tagbar"></div>
+
+  <p class="sub" style="margin-top:6px">▼ 手紙文（御社が作成・編集して保存）</p>
+  <textarea class="edit" id="ownText" placeholder="御社の手紙文をここに作成し、差し込みたい箇所に上のタグを挿入してください。"></textarea>
 
   <div id="printArea">
-    <p class="sub" style="margin-top:18px">▼ プレビュー</p>
+    <p class="sub" style="margin-top:16px">▼ プレビュー（選択した案件で差し込み）</p>
     <div class="doc" id="doc"></div>
-    <p class="sub" style="margin-top:18px">▼ 宛名ラベル（確定納品の所在から差し込み・先頭12件）</p>
+    <p class="sub" style="margin-top:16px">▼ 宛名（選択した案件の地権者）</p>
     <div class="labels" id="labels"></div>
   </div>
 </main>
+
+<div class="ov" id="ov"><div class="card" id="ovCard">読込中…</div></div>
+<div class="toast" id="toast"></div>
 
 <script>
 var SB_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
@@ -78,21 +102,76 @@ document.getElementById('cname').textContent=CLIENT_NAME;
 function buildClientNav(cur){try{var cid=localStorage.getItem('glm_client')||'suntrust';var CF=window.CLIENT_FUNCTIONS;if(!CF||!CF.clients)return;var keys=CF.clients[cid]||[];var items=[{label:'🏠 ポータル',url:'client-portal.html'}];keys.forEach(function(k){var f=CF.registry[k];if(f&&f.ready&&f.url&&f.url!=='#')items.push({label:(f.icon||'')+' '+f.label,url:f.url});});var nav=document.getElementById('cnav');nav.innerHTML=items.map(function(it){return '<a class="cnav-i'+(it.url===cur?' on':'')+'" href="'+it.url+'">'+it.label+'</a>';}).join('');}catch(e){}}
 buildClientNav('client-letter.html');
 
-var SAMPLE='拝啓　時下ますますご清祥のこととお慶び申し上げます。\n\n突然のお手紙で失礼いたします。私どもは再生可能エネルギー事業用地を探しております〇〇と申します。\nこのたび、貴殿所有の下記土地について、活用のご相談をさせていただきたくご連絡差し上げました。\n\nつきましては、一度お話をお伺いできれば幸いです。ご検討のほど、よろしくお願い申し上げます。\n\n敬具\n\n　　　　　　　　　　　　　　株式会社SUNトラスト\n　　　　　　　　　　　　　　連絡先：〇〇〇-〇〇〇〇-〇〇〇〇';
-var CID=null, ITEMS=[];
+function toast(m){var t=document.getElementById('toast');t.textContent=m;t.style.display='block';clearTimeout(window.__tt);window.__tt=setTimeout(function(){t.style.display='none';},4000);}
 function esc(v){return (v==null)?'':String(v);}
-function render(){document.getElementById('doc').textContent=document.getElementById('ownText').value;}
-function saveDraft(){try{localStorage.setItem('glm_letter_'+(localStorage.getItem('glm_client')||'suntrust'),document.getElementById('ownText').value);alert('自社文面を保存しました（御社ブラウザ内）。');}catch(e){}}
-function loadDraft(){try{var v=localStorage.getItem('glm_letter_'+(localStorage.getItem('glm_client')||'suntrust'));document.getElementById('ownText').value=v||SAMPLE;render();}catch(e){}}
+var TAGS=[['【地権者氏名】','name'],['【地権者住所】','addr'],['【所在】','loc'],['【地番】','chiban'],['【面積】','area'],['【地目】','chimoku'],['【区域】','zone']];
+var SAMPLE='【地権者氏名】　様\n\n拝啓　時下ますますご清祥のこととお慶び申し上げます。\n\n突然のお手紙で失礼いたします。私どもは再生可能エネルギー事業用地を探しております株式会社SUNトラストと申します。\nこのたび、貴殿所有の【所在】（地番【地番】・地積【面積】㎡）につきまして、活用のご相談をさせていただきたくご連絡差し上げました。\n\nつきましては、一度お話をお伺いできれば幸いです。ご検討のほど、よろしくお願い申し上げます。\n\n敬具\n\n　　　　　　　　　　　　　　株式会社SUNトラスト\n　　　　　　　　　　　　　　連絡先：〇〇〇-〇〇〇〇-〇〇〇〇';
+
+var CID=null, DEK=null, ITEMS=[], NOTES={};
+function draftKey(){return 'glm_letter_'+(localStorage.getItem('glm_client')||'suntrust');}
+function saveDraft(){try{localStorage.setItem(draftKey(),document.getElementById('ownText').value);toast('文面を保存しました（御社ブラウザ内）。');}catch(e){}}
+function loadDraft(){try{var v=localStorage.getItem(draftKey());document.getElementById('ownText').value=v||SAMPLE;render();}catch(e){}}
 function useSample(){document.getElementById('ownText').value=SAMPLE;render();}
-async function init(){
+function insertTag(t){var ta=document.getElementById('ownText');var s=ta.selectionStart||0,e=ta.selectionEnd||0;ta.value=ta.value.slice(0,s)+t+ta.value.slice(e);ta.focus();ta.selectionStart=ta.selectionEnd=s+t.length;render();}
+
+function ctx(){
+  var id=document.getElementById('caseSel').value; var r=ITEMS.filter(function(x){return x.id===id;})[0]; if(!r)return null;
+  var n=NOTES[id]||{};
+  return {
+    '【地権者氏名】':esc(n.name)||'　　　　　　',
+    '【地権者住所】':esc(n.addr)||esc([r.pref,r.city,r.town].filter(Boolean).join(''))+esc(r.address),
+    '【所在】':esc([r.pref,r.city,r.town].filter(Boolean).join(''))+esc(r.address||''),
+    '【地番】':esc(r.chiban),
+    '【面積】':(r.area_m2!=null?Math.round(r.area_m2).toLocaleString():''),
+    '【地目】':esc(r.chimoku),
+    '【区域】':esc(r.zone),
+    _n:n, _r:r
+  };
+}
+function fill(text,c){ if(!c)return text; Object.keys(c).forEach(function(k){ if(k[0]==='【'){ text=text.split(k).join(c[k]); } }); return text; }
+function render(){
+  var c=ctx(); var txt=document.getElementById('ownText').value;
+  document.getElementById('doc').textContent=fill(txt,c);
+  var lab=document.getElementById('labels');
+  if(c){ var addr=c['【地権者住所】']; var nm=c['【地権者氏名】'];
+    lab.innerHTML='<div class="lbl">〒　　-　　　　<br>'+esc(addr)+'<br><br>'+esc(nm)+'　　様</div>';
+  } else { lab.innerHTML='<div class="lbl">案件を選択してください</div>'; }
+  document.getElementById('secState').textContent = c ? (c._n && c._n.name ? '地権者情報あり（差し込み可）' : '※この案件は案件マスターに地権者情報が未入力です') : '';
+}
+
+/* ===== 解錠（案件マスターと同じ金庫） ===== */
+async function boot(){
+  document.getElementById('tagbar').innerHTML=TAGS.map(function(t){return '<span class="tagbtn" onclick="insertTag(\''+t[0]+'\')">'+t[0]+'</span>';}).join('');
   loadDraft();
   document.getElementById('ownText').addEventListener('input',render);
+  document.getElementById('caseSel').addEventListener('change',render);
   try{var c=await db.from('clients').select('id,name').ilike('name','%'+CLIENT_NAME.replace('株式会社','')+'%').limit(1);if(c&&c.data&&c.data.length)CID=c.data[0].id;}catch(e){}
-  try{var q=db.from('client_delivery_items').select('pref,city,town,chiban,address').eq('status','confirmed').limit(12);if(CID)q=q.eq('client_id',CID);var r=await q;ITEMS=(r&&r.data)||[];}catch(e){ITEMS=[];}
-  document.getElementById('labels').innerHTML=ITEMS.map(function(r){return '<div class="lbl">〒　　-　　　　<br>'+esc([r.pref,r.city,r.town].filter(Boolean).join(''))+'<br>'+esc(r.address)+'<br><br>　　　　　　　　　様</div>';}).join('')||'<div class="lbl">確定納品がありません</div>';
+  // 確定納品（平文）
+  try{var q=db.from('client_delivery_items').select('id,pref,city,town,chiban,area_m2,chimoku,zone,address').eq('status','confirmed').order('pref',{ascending:true});if(CID)q=q.eq('client_id',CID);var r=await q;ITEMS=(r&&r.data)||[];}catch(e){ITEMS=[];}
+  // 金庫の有無を確認
+  var cr; try{ cr=await db.from('client_crypto').select('*').eq('client_id',CID).limit(1); }catch(e){ cr={error:e}; }
+  if(cr.error){ document.getElementById('ovCard').innerHTML='<h2>準備中</h2><p>暗号保管がまだ準備できていません。先に「案件マスター」を開いて金庫を作成してください。</p><p><a class="back" href="client-case-master.html">📇 案件マスターへ</a></p>'; return; }
+  if(!cr.data||!cr.data.length){ document.getElementById('ovCard').innerHTML='<h2>金庫が未作成です</h2><p>先に「案件マスター」で金庫パスフレーズを設定してください。設定後、こちらで地権者情報を差し込めます。</p><p style="margin-top:10px"><a class="back" href="client-case-master.html">📇 案件マスターへ</a></p>'; return; }
+  window.__rec=cr.data[0];
+  document.getElementById('ovCard').innerHTML='<h2>🔓 解錠</h2><p>案件マスターの地権者情報を差し込むため、金庫パスフレーズを入力してください（当社には送信されません）。</p><input id="pw" type="password" placeholder="金庫パスフレーズ" onkeydown="if(event.key===\'Enter\')doUnlock()"><div style="display:flex;justify-content:flex-end"><button class="btn" onclick="doUnlock()">解錠</button></div>';
 }
-init();
+async function doUnlock(){
+  var pw=document.getElementById('pw').value; if(!pw)return;
+  try{
+    DEK=await ClientCrypto.unlockWithPassword(window.__rec,pw);
+    // 地権者情報を復号
+    var r=await db.from('client_secure_notes').select('delivery_id,ciphertext,iv').eq('client_id',CID);
+    var rows=(r&&r.data)||[];
+    for(var i=0;i<rows.length;i++){ try{ NOTES[rows[i].delivery_id]=JSON.parse(await ClientCrypto.decryptNote(DEK,rows[i].ciphertext,rows[i].iv)); }catch(e){} }
+    document.getElementById('ov').style.display='none';
+    document.getElementById('lockBadge').className='lockbadge open'; document.getElementById('lockBadge').textContent='🔓 解錠中（この画面のみ）';
+    // 案件セレクト（地権者名があれば表示）
+    var sel=document.getElementById('caseSel'); sel.innerHTML='<option value="">（案件を選択）</option>';
+    ITEMS.forEach(function(r){var n=NOTES[r.id]||{};var o=document.createElement('option');o.value=r.id;o.textContent=(n.name?('【'+n.name+'】 '):'（地権者未入力）')+[r.city,r.chiban].filter(Boolean).join(' ');sel.appendChild(o);});
+    render();
+  }catch(e){ toast('パスフレーズが違います'); }
+}
+boot();
 </script>
 </body>
 </html>
