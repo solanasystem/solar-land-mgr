@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: client-matrix v20260817a / ★クライアント×機能マトリクス(システム反映表)。オーナー専用。registry(client-functions.js)×clients を格子表示し、トグルで各クライアントの搭載機能を client_features(DB) へ保存。クライアントポータルはこの client_features を読むため、トグルが即システムに反映(コード変更不要=エンジン化)。テーブル未作成時は config から読み取り専用で可視化。 -->
+<!-- BUILD: client-matrix v20260817b / ★クライアント×機能マトリクス(システム反映表)。スケール対応=クライアント＝行(縦スクロール)＋検索＋クリックで詳細トグル(機能＋電力エリア)のドリルダウン。多数の顧客でも破綻しない。トグルは client_features(DB) に保存→クライアントのポータルに即反映(コード変更不要=エンジン)。オーナー専用。 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="common-auth.js?v=20260813kuroki"></script>
-<script src="client-functions.js?v=20260817g"></script>
+<script src="client-functions.js?v=20260817h"></script>
 <style>
   :root{--void:#050b1a;--panel:#0d1730;--panel2:#12203f;--line:#26375c;--plasma:#00d4ff;--gold:#f59e0b;--mint:#34d399;--rose:#f472b6;--text:#eaf0ff;--muted:#8698bd;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
   *{margin:0;padding:0;box-sizing:border-box;}
@@ -17,33 +17,43 @@
   .top{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#081124,#050b1a);}
   .brand{font-family:var(--mono);font-weight:700;letter-spacing:0.1em;font-size:15px;} .brand b{color:var(--plasma);}
   a.back{color:var(--plasma);text-decoration:none;font-size:13px;border:1px solid var(--line);padding:6px 12px;border-radius:5px;}
-  main{max-width:1200px;margin:0 auto;padding:22px 24px 70px;}
+  main{max-width:1080px;margin:0 auto;padding:22px 24px 70px;}
   h1{font-size:21px;font-weight:900;}
   .sub{color:var(--muted);font-size:13px;margin-top:4px;}
   .note{border-radius:8px;padding:10px 14px;font-size:12.5px;margin:14px 0;border:1px solid var(--line);background:var(--panel);}
   .note.warn{background:rgba(245,158,11,0.08);border-color:var(--gold);color:#ffd67a;}
   .note.ok{background:rgba(52,211,153,0.08);border-color:var(--mint);color:#a7f3d0;}
-  .mwrap{overflow:auto;border:1px solid var(--line);border-radius:10px;margin-top:16px;}
-  table{border-collapse:separate;border-spacing:0;width:100%;font-size:13px;}
-  th,td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:10px 12px;text-align:center;white-space:nowrap;}
-  thead th{background:var(--panel2);position:sticky;top:0;z-index:2;color:var(--text);font-weight:700;}
-  .fcol{text-align:left;position:sticky;left:0;background:var(--panel);z-index:1;min-width:240px;}
-  thead .fcol{z-index:3;background:var(--panel2);}
-  .fname{font-weight:700;} .fdesc{color:var(--muted);font-size:11px;font-weight:400;white-space:normal;max-width:280px;}
-  .fic{font-size:16px;margin-right:6px;}
-  .cli{font-weight:800;} .cli small{display:block;color:var(--muted);font-family:var(--mono);font-size:10px;font-weight:400;}
-  .cnt{font-family:var(--mono);color:var(--gold);font-size:12px;}
-  /* toggle */
-  .sw{position:relative;display:inline-block;width:42px;height:23px;}
-  .sw input{opacity:0;width:0;height:0;}
-  .slider{position:absolute;inset:0;background:#2a3550;border:1px solid var(--line);border-radius:20px;cursor:pointer;transition:.15s;}
-  .slider::before{content:"";position:absolute;height:17px;width:17px;left:2px;top:2px;background:#8698bd;border-radius:50%;transition:.15s;}
-  .sw input:checked + .slider{background:rgba(52,211,153,0.25);border-color:var(--mint);}
-  .sw input:checked + .slider::before{transform:translateX(19px);background:var(--mint);}
-  .sw input:disabled + .slider{opacity:.5;cursor:not-allowed;}
-  .notready{font-size:10px;color:var(--muted);}
+  .bar{display:flex;gap:12px;align-items:center;margin:16px 0;flex-wrap:wrap;}
+  .search{flex:1;min-width:240px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:11px 14px;font-size:14px;font-family:var(--jp);}
+  .cnt{font-family:var(--mono);color:var(--gold);font-weight:700;font-size:13px;}
+  /* client rows */
+  .ccard{border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden;background:var(--panel);}
+  .chead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;cursor:pointer;user-select:none;}
+  .chead:hover{background:rgba(255,255,255,0.02);}
+  .cname{font-weight:800;font-size:15px;} .cslug{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px;}
+  .csum{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;border:1px solid var(--line);color:var(--muted);}
+  .badge.f{background:rgba(52,211,153,0.10);border-color:var(--mint);color:var(--mint);}
+  .badge.a{background:rgba(0,212,255,0.10);border-color:var(--plasma);color:var(--plasma);}
+  .badge.own{background:rgba(245,158,11,0.10);border-color:var(--gold);color:var(--gold);}
+  .chev{color:var(--muted);font-size:13px;transition:transform .15s;}
+  .ccard.open .chev{transform:rotate(180deg);}
+  .cdetail{display:none;padding:6px 18px 18px;border-top:1px solid var(--line);}
+  .ccard.open .cdetail{display:block;}
+  .grp{font-size:11px;letter-spacing:0.08em;color:var(--muted);font-weight:700;margin:14px 0 8px;}
+  .chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;}
+  .chip{display:flex;align-items:center;gap:9px;padding:9px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;cursor:pointer;font-size:13px;user-select:none;}
+  .chip.on{border-color:var(--mint);background:rgba(52,211,153,0.08);}
+  .chip.dis{opacity:.5;cursor:not-allowed;}
+  .chip .sw{position:relative;width:38px;height:21px;flex-shrink:0;}
+  .chip .sw input{opacity:0;width:0;height:0;}
+  .chip .slider{position:absolute;inset:0;background:#2a3550;border:1px solid var(--line);border-radius:20px;transition:.15s;}
+  .chip .slider::before{content:"";position:absolute;height:15px;width:15px;left:2px;top:2px;background:#8698bd;border-radius:50%;transition:.15s;}
+  .chip .sw input:checked + .slider{background:rgba(52,211,153,0.30);border-color:var(--mint);}
+  .chip .sw input:checked + .slider::before{transform:translateX(17px);background:var(--mint);}
+  .chip .lbl{flex:1;} .chip .lbl small{display:block;color:var(--muted);font-size:10px;font-weight:400;}
+  .chip.notready .lbl::after{content:'（準備中）';color:var(--muted);font-size:10px;}
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0d2a1a;border:1px solid var(--mint);color:#a7f3d0;padding:11px 18px;border-radius:8px;font-weight:700;display:none;z-index:200;font-size:13px;}
-  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:12px;color:var(--muted);}
 </style>
 </head>
 <body>
@@ -56,16 +66,13 @@
 </div>
 <main>
   <h1>🧩 クライアント×機能 マトリクス（システム反映表）</h1>
-  <div class="sub">縦＝機能（<code>client-functions.js</code> の全機能）、横＝クライアント。トグルON/OFFが<b>そのままクライアントのポータルに反映</b>されます（コード変更不要）。準備中(ready:false)の機能はトグル不可。</div>
+  <div class="sub">クライアント行をクリックで開き、<b>機能</b>と<b>電力エリア</b>をトグル。ON/OFFが即DBに保存され、そのクライアントのポータルに反映されます（コード変更不要）。顧客が増えても縦に増えるだけ＝検索で辿れます。</div>
   <div id="state" class="note">読込中…</div>
-  <div class="mwrap"><table id="mtx"><thead></thead><tbody></tbody></table></div>
-  <div class="legend">
-    <span>🟢 ON＝その客に搭載</span><span>⚪ OFF＝非搭載（客に見えない）</span><span>準備中＝機能未完成でトグル不可</span>
+  <div class="bar">
+    <input class="search" id="q" placeholder="🔍 クライアントを検索（名前・slug）" oninput="render()">
+    <span class="cnt" id="cnt">—</span>
   </div>
-
-  <h1 style="margin-top:36px">⚡ 電力エリア（担当地域）マトリクス</h1>
-  <div class="sub">縦＝電力エリア／横＝クライアント。ONにしたエリアが、そのクライアントの担当地域になります（例：黒木さん＝九州電力）。※実際のデータ絞り込みは、今後この設定を読んで有効化します（今は担当地域の設定＝トグルのみ）。</div>
-  <div class="mwrap"><table id="mtxa"><thead></thead><tbody></tbody></table></div>
+  <div id="list"></div>
 </main>
 <div class="toast" id="toast"></div>
 
@@ -74,103 +81,65 @@ var SB_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
 var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
 var db=(window.__auth&&window.__auth.sb)?window.__auth.sb:supabase.createClient(SB_URL,SB_KEY);
 function toast(m){var t=document.getElementById('toast');t.textContent=m;t.style.display='block';clearTimeout(window.__tt);window.__tt=setTimeout(function(){t.style.display='none';},2600);}
-function esc(v){return (v==null)?'':String(v).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function esc(v){return (v==null)?'':String(v).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 
 var CF=window.CLIENT_FUNCTIONS||{registry:{},clients:{}};
-var CLIENTS=[];          // {id,name,slug}
-var FEATURES=[];         // [key,def]
-var FEAT=null;           // client_features: FEAT[slug][key]=bool  (null=テーブル未作成→config表示)
-var TABLE_OK=false;
+var FEATURES=Object.keys(CF.registry).map(function(k){return [k,CF.registry[k]];});
+var POWER_AREAS=['北海道電力','東北電力','東京電力','中部電力','北陸電力','関西電力','中国電力','四国電力','九州電力','沖縄電力'];
+var CLIENTS=[], FEAT={}, TABLE_OK=false, OPEN={};
 
-function slugOf(c){ // clientsテーブルの名前→configのslug推定（現状 suntrust のみ）
-  var n=(c.name||'');
-  if(/SUN|サントラスト|トラスト/i.test(n)) return 'suntrust';
-  return (c.slug||c.id);
-}
+function slugOf(c){var n=c.name||'';if(/SUN|サントラスト|トラスト/i.test(n))return 'suntrust';if(/黒木/.test(n))return 'kurogi';return c.id;}
+function isOn(slug,key){ if(TABLE_OK){ return !!(FEAT[slug] && FEAT[slug][key]); } return ((CF.clients[slug]||[]).indexOf(key)!==-1); }
 
 async function load(){
-  // 機能一覧（registry順）
-  FEATURES=Object.keys(CF.registry).map(function(k){return [k,CF.registry[k]];});
-  // クライアント一覧
-  try{ var cs=await db.from('clients').select('id,name').order('created_at',{ascending:true}); CLIENTS=(cs.data||[]).map(function(c){return {id:c.id,name:c.name,slug:slugOf(c)};}); }catch(e){ CLIENTS=[]; }
-  if(!CLIENTS.length){ CLIENTS=[{id:'suntrust',name:'株式会社SUNトラスト',slug:'suntrust'}]; }
-  // client_features（あれば）
+  try{ var cs=await db.from('clients').select('id,name,business_type').order('created_at',{ascending:true}); CLIENTS=(cs.data||[]).map(function(c){return {id:c.id,name:c.name,type:c.business_type,slug:slugOf(c)};}); }catch(e){ CLIENTS=[]; }
   FEAT={}; TABLE_OK=false;
   try{
-    var r=await db.from('client_features').select('client_id,feature_key,enabled');
-    if(r.error) throw r.error;
+    var r=await db.from('client_features').select('client_id,feature_key,enabled'); if(r.error) throw r.error;
     TABLE_OK=true;
-    // client_id→slug対応
     var idslug={}; CLIENTS.forEach(function(c){idslug[c.id]=c.slug;});
     (r.data||[]).forEach(function(row){ var s=idslug[row.client_id]||row.client_id; (FEAT[s]=FEAT[s]||{})[row.feature_key]=!!row.enabled; });
-  }catch(e){ TABLE_OK=false; FEAT=null; }
+  }catch(e){ TABLE_OK=false; }
+  var st=document.getElementById('state');
+  if(TABLE_OK){ st.className='note ok'; st.innerHTML='✅ <b>client_features 稼働中</b>：トグルは即DBに保存され、クライアントのポータルに反映されます。'; }
+  else{ st.className='note warn'; st.innerHTML='⚠ <b>client_features 未作成</b>：今は読み取り専用（configの現状表示）。DDL適用でトグル編集が有効になります。'; }
   render();
 }
 
-function isOn(slug,key){
-  if(TABLE_OK && FEAT){ if(FEAT[slug] && (key in FEAT[slug])) return FEAT[slug][key]; return false; }
-  // フォールバック：config
-  return ((CF.clients[slug]||[]).indexOf(key)!==-1);
-}
+function areaSummary(slug){ var on=POWER_AREAS.filter(function(a){return isOn(slug,'area:'+a);}).map(function(a){return a.replace('電力','');}); return on.length?on.join('・'):'—'; }
 
 function render(){
-  var st=document.getElementById('state');
-  if(TABLE_OK){ st.className='note ok'; st.innerHTML='✅ <b>client_features 稼働中</b>：トグルは即DBに保存され、クライアントのポータルに反映されます。'; }
-  else{ st.className='note warn'; st.innerHTML='⚠ <b>client_features テーブルが未作成</b>のため、いまは <code>client-functions.js</code> の現状を<b>読み取り専用で表示</b>しています。DDL適用でトグル編集が有効になります（下の手順）。'; }
-  var thead=document.querySelector('#mtx thead'), tbody=document.querySelector('#mtx tbody');
-  // ヘッダ：機能 | クライアント...
-  var h='<tr><th class="fcol">機能 ＼ クライアント</th>';
-  CLIENTS.forEach(function(c){ var cnt=FEATURES.filter(function(f){return isOn(c.slug,f[0]);}).length; h+='<th><span class="cli">'+esc(c.name)+'<small>'+esc(c.slug)+' ・ '+cnt+'機能</small></span></th>'; });
-  h+='</tr>'; thead.innerHTML=h;
-  // 行：機能ごと
-  var body='';
-  FEATURES.forEach(function(f){
-    var key=f[0], def=f[1];
-    body+='<tr><td class="fcol"><span class="fic">'+(def.icon||'')+'</span><span class="fname">'+esc(def.label)+'</span>'+(def.ready?'':' <span class="notready">（準備中）</span>')+'<div class="fdesc">'+esc(def.desc)+'</div></td>';
-    CLIENTS.forEach(function(c){
-      var on=isOn(c.slug,key);
-      var dis=(!TABLE_OK)||(!def.ready);
-      body+='<td><label class="sw"><input type="checkbox" '+(on?'checked':'')+' '+(dis?'disabled':'')+' data-c="'+esc(c.id)+'" data-s="'+esc(c.slug)+'" data-k="'+esc(key)+'"><span class="slider"></span></label></td>';
-    });
-    body+='</tr>';
-  });
-  tbody.innerHTML=body;
-  // トグルイベント
+  var q=(document.getElementById('q').value||'').trim().toLowerCase();
+  var list=CLIENTS.filter(function(c){ return !q || (c.name||'').toLowerCase().indexOf(q)!==-1 || (c.slug||'').toLowerCase().indexOf(q)!==-1; });
+  document.getElementById('cnt').textContent='登録 '+CLIENTS.length+'社（表示 '+list.length+'）';
+  var el=document.getElementById('list');
+  if(!list.length){ el.innerHTML='<div class="sub">該当するクライアントがありません。</div>'; return; }
+  el.innerHTML=list.map(function(c){
+    var fcnt=FEATURES.filter(function(f){return isOn(c.slug,f[0]);}).length;
+    var frd=FEATURES.filter(function(f){return f[1].ready;}).length;
+    var opened=OPEN[c.slug]?' open':'';
+    var feats=FEATURES.map(function(f){
+      var key=f[0],def=f[1],on=isOn(c.slug,key),dis=(!TABLE_OK)||(!def.ready);
+      return '<label class="chip'+(on?' on':'')+(dis?' dis':'')+(def.ready?'':' notready')+'"><span class="sw"><input type="checkbox" '+(on?'checked':'')+' '+(dis?'disabled':'')+' data-c="'+esc(c.id)+'" data-s="'+esc(c.slug)+'" data-k="'+esc(key)+'"><span class="slider"></span></span><span class="lbl">'+(def.icon||'')+' '+esc(def.label)+'</span></label>';
+    }).join('');
+    var areas=POWER_AREAS.map(function(a){
+      var on=isOn(c.slug,'area:'+a),dis=!TABLE_OK;
+      return '<label class="chip'+(on?' on':'')+(dis?' dis':'')+'"><span class="sw"><input type="checkbox" '+(on?'checked':'')+' '+(dis?'disabled':'')+' data-c="'+esc(c.id)+'" data-s="'+esc(c.slug)+'" data-k="area:'+esc(a)+'"><span class="slider"></span></span><span class="lbl">⚡ '+esc(a)+'</span></label>';
+    }).join('');
+    return '<div class="ccard'+opened+'" data-slug="'+esc(c.slug)+'">'+
+      '<div class="chead" onclick="tgl(\''+esc(c.slug)+'\')">'+
+        '<div><span class="cname">'+esc(c.name)+'</span><span class="cslug">'+esc(c.slug)+'</span></div>'+
+        '<div class="csum"><span class="badge f">機能 '+fcnt+'/'+frd+'</span><span class="badge a">エリア: '+esc(areaSummary(c.slug))+'</span>'+(c.type?'<span class="badge">'+esc(c.type)+'</span>':'')+'<span class="chev">▼</span></div>'+
+      '</div>'+
+      '<div class="cdetail"><div class="grp">機能（ONでその客のポータルに搭載）</div><div class="chips">'+feats+'</div>'+
+      '<div class="grp">電力エリア（担当地域）</div><div class="chips">'+areas+'</div></div>'+
+    '</div>';
+  }).join('');
   if(TABLE_OK){
-    tbody.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(function(inp){
-      inp.addEventListener('change',function(){ onToggle(inp); });
-    });
+    el.querySelectorAll('.cdetail input[type=checkbox]:not(:disabled)').forEach(function(inp){ inp.addEventListener('change',function(){ onToggle(inp); }); });
   }
-  renderArea();
 }
-
-var POWER_AREAS=['北海道電力','東北電力','東京電力','中部電力','北陸電力','関西電力','中国電力','四国電力','九州電力','沖縄電力'];
-function renderArea(){
-  var thead=document.querySelector('#mtxa thead'), tbody=document.querySelector('#mtxa tbody'); if(!thead)return;
-  var h='<tr><th class="fcol">電力エリア ＼ クライアント</th>';
-  CLIENTS.forEach(function(c){ var cnt=POWER_AREAS.filter(function(a){return isOn(c.slug,'area:'+a);}).length; h+='<th><span class="cli">'+esc(c.name)+'<small>'+esc(c.slug)+' ・ '+cnt+'エリア</small></span></th>'; });
-  h+='</tr>'; thead.innerHTML=h;
-  var body='';
-  POWER_AREAS.forEach(function(a){
-    body+='<tr><td class="fcol"><span class="fic">⚡</span><span class="fname">'+esc(a)+'</span></td>';
-    CLIENTS.forEach(function(c){
-      var on=isOn(c.slug,'area:'+a), dis=!TABLE_OK;
-      body+='<td><label class="sw"><input type="checkbox" '+(on?'checked':'')+' '+(dis?'disabled':'')+' data-c="'+esc(c.id)+'" data-s="'+esc(c.slug)+'" data-k="area:'+esc(a)+'"><span class="slider"></span></label></td>';
-    });
-    body+='</tr>';
-  });
-  tbody.innerHTML=body;
-  if(TABLE_OK){ tbody.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(function(inp){ inp.addEventListener('change',function(){ onToggleArea(inp); }); }); }
-}
-async function onToggleArea(inp){
-  var cid=inp.getAttribute('data-c'), slug=inp.getAttribute('data-s'), key=inp.getAttribute('data-k'), en=inp.checked;
-  try{
-    var up=await db.from('client_features').upsert({client_id:cid,feature_key:key,enabled:en,updated_at:new Date().toISOString()},{onConflict:'client_id,feature_key'});
-    if(up.error) throw up.error;
-    (FEAT[slug]=FEAT[slug]||{})[key]=en; render();
-    toast((en?'ON':'OFF')+'：'+key.replace('area:','')+' → 反映しました');
-  }catch(e){ inp.checked=!en; toast('保存失敗：'+((e&&e.message)||e)); }
-}
+function tgl(slug){ OPEN[slug]=!OPEN[slug]; render(); }
 
 async function onToggle(inp){
   var cid=inp.getAttribute('data-c'), slug=inp.getAttribute('data-s'), key=inp.getAttribute('data-k'), en=inp.checked;
@@ -178,12 +147,11 @@ async function onToggle(inp){
     var up=await db.from('client_features').upsert({client_id:cid,feature_key:key,enabled:en,updated_at:new Date().toISOString()},{onConflict:'client_id,feature_key'});
     if(up.error) throw up.error;
     (FEAT[slug]=FEAT[slug]||{})[key]=en;
-    // ヘッダの機能数を更新
+    var lbl=key.indexOf('area:')===0?key.replace('area:',''):(CF.registry[key]?CF.registry[key].label:key);
     render();
-    toast((en?'ON':'OFF')+'：'+(CF.registry[key]?CF.registry[key].label:key)+' → 反映しました');
+    toast((en?'ON':'OFF')+'：'+lbl+' → 反映しました');
   }catch(e){ inp.checked=!en; toast('保存失敗：'+((e&&e.message)||e)); }
 }
-
 load();
 </script>
 </body>

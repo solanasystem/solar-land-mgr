@@ -35,7 +35,8 @@ window.CLIENT_FUNCTIONS.fetchEnabled = async function(db, clientName, slug){
     if(cid){
       var r = await db.from('client_features').select('feature_key,enabled').eq('client_id',cid);
       if(!r.error && r.data && r.data.length){
-        return r.data.filter(function(x){return x.enabled;}).map(function(x){return x.feature_key;});
+        // 'area:*'（電力エリア設定）は機能ではないので除外。機能キー(registry)のみ返す。
+        return r.data.filter(function(x){return x.enabled && x.feature_key.indexOf('area:')!==0;}).map(function(x){return x.feature_key;});
       }
     }
   }catch(e){}
