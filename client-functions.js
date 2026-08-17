@@ -20,7 +20,10 @@ window.CLIENT_FUNCTIONS = {
   // クライアント毎の搭載機能（＝フォールバック。正はDB client_features）。マトリクスのトグルが正。
   clients: {
     'suntrust': ['case-master','delivery-map','delivery-excel','case-status','letter']
-  }
+  },
+  // ★共有モード(暗号なし)のクライアント（slug）。地権者情報を平文で保存＝当社も見える（師弟関係で秘密なし）。
+  //   ここに無い客は従来どおり運用者ブラインド(E2E暗号)。
+  openClients: ['kurogi']
 };
 
 // ★DBの client_features（マトリクス）から、そのクライアントの"有効な機能キー"を取得。

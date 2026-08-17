@@ -62,6 +62,10 @@
   <div class="legend">
     <span>🟢 ON＝その客に搭載</span><span>⚪ OFF＝非搭載（客に見えない）</span><span>準備中＝機能未完成でトグル不可</span>
   </div>
+
+  <h1 style="margin-top:36px">⚡ 電力エリア（担当地域）マトリクス</h1>
+  <div class="sub">縦＝電力エリア／横＝クライアント。ONにしたエリアが、そのクライアントの担当地域になります（例：黒木さん＝九州電力）。※実際のデータ絞り込みは、今後この設定を読んで有効化します（今は担当地域の設定＝トグルのみ）。</div>
+  <div class="mwrap"><table id="mtxa"><thead></thead><tbody></tbody></table></div>
 </main>
 <div class="toast" id="toast"></div>
 
@@ -137,6 +141,35 @@ function render(){
       inp.addEventListener('change',function(){ onToggle(inp); });
     });
   }
+  renderArea();
+}
+
+var POWER_AREAS=['北海道電力','東北電力','東京電力','中部電力','北陸電力','関西電力','中国電力','四国電力','九州電力','沖縄電力'];
+function renderArea(){
+  var thead=document.querySelector('#mtxa thead'), tbody=document.querySelector('#mtxa tbody'); if(!thead)return;
+  var h='<tr><th class="fcol">電力エリア ＼ クライアント</th>';
+  CLIENTS.forEach(function(c){ var cnt=POWER_AREAS.filter(function(a){return isOn(c.slug,'area:'+a);}).length; h+='<th><span class="cli">'+esc(c.name)+'<small>'+esc(c.slug)+' ・ '+cnt+'エリア</small></span></th>'; });
+  h+='</tr>'; thead.innerHTML=h;
+  var body='';
+  POWER_AREAS.forEach(function(a){
+    body+='<tr><td class="fcol"><span class="fic">⚡</span><span class="fname">'+esc(a)+'</span></td>';
+    CLIENTS.forEach(function(c){
+      var on=isOn(c.slug,'area:'+a), dis=!TABLE_OK;
+      body+='<td><label class="sw"><input type="checkbox" '+(on?'checked':'')+' '+(dis?'disabled':'')+' data-c="'+esc(c.id)+'" data-s="'+esc(c.slug)+'" data-k="area:'+esc(a)+'"><span class="slider"></span></label></td>';
+    });
+    body+='</tr>';
+  });
+  tbody.innerHTML=body;
+  if(TABLE_OK){ tbody.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(function(inp){ inp.addEventListener('change',function(){ onToggleArea(inp); }); }); }
+}
+async function onToggleArea(inp){
+  var cid=inp.getAttribute('data-c'), slug=inp.getAttribute('data-s'), key=inp.getAttribute('data-k'), en=inp.checked;
+  try{
+    var up=await db.from('client_features').upsert({client_id:cid,feature_key:key,enabled:en,updated_at:new Date().toISOString()},{onConflict:'client_id,feature_key'});
+    if(up.error) throw up.error;
+    (FEAT[slug]=FEAT[slug]||{})[key]=en; render();
+    toast((en?'ON':'OFF')+'：'+key.replace('area:','')+' → 反映しました');
+  }catch(e){ inp.checked=!en; toast('保存失敗：'+((e&&e.message)||e)); }
 }
 
 async function onToggle(inp){
