@@ -248,8 +248,8 @@ function loadGose(){
   toast('御所218を画層に読込: '+l.items.length+'件（全てOK・0画層は保持）');
 }
 
-function showAll(){state.base0Visible=true;state.solo=null;state.layers.forEach(function(l){l.visible=true;});saveState();render();}
-function hideAll(){state.base0Visible=false;state.layers.forEach(function(l){l.visible=false;});saveState();render();}
+function showAll(){state.base0Visible=true;state.solo=null;state.layers.forEach(function(l){l.visible=true;});saveState();render();applyBase0();}
+function hideAll(){state.base0Visible=false;state.layers.forEach(function(l){l.visible=false;});saveState();render();applyBase0();}
 /* 既に見た(モーダルを開いた)＝残してある＝実質OK。未判定の見た分を全画層まとめてOKへ(開き直し不要) */
 function bulkViewedOk(){
   var targets=[];
@@ -300,7 +300,10 @@ function renderLayerGroups(){
     });
     g.addTo(m);_groups[l.id]=g;
   });
-  applyBase0();updateAreaLabels();
+  // ★applyBase0()はここ(毎描画)では呼ばない。フラグ削除/OK/NG等の再描画のたびに走ると、
+  //   0画層OFF中に手動ONしたハザード等overlayPaneを巻き込んで消す不具合になる(栗本さん報告)。
+  //   applyBase0は「0画層トグル/一括表示・非表示/初期化」時のみ実行する(showAll/hideAll/b0 onclick/boot)。
+  updateAreaLabels();
 }
 
 function render(){renderPanel();renderLayerGroups();}
@@ -424,7 +427,7 @@ function bindPanel(){
   var alb=q('#gachoAreaLbl');if(alb)alb.onclick=function(){state.showArea=!state.showArea;saveState();updateAreaLabels();renderPanel();};
   var bo=q('#gachoBulkOk');if(bo)bo.onclick=bulkViewedOk;
   var sn=q('#gachoShowNg');if(sn)sn.onclick=function(){state.showNg=!state.showNg;saveState();render();};
-  var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();};
+  var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   all('.gacho-eye[data-eye]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-eye'));if(l){l.visible=!l.visible;saveState();render();}};});
   all('.gacho-dot[data-dot]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-dot'));if(l){var i=PALETTE.indexOf(l.color);l.color=PALETTE[(i+1)%PALETTE.length];saveState();render();}};});
   all('.gacho-name[data-sel]').forEach(function(el){el.onclick=function(){setActive(el.getAttribute('data-sel'));};});
@@ -572,6 +575,6 @@ function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=do
 +'.gacho-noarea .gacho-area-lbl{display:none !important;}';
 document.head.appendChild(st);}
 
-function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}injectStyle();buildPanel();ensurePane(m);render();m.on('zoomend',updateAreaLabels);updateAreaLabels();document.addEventListener('keydown',function(e){var tag=((e.target&&e.target.tagName)||'').toLowerCase();if(tag==='input'||tag==='textarea')return;if(e.key==='Escape'){if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();}if(_drawMode&&(e.key==='Backspace'||((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')))){e.preventDefault();drawUndo();}});}
+function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}injectStyle();buildPanel();ensurePane(m);render();applyBase0();m.on('zoomend',updateAreaLabels);updateAreaLabels();document.addEventListener('keydown',function(e){var tag=((e.target&&e.target.tagName)||'').toLowerCase();if(tag==='input'||tag==='textarea')return;if(e.key==='Escape'){if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();}if(_drawMode&&(e.key==='Backspace'||((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')))){e.preventDefault();drawUndo();}});}
 boot();
 })();
