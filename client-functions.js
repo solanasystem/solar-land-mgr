@@ -12,7 +12,6 @@ window.CLIENT_FUNCTIONS = {
     'delivery-map':   { label:'納品案件マップ',     desc:'確定納品を地図で確認（閲覧のみ・座標/区域/面積）',          icon:'🗺', url:'client-delivery-map.html', ready:true, accent:'#00d4ff' },
     'case-master':    { label:'案件マスター（地権者情報）', desc:'確定納品に御社だけが読める地権者情報を暗号で記録（当社は復号不可＝運用者ブラインド）', icon:'📇', url:'client-case-master.html', ready:true, accent:'#f472b6' },
     'letter':         { label:'手紙・ラベル',       desc:'案件マスターの地権者情報を差し込んで一人ひとりの手紙・宛名を作成（御社文面・差し込みタグ）', icon:'📝', url:'client-letter.html',   ready:true, accent:'#a78bfa' },
-    'purchase':       { label:'買付証明書',         desc:'買付証明書（御社オリジナル作成可・サンプル同梱・確定納品から差込）', icon:'📄', url:'client-purchase.html', ready:true, accent:'#fb923c' },
     'delivery-list':  { label:'納品一覧・履歴',      desc:'いつ・どの行政エリアに・何件納品したかの一覧',              icon:'📋', url:'#',                 ready:false, accent:'#a78bfa' },
     'confirmation':   { label:'個別確認情報',        desc:'現況写真・現地確認・①〜⑤の結果',                          icon:'📷', url:'#',                 ready:false, accent:'#fb923c' },
     'feedback':       { label:'採否フィードバック',  desc:'各案件を採用/却下/保留で返す（成約管理）',                  icon:'📨', url:'#',                 ready:false, accent:'#f472b6' },
@@ -20,6 +19,6 @@ window.CLIENT_FUNCTIONS = {
   },
   // クライアント毎の搭載機能（＝こちらで厳選）。'own'(自社)は内部フルのためここに載せない。
   clients: {
-    'suntrust': ['case-master','delivery-map','delivery-excel','case-status','letter','purchase']
+    'suntrust': ['case-master','delivery-map','delivery-excel','case-status','letter']
   }
 };
