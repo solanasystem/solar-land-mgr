@@ -1224,6 +1224,7 @@
   </div>
 </div>
 
+<script src="client-functions.js"></script>
 <script>
 // ====== クライアント階層ガード（v20260810: CLIENT SELECTが最上位） ======
 // クライアント未選択ならCLIENT SELECT画面へ戻す。選択中クライアントを表示。
@@ -1231,8 +1232,11 @@
   try{
     var c = localStorage.getItem('glm_client');
     if(!c){ location.replace('client-select.html'); return; }
-    // 内部MODE SELECTは自社(own)専用。クライアントは搭載機能だけのポータルへ(探索エンジンを物理的に見せない)
-    if(c!=='own'){ location.replace('client-portal.html'); return; }
+    // 内部MODE SELECTは自社(own)＋内部スコープ客(黒木など openClients＝師弟関係で暗号なし・地域スコープ運用)専用。
+    //   通常クライアントは搭載機能だけのポータルへ(探索エンジンを物理的に見せない)。
+    //   ※openClients を正とし、読込失敗でも ['kurogi'] にフォールバック＝ポータルとの往復ループを絶対に起こさない。
+    var _open=(window.CLIENT_FUNCTIONS&&window.CLIENT_FUNCTIONS.openClients)||['kurogi'];
+    if(c!=='own' && _open.indexOf(c)<0){ location.replace('client-portal.html'); return; }
     var nm = localStorage.getItem('glm_client_name') || c;
     var setC = function(){
       var el=document.getElementById('clientName'); if(el){ el.textContent=nm; }
