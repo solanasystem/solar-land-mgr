@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<!-- BUILD: client-letter v20260817a / クライアント用「手紙・ラベル」。現行の内部文面は"サンプル"として提示し、御社が自社オリジナルの手紙文を作成・保存(localStorage)・印刷できる。確定納品から宛名ラベルを差し込み。内部ページ非依存。 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>手紙・ラベル（サンプル） // GRID LAND MGR</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="client-functions.js?v=20260817d"></script>
+<style>
+  :root{--void:#050b1a;--panel:#0d1730;--panel2:#12203f;--line:#26375c;--plasma:#00d4ff;--gold:#f59e0b;--mint:#34d399;--text:#eaf0ff;--muted:#8698bd;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--void);color:var(--text);font-family:var(--jp);min-height:100vh;}
+  .top{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#081124,#050b1a);}
+  .brand{font-family:var(--mono);font-weight:700;letter-spacing:0.1em;font-size:15px;} .brand b{color:var(--plasma);}
+  .cchip{display:flex;gap:8px;align-items:center;padding:6px 12px;border:1px solid var(--gold);border-radius:5px;color:var(--gold);font-size:13px;font-weight:700;}
+  .cchip small{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:0.2em;}
+  a.back{color:var(--plasma);text-decoration:none;font-size:13px;border:1px solid var(--line);padding:6px 12px;border-radius:5px;}
+  .cnav{display:flex;gap:8px;flex-wrap:wrap;padding:10px 24px;border-bottom:1px solid var(--line);background:#0a1326;}
+  .cnav-i{color:var(--muted);text-decoration:none;font-size:13px;font-weight:700;padding:7px 14px;border:1px solid var(--line);border-radius:7px;}
+  .cnav-i.on{color:var(--gold);border-color:var(--gold);background:rgba(245,158,11,0.08);}
+  main{max-width:1000px;margin:0 auto;padding:20px 24px 60px;}
+  h1{font-size:20px;font-weight:900;}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px;}
+  .samplebadge{display:inline-block;font-size:11px;font-weight:800;color:#7a4a00;background:var(--gold);padding:2px 10px;border-radius:20px;margin-left:8px;}
+  .note{background:rgba(245,158,11,0.08);border:1px solid var(--gold);color:#ffd67a;border-radius:8px;padding:10px 14px;font-size:12.5px;margin:14px 0;}
+  .bar{display:flex;gap:12px;align-items:center;margin:16px 0;flex-wrap:wrap;}
+  .btn{padding:10px 18px;border-radius:8px;border:2px solid var(--mint);background:#06331f;color:#7ef0b6;font-size:14px;font-weight:800;cursor:pointer;font-family:var(--jp);}
+  .btn.ghost{border-color:var(--line);background:var(--panel2);color:var(--text);}
+  .doc{background:#fff;color:#111;border-radius:10px;padding:40px 46px;margin-top:14px;line-height:2.1;font-size:15px;box-shadow:0 8px 30px rgba(0,0,0,.4);white-space:pre-line;}
+  .edit{width:100%;min-height:220px;background:var(--panel);border:1px dashed var(--gold);color:var(--text);border-radius:8px;padding:14px;font-size:14px;line-height:1.9;font-family:var(--jp);}
+  .labels{display:grid;grid-template-columns:repeat(2,1fr);gap:0;background:#fff;color:#111;border-radius:10px;margin-top:14px;overflow:hidden;}
+  .lbl{border:1px solid #bbb;padding:14px 16px;min-height:80px;font-size:13px;line-height:1.7;}
+  @media print{ body *{visibility:hidden;} #printArea,#printArea *{visibility:visible;} #printArea{position:absolute;left:0;top:0;width:100%;} .doc,.labels{box-shadow:none;border-radius:0;} }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="brand">GRID LAND <b>MGR</b> // 手紙・ラベル</div>
+  <div style="display:flex;gap:12px;align-items:center;">
+    <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
+    <a class="back" href="client-portal.html">◀ ポータル</a>
+    <a class="back" href="client-select.html">⇄ 切替</a>
+  </div>
+</div>
+<nav class="cnav" id="cnav"></nav>
+<main>
+  <h1>📝 手紙・ラベル <span class="samplebadge">サンプル</span></h1>
+  <div class="sub">下は<b>手紙文のサンプル</b>です。御社オリジナルの文面に編集して保存・印刷できます。宛名ラベルは確定納品の所在から差し込みます。</div>
+  <div class="note">⚠ この手紙文はサンプルです。御社の正式な文面に置き換えてご利用ください。編集内容は御社ブラウザにのみ保存されます（当社は関与しません）。</div>
+
+  <div class="bar">
+    <button class="btn ghost" onclick="loadDraft()">保存した自社文面を読込</button>
+    <button class="btn ghost" onclick="saveDraft()">自社文面を保存</button>
+    <button class="btn ghost" onclick="useSample()">サンプル文面に戻す</button>
+    <button class="btn" onclick="window.print()">🖨 印刷 / PDF</button>
+  </div>
+
+  <p class="sub">▼ 手紙文（編集して保存できます）</p>
+  <textarea class="edit" id="ownText"></textarea>
+
+  <div id="printArea">
+    <p class="sub" style="margin-top:18px">▼ プレビュー</p>
+    <div class="doc" id="doc"></div>
+    <p class="sub" style="margin-top:18px">▼ 宛名ラベル（確定納品の所在から差し込み・先頭12件）</p>
+    <div class="labels" id="labels"></div>
+  </div>
+</main>
+
+<script>
+var SB_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
+var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+var db=supabase.createClient(SB_URL,SB_KEY);
+var CLIENT_NAME=localStorage.getItem('glm_client_name')||'株式会社SUNトラスト';
+document.getElementById('cname').textContent=CLIENT_NAME;
+function buildClientNav(cur){try{var cid=localStorage.getItem('glm_client')||'suntrust';var CF=window.CLIENT_FUNCTIONS;if(!CF||!CF.clients)return;var keys=CF.clients[cid]||[];var items=[{label:'🏠 ポータル',url:'client-portal.html'}];keys.forEach(function(k){var f=CF.registry[k];if(f&&f.ready&&f.url&&f.url!=='#')items.push({label:(f.icon||'')+' '+f.label,url:f.url});});var nav=document.getElementById('cnav');nav.innerHTML=items.map(function(it){return '<a class="cnav-i'+(it.url===cur?' on':'')+'" href="'+it.url+'">'+it.label+'</a>';}).join('');}catch(e){}}
+buildClientNav('client-letter.html');
+
+var SAMPLE='拝啓　時下ますますご清祥のこととお慶び申し上げます。\n\n突然のお手紙で失礼いたします。私どもは再生可能エネルギー事業用地を探しております〇〇と申します。\nこのたび、貴殿所有の下記土地について、活用のご相談をさせていただきたくご連絡差し上げました。\n\nつきましては、一度お話をお伺いできれば幸いです。ご検討のほど、よろしくお願い申し上げます。\n\n敬具\n\n　　　　　　　　　　　　　　株式会社SUNトラスト\n　　　　　　　　　　　　　　連絡先：〇〇〇-〇〇〇〇-〇〇〇〇';
+var CID=null, ITEMS=[];
+function esc(v){return (v==null)?'':String(v);}
+function render(){document.getElementById('doc').textContent=document.getElementById('ownText').value;}
+function saveDraft(){try{localStorage.setItem('glm_letter_'+(localStorage.getItem('glm_client')||'suntrust'),document.getElementById('ownText').value);alert('自社文面を保存しました（御社ブラウザ内）。');}catch(e){}}
+function loadDraft(){try{var v=localStorage.getItem('glm_letter_'+(localStorage.getItem('glm_client')||'suntrust'));document.getElementById('ownText').value=v||SAMPLE;render();}catch(e){}}
+function useSample(){document.getElementById('ownText').value=SAMPLE;render();}
+async function init(){
+  loadDraft();
+  document.getElementById('ownText').addEventListener('input',render);
+  try{var c=await db.from('clients').select('id,name').ilike('name','%'+CLIENT_NAME.replace('株式会社','')+'%').limit(1);if(c&&c.data&&c.data.length)CID=c.data[0].id;}catch(e){}
+  try{var q=db.from('client_delivery_items').select('pref,city,town,chiban,address').eq('status','confirmed').limit(12);if(CID)q=q.eq('client_id',CID);var r=await q;ITEMS=(r&&r.data)||[];}catch(e){ITEMS=[];}
+  document.getElementById('labels').innerHTML=ITEMS.map(function(r){return '<div class="lbl">〒　　-　　　　<br>'+esc([r.pref,r.city,r.town].filter(Boolean).join(''))+'<br>'+esc(r.address)+'<br><br>　　　　　　　　　様</div>';}).join('')||'<div class="lbl">確定納品がありません</div>';
+}
+init();
+</script>
+</body>
+</html>

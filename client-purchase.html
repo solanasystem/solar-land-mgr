@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<!-- BUILD: client-purchase v20260817a / クライアント用「買付証明書」。現行の内部様式は"サンプル"として提示し、御社が自社オリジナルの文面を作成・保存(localStorage)・印刷できる。内部ページ非依存。確定納品から物件情報を差し込み可能。 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>買付証明書（サンプル） // GRID LAND MGR</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="client-functions.js?v=20260817d"></script>
+<style>
+  :root{--void:#050b1a;--panel:#0d1730;--panel2:#12203f;--line:#26375c;--plasma:#00d4ff;--gold:#f59e0b;--mint:#34d399;--text:#eaf0ff;--muted:#8698bd;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--void);color:var(--text);font-family:var(--jp);min-height:100vh;}
+  .top{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#081124,#050b1a);}
+  .brand{font-family:var(--mono);font-weight:700;letter-spacing:0.1em;font-size:15px;} .brand b{color:var(--plasma);}
+  .cchip{display:flex;gap:8px;align-items:center;padding:6px 12px;border:1px solid var(--gold);border-radius:5px;color:var(--gold);font-size:13px;font-weight:700;}
+  .cchip small{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:0.2em;}
+  a.back{color:var(--plasma);text-decoration:none;font-size:13px;border:1px solid var(--line);padding:6px 12px;border-radius:5px;}
+  .cnav{display:flex;gap:8px;flex-wrap:wrap;padding:10px 24px;border-bottom:1px solid var(--line);background:#0a1326;}
+  .cnav-i{color:var(--muted);text-decoration:none;font-size:13px;font-weight:700;padding:7px 14px;border:1px solid var(--line);border-radius:7px;}
+  .cnav-i.on{color:var(--gold);border-color:var(--gold);background:rgba(245,158,11,0.08);}
+  main{max-width:1000px;margin:0 auto;padding:20px 24px 60px;}
+  h1{font-size:20px;font-weight:900;}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px;}
+  .samplebadge{display:inline-block;font-size:11px;font-weight:800;color:#7a4a00;background:var(--gold);padding:2px 10px;border-radius:20px;margin-left:8px;}
+  .bar{display:flex;gap:12px;align-items:center;margin:16px 0;flex-wrap:wrap;}
+  select,input,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:9px 11px;font-size:13px;font-family:var(--jp);}
+  .btn{padding:10px 18px;border-radius:8px;border:2px solid var(--mint);background:#06331f;color:#7ef0b6;font-size:14px;font-weight:800;cursor:pointer;font-family:var(--jp);}
+  .btn.ghost{border-color:var(--line);background:var(--panel2);color:var(--text);}
+  .doc{background:#fff;color:#111;border-radius:10px;padding:40px 46px;margin-top:14px;line-height:2;font-size:15px;box-shadow:0 8px 30px rgba(0,0,0,.4);}
+  .doc h2{text-align:center;font-size:26px;letter-spacing:0.3em;margin-bottom:24px;font-weight:900;}
+  .doc .to{font-size:16px;margin-bottom:18px;}
+  .doc table{width:100%;border-collapse:collapse;margin:16px 0;}
+  .doc th,.doc td{border:1px solid #888;padding:8px 12px;font-size:14px;text-align:left;}
+  .doc th{background:#f2f2f2;width:120px;}
+  .doc .from{text-align:right;margin-top:26px;white-space:pre-line;}
+  .doc .date{text-align:right;margin-top:18px;}
+  .edit{width:100%;min-height:180px;background:var(--panel);border:1px dashed var(--gold);color:var(--text);border-radius:8px;padding:14px;font-size:14px;line-height:1.9;font-family:var(--jp);}
+  .note{background:rgba(245,158,11,0.08);border:1px solid var(--gold);color:#ffd67a;border-radius:8px;padding:10px 14px;font-size:12.5px;margin:14px 0;}
+  @media print{ body *{visibility:hidden;} #printArea,#printArea *{visibility:visible;} #printArea{position:absolute;left:0;top:0;width:100%;} .doc{box-shadow:none;border-radius:0;} }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="brand">GRID LAND <b>MGR</b> // 買付証明書</div>
+  <div style="display:flex;gap:12px;align-items:center;">
+    <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
+    <a class="back" href="client-portal.html">◀ ポータル</a>
+    <a class="back" href="client-select.html">⇄ 切替</a>
+  </div>
+</div>
+<nav class="cnav" id="cnav"></nav>
+<main>
+  <h1>📄 買付証明書 <span class="samplebadge">サンプル</span></h1>
+  <div class="sub">下は<b>様式のサンプル</b>です。御社オリジナルの文面に編集して保存・印刷できます（保存は御社のブラウザ内）。確定納品から物件を選ぶと差し込まれます。</div>
+  <div class="note">⚠ この文面はサンプルです。御社の正式書式・文言に置き換えてご利用ください。編集内容は御社ブラウザにのみ保存されます（当社は関与しません）。</div>
+
+  <div class="bar">
+    <label class="sub">物件を差し込み：</label>
+    <select id="caseSel"><option value="">（選択：確定納品から）</option></select>
+    <button class="btn ghost" onclick="loadDraft()">保存した自社文面を読込</button>
+    <button class="btn ghost" onclick="saveDraft()">自社文面を保存</button>
+    <button class="btn" onclick="window.print()">🖨 印刷 / PDF</button>
+  </div>
+
+  <div id="printArea">
+    <div class="doc" id="doc">
+      <h2>買 付 証 明 書</h2>
+      <div class="to" id="d_to">売主 　　　　　　　　　　　　様</div>
+      <p>私は、下記物件を買い受けたく、買付の意思をここに証明いたします。</p>
+      <table>
+        <tr><th>所在</th><td id="d_addr">（所在）</td></tr>
+        <tr><th>地番</th><td id="d_chiban">（地番）</td></tr>
+        <tr><th>地目</th><td id="d_chimoku">（地目）</td></tr>
+        <tr><th>地積</th><td id="d_area">（面積）㎡</td></tr>
+        <tr><th>買付金額</th><td>金　　　　　　　　　　円也</td></tr>
+        <tr><th>手付金</th><td>金　　　　　　　　　　円也</td></tr>
+        <tr><th>契約予定日</th><td>令和　　年　　月　　日</td></tr>
+      </table>
+      <div class="date">令和　　年　　月　　日</div>
+      <div class="from">株式会社SUNトラスト
+住所
+代表者　　　　　　　　　　　　　印</div>
+    </div>
+  </div>
+
+  <p class="sub" style="margin-top:18px">▼ 御社オリジナルの本文（自由記述・保存できます）</p>
+  <textarea class="edit" id="ownText" placeholder="御社の買付証明書の文面をここに作成してください。保存すると次回も呼び出せます。"></textarea>
+</main>
+
+<script>
+var SB_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
+var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+var db=supabase.createClient(SB_URL,SB_KEY);
+var CLIENT_NAME=localStorage.getItem('glm_client_name')||'株式会社SUNトラスト';
+document.getElementById('cname').textContent=CLIENT_NAME;
+function buildClientNav(cur){try{var cid=localStorage.getItem('glm_client')||'suntrust';var CF=window.CLIENT_FUNCTIONS;if(!CF||!CF.clients)return;var keys=CF.clients[cid]||[];var items=[{label:'🏠 ポータル',url:'client-portal.html'}];keys.forEach(function(k){var f=CF.registry[k];if(f&&f.ready&&f.url&&f.url!=='#')items.push({label:(f.icon||'')+' '+f.label,url:f.url});});var nav=document.getElementById('cnav');nav.innerHTML=items.map(function(it){return '<a class="cnav-i'+(it.url===cur?' on':'')+'" href="'+it.url+'">'+it.label+'</a>';}).join('');}catch(e){}}
+buildClientNav('client-purchase.html');
+
+var CID=null, ITEMS=[];
+function esc(v){return (v==null)?'':String(v);}
+function saveDraft(){try{localStorage.setItem('glm_purchase_'+(localStorage.getItem('glm_client')||'suntrust'), document.getElementById('ownText').value);alert('自社文面を保存しました（御社ブラウザ内）。');}catch(e){}}
+function loadDraft(){try{document.getElementById('ownText').value=localStorage.getItem('glm_purchase_'+(localStorage.getItem('glm_client')||'suntrust'))||'';}catch(e){}}
+function fillCase(){
+  var id=document.getElementById('caseSel').value; var r=ITEMS.filter(function(x){return x.id===id;})[0];
+  if(!r){return;}
+  document.getElementById('d_addr').textContent=[r.pref,r.city,r.town].filter(Boolean).join('')+' '+esc(r.address);
+  document.getElementById('d_chiban').textContent=esc(r.chiban);
+  document.getElementById('d_chimoku').textContent=esc(r.chimoku);
+  document.getElementById('d_area').textContent=(r.area_m2!=null?Math.round(r.area_m2).toLocaleString():'')+' ㎡';
+}
+async function init(){
+  loadDraft();
+  try{var c=await db.from('clients').select('id,name').ilike('name','%'+CLIENT_NAME.replace('株式会社','')+'%').limit(1);if(c&&c.data&&c.data.length)CID=c.data[0].id;}catch(e){}
+  try{var q=db.from('client_delivery_items').select('id,pref,city,town,chiban,area_m2,chimoku,address').eq('status','confirmed');if(CID)q=q.eq('client_id',CID);var r=await q;ITEMS=(r&&r.data)||[];}catch(e){ITEMS=[];}
+  var sel=document.getElementById('caseSel');
+  ITEMS.forEach(function(r){var o=document.createElement('option');o.value=r.id;o.textContent=[r.city,r.chiban].filter(Boolean).join(' ')+' / '+esc(r.address).slice(0,24);sel.appendChild(o);});
+  sel.addEventListener('change',fillCase);
+}
+init();
+</script>
+</body>
+</html>
