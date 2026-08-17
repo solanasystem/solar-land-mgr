@@ -240,6 +240,15 @@
   function isMaintenanceAllowed(email) {
     return !!email && MAINTENANCE_ALLOW_EMAILS.indexOf(String(email).trim().toLowerCase()) !== -1;
   }
+  // ★クライアント専用アカウント（2026-08-17）: このメールはログイン後クライアントポータルへ誘導し
+  //   glm_client を設定する。内部ページは common-auth のオーナーロックが従来どおり弾く（クライアントは内部不可）。
+  //   メンテナンス中でもクライアントはログイン可（下の判定で許可）。
+  const CLIENT_ACCOUNTS = {
+    'niiyama@suntrust1.co.jp': { slug: 'suntrust', name: '株式会社SUNトラスト' }
+  };
+  function clientAccountFor(email) {
+    return email ? (CLIENT_ACCOUNTS[String(email).trim().toLowerCase()] || null) : null;
+  }
   const MAINTENANCE_MSG = '現在メンテナンス中です。許可されたユーザーのみログインできます。';
 
   // ==========================================================
@@ -261,12 +270,21 @@
           .single();
 
         if (profile) {
-          // ★メンテナンスロック: オーナー以外は既存セッションでも入場不可
-          // 認証セッションのemail優先（profiles.emailがnullでもオーナーを誤ロックしない）
-          if (MAINTENANCE_OWNER_ONLY && !isMaintenanceAllowed((session.user && session.user.email) || profile.email)) {
+          const _e = (session.user && session.user.email) || profile.email;
+          const _cli = clientAccountFor(_e);
+          // ★メンテナンスロック: オーナー以外は既存セッションでも入場不可（クライアント専用は許可）
+          if (MAINTENANCE_OWNER_ONLY && !isMaintenanceAllowed(_e) && !_cli) {
             await sb.auth.signOut();
             clearLocalSession();
             showMessage(MAINTENANCE_MSG, 'error');
+            return;
+          }
+          if (_cli) {
+            localStorage.setItem('glm_client', _cli.slug);
+            localStorage.setItem('glm_client_name', _cli.name);
+            localStorage.setItem('glm_user', _e);
+            showMessage('既にログイン済みです。ポータルへ移動中…', 'info');
+            setTimeout(() => { location.href = 'client-portal.html'; }, 300);
             return;
           }
           showMessage('既にログイン済みです。リダイレクト中…', 'info');
@@ -389,7 +407,9 @@
 
       // ★メンテナンスロック: オーナー以外はログイン不可（セッション保存前に弾く）
       // 判定は認証セッションのemail優先（profiles.emailがnullでもオーナーを誤ロックしない）
-      if (MAINTENANCE_OWNER_ONLY && !isMaintenanceAllowed((authData.user && authData.user.email) || profile.email)) {
+      // ※クライアント専用アカウントはメンテナンス中でも許可（内部ページは common-auth が別途弾く）
+      const _loginEmail = (authData.user && authData.user.email) || profile.email;
+      if (MAINTENANCE_OWNER_ONLY && !isMaintenanceAllowed(_loginEmail) && !clientAccountFor(_loginEmail)) {
         await sb.auth.signOut();
         clearLocalSession();
         showMessage(MAINTENANCE_MSG, 'error');
@@ -407,7 +427,16 @@
         email:           profile.email
       }));
 
-      // ④ ロール別リダイレクト
+      // ④ リダイレクト: クライアント専用アカウントは client-portal へ（glm_client を設定）。それ以外はロール別。
+      const _clientAcc = clientAccountFor(_loginEmail);
+      if (_clientAcc) {
+        localStorage.setItem('glm_client', _clientAcc.slug);
+        localStorage.setItem('glm_client_name', _clientAcc.name);
+        localStorage.setItem('glm_user', _loginEmail);
+        showMessage(`${_clientAcc.name} 様としてログインしました。ポータルへ移動中…`, 'success');
+        setTimeout(() => { location.href = 'client-portal.html'; }, 600);
+        return true;
+      }
       const roleLabel = profile.role === 'admin' ? '管理者' : (profile.role === 'manager' ? 'マネージャー' : (profile.role === 'external' ? '限定編集' : (profile.role === 'partner' ? '社外パートナー' : '閲覧者')));
       const dispName = profile.display_name || profile.email;
       showMessage(`${dispName}（${roleLabel}）としてログインしました。リダイレクト中…`, 'success');

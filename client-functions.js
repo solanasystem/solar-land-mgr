@@ -18,6 +18,6 @@ window.CLIENT_FUNCTIONS = {
   },
   // クライアント毎の搭載機能（＝こちらで厳選）。'own'(自社)は内部フルのためここに載せない。
   clients: {
-    'suntrust': ['case-master','delivery-map','delivery-excel','case-status','delivery-list']
+    'suntrust': ['case-master','delivery-map','delivery-excel','case-status']
   }
 };
