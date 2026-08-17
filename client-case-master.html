@@ -192,14 +192,16 @@ async function loadItems(){
   var r=await q; ITEMS=(r&&r.data)||[];
 }
 async function loadNotesAndRender(){
-  NOTES={};
+  NOTES={}; var fail=0, ok=0;
   try{
     var r=await db.from('client_secure_notes').select('delivery_id,ciphertext,iv').eq('client_id',CID);
     var rows=(r&&r.data)||[];
     for(var i=0;i<rows.length;i++){
-      try{ var pt=await ClientCrypto.decryptNote(DEK,rows[i].ciphertext,rows[i].iv); NOTES[rows[i].delivery_id]=JSON.parse(pt); }catch(e){}
+      try{ NOTES[rows[i].delivery_id]=JSON.parse(await ClientCrypto.decryptNote(DEK,rows[i].ciphertext,rows[i].iv)); ok++; }
+      catch(e){ fail++; }
     }
   }catch(e){}
+  if(fail>0){ toast('⚠ 地権者情報 '+fail+'件が読み取れませんでした（データ破損の可能性）。復旧コードでの再解錠をお試しの上、解決しない場合は当社にご連絡ください。'); }
   renderTable();
 }
 function renderTable(){
