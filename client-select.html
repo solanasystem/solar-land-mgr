@@ -89,48 +89,14 @@
     <div class="title-jp">クライアントを選択 ・ 選んだクライアントの世界だけが下流に流れます</div>
   </div>
 
-  <div class="clients">
-    <!-- SUNトラスト -->
-    <div class="client c-sun" onclick="pick('suntrust','株式会社SUNトラスト')">
-      <div class="c-glyph">S</div>
-      <div class="c-badge">Client / 太陽光・蓄電池</div>
-      <div class="c-name">株式会社SUNトラスト</div>
-      <div class="c-en">// SUN TRUST (Hanwha · Q.ENEST)</div>
-      <div class="c-desc">奈良・三重（松阪）の再エネ用地。初回納品308件を確定管理。この世界では対象地域・確定納品のみを扱う。</div>
-      <div class="c-foot">
-        <div class="c-stat">308<small>確定納品(奈良256+松阪52)</small></div>
-        <div class="c-go">選択 ▸</div>
-      </div>
-    </div>
-
-    <!-- 自社 -->
-    <div class="client c-own" onclick="pick('own','自社（Grid Land MGR）')">
-      <div class="c-glyph">O</div>
-      <div class="c-badge">Internal / 自社開拓</div>
-      <div class="c-name">自社（Grid Land MGR）</div>
-      <div class="c-en">// OWN OPERATION</div>
-      <div class="c-desc">自社の全国探索・全機能（トラッカー・AI判定・sourcing）。社内用の探索エンジン。クライアントには見せない層。</div>
-      <div class="c-foot">
-        <div class="c-stat">ALL<small>全機能・全地域</small></div>
-        <div class="c-go">選択 ▸</div>
-      </div>
-    </div>
-
-    <!-- 新規クライアント -->
-    <div class="client c-new" onclick="alert('新規クライアント登録は今後実装（テリトリー事業者の追加）。まずはSUNトラスト／自社で運用します。');">
-      <div class="c-glyph">+</div>
-      <div class="c-badge">Add / 今後</div>
-      <div class="c-name">＋ 新規クライアント</div>
-      <div class="c-en">// NEW TERRITORY PARTNER</div>
-      <div class="c-desc">エリアを分割し、テリトリーを持つ再エネ事業者を開拓・登録（情報提供型ビジネスの拡大口）。</div>
-      <div class="c-foot"><div class="c-stat" style="font-size:20px">—<small>未登録</small></div><div class="c-go">準備中</div></div>
-    </div>
-  </div>
+  <div class="clients" id="clients"><div style="color:#8492b3;grid-column:1/-1">クライアントを読込中…</div></div>
 
   <div class="foot">選択したクライアントは全下流（MODE SELECT・各ツール）にスコープされ、他クライアント・他地域と物理的に混ざりません。</div>
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+var db=supabase.createClient('https://fygnrjjifoasozbhkxlk.supabase.co','eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso');
 function pick(id,name){
   try{
     localStorage.setItem('glm_client', id);
@@ -139,6 +105,41 @@ function pick(id,name){
   // 自社=内部フル(MODE SELECT) / クライアント=搭載機能だけのポータル
   location.href = (id==='own') ? 'mode-select.html' : 'client-portal.html';
 }
+function esc(v){return (v==null)?'':String(v).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function slugOf(c){var n=c.name||'';if(/SUN|サントラスト|トラスト/i.test(n))return 'suntrust';if(/黒木/.test(n))return 'kurogi';return c.id;}
+async function loadClients(){
+  var grid=document.getElementById('clients');
+  var cs=await db.from('clients').select('id,name,business_type,notes').order('created_at',{ascending:true});
+  var clients=(cs&&cs.data)||[];
+  var cards='';
+  for(var i=0;i<clients.length;i++){
+    var c=clients[i], slug=slugOf(c);
+    var cnt='—';
+    try{ var q=await db.from('client_delivery_items').select('id',{count:'exact',head:true}).eq('status','confirmed').eq('client_id',c.id); cnt=(q&&typeof q.count==='number')?q.count:'—'; }catch(e){}
+    var init=(c.name||'?').replace(/株式会社/,'').trim().charAt(0)||'C';
+    cards+='<div class="client c-sun" onclick="pick(\''+esc(slug)+'\',\''+esc(c.name)+'\')">'+
+      '<div class="c-glyph">'+esc(init)+'</div>'+
+      '<div class="c-badge">Client / '+esc(c.business_type||'再エネ')+'</div>'+
+      '<div class="c-name">'+esc(c.name)+'</div>'+
+      '<div class="c-desc">'+esc(c.notes||'確定納品をこの世界で管理。対象地域・確定納品のみを扱う。')+'</div>'+
+      '<div class="c-foot"><div class="c-stat">'+cnt+'<small>確定納品</small></div><div class="c-go">選択 ▸</div></div>'+
+    '</div>';
+  }
+  // 自社（内部・固定）
+  cards+='<div class="client c-own" onclick="pick(\'own\',\'自社（Grid Land MGR）\')">'+
+    '<div class="c-glyph">O</div><div class="c-badge">Internal / 自社開拓</div><div class="c-name">自社（Grid Land MGR）</div>'+
+    '<div class="c-en">// OWN OPERATION</div>'+
+    '<div class="c-desc">自社の全国探索・全機能（トラッカー・AI判定・sourcing）。社内用の探索エンジン。クライアントには見せない層。</div>'+
+    '<div class="c-foot"><div class="c-stat">ALL<small>全機能・全地域</small></div><div class="c-go">選択 ▸</div></div></div>';
+  // 新規クライアント → 顧客管理へ
+  cards+='<div class="client c-new" onclick="location.href=\'client-management.html\'">'+
+    '<div class="c-glyph">+</div><div class="c-badge">Add / 顧客管理</div><div class="c-name">＋ 新規クライアント</div>'+
+    '<div class="c-en">// NEW TERRITORY PARTNER</div>'+
+    '<div class="c-desc">エリアを分割し、テリトリーを持つ再エネ事業者を開拓・登録。顧客管理／機能マトリクスで設定します。</div>'+
+    '<div class="c-foot"><div class="c-stat" style="font-size:20px">'+clients.length+'<small>登録クライアント</small></div><div class="c-go">顧客管理 ▸</div></div></div>';
+  grid.innerHTML=cards;
+}
+loadClients();
 function pad(n){return String(n).padStart(2,'0');}
 function tick(){var d=new Date();var el=document.getElementById('clock');if(el)el.textContent=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());}
 tick();setInterval(tick,1000);
