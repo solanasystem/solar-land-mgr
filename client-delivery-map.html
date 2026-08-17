@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: client-delivery-map v20260817a / クライアント用「納品案件マップ」。client_delivery_items を client_id(ログイン中の客)＋status='confirmed' でのみ取得し地図表示(閲覧専用)。他クライアントの案件は構造的にクエリしない=完全分離。自社の共有ページ(field-survey等)には一切依存しない。300件=confirmedを唯一の正とし再計算しない。 -->
+<!-- BUILD: client-delivery-map v20260817b / クライアント用「納品案件マップ」。client_delivery_items を client_id(ログイン中の客)＋status='confirmed' でのみ取得し地図表示。他クライアントは構造的にクエリしない=完全分離。共有ページ(field-survey)には非依存。★確認用の重ね合わせレイヤー(農振農用地[奈良/三重・同一オリジン]＋ハザード5種[GSI公開タイル])を搭載し、各フラグを規制情報と照合できるようにした。300=confirmedを唯一の正とし再計算しない。 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="client-functions.js?v=20260817a"></script>
+<script src="client-functions.js?v=20260817b"></script>
 <style>
   :root{--void:#050b1a;--panel:#0d1730;--panel2:#12203f;--line:#26375c;--plasma:#00d4ff;--gold:#f59e0b;--mint:#34d399;--text:#eaf0ff;--muted:#8698bd;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
   *{margin:0;padding:0;box-sizing:border-box;}
@@ -34,6 +34,15 @@
   .switch button{background:#0d1730;color:var(--muted);border:none;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--jp);}
   .switch button.on{background:rgba(0,212,255,0.12);color:var(--plasma);}
   #map{flex:1;min-height:0;background:#0a1326;}
+  /* 重ね合わせパネル */
+  .layers{position:absolute;top:12px;left:12px;z-index:600;background:rgba(8,17,36,0.94);border:1px solid var(--line);border-radius:9px;padding:10px 12px;min-width:186px;box-shadow:0 6px 22px rgba(0,0,0,0.5);}
+  .layers .lh{font-size:11px;font-weight:900;color:var(--plasma);letter-spacing:0.08em;margin-bottom:8px;}
+  .layers .grp{font-size:10px;color:var(--muted);margin:8px 0 3px;letter-spacing:0.06em;}
+  .lay{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:12.5px;user-select:none;}
+  .lay:hover{background:rgba(255,255,255,0.04);}
+  .lay input{width:15px;height:15px;accent-color:var(--gold);}
+  .sw{width:11px;height:11px;border-radius:2px;flex-shrink:0;}
+  .hint{position:absolute;bottom:14px;left:12px;z-index:600;background:rgba(8,17,36,0.9);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:11px;color:var(--muted);display:none;}
   .leaflet-popup-content-wrapper{background:#0d1730;color:var(--text);border:1px solid var(--gold);border-radius:8px;}
   .leaflet-popup-tip{background:#0d1730;border:1px solid var(--gold);}
   .leaflet-popup-content{margin:12px 14px;font-family:var(--jp);font-size:13px;line-height:1.7;}
@@ -57,7 +66,7 @@
 <div class="bar">
   <h1>🗺 納品案件マップ</h1>
   <span class="cnt" id="cnt">読込中…</span>
-  <span class="muted">確定納品（閲覧専用）。ピンをタップで地番・面積・区域・住所を表示。</span>
+  <span class="muted">確定納品（閲覧専用）。ピンをタップで地番・面積・区域・住所。左の重ね合わせで農振/ハザードと照合できます。</span>
   <div class="switch">
     <button id="bStd" class="on" onclick="setBase('std')">地図</button>
     <button id="bSat" onclick="setBase('sat')">衛星</button>
@@ -65,8 +74,21 @@
 </div>
 <div style="position:relative;flex:1;min-height:0;display:flex;">
   <div id="map"></div>
+  <div class="layers" id="layers">
+    <div class="lh">🔍 重ね合わせ（照合用）</div>
+    <div class="grp">農地規制</div>
+    <label class="lay"><input type="checkbox" id="lyNoshin" onchange="toggleNoshin(this.checked)"><span class="sw" style="background:#fef08a;border:1px solid #eab308"></span>農振農用地（青地）</label>
+    <div class="grp">ハザード（一部でも掛かればNG）</div>
+    <label class="lay"><input type="checkbox" id="hz_sediment" onchange="toggleHaz('sediment',this.checked)"><span class="sw" style="background:#d9a066"></span>土砂災害</label>
+    <label class="lay"><input type="checkbox" id="hz_flood" onchange="toggleHaz('flood',this.checked)"><span class="sw" style="background:#4aa3df"></span>洪水浸水想定</label>
+    <label class="lay"><input type="checkbox" id="hz_inner" onchange="toggleHaz('inner',this.checked)"><span class="sw" style="background:#7ec8e3"></span>内水（雨水出水）</label>
+    <label class="lay"><input type="checkbox" id="hz_tide" onchange="toggleHaz('tide',this.checked)"><span class="sw" style="background:#e79bd0"></span>高潮</label>
+    <label class="lay"><input type="checkbox" id="hz_tsunami" onchange="toggleHaz('tsunami',this.checked)"><span class="sw" style="background:#f2a25c"></span>津波</label>
+  </div>
+  <div class="hint" id="hint">農振農用地はズーム12以上で表示されます。拡大してください。</div>
   <div class="loading" id="loading">地図と納品案件を読込中…</div>
 </div>
+<div id="toast" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0d2a1a;border:1px solid var(--mint);color:#a7f3d0;padding:12px 20px;border-radius:8px;font-weight:700;font-size:13px;display:none;z-index:2000;max-width:80vw;text-align:center;"></div>
 
 <script>
 var SB_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
@@ -88,8 +110,10 @@ function buildClientNav(current){
 }
 buildClientNav('client-delivery-map.html');
 
-// 地図(国土地理院: 標準地図/シームレス空中写真=キー不要)
 var map=L.map('map',{zoomControl:true,preferCanvas:true}).setView([34.6,135.8],9);
+// pane順: 背景タイル(200) < ハザード(300) < 農振(450) < ピン(markerPane 600)
+map.createPane('hazPane').style.zIndex=300; map.getPane('hazPane').style.pointerEvents='none';
+map.createPane('noshinPane').style.zIndex=450; map.getPane('noshinPane').style.pointerEvents='none';
 var BASE={
   std:L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; 国土地理院'}),
   sat:L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',{maxZoom:18,attribution:'&copy; 国土地理院 シームレス空中写真'})
@@ -100,33 +124,95 @@ function setBase(k){
   BASE[k].addTo(map);
   document.getElementById('bStd').classList.toggle('on',k==='std');
   document.getElementById('bSat').classList.toggle('on',k==='sat');
-  markersLayer.bringToFront();
 }
 var markersLayer=L.layerGroup().addTo(map);
 var CID=null;
 
+/* ===== ハザード（GSI ハザードマップポータル 公開タイル・キー不要） ===== */
+var HAZ_URLS={
+  sediment:'https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki_data/{z}/{x}/{y}.png',
+  flood:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  inner:'https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_kuni_data/{z}/{x}/{y}.png',
+  tide:'https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png',
+  tsunami:'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png'
+};
+var HAZ_ATTR='<a href="https://disaportal.gsi.go.jp/" target="_blank" rel="noopener">ハザードマップポータルサイト</a>';
+var hazLayers={};
+function toggleHaz(key,on){
+  if(on){
+    if(!hazLayers[key]) hazLayers[key]=L.tileLayer(HAZ_URLS[key],{opacity:0.6,minZoom:2,maxZoom:18,maxNativeZoom:17,pane:'hazPane',attribution:HAZ_ATTR});
+    hazLayers[key].addTo(map);
+  }else if(hazLayers[key]){ map.removeLayer(hazLayers[key]); }
+}
+
+/* ===== 農振農用地（青地判定用・奈良/三重＝同一オリジン配信） ===== */
+var NOSHIN_MIN_ZOOM=12;
+var NOSHIN_FILES={nara:'data/noshin/noshin_nara.geojson', mie:'data/noshin/noshin_mie.geojson'};
+var NOSHIN_BOUNDS={ // 表示中に交差する県だけ読む
+  nara:{latMin:33.85,latMax:34.75,lngMin:135.6,lngMax:136.15},
+  mie:{latMin:33.7,latMax:35.35,lngMin:135.9,lngMax:136.9}
+};
+var noshinOn=false, noshinCache={}, noshinFetching={}, noshinLayer=null, _noshinMove=null;
+function _fbbox(g){var mnx=1/0,mny=1/0,mxx=-1/0,mxy=-1/0;function r(rr){for(var i=0;i<rr.length;i++){var x=rr[i][0],y=rr[i][1];if(x<mnx)mnx=x;if(x>mxx)mxx=x;if(y<mny)mny=y;if(y>mxy)mxy=y;}}if(g.type==='Polygon'&&g.coordinates[0])r(g.coordinates[0]);else if(g.type==='MultiPolygon')for(var i=0;i<g.coordinates.length;i++){if(g.coordinates[i][0])r(g.coordinates[i][0]);}return[mnx,mny,mxx,mxy];}
+function _prefsInView(){var b=map.getBounds(),w=b.getWest(),e=b.getEast(),s=b.getSouth(),n=b.getNorth(),o=[];for(var k in NOSHIN_BOUNDS){var d=NOSHIN_BOUNDS[k];if(d.lngMax<w||d.lngMin>e||d.latMax<s||d.latMin>n)continue;o.push(k);}return o;}
+function _ensureNoshin(prefs){prefs.forEach(function(k){if(noshinCache[k]||noshinFetching[k])return;noshinFetching[k]=true;fetch(NOSHIN_FILES[k]).then(function(r){return r.ok?r.json():Promise.reject(r.status);}).then(function(g){noshinCache[k]=g;noshinFetching[k]=false;if(noshinOn)_renderNoshin();}).catch(function(){noshinFetching[k]=false;});});}
+function _renderNoshin(){
+  if(!noshinOn)return;
+  var hint=document.getElementById('hint');
+  if(map.getZoom()<NOSHIN_MIN_ZOOM){if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}hint.style.display='block';return;}
+  hint.style.display='none';
+  var prefs=_prefsInView(); _ensureNoshin(prefs);
+  var b=map.getBounds(),w=b.getWest(),e=b.getEast(),s=b.getSouth(),n=b.getNorth(),vis=[];
+  prefs.forEach(function(k){var g=noshinCache[k];if(!g||!g.features)return;for(var i=0;i<g.features.length;i++){var f=g.features[i];if(!f._b)f._b=_fbbox(f.geometry);var bb=f._b;if(bb[2]<w||bb[0]>e||bb[3]<s||bb[1]>n)continue;vis.push(f);}});
+  if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;}
+  if(!vis.length)return;
+  noshinLayer=L.geoJSON({type:'FeatureCollection',features:vis},{pane:'noshinPane',interactive:false,style:{color:'#eab308',weight:2,fillColor:'#fef08a',fillOpacity:0.35,dashArray:'6,4'}}).addTo(map);
+}
+function toggleNoshin(on){
+  noshinOn=on;
+  if(on){ if(!_noshinMove){_noshinMove=function(){_renderNoshin();};map.on('moveend',_noshinMove);} _renderNoshin(); }
+  else{ if(noshinLayer){map.removeLayer(noshinLayer);noshinLayer=null;} document.getElementById('hint').style.display='none'; }
+}
+
+function toast(m){var t=document.getElementById('toast');t.textContent=m;t.style.display='block';clearTimeout(window.__tt);window.__tt=setTimeout(function(){t.style.display='none';},5000);}
 function esc(v){return (v==null||v==='')?'':String(v);}
-function popupHtml(r){
+// 農地ナビは「所在(住所)」で検索する。所在をクリップボードへコピーして農地ナビを開き、検索窓にCtrl+Vで貼り付けて検索する。
+// (別オリジンの検索窓へ直接自動入力はブラウザのセキュリティ上不可のため、コピー+ワンペースト方式)
+window.__naviAddr={};
+function copyNavi(id){
+  var addr=window.__naviAddr[id]||'';
+  var open=function(){ window.open('https://map.maff.go.jp/','_blank','noopener'); };
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(addr).then(function(){ toast('所在をコピー: '+addr+'  →  農地ナビの検索窓で Ctrl+V して検索'); open(); },
+      function(){ toast('コピー失敗。所在を手入力してください: '+addr); open(); });
+  }else{
+    try{var t=document.createElement('textarea');t.value=addr;document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t);toast('所在をコピー: '+addr+'  →  農地ナビの検索窓で Ctrl+V');}catch(e){toast('所在: '+addr);}
+    open();
+  }
+}
+function popupHtml(r,id){
   var loc=[esc(r.pref),esc(r.city),esc(r.town)].filter(Boolean).join('');
   var lines='';
   if(r.chiban) lines+='<div class="pp-r">地番: <b>'+esc(r.chiban)+'</b></div>';
   if(r.area_m2!=null) lines+='<div class="pp-r">面積: <b>'+Math.round(r.area_m2).toLocaleString()+' ㎡</b></div>';
   if(r.chimoku) lines+='<div class="pp-r">地目: <b>'+esc(r.chimoku)+'</b></div>';
   if(r.zone) lines+='<div class="pp-r">区域: <b>'+esc(r.zone)+'</b></div>';
-  if(r.address) lines+='<div class="pp-r">住所: <b>'+esc(r.address)+'</b></div>';
-  var g=(r.lat!=null&&r.lng!=null)?('<a class="pp-g" target="_blank" rel="noopener" href="https://www.google.com/maps?q='+r.lat+','+r.lng+'">Googleマップで開く ▸</a>'):'';
-  return '<div class="pp-t">'+(loc||'確定納品')+'</div>'+lines+g;
+  if(r.address) lines+='<div class="pp-r">所在: <b>'+esc(r.address)+'</b></div>';
+  var naviAddr=esc(r.address)|| (loc+esc(r.chiban));
+  window.__naviAddr[id]=naviAddr;
+  var btns='';
+  if(naviAddr) btns+='<a class="pp-g" style="border-color:#34d399;color:#7ef0b6" href="javascript:void(0)" onclick="copyNavi(\''+id+'\');return false;">🌾 所在をコピーして農地ナビで確認 ▸</a>';
+  if(r.lat!=null&&r.lng!=null) btns+='<a class="pp-g" target="_blank" rel="noopener" href="https://www.google.com/maps?q='+r.lat+','+r.lng+'">Googleマップ ▸</a>';
+  return '<div class="pp-t">'+(loc||'確定納品')+'</div>'+lines+'<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">'+btns+'</div>';
 }
 
 async function init(){
-  // ログイン中クライアントを特定(名前一致)。他クライアントのIDは決して使わない=分離。
   try{
     var c=await db.from('clients').select('id,name').ilike('name','%'+CLIENT_NAME.replace('株式会社','')+'%').limit(1);
     if(c&&c.data&&c.data.length)CID=c.data[0].id;
   }catch(e){}
   var rows=[];
   try{
-    // 確定納品(confirmed)のみ・ログイン中クライアントのみ。=システムが持つ「確定300」を唯一の正として読むだけ。
     var q=db.from('client_delivery_items')
       .select('pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng')
       .eq('status','confirmed').order('pref',{ascending:true});
@@ -136,10 +222,10 @@ async function init(){
   }catch(e){rows=[];}
 
   var pts=[], noGeo=0;
-  rows.forEach(function(row){
+  rows.forEach(function(row,idx){
     if(row.lat==null||row.lng==null){noGeo++;return;}
-    var m=L.circleMarker([row.lat,row.lng],{radius:6,color:'#7a4a00',weight:1,fillColor:'#f59e0b',fillOpacity:0.9,pane:'markerPane'});
-    m.bindPopup(popupHtml(row),{maxWidth:280});
+    var m=L.circleMarker([row.lat,row.lng],{radius:6,color:'#7a4a00',weight:1,fillColor:'#f59e0b',fillOpacity:0.95});
+    m.bindPopup(popupHtml(row,'p'+idx),{maxWidth:300});
     m.addTo(markersLayer);
     pts.push([row.lat,row.lng]);
   });
@@ -148,7 +234,7 @@ async function init(){
   var cntEl=document.getElementById('cnt');
   cntEl.textContent='確定納品 '+rows.length+'件'+(noGeo?('（うち座標なし '+noGeo+'件は地図非表示）'):'')+' を表示中';
   if(pts.length){ map.fitBounds(L.latLngBounds(pts).pad(0.08)); }
-  else{ cntEl.textContent='表示できる確定納品がありません（御社の確定納品が未登録の可能性）。'; }
+  else{ cntEl.textContent='表示できる確定納品がありません。'; }
 }
 init();
 </script>
