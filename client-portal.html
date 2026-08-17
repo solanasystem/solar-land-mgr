@@ -8,7 +8,7 @@
 <title>CLIENT PORTAL // GRID LAND MGR</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:ital,wght@0,600;0,700;1,600;1,700&family=Fraunces:ital,opsz,wght@1,9..144,500;1,9..144,600&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="client-functions.js?v=20260817f"></script>
+<script src="client-functions.js?v=20260817g"></script>
 <style>
   :root{--void:#020817;--abyss:#060e26;--deep:#0c1733;--line:#2a3a5c;--plasma:#00d4ff;--gold:#f59e0b;--text:#eef2ff;--muted:#8492b3;
     --display:'Syne','Zen Kaku Gothic New',sans-serif;--serif:'Fraunces','Zen Kaku Gothic New',serif;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
@@ -64,14 +64,16 @@
   <div class="foot" id="foot">— この画面には、御社に提供する機能のみが搭載されています —</div>
 </main>
 <script>
-(function(){
+(async function(){
   var id=localStorage.getItem('glm_client')||'';
   var name=localStorage.getItem('glm_client_name')||'クライアント';
   document.getElementById('cname').textContent=name;
   var CF=window.CLIENT_FUNCTIONS||{registry:{},clients:{}};
   // 自社(own)はここに来ない想定。来たらMODE SELECTへ。
   if(id==='own'){ location.replace('mode-select.html'); return; }
-  var keys=(CF.clients&&CF.clients[id])||[];
+  // ★搭載機能は DB client_features（マトリクスのトグル）を正として取得。無ければconfigにフォールバック。
+  var db=supabase.createClient('https://fygnrjjifoasozbhkxlk.supabase.co','eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso');
+  var keys=await CF.fetchEnabled(db, name, id);
   document.getElementById('jpline').textContent=name+' 様 ・ ご利用可能な機能（'+keys.length+'）';
   var grid=document.getElementById('grid');
   if(!keys.length){ grid.innerHTML='<div style="color:#8492b3">この客先の搭載機能が未設定です（client-functions.jsで定義）。</div>'; return; }

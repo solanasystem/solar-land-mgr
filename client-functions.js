@@ -17,8 +17,24 @@ window.CLIENT_FUNCTIONS = {
     'feedback':       { label:'採否フィードバック',  desc:'各案件を採用/却下/保留で返す（成約管理）',                  icon:'📨', url:'#',                 ready:false, accent:'#f472b6' },
     'maintenance':    { label:'不具合・入替の依頼',  desc:'納品案件の不具合報告・差替依頼（保守）',                    icon:'🛠', url:'#',                 ready:false, accent:'#f59e0b' }
   },
-  // クライアント毎の搭載機能（＝こちらで厳選）。'own'(自社)は内部フルのためここに載せない。
+  // クライアント毎の搭載機能（＝フォールバック。正はDB client_features）。マトリクスのトグルが正。
   clients: {
     'suntrust': ['case-master','delivery-map','delivery-excel','case-status','letter']
   }
+};
+
+// ★DBの client_features（マトリクス）から、そのクライアントの"有効な機能キー"を取得。
+//   これが「マトリクスのトグル → 各ページに反映」の中核。テーブル/行が無ければ config(clients) にフォールバック。
+window.CLIENT_FUNCTIONS.fetchEnabled = async function(db, clientName, slug){
+  try{
+    var cq = await db.from('clients').select('id').ilike('name','%'+String(clientName||'').replace('株式会社','')+'%').limit(1);
+    var cid = (cq && cq.data && cq.data[0]) ? cq.data[0].id : null;
+    if(cid){
+      var r = await db.from('client_features').select('feature_key,enabled').eq('client_id',cid);
+      if(!r.error && r.data && r.data.length){
+        return r.data.filter(function(x){return x.enabled;}).map(function(x){return x.feature_key;});
+      }
+    }
+  }catch(e){}
+  return (this.clients && this.clients[slug]) || [];
 };
