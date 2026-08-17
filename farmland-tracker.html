@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260817a / 🌾農振が「また出ない」真因=本トラッカー(分析ページとは別実装)が奈良/福岡/愛知/兵庫の農振をR2ワーカー(WORKER_BASE/r2/…)から取得→R2にCORSヘッダ無しでブラウザがブロック。同一オリジンの data/noshin/ に付け替え(4県)=分析ページv20260816tと同じ根治。同一オリジンgeojsonが無い追加30県は引続きR2(要ワーカーCORS)。可視バッジも同期。前:v20260812m -->
 <!-- BUILD: farmland-tracker v20260812m / 🔆既存太陽光トグルを非表示化(栗本さん指示)。fit_solar.jsonの地番→座標化が大字/町の重心に丸まり、1,887件中1,452件(77%)が他所と同一座標に山積み=フラグ位置に実パネルが無く情報として無意味だったため休止。injectBtnを早期return(データ/ロジックは残置)。実フットプリント(OSM太陽光/衛星パネル検出)へ置換できたら再開。※v20260812k(Canvas性能改善)は線画干渉でrevert済のため欠番。前:v20260812j -->
 <!-- BUILD: farmland-tracker v20260812j / 手動ピック(案件候補)を他フラグと同格に=ポップアップに✓OK/🚫NG(画層「手動ピック（判定）」へ計上=__ccJudge→judgeFeature)と✏️敷地境界を描く(__gacho.drawInLayerで同画層を取込先化し描画開始)を追加。記録/表示は既存。＋描画等の邪魔だった件を修正: 画層の描画/取込/範囲/記録モード中(window.__gachoMapMode)は地番ポップアップと手動ピック長押し確認モーダルを抑止。前:v20260812i -->
 <!-- BUILD: farmland-tracker v20260812i / 📍手動ピック記録を「確認モーダル→保存」から「1クリック=即DB記録(recordDirect)」に変更＋成功/失敗を画面トーストに明示(失敗時はDBエラー文言=RLS拒否等をそのまま表示)。診断: anonではcase_candidatesのSELECT0件/INSERT42501拒否を実測=表示は認証セッション依存。認証済みINSERT可否は要現場確認、不可ならcase_candidatesにINSERTポリシー追加が必要。前:v20260812h -->
@@ -781,7 +782,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260812m</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260817a</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -1462,11 +1463,11 @@ var NOSHIN_PREF_BOUNDS={
   nagano:   {latMin:35.2,  latMax:37.0,  lngMin:137.45, lngMax:138.7,  file:'data/noshin/noshin_nagano.geojson',  name:'長野県'},
   gifu:     {latMin:35.1,  latMax:36.5,  lngMin:136.3,  lngMax:137.45, file:'data/noshin/noshin_gifu.geojson',    name:'岐阜県'},
   shizuoka: {latMin:34.55, latMax:35.4,  lngMin:137.5,  lngMax:139.2,  file:'data/noshin/noshin_shizuoka.geojson',name:'静岡県'},
-  aichi:    {latMin:34.5,  latMax:35.4,  lngMin:136.5,  lngMax:137.7,  file:WORKER_BASE+'/r2/noshin_aichi.geojson',name:'愛知県'},
+  aichi:    {latMin:34.5,  latMax:35.4,  lngMin:136.5,  lngMax:137.7,  file:'data/noshin/noshin_aichi.geojson',name:'愛知県'},
   // 近畿
   mie:      {latMin:33.7,  latMax:35.1,  lngMin:135.9,  lngMax:136.9,  file:'data/noshin/noshin_mie.geojson',     name:'三重県'},
   shiga:    {latMin:34.8,  latMax:35.7,  lngMin:135.8,  lngMax:136.5,  file:'data/noshin/noshin_shiga.geojson',   name:'滋賀県'},
-  hyogo:    {latMin:34.1,  latMax:35.7,  lngMin:134.2,  lngMax:135.5,  file:WORKER_BASE+'/r2/noshin_hyogo.geojson', name:'兵庫県'},
+  hyogo:    {latMin:34.1,  latMax:35.7,  lngMin:134.2,  lngMax:135.5,  file:'data/noshin/noshin_hyogo.geojson', name:'兵庫県'},
   // ===== v20260727b 追加30県（全てR2） 北海道・四国・沖縄を除く =====
   // 東北
   aomori:   {latMin:40.2,  latMax:41.6,  lngMin:139.5,  lngMax:141.7,  file:WORKER_BASE+'/r2/noshin_aomori.geojson',   name:'青森県'},
@@ -1488,7 +1489,7 @@ var NOSHIN_PREF_BOUNDS={
   // 近畿（追加分）
   kyoto:    {latMin:34.7,  latMax:35.8,  lngMin:134.85, lngMax:136.05, file:WORKER_BASE+'/r2/noshin_kyoto.geojson',    name:'京都府'},
   osaka:    {latMin:34.3,  latMax:35.05, lngMin:135.1,  lngMax:135.75, file:WORKER_BASE+'/r2/noshin_osaka.geojson',    name:'大阪府'},
-  nara:     {latMin:33.85, latMax:34.75, lngMin:135.6,  lngMax:136.15, file:WORKER_BASE+'/r2/noshin_nara.geojson',     name:'奈良県'},
+  nara:     {latMin:33.85, latMax:34.75, lngMin:135.6,  lngMax:136.15, file:'data/noshin/noshin_nara.geojson',     name:'奈良県'},
   wakayama: {latMin:33.4,  latMax:34.4,  lngMin:135.0,  lngMax:136.0,  file:WORKER_BASE+'/r2/noshin_wakayama.geojson', name:'和歌山県'},
   // 中国
   tottori:  {latMin:35.1,  latMax:35.6,  lngMin:133.1,  lngMax:134.5,  file:WORKER_BASE+'/r2/noshin_tottori.geojson',  name:'鳥取県'},
@@ -1497,7 +1498,7 @@ var NOSHIN_PREF_BOUNDS={
   hiroshima:{latMin:34.0,  latMax:35.1,  lngMin:132.0,  lngMax:133.5,  file:WORKER_BASE+'/r2/noshin_hiroshima.geojson',name:'広島県'},
   yamaguchi:{latMin:33.7,  latMax:34.8,  lngMin:130.75, lngMax:132.4,  file:WORKER_BASE+'/r2/noshin_yamaguchi.geojson',name:'山口県'},
   // 九州
-  fukuoka:  {latMin:33.0,  latMax:34.0,  lngMin:130.0,  lngMax:131.2,  file:WORKER_BASE+'/r2/noshin_fukuoka.geojson',  name:'福岡県'},
+  fukuoka:  {latMin:33.0,  latMax:34.0,  lngMin:130.0,  lngMax:131.2,  file:'data/noshin/noshin_fukuoka.geojson',  name:'福岡県'},
   saga:     {latMin:33.0,  latMax:33.6,  lngMin:129.7,  lngMax:130.55, file:WORKER_BASE+'/r2/noshin_saga.geojson',     name:'佐賀県'},
   nagasaki: {latMin:32.6,  latMax:34.7,  lngMin:128.6,  lngMax:130.4,  file:WORKER_BASE+'/r2/noshin_nagasaki.geojson', name:'長崎県'},
   kumamoto: {latMin:32.1,  latMax:33.2,  lngMin:129.9,  lngMax:131.35, file:WORKER_BASE+'/r2/noshin_kumamoto.geojson', name:'熊本県'},
