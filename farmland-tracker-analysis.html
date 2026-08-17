@@ -785,7 +785,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260817b 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260817c 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -1153,7 +1153,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
         <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#22c55e;opacity:0.4;border:1px solid #16a34a;flex-shrink:0"></div>田・畑</div>
         <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#eab308;opacity:0.4;border:1px solid #ca8a04;flex-shrink:0"></div>採草放牧地</div>
       </div>
-      <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.3;">※ ズーム15以上で表示<br>※ 出典: 農林水産省 筆ポリゴン</div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.3;">※ ズーム15以上で表示（全国対応・ライブ）<br>※ 出典: 農林水産省 筆ポリゴン(2026公開)</div>
     </div>
     <!-- 📦 その他（アーカイブ）：農地フラグ・Track B残地・衛星分析(旧NDVI)を1グループに集約 v20260805a -->
     <div class="hazard-divider"></div>
@@ -1858,6 +1858,9 @@ function toggleFarmlandFlag(){
 }
 
 /* 筆ポリゴン（agriFude = 農林水産省 筆ポリゴン。既存 PMTiles 系 fudeLayer と区別）*/
+// ★農水省公式「筆ポリゴンデータ(2026年度公開 ArcGIS Online版)」FeatureServer。
+//   ライブ問い合わせ=全国どこでもDB投入ゼロ・容量ゼロ。ArcGISはCORS対応でgithub.ioから直接fetch可。出典:農林水産省 筆ポリゴン公開サイト。
+var FUDE_ARCGIS_URL = 'https://services8.arcgis.com/cW9ZoPyzxXOxrpu1/arcgis/rest/services/FudePolygonTemp_2026/FeatureServer/0';
 var agriFudeLayer = null;
 var agriFudeCanvas = null;
 var agriFudeEnabled = false;
@@ -1875,19 +1878,25 @@ function _doRenderAgriFude() {
   _fetchAndRenderAgriFude();
 }
 async function _fetchAndRenderAgriFude() {
-  var b = map.getBounds().pad(0.1);
-  var res = await db.rpc('get_fude_in_bbox', {
-    lat_min: b.getSouth(), lat_max: b.getNorth(),
-    lng_min: b.getWest(),  lng_max: b.getEast(),
-    row_limit: 2000
+  var b = map.getBounds();
+  // ★農水省公式FeatureServerをライブ取得。geometryはJSON envelope+outSR=4326(comma文字列だとInvalid query paramで空になる)。
+  var env = { xmin: b.getWest(), ymin: b.getSouth(), xmax: b.getEast(), ymax: b.getNorth(), spatialReference: { wkid: 4326 } };
+  var qp = new URLSearchParams({
+    where: '1=1', geometry: JSON.stringify(env), geometryType: 'esriGeometryEnvelope',
+    spatialRel: 'esriSpatialRelIntersects', outFields: 'land_type', returnGeometry: 'true',
+    outSR: '4326', f: 'json', resultRecordCount: '2000'
   });
-  if (res.error || !res.data) return;
+  var res;
+  try { res = await fetch(FUDE_ARCGIS_URL + '/query?' + qp.toString()).then(function(r){ return r.json(); }); }
+  catch (e) { return; }
+  if (!res || !res.features) return;
   if (agriFudeLayer) { map.removeLayer(agriFudeLayer); agriFudeLayer = null; }
-  var features = res.data.map(function(row){ return {
+  // Esri polygon rings → GeoJSON Polygon(表示目的なので巻き方向は不問。Leafletが描く)。
+  var features = res.features.map(function(row){ return {
     type: 'Feature',
-    geometry: row.geometry,
-    properties: { land_type: row.land_type }
-  }; });
+    geometry: { type: 'Polygon', coordinates: (row.geometry && row.geometry.rings) || [] },
+    properties: { land_type: (row.attributes && row.attributes.land_type) }
+  }; }).filter(function(f){ return f.geometry.coordinates.length; });
   if (!map.getPane('agriFudePane')) { var _afp = map.createPane('agriFudePane'); _afp.style.zIndex = 450; }
   if (!agriFudeCanvas) agriFudeCanvas = L.canvas({ pane: 'agriFudePane', padding: 0.5 });
   agriFudeLayer = L.geoJSON({ type: 'FeatureCollection', features }, {
