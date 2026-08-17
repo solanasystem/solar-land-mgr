@@ -47,9 +47,7 @@
   // メンテナンス中でもアプリ利用を許可するメール（login.htmlのMAINTENANCE_ALLOW_EMAILSと一致させる。
   // 2026-08-13修正: 従来ここはisOwner(takumiのみ)判定で、login.htmlで許可した黒木さん九州が
   // ログイン後にcommon-auth.jsで弾かれていた。両ファイルの許可リストを揃える。）
-  // 2026-08-17: 黒木さん(yumi.kurogi117)を許可リストから除外＝ログイン即封鎖（栗本さん指示・権限設計の見直しまで停止）。
-  //   ※内部MODE SELECTに管理(05)/SWルーム(06)/全国探索が露出する懸念のため、スコープ設計が固まるまで黒木ログインを閉じる。
-  var MAINTENANCE_ALLOW_EMAILS = ['takumi.kurimoto@gmail.com'];
+  var MAINTENANCE_ALLOW_EMAILS = ['takumi.kurimoto@gmail.com', 'yumi.kurogi117@gmail.com'];
   function isMaintenanceAllowed(email) {
     return !!email && MAINTENANCE_ALLOW_EMAILS.indexOf(String(email).trim().toLowerCase()) !== -1;
   }
