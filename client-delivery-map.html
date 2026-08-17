@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<!-- BUILD: client-delivery-map v20260817a / クライアント用「納品案件マップ」。client_delivery_items を client_id(ログイン中の客)＋status='confirmed' でのみ取得し地図表示(閲覧専用)。他クライアントの案件は構造的にクエリしない=完全分離。自社の共有ページ(field-survey等)には一切依存しない。300件=confirmedを唯一の正とし再計算しない。 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>納品案件マップ // GRID LAND MGR</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="client-functions.js?v=20260817a"></script>
+<style>
+  :root{--void:#050b1a;--panel:#0d1730;--panel2:#12203f;--line:#26375c;--plasma:#00d4ff;--gold:#f59e0b;--mint:#34d399;--text:#eaf0ff;--muted:#8698bd;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;background:var(--void);color:var(--text);font-family:var(--jp);}
+  body{display:flex;flex-direction:column;}
+  .top{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#081124,#050b1a);flex-shrink:0;}
+  .brand{font-family:var(--mono);font-weight:700;letter-spacing:0.1em;font-size:15px;}
+  .brand b{color:var(--plasma);}
+  .cchip{display:flex;gap:8px;align-items:center;padding:6px 12px;border:1px solid var(--gold);border-radius:5px;color:var(--gold);font-size:13px;font-weight:700;}
+  .cchip small{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:0.2em;}
+  a.back{color:var(--plasma);text-decoration:none;font-size:13px;border:1px solid var(--line);padding:6px 12px;border-radius:5px;}
+  .cnav{display:flex;gap:8px;flex-wrap:wrap;padding:10px 24px;border-bottom:1px solid var(--line);background:#0a1326;flex-shrink:0;}
+  .cnav-i{color:var(--muted);text-decoration:none;font-size:13px;font-weight:700;padding:7px 14px;border:1px solid var(--line);border-radius:7px;}
+  .cnav-i:hover{color:var(--text);border-color:var(--plasma);}
+  .cnav-i.on{color:var(--gold);border-color:var(--gold);background:rgba(245,158,11,0.08);}
+  .bar{display:flex;align-items:center;gap:16px;padding:9px 24px;border-bottom:1px solid var(--line);background:#0a1326;flex-shrink:0;flex-wrap:wrap;}
+  .bar h1{font-size:16px;font-weight:900;letter-spacing:0.04em;}
+  .cnt{font-family:var(--mono);color:var(--gold);font-size:14px;font-weight:700;}
+  .muted{color:var(--muted);font-size:12px;}
+  .switch{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-left:auto;}
+  .switch button{background:#0d1730;color:var(--muted);border:none;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--jp);}
+  .switch button.on{background:rgba(0,212,255,0.12);color:var(--plasma);}
+  #map{flex:1;min-height:0;background:#0a1326;}
+  .leaflet-popup-content-wrapper{background:#0d1730;color:var(--text);border:1px solid var(--gold);border-radius:8px;}
+  .leaflet-popup-tip{background:#0d1730;border:1px solid var(--gold);}
+  .leaflet-popup-content{margin:12px 14px;font-family:var(--jp);font-size:13px;line-height:1.7;}
+  .pp-t{color:var(--gold);font-weight:900;font-size:14px;margin-bottom:4px;}
+  .pp-r{color:var(--muted);}
+  .pp-r b{color:var(--text);font-weight:700;}
+  .pp-g{display:inline-block;margin-top:8px;color:var(--plasma);text-decoration:none;font-size:12px;border:1px solid var(--line);padding:5px 9px;border-radius:5px;}
+  .loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;z-index:500;pointer-events:none;}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="brand">GRID LAND <b>MGR</b> // 納品案件マップ</div>
+  <div style="display:flex;gap:12px;align-items:center;">
+    <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
+    <a class="back" href="client-portal.html">◀ ポータル</a>
+    <a class="back" href="client-select.html">⇄ 切替</a>
+  </div>
+</div>
+<nav class="cnav" id="cnav"></nav>
+<div class="bar">
+  <h1>🗺 納品案件マップ</h1>
+  <span class="cnt" id="cnt">読込中…</span>
+  <span class="muted">確定納品（閲覧専用）。ピンをタップで地番・面積・区域・住所を表示。</span>
+  <div class="switch">
+    <button id="bStd" class="on" onclick="setBase('std')">地図</button>
+    <button id="bSat" onclick="setBase('sat')">衛星</button>
+  </div>
+</div>
+<div style="position:relative;flex:1;min-height:0;display:flex;">
+  <div id="map"></div>
+  <div class="loading" id="loading">地図と納品案件を読込中…</div>
+</div>
+
+<script>
+var SB_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
+var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+var db=supabase.createClient(SB_URL,SB_KEY);
+var CLIENT_NAME=localStorage.getItem('glm_client_name')||'株式会社SUNトラスト';
+document.getElementById('cname').textContent=CLIENT_NAME;
+
+function buildClientNav(current){
+  try{
+    var cid=localStorage.getItem('glm_client')||'suntrust';
+    var CF=window.CLIENT_FUNCTIONS; if(!CF||!CF.clients) return;
+    var keys=CF.clients[cid]||[];
+    var items=[{label:'🏠 ポータル',url:'client-portal.html'}];
+    keys.forEach(function(k){var f=CF.registry[k]; if(f&&f.ready&&f.url&&f.url!=='#') items.push({label:(f.icon||'')+' '+f.label,url:f.url});});
+    var nav=document.getElementById('cnav'); if(!nav) return;
+    nav.innerHTML=items.map(function(it){var on=(it.url===current)?' on':''; return '<a class="cnav-i'+on+'" href="'+it.url+'">'+it.label+'</a>';}).join('');
+  }catch(e){}
+}
+buildClientNav('client-delivery-map.html');
+
+// 地図(国土地理院: 標準地図/シームレス空中写真=キー不要)
+var map=L.map('map',{zoomControl:true,preferCanvas:true}).setView([34.6,135.8],9);
+var BASE={
+  std:L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; 国土地理院'}),
+  sat:L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',{maxZoom:18,attribution:'&copy; 国土地理院 シームレス空中写真'})
+};
+BASE.std.addTo(map);
+function setBase(k){
+  Object.keys(BASE).forEach(function(b){ if(map.hasLayer(BASE[b]))map.removeLayer(BASE[b]); });
+  BASE[k].addTo(map);
+  document.getElementById('bStd').classList.toggle('on',k==='std');
+  document.getElementById('bSat').classList.toggle('on',k==='sat');
+  markersLayer.bringToFront();
+}
+var markersLayer=L.layerGroup().addTo(map);
+var CID=null;
+
+function esc(v){return (v==null||v==='')?'':String(v);}
+function popupHtml(r){
+  var loc=[esc(r.pref),esc(r.city),esc(r.town)].filter(Boolean).join('');
+  var lines='';
+  if(r.chiban) lines+='<div class="pp-r">地番: <b>'+esc(r.chiban)+'</b></div>';
+  if(r.area_m2!=null) lines+='<div class="pp-r">面積: <b>'+Math.round(r.area_m2).toLocaleString()+' ㎡</b></div>';
+  if(r.chimoku) lines+='<div class="pp-r">地目: <b>'+esc(r.chimoku)+'</b></div>';
+  if(r.zone) lines+='<div class="pp-r">区域: <b>'+esc(r.zone)+'</b></div>';
+  if(r.address) lines+='<div class="pp-r">住所: <b>'+esc(r.address)+'</b></div>';
+  var g=(r.lat!=null&&r.lng!=null)?('<a class="pp-g" target="_blank" rel="noopener" href="https://www.google.com/maps?q='+r.lat+','+r.lng+'">Googleマップで開く ▸</a>'):'';
+  return '<div class="pp-t">'+(loc||'確定納品')+'</div>'+lines+g;
+}
+
+async function init(){
+  // ログイン中クライアントを特定(名前一致)。他クライアントのIDは決して使わない=分離。
+  try{
+    var c=await db.from('clients').select('id,name').ilike('name','%'+CLIENT_NAME.replace('株式会社','')+'%').limit(1);
+    if(c&&c.data&&c.data.length)CID=c.data[0].id;
+  }catch(e){}
+  var rows=[];
+  try{
+    // 確定納品(confirmed)のみ・ログイン中クライアントのみ。=システムが持つ「確定300」を唯一の正として読むだけ。
+    var q=db.from('client_delivery_items')
+      .select('pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng')
+      .eq('status','confirmed').order('pref',{ascending:true});
+    if(CID)q=q.eq('client_id',CID);
+    var r=await q;
+    rows=(r&&r.data)||[];
+  }catch(e){rows=[];}
+
+  var pts=[], noGeo=0;
+  rows.forEach(function(row){
+    if(row.lat==null||row.lng==null){noGeo++;return;}
+    var m=L.circleMarker([row.lat,row.lng],{radius:6,color:'#7a4a00',weight:1,fillColor:'#f59e0b',fillOpacity:0.9,pane:'markerPane'});
+    m.bindPopup(popupHtml(row),{maxWidth:280});
+    m.addTo(markersLayer);
+    pts.push([row.lat,row.lng]);
+  });
+
+  document.getElementById('loading').style.display='none';
+  var cntEl=document.getElementById('cnt');
+  cntEl.textContent='確定納品 '+rows.length+'件'+(noGeo?('（うち座標なし '+noGeo+'件は地図非表示）'):'')+' を表示中';
+  if(pts.length){ map.fitBounds(L.latLngBounds(pts).pad(0.08)); }
+  else{ cntEl.textContent='表示できる確定納品がありません（御社の確定納品が未登録の可能性）。'; }
+}
+init();
+</script>
+</body>
+</html>
