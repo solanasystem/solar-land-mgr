@@ -21,11 +21,14 @@
 <body>
 <div id="map"></div>
 <div id="legend">
-  <b>照合確認マップ</b><br>
-  <span class="dot" style="background:#ef4444"></span>未納品 <b id="n94">94</b>件（この突合表にあり・納品済でない）<br>
-  <span class="dot" style="background:#3b82f6"></span>納品済(ファイル外) <b id="n35">36</b>件（納品300にあるが突合表に無い）<br>
-  <span class="ln"></span>筆ポリゴン（農水省・ズーム15以上で表示）
-  <div id="hint">同じ場所に赤と青が重なる＝実は同一案件の可能性。離れている＝別案件。クリックで所在/地番/面積。</div>
+  <b>照合確認マップ（未納品94の内訳）</b><br>
+  <span class="dot" style="background:#22c55e;width:15px;height:15px"></span><b style="color:#22c55e">納品可能候補 <span id="n18">18</span>件（要確認）</b><br>
+  <span class="dot" style="background:#f59e0b"></span>要合筆 <b id="n71">71</b>件（800㎡未満・合筆待ち）<br>
+  <span class="dot" style="background:#9aa4ae"></span>保留/対象外 <b id="n5">5</b>件<br>
+  <span class="dot" style="background:#3b82f6"></span>納品済(ファイル外) <b id="n35">36</b>件<br>
+  <span class="ln"></span>筆ポリゴン（農水省・ズーム15以上）
+  <div style="margin-top:8px"><button id="btn18" style="width:100%;padding:6px;border-radius:6px;border:1px solid #22c55e;background:#052e23;color:#6ee7b7;font-weight:800;cursor:pointer">🟢 納品可能候補18件へズーム</button></div>
+  <div id="hint">緑(18件)＝納品ラベルなのに確定300に無い＝本物の予備か照合漏れか、これを目視確認。クリックで所在/地番/面積。</div>
 </div>
 <script src="verify_9435_data.js?v=20260818"></script>
 <script>
@@ -45,9 +48,20 @@ function pop(x,kind){
     '面積 '+(x.a!=null?Math.round(x.a).toLocaleString()+'㎡':'—')+
     '<br><a href="https://www.google.com/maps/search/?api=1&query='+x.lat+','+x.lng+'" target="_blank">Googleマップ</a></div>';
 }
-var g94=L.layerGroup().addTo(map),g35=L.layerGroup().addTo(map);
-D.f94.forEach(function(x){L.circleMarker([x.lat,x.lng],{radius:8,color:'#fff',weight:2,fillColor:'#ef4444',fillOpacity:.95}).bindPopup(pop(x,'94')).addTo(g94);});
-D.c35.forEach(function(x){L.circleMarker([x.lat,x.lng],{radius:8,color:'#fff',weight:2,fillColor:'#3b82f6',fillOpacity:.95}).bindPopup(pop(x,'35')).addTo(g35);});
+var g94=L.layerGroup().addTo(map),g35=L.layerGroup().addTo(map),g18=L.layerGroup().addTo(map);
+var pts18=[];
+D.f94.forEach(function(x){
+  var isN=(x.ku==='納品');
+  var col=isN?'#22c55e':(x.ku==='合筆提案'?'#f59e0b':'#9aa4ae');
+  var mk=L.circleMarker([x.lat,x.lng],{radius:isN?11:7,color:'#fff',weight:isN?3:2,fillColor:col,fillOpacity:.95}).bindPopup(pop(x,'94'));
+  mk.addTo(isN?g18:g94);
+  if(isN)pts18.push([x.lat,x.lng]);
+});
+document.getElementById('n18').textContent=D.f94.filter(function(x){return x.ku==='納品';}).length;
+document.getElementById('n71').textContent=D.f94.filter(function(x){return x.ku==='合筆提案';}).length;
+document.getElementById('n5').textContent=D.f94.filter(function(x){return x.ku!=='納品'&&x.ku!=='合筆提案';}).length;
+D.c35.forEach(function(x){L.circleMarker([x.lat,x.lng],{radius:7,color:'#fff',weight:2,fillColor:'#3b82f6',fillOpacity:.9}).bindPopup(pop(x,'35')).addTo(g35);});
+document.getElementById('btn18').onclick=function(){ if(pts18.length){map.fitBounds(L.latLngBounds(pts18).pad(0.3));} };
 // 全点が収まるよう初期表示
 try{var all=D.f94.concat(D.c35).filter(function(x){return x.lat&&x.lng;});
   if(all.length){map.fitBounds(L.latLngBounds(all.map(function(x){return [x.lat,x.lng];})).pad(0.15));}}catch(e){}
