@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: letter-generator v20260818a / 差出人シール(宛名ラベルの27面固定シール)を選択中の差出人プリセットに連動(従来XAMAX固定)。黒木さん選択でY-style/〒814-0015/福岡+Y-styleロゴ。栗本/伊谷は従来通り。前:v20260728d -->
 <!-- BUILD: letter-generator v20260728d / 黒木(Y-style)ロゴの横位置を右へ: logo-center の左シフト(-12mm・クローバー用)を黒木のみ logo-right クラスで translateX(0) に上書き(栗本/伊谷のXAMAXロゴ位置は不変)。前:v20260728c -->
 <!-- BUILD: letter-generator v20260728c / 黒木(Y-style)のロゴを名刺画像から切り出した「Y-style」ワードマーク(assets/y_style_logo.png)に設定。栗本/伊谷=XAMAXロゴ、黒木=Y-styleロゴで差出人別に表示。前:v20260728b -->
 <!-- BUILD: letter-generator v20260728b / 差出人プリセットに黒木 祐美(Y-style・九州担当)を追加(名刺assets/meishi_kurogi.png＋会社/氏名/〒/住所/TEL/Email)。さらにクローバー(XAMAX)ロゴを差出人ごとに出し分け(logoImg): 栗本/伊谷=XAMAXロゴ表示、黒木=logoImg空でロゴ非表示(Y-styleのためXAMAXの文字を出さない)。前:v20260519s -->
@@ -1201,13 +1202,25 @@ function onSealModeChange(){
 /* 差出人シール1セル分のHTMLを返す（A4一杯に27マス同じものを敷き詰める）
    レイアウト：会社名+ブランド／クローバー+〒郵便番号／住所 の3行 */
 function renderSealItem(){
+  // ★2026-08-18(栗本さん指示): 差出人シールを選択中の差出人プリセットに連動(従来はXAMAX固定)。
+  //   黒木さん選択時=Y-style/〒814-0015/福岡…+Y-styleロゴ。XAMAX(栗本/伊谷)選択時は従来通り。
+  var base=(typeof SENDER_PRESETS!=='undefined'&&SENDER_PRESETS[currentPresetKey])?SENDER_PRESETS[currentPresetKey]:null;
+  var s=(typeof getSenderInfo==='function')?getSenderInfo():{};
+  var company=(s.fromCompany||(base&&base.fromCompany)||'株式会社 XAMAX & In the cloud');
+  var postal =(s.fromPostal ||(base&&base.fromPostal) ||'472-0045');
+  var address=(s.fromAddress||(base&&base.fromAddress)||'愛知県知立市長篠新田38-4-102');
+  var logo   =(s.logoImg    ||(base&&base.logoImg)    ||'assets/xamax_logo.png');
+  // XAMAXのみ "& In the cloud" をブランド表記に分ける。他社(Y-style等)は会社名そのまま。
+  var companyHtml=/XAMAX/.test(company)
+    ? '株式会社XAMAX<span class="brand">&amp; In the cloud</span>'
+    : escapeHtml(company);
   return `<div class="seal-item">
-    <div class="seal-company">株式会社XAMAX<span class="brand">&amp; In the cloud</span></div>
+    <div class="seal-company">${companyHtml}</div>
     <div class="seal-postal-row">
-      <img class="seal-logo" src="assets/xamax_logo.png" alt="">
-      <span class="seal-postal">〒472-0045</span>
+      ${logo?`<img class="seal-logo" src="${escapeHtml(logo)}" alt="">`:''}
+      <span class="seal-postal">〒${escapeHtml(postal)}</span>
     </div>
-    <div class="seal-address">愛知県知立市長篠町新田38-4-102</div>
+    <div class="seal-address">${escapeHtml(address)}</div>
   </div>`;
 }
 
