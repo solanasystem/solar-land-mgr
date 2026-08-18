@@ -362,7 +362,7 @@ function renderPanel(){
     var cnt=l.items.length?('👁見た'+vc+' ／ <span style="color:#3fb950">OK'+okc+'</span>・<span style="color:#f85149">NG'+ngc+'</span> ／ 計'+l.items.length):'0';
     var r='<div class="gacho-row'+(l.active?' active':'')+'" style="margin-left:26px">'
       +'<span class="gacho-eye" data-eye="'+l.id+'">'+(l.visible?'👁':'🚫')+'</span>'
-      +'<span class="gacho-dot" data-dot="'+l.id+'" style="background:'+l.color+'" title="色変更"></span>'
+      +'<span class="gacho-dot" style="background:'+l.color+'" title="この画層の色（緑=適当/橙=検討 等）"></span>'
       +'<span class="gacho-name" data-sel="'+l.id+'" title="取込先に選択">'+esc(l.name)+'</span>'
       +'<span class="gacho-solo'+(state.solo===l.id?' on':'')+'" data-solo="'+l.id+'" title="この画層だけ表示">◎</span>'
       +'<span class="gacho-ren" data-ren="'+l.id+'" title="名前変更">✎</span>'
@@ -439,7 +439,8 @@ function bindPanel(){
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
   var srchc=q('#gachoSearchClr');if(srchc)srchc.onclick=function(){_gFilter='';renderPanel();try{renderLayerGroups();}catch(_){}};
   all('.gacho-eye[data-eye]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-eye'));if(l){l.visible=!l.visible;saveState();render();}};});
-  all('.gacho-dot[data-dot]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-dot'));if(l){var i=PALETTE.indexOf(l.color);l.color=PALETTE[(i+1)%PALETTE.length];saveState();render();}};});
+  /* v20260818g: 色丸のクリックで色が順送りに変わる挙動を廃止(栗本さん「クリック毎に色が変わって分かり難い」)。
+     色は緑=適当/橙=検討など意味を持つため、誤クリックで壊さない。色丸は表示専用のインジケータにする。 */
   all('.gacho-name[data-sel]').forEach(function(el){el.onclick=function(){setActive(el.getAttribute('data-sel'));};});
   all('.gacho-solo[data-solo]').forEach(function(el){el.onclick=function(){var id=el.getAttribute('data-solo');state.solo=(state.solo===id?null:id);saveState();render();};});
   all('.gacho-ren[data-ren]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-ren'));if(!l)return;var n=prompt('画層名',l.name);if(n!=null&&n.trim()){l.name=n.trim();saveState();render();}};});
@@ -598,7 +599,7 @@ function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=do
 +'.gacho-base{border-bottom:1px dashed #30363d;margin-bottom:4px;padding-bottom:6px;}'
 +'.gacho-eye,.gacho-solo,.gacho-ren,.gacho-del{cursor:pointer;flex:none;}'
 +'.gacho-solo.on{color:#f59e0b;}'
-+'.gacho-dot{width:12px;height:12px;border-radius:50%;display:inline-block;border:1px solid rgba(255,255,255,.4);flex:none;cursor:pointer;}'
++'.gacho-dot{width:12px;height:12px;border-radius:50%;display:inline-block;border:1px solid rgba(255,255,255,.4);flex:none;cursor:default;}'
 +'.gacho-name{flex:1;cursor:pointer;white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word;line-height:1.3;}'
 +'.gacho-actions{margin-top:8px;border-top:1px solid #30363d;padding-top:8px;}'
 +'.gacho-active-note{color:#8b949e;margin-bottom:4px;}'
