@@ -344,11 +344,13 @@ function renderPanel(){
   h+='<div class="gacho-master"><button id="gachoShowAll" class="gacho-btn">👁 全て表示</button><button id="gachoHideAll" class="gacho-btn">🚫 全て隠す</button></div>';
   h+='<div class="gacho-master"><button id="gachoOnlyUnrev" class="gacho-btn'+(state.hideReviewed?' on':'')+'" title="見た筆を隠して未確認だけ表示">👀 未確認のみ表示'+(state.hideReviewed?'（ON）':'')+'</button><button id="gachoAreaLbl" class="gacho-btn'+(state.showArea?' on':'')+'" title="敷地境界の面積ラベル表示（ズーム15以上で表示）">㎡ 面積ラベル</button></div>';
   h+='<div class="gacho-master"><button id="gachoBulkOk" class="gacho-btn" title="既に開いて見た(未判定)を全画層でまとめてOKに（開き直し不要）">👁→✓ 見た分をOKに一括</button><button id="gachoShowNg" class="gacho-btn'+(state.showNg?' on':'')+'" title="NG(除外)にした筆を地図に表示するか。既定OFF＝除外は地図から消える">'+(state.showNg?'🚫 除外も表示（ON）':'🚫 除外は非表示')+'</button></div>';
-  // ★v20260818h(栗本さん:過去の累計は悪影響・今の調査地だけ意味がある): 合計は「表示中(👁ON)の画層」だけを数える。
-  //   過去/納品済の層を🚫で隠せばこの数字から外れ、いま主に調査している所の進捗になる。
+  // ★v20260818j(栗本さん:根拠のある数字だけ見せろ): OK/NGは「判定対象の候補レイヤー」だけで意味を持つ。
+  //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
+  //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
+  var _isRef=function(l){ if(l.archived)return true; return /保留|対象外|敷地境界|納品|要確認/.test(l.name||''); };
   var _tOk=0,_tNg=0,_tV=0,_tAll=0,_tHidden=0;
-  state.layers.forEach(function(l){if(l.archived)return;if(!l.visible){_tHidden++;return;}l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;});});
-  h+='<div class="gacho-total">表示中の合計　👁'+_tV+' ／ <span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span> ／ 計'+_tAll+(_tHidden?'<span style="color:#8b949e;font-weight:400"> （非表示'+_tHidden+'層は除外）</span>':'')+'</div>';
+  state.layers.forEach(function(l){if(l.archived)return;if(!l.visible){_tHidden++;return;}if(_isRef(l))return;l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;});});
+  h+='<div class="gacho-total">調査中の判定合計　👁'+_tV+' ／ <span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span> ／ 計'+_tAll+'<span style="color:#8b949e;font-weight:400"> （表示中の候補レイヤーのみ）</span></div>';
   // ★検索: 打つとその画層だけを地図・パネルに絞る(見えすぎ/だらだら解消)。空で解除。
   h+='<div class="gacho-master" style="gap:4px"><input id="gachoSearch" placeholder="🔍 画層を検索して絞る（大台/田原/SUN…）" value="'+esc(_gFilter)+'" style="flex:1;padding:6px 9px;border-radius:6px;border:1px solid '+(_gFilter?'#f59e0b':'#30363d')+';background:#0d1117;color:#e6edf3;font-size:12px;outline:none">'+(_gFilter?'<button id="gachoSearchClr" class="gacho-btn" style="padding:2px 8px">✕</button>':'')+'</div>';
   if(_gFilter){h+='<div style="font-size:11px;color:#f0b429;margin:2px 0 4px">🔍「'+esc(_gFilter)+'」で絞り込み中＝この画層だけ地図に表示。✕で解除。</div>';}
@@ -356,14 +358,18 @@ function renderPanel(){
   // ===== ①クライアント→②納品時期→③行政区域 の階層表示（作業台を見やすく） =====
   if(!state.grpOpen)state.grpOpen={};
   var _gopen=function(k){if(_gFilter)return true;return (k in state.grpOpen)?!!state.grpOpen[k]:_grpDefOpen(k);};
-  // ★v20260818i(栗本さん:御所218は非表示なのに数えられていた): グループ小計も「表示中(👁ON)の画層」だけを数える。
-  //   非表示にした層はこの小計からも外れる=グランド合計と一致。非表示層数は併記。
-  var _lcnt=function(ls){var o=0,g=0,v=0,a=0,hid=0;ls.forEach(function(l){if(!l.visible){hid++;return;}l.items.forEach(function(it){a++;if(it.status==='ok')o++;else if(it.status==='ng')g++;if(it.viewed)v++;});});return '👁'+v+' ／ <span style="color:#3fb950">OK'+o+'</span>・<span style="color:#f85149">NG'+g+'</span> ／ 計'+a+(hid?'<span style="color:#8b949e;font-weight:400"> （非表示'+hid+'層は除外）</span>':'');};
+  // ★v20260818j(栗本さん:グループのOK/NGは意味が混ざる): グループ見出しは「計(件数)」だけにする。
+  //   判定のOK/NGは候補レイヤー各行と最上部「調査中の判定合計」だけに出す=数字が全部根拠を持つ。
+  var _lcnt=function(ls){var a=0;ls.forEach(function(l){a+=l.items.length;});return '計'+a;};
   var _row=function(l){
     var okc=l.items.filter(function(it){return it.status==='ok';}).length;
     var ngc=l.items.filter(function(it){return it.status==='ng';}).length;
     var vc=l.items.filter(function(it){return it.viewed;}).length;
-    var cnt=l.items.length?('👁見た'+vc+' ／ <span style="color:#3fb950">OK'+okc+'</span>・<span style="color:#f85149">NG'+ngc+'</span> ／ 計'+l.items.length):'0';
+    // ★v20260818j: 参照(保留/対象外/要確認)・納品済・敷地境界(描画)は判定でないのでOK/NGを出さず「計」だけ。
+    //   候補レイヤーだけ 見た/OK/NG/計 を出す=根拠のある数字だけ表示。
+    var cnt;
+    if(_isRef(l)){ cnt=l.items.length?('計'+l.items.length+'<span style="color:#8b949e;font-weight:400"> （参照・判定対象外）</span>'):'0'; }
+    else { cnt=l.items.length?('👁見た'+vc+' ／ <span style="color:#3fb950">OK'+okc+'</span>・<span style="color:#f85149">NG'+ngc+'</span> ／ 計'+l.items.length):'0'; }
     var r='<div class="gacho-row'+(l.active?' active':'')+'" style="margin-left:26px">'
       +'<span class="gacho-eye" data-eye="'+l.id+'">'+(l.visible?'👁':'🚫')+'</span>'
       +'<span class="gacho-dot" style="background:'+l.color+'" title="この画層の色（緑=適当/橙=検討 等）"></span>'
