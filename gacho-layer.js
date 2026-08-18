@@ -556,17 +556,29 @@ window.__gacho={
     var l=state.layers.filter(function(x){return x.name===layerName;})[0];
     if(l&&l.archived)return; // ★退避済み画層は自動読込で復活/再投入しない(栗本さん:退避が毎回復活するのを防ぐ)。戻すのは↩のみ
     if(!l){l={id:uid(),name:layerName,color:color||'#00e5ff',visible:true,active:false,items:[]};state.layers.push(l);}
+    var pfx=(prefix||'aiKI');
+    // ★現行ソースの有効fid集合(クリーン後に残る筆だけ)。
+    var srcSet={};items.forEach(function(c){if(c.lat!=null&&c.lng!=null)srcSet[pfx+c.no]=1;});
+    // ★reconcile(v20260818d): この画層内の「このprefixのAI候補」で現行ソースに無い筆=
+    //   ハザード/土砂クリーンで除去された筆をlocalStorageから削除。古い未クリーン残存を根治。
+    //   栗本さんの手動ピック/他prefix/敷地境界は触らない。生存筆の判定(status)は保持。
+    var removed=0;
+    l.items=l.items.filter(function(it){
+      if(it.src==='aiKI'&&typeof it.feature_id==='string'&&it.feature_id.indexOf(pfx)===0&&!srcSet[it.feature_id]){removed++;return false;}
+      return true;
+    });
     var ex={};l.items.forEach(function(it){if(it.feature_id)ex[it.feature_id]=1;});
     var added=0;
     items.forEach(function(c){
       if(c.lat==null||c.lng==null)return;
-      var fid=(prefix||'aiKI')+c.no;
+      var fid=pfx+c.no;
       if(ex[fid])return;
       l.items.push({iid:iid(),feature_id:fid,lat:Number(c.lat),lng:Number(c.lng),address:(c.addr||c.city||''),area:(c.area!=null?Number(c.area):null),chiban:c.chiban,src:'aiKI',status:null});
       ex[fid]=1;added++;
     });
     saveState();setTimeout(function(){render();},0);
-    if(added)toast('画層「'+layerName+'」にAI候補 '+added+'件を読込（未判定）');
+    var msg=[];if(added)msg.push('新規'+added+'件');if(removed)msg.push('ハザード除去で'+removed+'件を削除');
+    if(msg.length)toast('画層「'+layerName+'」: '+msg.join(' ／ ')+'（クリーン反映）');
   }
 };
 
