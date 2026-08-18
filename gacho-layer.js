@@ -344,9 +344,11 @@ function renderPanel(){
   h+='<div class="gacho-master"><button id="gachoShowAll" class="gacho-btn">👁 全て表示</button><button id="gachoHideAll" class="gacho-btn">🚫 全て隠す</button></div>';
   h+='<div class="gacho-master"><button id="gachoOnlyUnrev" class="gacho-btn'+(state.hideReviewed?' on':'')+'" title="見た筆を隠して未確認だけ表示">👀 未確認のみ表示'+(state.hideReviewed?'（ON）':'')+'</button><button id="gachoAreaLbl" class="gacho-btn'+(state.showArea?' on':'')+'" title="敷地境界の面積ラベル表示（ズーム15以上で表示）">㎡ 面積ラベル</button></div>';
   h+='<div class="gacho-master"><button id="gachoBulkOk" class="gacho-btn" title="既に開いて見た(未判定)を全画層でまとめてOKに（開き直し不要）">👁→✓ 見た分をOKに一括</button><button id="gachoShowNg" class="gacho-btn'+(state.showNg?' on':'')+'" title="NG(除外)にした筆を地図に表示するか。既定OFF＝除外は地図から消える">'+(state.showNg?'🚫 除外も表示（ON）':'🚫 除外は非表示')+'</button></div>';
-  var _tOk=0,_tNg=0,_tV=0,_tAll=0;
-  state.layers.forEach(function(l){if(l.archived)return;l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;});});
-  h+='<div class="gacho-total">全画層合計　👁'+_tV+' ／ <span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span> ／ 計'+_tAll+'</div>';
+  // ★v20260818h(栗本さん:過去の累計は悪影響・今の調査地だけ意味がある): 合計は「表示中(👁ON)の画層」だけを数える。
+  //   過去/納品済の層を🚫で隠せばこの数字から外れ、いま主に調査している所の進捗になる。
+  var _tOk=0,_tNg=0,_tV=0,_tAll=0,_tHidden=0;
+  state.layers.forEach(function(l){if(l.archived)return;if(!l.visible){_tHidden++;return;}l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;});});
+  h+='<div class="gacho-total">表示中の合計　👁'+_tV+' ／ <span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span> ／ 計'+_tAll+(_tHidden?'<span style="color:#8b949e;font-weight:400"> （非表示'+_tHidden+'層は除外）</span>':'')+'</div>';
   // ★検索: 打つとその画層だけを地図・パネルに絞る(見えすぎ/だらだら解消)。空で解除。
   h+='<div class="gacho-master" style="gap:4px"><input id="gachoSearch" placeholder="🔍 画層を検索して絞る（大台/田原/SUN…）" value="'+esc(_gFilter)+'" style="flex:1;padding:6px 9px;border-radius:6px;border:1px solid '+(_gFilter?'#f59e0b':'#30363d')+';background:#0d1117;color:#e6edf3;font-size:12px;outline:none">'+(_gFilter?'<button id="gachoSearchClr" class="gacho-btn" style="padding:2px 8px">✕</button>':'')+'</div>';
   if(_gFilter){h+='<div style="font-size:11px;color:#f0b429;margin:2px 0 4px">🔍「'+esc(_gFilter)+'」で絞り込み中＝この画層だけ地図に表示。✕で解除。</div>';}
