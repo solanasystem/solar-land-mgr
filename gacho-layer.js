@@ -415,6 +415,7 @@ function renderPanel(){
     h+='<div class="gacho-exp">書き出し <button id="gachoExpKml" class="gacho-btn" title="Google Earthで開ける・クライアント納品用">KML</button><button id="gachoExpGeo" class="gacho-btn" title="GIS標準・AI連携用">GeoJSON</button><button id="gachoExpCopy" class="gacho-btn" title="コピーして貼付でAIへ">📋</button></div>';
   }else{h+='<div class="gacho-active-note">取込先の画層を選択/作成してください</div>';}
   h+='<button id="gachoAddBoundary" class="gacho-btn wide" style="background:rgba(236,72,153,.18);border-color:#ec4899">✏️＋ 敷地境界の画層を作る</button>';
+  if(typeof window.__sepDeliveredPicks==='function'&&state.layers.some(function(x){return x.name==='手動ピック（判定）'&&!x.archived&&(x.items||[]).length;})){h+='<button id="gachoSepDeliv" class="gacho-btn wide" style="background:rgba(16,185,129,.16);border-color:#10b981">📦 納品済の手動ピックを退避（今調査中だけ残す）</button>';}
   h+='<button id="gachoLoadSuntrust" class="gacho-btn wide" style="background:rgba(245,158,11,.18);border-color:#f59e0b">📦 SUNトラスト納品を画層に読込（確定397）</button>';
   h+='<button id="gachoLoadGose" class="gacho-btn wide" style="background:rgba(245,158,11,.14);border-color:#f59e0b">☀ 御所218を画層に読込（全OK）</button>';
   h+='<button id="gachoAdd" class="gacho-btn wide add">＋ 新規画層</button>';
@@ -455,6 +456,7 @@ function bindPanel(){
   var ep=q('#gachoExpCopy');if(ep)ep.onclick=function(){exportLayer('copy');};
   var rb=q('#gachoRectBtn');if(rb)rb.onclick=toggleRect;
   var ab=q('#gachoAddBoundary');if(ab)ab.onclick=addBoundaryLayer;
+  var sd=q('#gachoSepDeliv');if(sd)sd.onclick=function(){if(confirm('手動ピック（判定）から、SUNトラスト納品済に一致する分を「手動ピック（納品済）」へ退避します。\n作業台には今調査中の分だけが残ります（データは消えません・アーカイブに畳まれます）。\n実行しますか？'))window.__sepDeliveredPicks();};
   var ls=q('#gachoLoadSuntrust');if(ls)ls.onclick=loadSuntrust;
   var lg=q('#gachoLoadGose');if(lg)lg.onclick=loadGose;
   var ad=q('#gachoAdd');if(ad)ad.onclick=addLayer;
@@ -471,6 +473,23 @@ function bindPanel(){
 
 window.__gacho={
   removeItem:function(lid,itemIid){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();setTimeout(function(){render();},0);},
+  /* v20260818c: 手動ピック等の画層から、判定関数isMatchに合致する項目(=納品済)を別画層dstNameへ移して退避(archived)。
+     作業台の手動ピックには「今調査中の分だけ」を残し、旧納品分と連動して動かなくする。isMatch(item)→true=退避対象。返り値=移動件数。 */
+  separatePicks:function(srcName,isMatch,dstName,dstColor){
+    var src=state.layers.filter(function(x){return x.name===srcName&&!x.archived;})[0];
+    if(!src){toast('「'+srcName+'」画層が見つかりません');return 0;}
+    var moved=[],keep=[];
+    src.items.forEach(function(it){ (isMatch(it)?moved:keep).push(it); });
+    if(!moved.length){toast('「'+srcName+'」に納品済の一致はありませんでした（退避対象なし）');return 0;}
+    src.items=keep;
+    var dst=state.layers.filter(function(x){return x.name===dstName;})[0];
+    if(!dst){dst={id:uid(),name:dstName,color:dstColor||'#10b981',visible:false,active:false,items:[],archived:true,meta:{client:'SUNトラスト',period:'第1回納品（確定）',region:'',phase:'納品済'}};state.layers.push(dst);}
+    dst.archived=true;dst.visible=false;
+    moved.forEach(function(it){dst.items.push(it);});
+    saveState();render();
+    toast(moved.length+'件を「'+dstName+'」へ退避（納品済を手動ピックから分離）。作業台は今調査中の分だけになりました');
+    return moved.length;
+  },
   review:function(lid,itemIid,val){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid)it.viewed=!!val;});saveState();render();},
   setStatus:function(lid,itemIid,val){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid){it.status=(it.status===val?null:val);it.viewed=true;}});saveState();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
