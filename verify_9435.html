@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-store">
+<title>SUNトラスト 未納品94 vs 納品済35 照合確認</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  html,body{margin:0;height:100%;font-family:system-ui,sans-serif}
+  #map{position:absolute;top:0;left:0;right:0;bottom:0}
+  #legend{position:absolute;top:10px;right:10px;z-index:1000;background:rgba(13,17,23,.92);color:#e6edf3;
+    padding:10px 12px;border-radius:8px;font-size:13px;border:1px solid #30363d;line-height:1.9;box-shadow:0 4px 16px rgba(0,0,0,.5)}
+  #legend b{font-size:14px}
+  .dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:middle;border:2px solid #fff}
+  .ln{display:inline-block;width:16px;height:0;border-top:2px solid #eab308;margin-right:6px;vertical-align:middle}
+  #hint{color:#8b949e;font-size:11px;margin-top:6px}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="legend">
+  <b>照合確認マップ</b><br>
+  <span class="dot" style="background:#ef4444"></span>未納品 <b id="n94">94</b>件（この突合表にあり・納品済でない）<br>
+  <span class="dot" style="background:#3b82f6"></span>納品済(ファイル外) <b id="n35">36</b>件（納品300にあるが突合表に無い）<br>
+  <span class="ln"></span>筆ポリゴン（農水省・ズーム15以上で表示）
+  <div id="hint">同じ場所に赤と青が重なる＝実は同一案件の可能性。離れている＝別案件。クリックで所在/地番/面積。</div>
+</div>
+<script src="verify_9435_data.js?v=20260818"></script>
+<script>
+var map=L.map('map',{zoomControl:true}).setView([34.45,136.0],9);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  {maxZoom:20,maxNativeZoom:18,attribution:'Esri'}).addTo(map);
+var D=(window.VERIFY9435||{f94:[],c35:[]});
+document.getElementById('n94').textContent=D.f94.length;
+document.getElementById('n35').textContent=D.c35.length;
+function esc(s){return String(s==null?'':s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+function pop(x,kind){
+  return '<div style="font-size:13px;min-width:180px"><b style="color:'+(kind==='94'?'#ef4444':'#3b82f6')+'">'+
+    (kind==='94'?'未納品':'納品済(ファイル外)')+'</b><br>'+
+    esc(x.addr||((x.city||'')+(x.chiban||'')))+'<br>'+
+    (x.chiban?'地番 '+esc(x.chiban)+'<br>':'')+
+    (x.ku?'区分 '+esc(x.ku)+'<br>':'')+
+    '面積 '+(x.a!=null?Math.round(x.a).toLocaleString()+'㎡':'—')+
+    '<br><a href="https://www.google.com/maps/search/?api=1&query='+x.lat+','+x.lng+'" target="_blank">Googleマップ</a></div>';
+}
+var g94=L.layerGroup().addTo(map),g35=L.layerGroup().addTo(map);
+D.f94.forEach(function(x){L.circleMarker([x.lat,x.lng],{radius:8,color:'#fff',weight:2,fillColor:'#ef4444',fillOpacity:.95}).bindPopup(pop(x,'94')).addTo(g94);});
+D.c35.forEach(function(x){L.circleMarker([x.lat,x.lng],{radius:8,color:'#fff',weight:2,fillColor:'#3b82f6',fillOpacity:.95}).bindPopup(pop(x,'35')).addTo(g35);});
+// 全点が収まるよう初期表示
+try{var all=D.f94.concat(D.c35).filter(function(x){return x.lat&&x.lng;});
+  if(all.length){map.fitBounds(L.latLngBounds(all.map(function(x){return [x.lat,x.lng];})).pad(0.15));}}catch(e){}
+// 筆ポリゴン(農水省ArcGIS・ズーム15以上)
+var FUDE='https://services8.arcgis.com/cW9ZoPyzxXOxrpu1/arcgis/rest/services/FudePolygonTemp_2026/FeatureServer/0/query';
+var fudeLayer=L.layerGroup().addTo(map),_ft=null;
+function loadFude(){
+  if(map.getZoom()<15){fudeLayer.clearLayers();return;}
+  var b=map.getBounds();
+  var geom={xmin:b.getWest(),ymin:b.getSouth(),xmax:b.getEast(),ymax:b.getNorth(),spatialReference:{wkid:4326}};
+  var p=new URLSearchParams({geometry:JSON.stringify(geom),geometryType:'esriGeometryEnvelope',inSR:'4326',outSR:'4326',
+    spatialRel:'esriSpatialRelIntersects',outFields:'polygon_uuid',returnGeometry:'true',f:'json',resultRecordCount:'1000'});
+  fetch(FUDE+'?'+p.toString()).then(function(r){return r.json();}).then(function(j){
+    fudeLayer.clearLayers();
+    (j.features||[]).forEach(function(f){
+      ((f.geometry&&f.geometry.rings)||[]).forEach(function(ring){
+        fudeLayer.addLayer(L.polygon(ring.map(function(pt){return [pt[1],pt[0]];}),
+          {color:'#eab308',weight:1,fill:false,interactive:false}));
+      });
+    });
+  }).catch(function(){});
+}
+map.on('moveend',function(){clearTimeout(_ft);_ft=setTimeout(loadFude,350);});
+loadFude();
+</script>
+</body>
+</html>
