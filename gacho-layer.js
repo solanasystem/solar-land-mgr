@@ -482,6 +482,45 @@ function bindPanel(){
   all('.gacho-arch[data-arch]').forEach(function(el){el.onclick=function(ev){ev.stopPropagation();var l=byId(el.getAttribute('data-arch'));if(!l)return;var m=layerMeta(l);if(!confirm('画層「'+l.name+'」を退避します。\n（SWルームへ書き出し＋地図・作業台から外す。↩で戻せる）\n実行しますか？'))return;evacuateLayers([l],m.client,m.period);};});
 }
 
+// ★v20260818k(栗本さん:判定がlocalStorageだけで消えた→DB永続化・二度と消さない):
+//   gachoのOK/NG判定をSupabaseにも保存し、リロード/別端末でも復元する。DBが無い/失敗しても既存動作は壊さない。
+var _gDbOk={}, _gDbNg={};
+function _gDb(){ try{ if(typeof window!=='undefined'&&window.db)return window.db; if(typeof db!=='undefined')return db; }catch(_){ } return null; }
+function _applyDbStatusToItems(){
+  var ch=false;
+  state.layers.forEach(function(l){l.items.forEach(function(it){ if(it&&it.feature_id){
+    if(_gDbOk[it.feature_id]&&it.status!=='ok'){it.status='ok';it.viewed=true;ch=true;}
+    else if(_gDbNg[it.feature_id]&&it.status!=='ng'){it.status='ng';it.viewed=true;ch=true;}
+  }});});
+  if(ch){saveState();render();}
+}
+async function loadDbJudgments(){
+  var d=_gDb(); if(!d)return;
+  try{
+    _gDbOk={}; _gDbNg={};
+    var frm=0;
+    while(true){ var r=await d.from('ai_ok_labels').select('member_fids').eq('source','gacho_ok').range(frm,frm+999); var rows=(r&&r.data)||[]; rows.forEach(function(x){(x.member_fids||[]).forEach(function(f){_gDbOk[f]=1;});}); if(rows.length<1000)break; frm+=1000; }
+    frm=0;
+    while(true){ var r2=await d.from('farmland_ng_list').select('feature_id').eq('ng_reason','gacho_ng').range(frm,frm+999); var rows2=(r2&&r2.data)||[]; rows2.forEach(function(x){_gDbNg[x.feature_id]=1;}); if(rows2.length<1000)break; frm+=1000; }
+    _applyDbStatusToItems();
+  }catch(e){}
+}
+window.__gachoReloadJudgments=loadDbJudgments;
+function _persistJudgment(fid,lat,lng,status){
+  var d=_gDb(); if(!d||!fid)return;
+  try{
+    if(status==='ok'){ _gDbOk[fid]=1; delete _gDbNg[fid];
+      d.from('ai_ok_labels').insert({source:'gacho_ok',member_fids:[fid],lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),memo:'gacho手動OK'}).then(function(){},function(){});
+      d.from('farmland_ng_list').delete().eq('feature_id',fid).eq('ng_reason','gacho_ng').then(function(){},function(){});
+    } else if(status==='ng'){ _gDbNg[fid]=1; delete _gDbOk[fid];
+      d.from('farmland_ng_list').upsert({feature_id:fid,lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),ng_reason:'gacho_ng'},{onConflict:'feature_id'}).then(function(){},function(){});
+      d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
+    } else { delete _gDbOk[fid]; delete _gDbNg[fid];
+      d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
+      d.from('farmland_ng_list').delete().eq('feature_id',fid).eq('ng_reason','gacho_ng').then(function(){},function(){});
+    }
+  }catch(e){}
+}
 window.__gacho={
   removeItem:function(lid,itemIid){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();setTimeout(function(){render();},0);},
   /* v20260818c: 手動ピック等の画層から、判定関数isMatchに合致する項目(=納品済)を別画層dstNameへ移して退避(archived)。
@@ -502,7 +541,7 @@ window.__gacho={
     return moved.length;
   },
   review:function(lid,itemIid,val){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid)it.viewed=!!val;});saveState();render();},
-  setStatus:function(lid,itemIid,val){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid){it.status=(it.status===val?null:val);it.viewed=true;}});saveState();setTimeout(function(){render();},0);},
+  setStatus:function(lid,itemIid,val){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid){it.status=(it.status===val?null:val);it.viewed=true;_persistJudgment(it.feature_id,it.lat,it.lng,it.status);}});saveState();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   /* v20260812j: 画層名を指定して(無ければ作成)取込先にし、敷地境界の描画を開始。手動ピック等のポップアップの「✏️敷地境界を描く」から呼ぶ */
   drawInLayer:function(name,color){var l=state.layers.filter(function(x){return x.name===name;})[0];if(!l){l={id:uid(),name:name,color:color||'#ff1493',visible:true,active:false,items:[]};state.layers.push(l);}state.layers.forEach(function(x){x.active=(x.id===l.id);});var m=getMap();if(m)m.closePopup();saveState();render();if(!_drawMode)toggleDraw();},
@@ -587,6 +626,8 @@ window.__gacho={
       l.items.push({iid:iid(),feature_id:fid,lat:Number(c.lat),lng:Number(c.lng),address:(c.addr||c.city||''),area:(c.area!=null?Number(c.area):null),chiban:c.chiban,src:'aiKI',status:null});
       ex[fid]=1;added++;
     });
+    // ★v20260818k: DB保存済みの判定(OK/NG)を、この画層の筆に復元適用(消えたOKを二度と消さない)。
+    l.items.forEach(function(it){ if(it.feature_id){ if(_gDbOk[it.feature_id])it.status='ok'; else if(_gDbNg[it.feature_id])it.status='ng'; } });
     saveState();setTimeout(function(){render();},0);
     var msg=[];if(added)msg.push('新規'+added+'件');if(removed)msg.push('ハザード除去で'+removed+'件を削除');
     if(msg.length)toast('画層「'+layerName+'」: '+msg.join(' ／ ')+'（クリーン反映）');
@@ -626,6 +667,6 @@ function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=do
 +'.gacho-noarea .gacho-area-lbl{display:none !important;}';
 document.head.appendChild(st);}
 
-function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}injectStyle();buildPanel();ensurePane(m);render();applyBase0();m.on('zoomend',updateAreaLabels);updateAreaLabels();document.addEventListener('keydown',function(e){var tag=((e.target&&e.target.tagName)||'').toLowerCase();if(tag==='input'||tag==='textarea')return;if(e.key==='Escape'){if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();}if(_drawMode&&(e.key==='Backspace'||((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')))){e.preventDefault();drawUndo();}});}
+function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}injectStyle();buildPanel();ensurePane(m);render();applyBase0();try{loadDbJudgments();setTimeout(loadDbJudgments,2500);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();document.addEventListener('keydown',function(e){var tag=((e.target&&e.target.tagName)||'').toLowerCase();if(tag==='input'||tag==='textarea')return;if(e.key==='Escape'){if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();}if(_drawMode&&(e.key==='Backspace'||((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')))){e.preventDefault();drawUndo();}});}
 boot();
 })();
