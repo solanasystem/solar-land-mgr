@@ -16,9 +16,12 @@
 (function() {
   'use strict';
 
-  // common-auth.js が動いていない、または viewer/partner 以外なら何もしない
+  // common-auth.js が動いていない、または viewer 以外なら何もしない
+  // ★2026-08-18(栗本さん指示): partnerを閲覧専用から除外。黒木さん(九州partner)を「入力も可」にする。
+  //   これで partner は書き込みブロック/編集UI非表示/閲覧専用バナーが全て掛からなくなる=入力できる。
+  //   九州電力管内への限定は内部MODE SELECTのスコープ(クライアント側)で担保。※サーバ側RLSは別途(下の報告参照)。
   if (!window.__auth || typeof window.__auth.isViewer !== 'function') return;
-  if (!(window.__auth.isViewer() || (typeof window.__auth.isPartner === 'function' && window.__auth.isPartner()))) return;
+  if (!window.__auth.isViewer()) return;
 
   // ============================================================
   // Step 1: Supabase クライアントの write メソッドを hook
