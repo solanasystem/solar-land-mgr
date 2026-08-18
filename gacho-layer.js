@@ -271,6 +271,8 @@ function renderLayerGroups(){
   Object.keys(_groups).forEach(function(id){try{m.removeLayer(_groups[id]);}catch(_){}delete _groups[id];});
   state.layers.forEach(function(l){
     if(l.archived)return; // 退避済は地図に描かない
+    // ★検索絞り込み中は、名前一致の画層だけ地図に描く(見えすぎ解消)。
+    if(_gFilter&&(l.name||'').toLowerCase().indexOf(_gFilter.toLowerCase())<0)return;
     var show=l.visible&&(!state.solo||state.solo===l.id);if(!show)return;
     var g=L.layerGroup([],{pane:'gachoPane'});
     l.items.forEach(function(it){
@@ -333,6 +335,7 @@ function evacuateLayers(ls,cli,per){
 
 function buildPanel(){if(document.getElementById('gachoPanel'))return;var box=document.createElement('div');box.id='gachoPanel';box.className='gacho-panel';document.body.appendChild(box);renderPanel();}
 
+var _gFilter=''; // ★画層検索の絞り込み文字(localStorageに残さない・その場のみ)。栗本さん:だらだら/見えすぎ解消
 function renderPanel(){
   window.__gachoMapMode=!!(_drawMode||_rectMode||_pickMode||_addMode); // v20260812j: 地番ポップアップ/手動ピック確認モーダルの抑止フラグ(描画等の邪魔をしない)
   var box=document.getElementById('gachoPanel');if(!box)return;var al=activeLayer();var h='';
@@ -344,10 +347,13 @@ function renderPanel(){
   var _tOk=0,_tNg=0,_tV=0,_tAll=0;
   state.layers.forEach(function(l){if(l.archived)return;l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;});});
   h+='<div class="gacho-total">全画層合計　👁'+_tV+' ／ <span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span> ／ 計'+_tAll+'</div>';
+  // ★検索: 打つとその画層だけを地図・パネルに絞る(見えすぎ/だらだら解消)。空で解除。
+  h+='<div class="gacho-master" style="gap:4px"><input id="gachoSearch" placeholder="🔍 画層を検索して絞る（大台/田原/SUN…）" value="'+esc(_gFilter)+'" style="flex:1;padding:6px 9px;border-radius:6px;border:1px solid '+(_gFilter?'#f59e0b':'#30363d')+';background:#0d1117;color:#e6edf3;font-size:12px;outline:none">'+(_gFilter?'<button id="gachoSearchClr" class="gacho-btn" style="padding:2px 8px">✕</button>':'')+'</div>';
+  if(_gFilter){h+='<div style="font-size:11px;color:#f0b429;margin:2px 0 4px">🔍「'+esc(_gFilter)+'」で絞り込み中＝この画層だけ地図に表示。✕で解除。</div>';}
   h+='<div class="gacho-row gacho-base"><span class="gacho-eye" data-b0="1">'+(state.base0Visible?'👁':'🚫')+'</span><span class="gacho-name">0画層｜既存すべて</span></div>';
   // ===== ①クライアント→②納品時期→③行政区域 の階層表示（作業台を見やすく） =====
   if(!state.grpOpen)state.grpOpen={};
-  var _gopen=function(k){return (k in state.grpOpen)?!!state.grpOpen[k]:_grpDefOpen(k);};
+  var _gopen=function(k){if(_gFilter)return true;return (k in state.grpOpen)?!!state.grpOpen[k]:_grpDefOpen(k);};
   var _lcnt=function(ls){var o=0,g=0,v=0,a=0;ls.forEach(function(l){l.items.forEach(function(it){a++;if(it.status==='ok')o++;else if(it.status==='ng')g++;if(it.viewed)v++;});});return '👁'+v+' ／ <span style="color:#3fb950">OK'+o+'</span>・<span style="color:#f85149">NG'+g+'</span> ／ 計'+a;};
   var _row=function(l){
     var okc=l.items.filter(function(it){return it.status==='ok';}).length;
@@ -367,8 +373,8 @@ function renderPanel(){
     if(l.items.length)r+='<div class="gacho-cnt" style="margin-left:26px">'+cnt+'</div>';
     return r;
   };
-  var _live=state.layers.filter(function(l){return !l.archived;});
-  var _arch=state.layers.filter(function(l){return l.archived;});
+  var _live=state.layers.filter(function(l){return !l.archived && (!_gFilter||(l.name||'').toLowerCase().indexOf(_gFilter.toLowerCase())>=0);});
+  var _arch=state.layers.filter(function(l){return l.archived && (!_gFilter||(l.name||'').toLowerCase().indexOf(_gFilter.toLowerCase())>=0);});
   var _tree={};
   _live.forEach(function(l){var mt=layerMeta(l);(_tree[mt.client]=_tree[mt.client]||{});(_tree[mt.client][mt.period]=_tree[mt.client][mt.period]||{});(_tree[mt.client][mt.period][mt.region]=_tree[mt.client][mt.period][mt.region]||[]).push(l);});
   Object.keys(_tree).sort().forEach(function(cli){
@@ -428,6 +434,9 @@ function bindPanel(){
   var bo=q('#gachoBulkOk');if(bo)bo.onclick=bulkViewedOk;
   var sn=q('#gachoShowNg');if(sn)sn.onclick=function(){state.showNg=!state.showNg;saveState();render();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
+  // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
+  var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
+  var srchc=q('#gachoSearchClr');if(srchc)srchc.onclick=function(){_gFilter='';renderPanel();try{renderLayerGroups();}catch(_){}};
   all('.gacho-eye[data-eye]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-eye'));if(l){l.visible=!l.visible;saveState();render();}};});
   all('.gacho-dot[data-dot]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-dot'));if(l){var i=PALETTE.indexOf(l.color);l.color=PALETTE[(i+1)%PALETTE.length];saveState();render();}};});
   all('.gacho-name[data-sel]').forEach(function(el){el.onclick=function(){setActive(el.getAttribute('data-sel'));};});
