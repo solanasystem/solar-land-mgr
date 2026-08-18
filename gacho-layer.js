@@ -356,7 +356,9 @@ function renderPanel(){
   // ===== ①クライアント→②納品時期→③行政区域 の階層表示（作業台を見やすく） =====
   if(!state.grpOpen)state.grpOpen={};
   var _gopen=function(k){if(_gFilter)return true;return (k in state.grpOpen)?!!state.grpOpen[k]:_grpDefOpen(k);};
-  var _lcnt=function(ls){var o=0,g=0,v=0,a=0;ls.forEach(function(l){l.items.forEach(function(it){a++;if(it.status==='ok')o++;else if(it.status==='ng')g++;if(it.viewed)v++;});});return '👁'+v+' ／ <span style="color:#3fb950">OK'+o+'</span>・<span style="color:#f85149">NG'+g+'</span> ／ 計'+a;};
+  // ★v20260818i(栗本さん:御所218は非表示なのに数えられていた): グループ小計も「表示中(👁ON)の画層」だけを数える。
+  //   非表示にした層はこの小計からも外れる=グランド合計と一致。非表示層数は併記。
+  var _lcnt=function(ls){var o=0,g=0,v=0,a=0,hid=0;ls.forEach(function(l){if(!l.visible){hid++;return;}l.items.forEach(function(it){a++;if(it.status==='ok')o++;else if(it.status==='ng')g++;if(it.viewed)v++;});});return '👁'+v+' ／ <span style="color:#3fb950">OK'+o+'</span>・<span style="color:#f85149">NG'+g+'</span> ／ 計'+a+(hid?'<span style="color:#8b949e;font-weight:400"> （非表示'+hid+'層は除外）</span>':'');};
   var _row=function(l){
     var okc=l.items.filter(function(it){return it.status==='ok';}).length;
     var ngc=l.items.filter(function(it){return it.status==='ng';}).length;
