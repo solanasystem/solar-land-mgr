@@ -8,4 +8,4 @@
  *   制限すること（制限済みなら公開でも第三者は使えない＝安全）。
  * ・Googleマップは目視専用（規約でAI学習への投入は禁止）。取得画像は表示のみ・保存/学習に回さない。
  */
-window.GMAP_STATIC_KEY = '';
+window.GMAP_STATIC_KEY = 'AIzaSyBeaUUnZ4kyCFUp31Ys4jgf0Gotd6Vt7A8';
