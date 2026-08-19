@@ -274,7 +274,7 @@ function _gmKey(){return (typeof window!=='undefined'&&window.GMAP_STATIC_KEY)||
 function _gmStaticUrl(lat,lng){
   var k=_gmKey();if(!k)return '';
   return 'https://maps.googleapis.com/maps/api/staticmap?center='+lat+','+lng
-    +'&zoom=19&size=300x300&scale=2&maptype=satellite&markers=color:red%7C'+lat+','+lng
+    +'&zoom=19&size=640x640&scale=2&maptype=satellite&markers=color:red%7C'+lat+','+lng
     +'&key='+encodeURIComponent(k);
 }
 function _gmEnsureCss(){
@@ -282,7 +282,7 @@ function _gmEnsureCss(){
   var s=document.createElement('style');s.id='gm-hover-css';
   s.textContent='.leaflet-tooltip.gm-hover-tt{padding:0;border:none;background:transparent;box-shadow:none;}'
     +'.leaflet-tooltip.gm-hover-tt:before{display:none;}'
-    +'.gm-hover img{display:block;width:200px;height:200px;object-fit:cover;border-radius:8px;border:2px solid #22c55e;box-shadow:0 6px 18px rgba(0,0,0,.55);background:#161b22;}'
+    +'.gm-hover img{display:block;width:340px;height:340px;object-fit:cover;border-radius:8px;border:2px solid #22c55e;box-shadow:0 6px 18px rgba(0,0,0,.55);background:#161b22;}'
     +'.gm-hover-cap{font-size:10px;color:#e6edf3;background:rgba(0,0,0,.72);border-radius:0 0 7px 7px;padding:2px 6px;text-align:center;}'
     +'.gm-hover-err{width:200px;padding:14px;font-size:11px;color:#f85149;background:#161b22;border:1px solid #f85149;border-radius:8px;text-align:center;}';
   document.head.appendChild(s);
