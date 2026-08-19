@@ -266,6 +266,41 @@ function applyBase0(){var m=getMap();if(!m)return;var panes=m.getPanes();Object.
 /* 面積ラベル: ズームを引いた時(z<15)や手動OFF時はまとめて非表示にして地図を邪魔しない */
 function updateAreaLabels(){var m=getMap();if(!m)return;var hide=(!state.showArea)||(m.getZoom()<15);try{m.getContainer().classList.toggle('gacho-noarea',hide);}catch(_){}}
 
+/* ===== v20260819b (ドクター①): フラグにホバー→その場に最新衛星(Google Static Maps)画像 =====
+   目視での緑→赤除外を高速化。window.GMAP_STATIC_KEY(gmap-config.js)が未設定なら完全にno-op(既存挙動不変)。
+   ※Googleマップは目視専用(規約でAI学習投入禁止)。取得画像は表示のみ・保存/学習に回さない。
+   ※画像はホバー時に遅延読込→ブラウザキャッシュで2回目以降は即時。先読み(zero-wait)は費用計測後に追加予定。 */
+function _gmKey(){return (typeof window!=='undefined'&&window.GMAP_STATIC_KEY)||'';}
+function _gmStaticUrl(lat,lng){
+  var k=_gmKey();if(!k)return '';
+  return 'https://maps.googleapis.com/maps/api/staticmap?center='+lat+','+lng
+    +'&zoom=19&size=300x300&scale=2&maptype=satellite&markers=color:red%7C'+lat+','+lng
+    +'&key='+encodeURIComponent(k);
+}
+function _gmEnsureCss(){
+  if(typeof document==='undefined'||document.getElementById('gm-hover-css'))return;
+  var s=document.createElement('style');s.id='gm-hover-css';
+  s.textContent='.leaflet-tooltip.gm-hover-tt{padding:0;border:none;background:transparent;box-shadow:none;}'
+    +'.leaflet-tooltip.gm-hover-tt:before{display:none;}'
+    +'.gm-hover img{display:block;width:200px;height:200px;object-fit:cover;border-radius:8px;border:2px solid #22c55e;box-shadow:0 6px 18px rgba(0,0,0,.55);background:#161b22;}'
+    +'.gm-hover-cap{font-size:10px;color:#e6edf3;background:rgba(0,0,0,.72);border-radius:0 0 7px 7px;padding:2px 6px;text-align:center;}'
+    +'.gm-hover-err{width:200px;padding:14px;font-size:11px;color:#f85149;background:#161b22;border:1px solid #f85149;border-radius:8px;text-align:center;}';
+  document.head.appendChild(s);
+}
+function _gmHoverBind(layer,lat,lng){
+  if(!_gmKey()||lat==null||lng==null)return; // キー未設定 or 座標無し=OFF
+  _gmEnsureCss();
+  var url=_gmStaticUrl(lat,lng);if(!url)return;
+  layer.bindTooltip(function(){
+    var d=document.createElement('div');d.className='gm-hover';
+    var img=document.createElement('img');img.alt='latest satellite';
+    img.onerror=function(){d.innerHTML='<div class="gm-hover-err">画像取得不可（キー/リファラー制限/割当を確認）</div>';};
+    img.src=url;
+    var cap=document.createElement('div');cap.className='gm-hover-cap';cap.textContent='🛰 最新衛星(Google)・目視専用';
+    d.appendChild(img);d.appendChild(cap);return d;
+  },{direction:'top',sticky:true,opacity:1,className:'gm-hover-tt',offset:[0,-4]});
+}
+
 function renderLayerGroups(){
   var m=getMap();if(!m)return;ensurePane(m);
   Object.keys(_groups).forEach(function(id){try{m.removeLayer(_groups[id]);}catch(_){}delete _groups[id];});
@@ -295,6 +330,7 @@ function renderLayerGroups(){
       }else{
         var _sty=it.status==='ng'?{radius:5,color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.3}:(it.status==='ok'?{radius:7,color:'#3fb950',weight:3,fillColor:l.color,fillOpacity:0.95}:{radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95});
         var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
+        _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(キー無ければno-op)
         mk.bindPopup('<div style="font-size:12px;min-width:140px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+acts+'</div>');
         mk.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{mk.setRadius(5);mk.setStyle({color:'#9aa4ae',weight:1,fillOpacity:0.35});}catch(_){}saveState();renderPanel();}});
         g.addLayer(mk);
