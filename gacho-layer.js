@@ -348,7 +348,7 @@ function renderLayerGroups(){
         var _sty=it.status==='ng'?{radius:5,color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.3}:(it.status==='ok'?{radius:7,color:'#3fb950',weight:3,fillColor:l.color,fillOpacity:0.95}:{radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95});
         var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
         if(it.status!=='ng') _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(NG済は除外=課金しない・キー無ければno-op)
-        mk.bindPopup('<div style="font-size:12px;min-width:140px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+acts+'</div>');
+        mk.bindPopup('<div style="font-size:12px;min-width:250px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+(it.src==='aiKI'?(_whyHtml(it)+_scoreCardHtml(l,it)):acts)+'</div>');
         mk.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{mk.setRadius(5);mk.setStyle({color:'#9aa4ae',weight:1,fillOpacity:0.35});}catch(_){}saveState();renderPanel();}});
         g.addLayer(mk);
       }
@@ -554,7 +554,7 @@ async function loadDbJudgments(){
     var frm=0;
     while(true){ var r=await d.from('ai_ok_labels').select('member_fids').eq('source','gacho_ok').range(frm,frm+999); var rows=(r&&r.data)||[]; rows.forEach(function(x){(x.member_fids||[]).forEach(function(f){_gDbOk[f]=1;});}); if(rows.length<1000)break; frm+=1000; }
     frm=0;
-    while(true){ var r2=await d.from('farmland_ng_list').select('feature_id').eq('ng_reason','gacho_ng').range(frm,frm+999); var rows2=(r2&&r2.data)||[]; rows2.forEach(function(x){_gDbNg[x.feature_id]=1;}); if(rows2.length<1000)break; frm+=1000; }
+    while(true){ var r2=await d.from('farmland_ng_list').select('feature_id').like('ng_reason','gacho_ng%').range(frm,frm+999); var rows2=(r2&&r2.data)||[]; rows2.forEach(function(x){_gDbNg[x.feature_id]=1;}); if(rows2.length<1000)break; frm+=1000; }
     _applyDbStatusToItems();
   }catch(e){}
 }
@@ -564,15 +564,67 @@ function _persistJudgment(fid,lat,lng,status){
   try{
     if(status==='ok'){ _gDbOk[fid]=1; delete _gDbNg[fid];
       d.from('ai_ok_labels').insert({source:'gacho_ok',member_fids:[fid],lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),memo:'gacho手動OK'}).then(function(){},function(){});
-      d.from('farmland_ng_list').delete().eq('feature_id',fid).eq('ng_reason','gacho_ng').then(function(){},function(){});
+      d.from('farmland_ng_list').delete().eq('feature_id',fid).like('ng_reason','gacho_ng%').then(function(){},function(){});
     } else if(status==='ng'){ _gDbNg[fid]=1; delete _gDbOk[fid];
       d.from('farmland_ng_list').upsert({feature_id:fid,lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),ng_reason:'gacho_ng'},{onConflict:'feature_id'}).then(function(){},function(){});
       d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
     } else { delete _gDbOk[fid]; delete _gDbNg[fid];
       d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
-      d.from('farmland_ng_list').delete().eq('feature_id',fid).eq('ng_reason','gacho_ng').then(function(){},function(){});
+      d.from('farmland_ng_list').delete().eq('feature_id',fid).like('ng_reason','gacho_ng%').then(function(){},function(){});
     }
   }catch(e){}
+}
+/* ===== v20260819h (ドクター): 1筆ごとの8項目スコアカード(〇/△/✖)。✖が1つでも→除外(NG)。
+   構造化ラベルをそのまま学習へ: NG=farmland_ng_list.ng_reason='gacho_ng|コード', OK=ai_ok_labels.memo。
+   候補はゲート通過済なので#1-6,8は既定〇、現況#7は△(要目視)で初期化。 ===== */
+var GCRIT=[
+ {k:'c1',t:'農振・青地',o:'外',x:'掛かる'},
+ {k:'c2',t:'ハザード',o:'外',x:'掛かる'},
+ {k:'c3',t:'接道',o:'有',x:'無'},
+ {k:'c4',t:'電柱・連系',o:'近い',x:'無い'},
+ {k:'c5',t:'日射・遮蔽',o:'良',x:'不良'},
+ {k:'c6',t:'面積≥800',o:'≥800',x:'不足'},
+ {k:'c7',t:'現況',o:'耕作放棄地',x:'建物/耕作/資材/太陽光'},
+ {k:'c8',t:'地目・都計',o:'区域外/可',x:'不可'}
+];
+var GC7SUB=['既存太陽光','建物','耕作中','資材置場等','その他'];
+function _defScore(it){return {c1:'o',c2:'o',c3:'o',c4:'o',c5:'o',c6:((it.area!=null&&it.area<800)?'x':'o'),c7:'t',c8:'o'};}
+function _score(it){if(!it.score)it.score=_defScore(it);return it.score;}
+function _hasX(s){for(var k in s){if(s[k]==='x')return true;}return false;}
+function _scoreCodes(it,s){var codes=[];for(var i=0;i<GCRIT.length;i++){if(s[GCRIT[i].k]==='x')codes.push(GCRIT[i].k);}var ex=(it.ngsub&&it.ngsub.length)?('['+it.ngsub.join('/')+']'):'';return codes.join(',')+(ex?(' '+ex):'');}
+function _okPattern(s){return GCRIT.map(function(c){return c.k+':'+(s[c.k]||'t');}).join(',');}
+function _persistJudgmentScored(it,s){
+  var d=_gDb();if(!d||!it||!it.feature_id)return;var fid=it.feature_id,lat=it.lat,lng=it.lng;var ng=_hasX(s);
+  try{
+    if(ng){ _gDbNg[fid]=1; delete _gDbOk[fid];
+      d.from('farmland_ng_list').upsert({feature_id:fid,lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),ng_reason:('gacho_ng|'+_scoreCodes(it,s))},{onConflict:'feature_id'}).then(function(){},function(){});
+      d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
+    } else { _gDbOk[fid]=1; delete _gDbNg[fid];
+      d.from('ai_ok_labels').insert({source:'gacho_ok',member_fids:[fid],lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),memo:('gacho手動OK|'+_okPattern(s))}).then(function(){},function(){});
+      d.from('farmland_ng_list').delete().eq('feature_id',fid).like('ng_reason','gacho_ng%').then(function(){},function(){});
+    }
+  }catch(e){}
+}
+function _whyHtml(it){
+  var p=[];
+  if(it.area!=null)p.push('面積 '+Math.round(it.area).toLocaleString()+'㎡'+(it.area>=800?'(≥800)':'(<800!)'));
+  if(it.toshi)p.push('都計 '+esc(String(it.toshi)));
+  if(it.level)p.push('AI '+esc(String(it.level)));
+  if(it.reject!=null)p.push('耕作放棄の可能性(AI衛星判定) '+it.reject);
+  p.push('接道/連系/日射/農振外/ハザードCLEAR=各ゲート通過');
+  return '<div class="gsc-why"><b>なぜ候補か</b><br>'+p.join(' ／ ')+'</div>';
+}
+function _scoreCardHtml(l,it){
+  var s=_score(it),iid=(it.iid||'');
+  var rows=GCRIT.map(function(c){
+    var v=s[c.k]||'t';
+    function b(val,lab,col){var on=(v===val);return '<button onclick="window.__gacho.setCrit(\''+l.id+'\',\''+iid+'\',\''+c.k+'\',\''+val+'\',this)" class="gsc-b" style="'+(on?('background:'+col+';color:#0d1117;font-weight:700;'):'')+'" title="'+esc(val==='o'?c.o:(val==='x'?c.x:'△'))+'">'+lab+'</button>';}
+    var sub='';
+    if(c.k==='c7'){sub='<div class="gsc-sub" style="'+(v==='x'?'':'display:none;')+'">'+GC7SUB.map(function(t){var on=(it.ngsub&&it.ngsub.indexOf(t)>=0);return '<button onclick="window.__gacho.setSub(\''+l.id+'\',\''+iid+'\',\''+t+'\',this)" class="gsc-sb'+(on?' on':'')+'">'+esc(t)+'</button>';}).join('')+'</div>';}
+    return '<div class="gsc-row"><span class="gsc-t">'+esc(c.t)+'</span><span class="gsc-bs">'+b('o','〇','#3fb950')+b('t','△','#eab308')+b('x','✖','#f85149')+'</span></div>'+sub;
+  }).join('');
+  var vd='<div class="gsc-vd" id="gscvd_'+iid+'">'+(_hasX(s)?'<b style="color:#f85149">✖あり → 除外(NG)</b>':'<b style="color:#3fb950">✖なし → OK可</b>')+'</div>';
+  return '<div class="gsc">'+rows+vd+'<button class="gsc-fix" onclick="window.__gacho.applyScore(\''+l.id+'\',\''+iid+'\')">この判定を確定</button></div>';
 }
 window.__gacho={
   removeItem:function(lid,itemIid){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();setTimeout(function(){render();},0);},
@@ -595,6 +647,13 @@ window.__gacho={
   },
   review:function(lid,itemIid,val){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid)it.viewed=!!val;});saveState();render();},
   setStatus:function(lid,itemIid,val){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid){it.status=(it.status===val?null:val);it.viewed=true;_persistJudgment(it.feature_id,it.lat,it.lng,it.status);}});saveState();setTimeout(function(){render();},0);},
+  setCrit:function(lid,iid,ck,val,btn){var l=byId(lid);if(!l)return;var itr=null;l.items.forEach(function(it){if(it.iid===iid){itr=it;var s=_score(it);s[ck]=val;it.viewed=true;if(ck==='c7'&&val!=='x')it.ngsub=[];}});saveState();
+    try{var row=btn.parentNode;row.querySelectorAll('.gsc-b').forEach(function(bb){bb.style.background='';bb.style.color='';bb.style.fontWeight='';});var col=(val==='o'?'#3fb950':(val==='x'?'#f85149':'#eab308'));btn.style.background=col;btn.style.color='#0d1117';btn.style.fontWeight='700';
+      var wrap=row.parentNode;if(ck==='c7'){var sub=wrap.querySelector('.gsc-sub');if(sub)sub.style.display=(val==='x'?'':'none');}
+      if(itr){var vd=document.getElementById('gscvd_'+iid);if(vd)vd.innerHTML=(_hasX(_score(itr))?'<b style="color:#f85149">✖あり → 除外(NG)</b>':'<b style="color:#3fb950">✖なし → OK可</b>');}
+    }catch(_){}},
+  setSub:function(lid,iid,t,btn){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){it.ngsub=it.ngsub||[];var i=it.ngsub.indexOf(t);if(i>=0)it.ngsub.splice(i,1);else it.ngsub.push(t);}});saveState();try{btn.classList.toggle('on');}catch(_){}},
+  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;_persistJudgmentScored(it,s);}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   /* v20260812j: 画層名を指定して(無ければ作成)取込先にし、敷地境界の描画を開始。手動ピック等のポップアップの「✏️敷地境界を描く」から呼ぶ */
   drawInLayer:function(name,color){var l=state.layers.filter(function(x){return x.name===name;})[0];if(!l){l={id:uid(),name:name,color:color||'#ff1493',visible:true,active:false,items:[]};state.layers.push(l);}state.layers.forEach(function(x){x.active=(x.id===l.id);});var m=getMap();if(m)m.closePopup();saveState();render();if(!_drawMode)toggleDraw();},
@@ -676,7 +735,7 @@ window.__gacho={
       if(c.lat==null||c.lng==null)return;
       var fid=pfx+c.no;
       if(ex[fid])return;
-      l.items.push({iid:iid(),feature_id:fid,lat:Number(c.lat),lng:Number(c.lng),address:(c.addr||c.city||''),area:(c.area!=null?Number(c.area):null),chiban:c.chiban,src:'aiKI',status:null});
+      l.items.push({iid:iid(),feature_id:fid,lat:Number(c.lat),lng:Number(c.lng),address:(c.addr||c.city||''),area:(c.area!=null?Number(c.area):null),chiban:c.chiban,src:'aiKI',status:null,level:c.level,toshi:c.toshi,reject:c.reject});
       ex[fid]=1;added++;
     });
     // ★v20260818k: DB保存済みの判定(OK/NG)を、この画層の筆に復元適用(消えたOKを二度と消さない)。
@@ -688,6 +747,18 @@ window.__gacho={
 };
 
 function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=document.createElement('style');st.id='gachoStyle';st.textContent=''
++'.gsc{margin-top:8px;border-top:1px solid #30363d;padding-top:6px;}'
++'.gsc-why{font-size:11px;color:#9aa4ae;margin-bottom:6px;line-height:1.4;}'
++'.gsc-why b{color:#58a6ff;}'
++'.gsc-row{display:flex;align-items:center;justify-content:space-between;margin:2px 0;}'
++'.gsc-t{font-size:11px;color:#e6edf3;}'
++'.gsc-bs{display:flex;gap:3px;}'
++'.gsc-b{width:28px;border:1px solid #30363d;background:#21262d;color:#8b949e;border-radius:4px;cursor:pointer;font-size:13px;line-height:1.4;padding:1px 0;}'
++'.gsc-sub{display:flex;flex-wrap:wrap;gap:3px;margin:1px 0 5px 0;}'
++'.gsc-sb{border:1px solid #30363d;background:#21262d;color:#c9d1d9;border-radius:10px;cursor:pointer;font-size:10px;padding:1px 7px;}'
++'.gsc-sb.on{background:#f85149;color:#0d1117;border-color:#f85149;font-weight:700;}'
++'.gsc-vd{font-size:12px;margin:5px 0;text-align:center;}'
++'.gsc-fix{width:100%;background:#238636;border:1px solid #2ea043;color:#fff;border-radius:6px;padding:6px;cursor:pointer;font-size:12px;font-weight:700;}'
 +'.gacho-panel{position:fixed;right:12px;bottom:12px;width:300px;z-index:1200;background:rgba(13,17,23,.95);border:1px solid #30363d;border-radius:10px;color:#e6edf3;font-size:12px;box-shadow:0 6px 24px rgba(0,0,0,.45);}'
 +'.gacho-head{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid #30363d;font-weight:700;}'
 +'.gacho-min{background:none;border:none;color:#8b949e;cursor:pointer;font-size:15px;line-height:1;}'
