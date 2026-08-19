@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- BUILD: farmland-tracker-analysis v20260816v / 🌾農振農用地が実機で見えない件の【真因確定・根治】。診断HUDが「描画OK 19面 overlay(400)」を示し=描画はされていた。真因=私が作った画層(gacho)システムの applyBase0()(gacho-layer.js 265行)が「0画層｜既存すべて」OFF時に gachoPane等を除く全paneを display:none にし、農振の居る overlayPane を丸ごと非表示にしていた(個別レイヤー操作で変わらなかったのはこのため)。根治2点=①農振を専用pane 'noshinPane'(zIndex460=筆450より上・ピン610/候補640より下)へ描画 ②applyBase0の非表示除外に noshinPane を追加→base0 OFFでも農振は常時表示(栗本さん「常にon」運用)。診断HUDは確認用に残置(次版で撤去)。前:v20260816u -->
+<!-- BUILD: farmland-tracker-analysis v20260819f / ①ホバーの無駄課金対策(ドクター指摘): (1)ホバー静止0.5秒で初めて画像取得=通過/即NGクリックは課金しない (2)NG済フラグはホバー無効 (3)window.__gmLoadsに実取得回数を計上。前:v20260819e -->
 <!-- BUILD: farmland-tracker-analysis v20260819e / ①ホバー最新衛星をさらに拡大(表示340→460px)＋ズーム19→20(接近)。解像度は無料上限640x640@2x=1280px据置(2048は有料のみ)。前:v20260819d -->
 <!-- BUILD: farmland-tracker-analysis v20260819d / ①ホバー最新衛星画像を拡大(サイズ300→640x640@2x=実質1280px・表示200→340px・zoom19据置)。StaticMapsは1リクエスト課金でサイズ増は無料。前:v20260819c -->
 <!-- BUILD: farmland-tracker-analysis v20260819c / ①ホバー最新衛星のGoogle Static Mapsキーを投入(gmap-config.js・リファラー制限https://solanasystem.github.io/*)。ホバー機能を有効化。前:v20260819b -->
@@ -130,7 +131,7 @@
 /* ★キャッシュ制御(栗本さん依頼): ver.txtを常に取り直し、ページ埋込版BUILDと違えば自動で1回だけ最新へリロード。
    無限ループ防止=sessionStorageガード。これで毎回「?v=」を打たなくても、新版が出れば自動で最新を掴む。
    ※deploy毎に ver.txt と 下のBUILD を同じ版に更新すること。 */
-(function(){var BUILD='20260819e';try{fetch('ver.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();if(!t)return;if(t===BUILD){sessionStorage.removeItem('_glvr');return;}if(!sessionStorage.getItem('_glvr')){sessionStorage.setItem('_glvr','1');location.replace(location.pathname+'?_v='+encodeURIComponent(t));}}).catch(function(){});}catch(e){}})();
+(function(){var BUILD='20260819f';try{fetch('ver.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();if(!t)return;if(t===BUILD){sessionStorage.removeItem('_glvr');return;}if(!sessionStorage.getItem('_glvr')){sessionStorage.setItem('_glvr','1');location.replace(location.pathname+'?_v='+encodeURIComponent(t));}}).catch(function(){});}catch(e){}})();
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- ===== 権限管理ガード v1.0 (2026-05-10) - 必ず他スクリプトより前に配置 ===== -->
@@ -799,7 +800,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260819e 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260819f 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8363,7 +8364,7 @@ if(typeof map!=='undefined'&&map&&map.on){
 
 <!-- 画層システム(外部)＋AI候補ローダ。分析ページ=検証ステージ。本番は無関係。 -->
 <script src="gmap-config.js?v=20260819c"></script>
-<script src="gacho-layer.js?v=20260819e"></script>
+<script src="gacho-layer.js?v=20260819f"></script>
 <script src="ai_kuwana_inabe.js?v=20260816b"></script>
 <script>
 (function waitAIKI(){

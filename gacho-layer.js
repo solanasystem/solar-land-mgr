@@ -287,18 +287,35 @@ function _gmEnsureCss(){
     +'.gm-hover-err{width:200px;padding:14px;font-size:11px;color:#f85149;background:#161b22;border:1px solid #f85149;border-radius:8px;text-align:center;}';
   document.head.appendChild(s);
 }
+var _GM_HOVER_DELAY=500; // ホバー静止この時間(ms)で初めて画像取得。通過や即NGクリックでは取得しない=無駄課金防止(ドクター指摘)
+function _gmHoverEnabled(){return (typeof window==='undefined')||window.__gmHoverOn!==false;} // window.__gmHoverOn=falseで一括OFF
 function _gmHoverBind(layer,lat,lng){
   if(!_gmKey()||lat==null||lng==null)return; // キー未設定 or 座標無し=OFF
-  _gmEnsureCss();
   var url=_gmStaticUrl(lat,lng);if(!url)return;
-  layer.bindTooltip(function(){
-    var d=document.createElement('div');d.className='gm-hover';
-    var img=document.createElement('img');img.alt='latest satellite';
-    img.onerror=function(){d.innerHTML='<div class="gm-hover-err">画像取得不可（キー/リファラー制限/割当を確認）</div>';};
-    img.src=url;
-    var cap=document.createElement('div');cap.className='gm-hover-cap';cap.textContent='🛰 最新衛星(Google)・目視専用';
-    d.appendChild(img);d.appendChild(cap);return d;
-  },{direction:'top',sticky:true,opacity:1,className:'gm-hover-tt',offset:[0,-4]});
+  var timer=null;
+  layer.on('mouseover',function(){
+    if(!_gmHoverEnabled())return;
+    if(timer)clearTimeout(timer);
+    timer=setTimeout(function(){
+      timer=null;
+      _gmEnsureCss();
+      layer.bindTooltip(function(){
+        try{window.__gmLoads=(window.__gmLoads||0)+1;}catch(_){} // 実取得(課金)回数の目安。ブラウザキャッシュ再表示も加算=上限値
+        var d=document.createElement('div');d.className='gm-hover';
+        var img=document.createElement('img');img.alt='latest satellite';
+        img.onerror=function(){d.innerHTML='<div class="gm-hover-err">画像取得不可（キー/リファラー制限/割当を確認）</div>';};
+        img.src=url;
+        var cap=document.createElement('div');cap.className='gm-hover-cap';cap.textContent='🛰 最新衛星(Google)・目視専用';
+        d.appendChild(img);d.appendChild(cap);return d;
+      },{direction:'top',sticky:true,opacity:1,className:'gm-hover-tt',offset:[0,-4]});
+      try{layer.openTooltip();}catch(_){}
+    },_GM_HOVER_DELAY);
+  });
+  layer.on('mouseout',function(){
+    if(timer){clearTimeout(timer);timer=null;}
+    try{layer.closeTooltip();}catch(_){}
+    try{layer.unbindTooltip();}catch(_){} // 次回ホバーで再バインド(即開き防止・重複防止)
+  });
 }
 
 function renderLayerGroups(){
@@ -330,7 +347,7 @@ function renderLayerGroups(){
       }else{
         var _sty=it.status==='ng'?{radius:5,color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.3}:(it.status==='ok'?{radius:7,color:'#3fb950',weight:3,fillColor:l.color,fillOpacity:0.95}:{radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95});
         var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
-        _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(キー無ければno-op)
+        if(it.status!=='ng') _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(NG済は除外=課金しない・キー無ければno-op)
         mk.bindPopup('<div style="font-size:12px;min-width:140px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+acts+'</div>');
         mk.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{mk.setRadius(5);mk.setStyle({color:'#9aa4ae',weight:1,fillOpacity:0.35});}catch(_){}saveState();renderPanel();}});
         g.addLayer(mk);
