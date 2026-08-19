@@ -5,6 +5,7 @@
 <!-- BUILD: farmland-tracker v20260812j / 手動ピック(案件候補)を他フラグと同格に=ポップアップに✓OK/🚫NG(画層「手動ピック（判定）」へ計上=__ccJudge→judgeFeature)と✏️敷地境界を描く(__gacho.drawInLayerで同画層を取込先化し描画開始)を追加。記録/表示は既存。＋描画等の邪魔だった件を修正: 画層の描画/取込/範囲/記録モード中(window.__gachoMapMode)は地番ポップアップと手動ピック長押し確認モーダルを抑止。前:v20260812i -->
 <!-- BUILD: farmland-tracker v20260812i / 📍手動ピック記録を「確認モーダル→保存」から「1クリック=即DB記録(recordDirect)」に変更＋成功/失敗を画面トーストに明示(失敗時はDBエラー文言=RLS拒否等をそのまま表示)。診断: anonではcase_candidatesのSELECT0件/INSERT42501拒否を実測=表示は認証セッション依存。認証済みINSERT可否は要現場確認、不可ならcase_candidatesにINSERTポリシー追加が必要。前:v20260812h -->
 <!-- BUILD: farmland-tracker v20260812h / 🗂画層v2.9: 「📍地図クリックで新規地点追加」を栗本さん指示でローカル画層追加→正式な記録経路に変更。地図クリックで手動ピック（案件候補）としてcase_candidatesへDB記録(確認モーダル→保存→★案件マスター登録可)=既存PC長押し記録と同経路。CaseCandidatesRecorderにrecordAt(lat,lng)公開APIを追加(既存openConfirmModalを呼ぶだけ・ピンク本体不変)。recorder script ?v=20260812hにバンプ。可視バッジもhへ。前:v20260812g -->
+<!-- BUILD: farmland-tracker v20260819a / ⚡都市計画区域(XKT001)/用途地域(XKT002)の高速化(ドクター指摘)。_fetchXktThrottledにタイルキャッシュ(_xktTileCache)を追加。一度取得したタイル(z/x/y)は再取得せず、地図移動時は新規タイルのみ取得→パン/戻りズームが即描画。スロットル(同時4件・403再試行)は従来通り。挙動不変・追加のみ。可視バッジもv20260819aへ同期。前:v20260812g -->
 <!-- BUILD: farmland-tracker v20260812g / 画面右上の可視バッジ(BUILD:表示)が8/10c以降ずっと固定文字列で更新されておらず、実バージョンと乖離していた=栗本さんが更新確認に使えなかった。可視バッジを実ビルドに同期(v20260810c→v20260812g)。以後この行も版と一緒に必ず上げる。機能変更なし。前:v20260812f -->
 <!-- BUILD: farmland-tracker v20260812f / 🗂画層v2.8: 開拓候補フラグも直接OK/NG判定できるように=開拓候補ポップアップ(_candPopupHtml)に✓OK/🚫NG（画層に計上）を追加→window.__candJudgeがwindow.__gacho.judgeFeatureで画層「開拓候補（判定）」へfeature_idで積み/トグルし、パネルのOK/NG件数と全画層合計が即動く。既存の「⛔候補から除外(NG登録=DB書込)」とは別物(ローカル集計専用・DB非書込)と明記。前:v20260812e -->
 <!-- BUILD: farmland-tracker v20260812e / 🗂画層v2.7: 地図巡回中に見つけた場所を入れる手段を追加=「📍 地図をクリックして新規地点を追加」モード。既存の筆が無い場所でもクリックした座標を取込先画層へ新規地点(feature_id=null,src=手動追加)として追加(連続可・ESCで終了)。取込先が無ければ「地図で発見（手動追加）」画層を自動作成。追加した点はそのままOK/NG判定・カウント・KML/GeoJSON書き出しに乗る。他モード(取込/範囲/描画)と排他。前:v20260812d -->
@@ -783,7 +784,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー</span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260818a</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260819a</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -3575,22 +3576,33 @@ function showDebug(msg){var el=document.getElementById('debugPanel');if(!el){el=
 var URBAN_API_BASE = WORKER_BASE + '/api';
 // ★v20260818(栗本さん:用途地域/都市計画区域フィルタが動かない): 原因=表示範囲の全タイルをPromise.allで一斉取得し
 //   reinfolibワーカーがレート制限(403)で大半を弾く→描画されなかった。対策=同時4件ずつ＋403/429は指数バックオフで再試行。
+// v20260819a (ドクター:都市計画区域が非常に遅い): タイルキャッシュを追加。
+//   一度取得したタイル(z/x/y)は _xktTileCache に保持し再取得しない→地図移動時は"新しく画面に入ったタイルだけ"取得。
+//   スロットル(同時4件・403/429指数バックオフ)は従来通り。追加のみ・挙動不変・戻し容易。
+var _xktTileCache = {};   // key: layerCode+'/'+z+'/'+x+'/'+y -> features配列(空配列=取得済み・無データ)
 async function _fetchXktThrottled(tiles, layerCode){
-  var out=[], idx=0, CONC=4;
+  var out=[], need=[], i;
+  for(i=0;i<tiles.length;i++){
+    var t=tiles[i], ck=layerCode+'/'+t.z+'/'+t.x+'/'+t.y, c=_xktTileCache[ck];
+    if(c){ if(c.length) out.push.apply(out,c); } else need.push(t);
+  }
+  var idx=0, CONC=4;
   async function w(){
-    while(idx<tiles.length){
-      var t=tiles[idx++];
+    while(idx<need.length){
+      var t=need[idx++], ck=layerCode+'/'+t.z+'/'+t.x+'/'+t.y, got=null;
       for(var a=0;a<4;a++){
         try{
           var res=await fetch(URBAN_API_BASE+"/"+layerCode+"?response_format=geojson&z="+t.z+"&x="+t.x+"&y="+t.y);
-          if(res.ok){var d=await res.json(); if(d&&d.features)out.push.apply(out,d.features); break;}
+          if(res.ok){var d=await res.json(); got=(d&&d.features)?d.features:[]; break;}
           if(res.status===403||res.status===429){await new Promise(function(r){setTimeout(r,250*(a+1));}); continue;}
           break;
         }catch(e){await new Promise(function(r){setTimeout(r,250*(a+1));});}
       }
+      if(got!==null){ _xktTileCache[ck]=got; if(got.length) out.push.apply(out,got); }
+      // got===null(全リトライ失敗)はキャッシュしない=次回再試行
     }
   }
-  var ws=[]; for(var i=0;i<Math.min(CONC,tiles.length);i++)ws.push(w());
+  var ws=[]; for(i=0;i<Math.min(CONC,need.length);i++)ws.push(w());
   await Promise.all(ws);
   return out;
 }

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- BUILD: farmland-tracker-analysis v20260816v / 🌾農振農用地が実機で見えない件の【真因確定・根治】。診断HUDが「描画OK 19面 overlay(400)」を示し=描画はされていた。真因=私が作った画層(gacho)システムの applyBase0()(gacho-layer.js 265行)が「0画層｜既存すべて」OFF時に gachoPane等を除く全paneを display:none にし、農振の居る overlayPane を丸ごと非表示にしていた(個別レイヤー操作で変わらなかったのはこのため)。根治2点=①農振を専用pane 'noshinPane'(zIndex460=筆450より上・ピン610/候補640より下)へ描画 ②applyBase0の非表示除外に noshinPane を追加→base0 OFFでも農振は常時表示(栗本さん「常にon」運用)。診断HUDは確認用に残置(次版で撤去)。前:v20260816u -->
+<!-- BUILD: farmland-tracker-analysis v20260819a / ⚡都市計画区域(XKT001)/用途地域(XKT002)が非常に遅い件の是正(ドクター指摘)。従来のPromise.all一斉fetch(キャッシュ無し)を、タイルキャッシュ+スロットル(_fetchXktThrottled)に置換。一度取得したタイル(z/x/y)は_xktTileCacheに保持し再取得しない=地図移動時は新規タイルのみ取得→パン/戻りズームが即描画。スロットル化で403取りこぼしの欠けも解消。描画/判定ロジックは不変。前:v20260816w -->
 <!-- BUILD: farmland-tracker-analysis v20260816w / 🌾農振農用地の可視化を確認できたので診断HUDを撤去(#noshinDiag/_noshinDiag/try-catch削除)。根治(noshinPane z460描画＋gacho applyBase0除外)は残置。農振は「0画層」OFFでも常時表示。前:v20260816v(診断)/v20260816v根治 -->
 <!-- BUILD: farmland-tracker-analysis v20260816u / 🔬診断ビルド。農振農用地が実機で描画されない(データも座標も面が実在するのに出ない=隔離テストで描画コードは正常と実証・被り消しても出ない=B2描画未起動)件の原因特定用。_renderNoshinInViewに画面HUD診断(#noshinDiag左下)とtry/catchを追加し、どの段階(ボタンOFF/ズーム不足/画面内0面/例外)で止まるかを日本語表示。原因特定後に撤去予定。前:v20260816t -->
 <!-- BUILD: farmland-tracker-analysis v20260816t / 🌾農振農用地が全域(愛知含む)で出ない件の【真因】=R2ワーカー(reinfolib-proxy.../r2/noshin_*.geojson)がAccess-Control-Allow-Originを返さずCORSでブラウザfetch全ブロック(コンソール実証)。同一オリジンのdata/noshin/配信(三重/岐阜/静岡/滋賀/長野/栃木/群馬/埼玉/千葉)は出ていた。稼働テリトリー4県(愛知/兵庫/奈良/福岡)のnoshinをサーバー側DL→data/noshin/へ同梱し参照先を同一オリジンに差替=CORS回避で表示復活。残り約27県のR2依存はワーカーにCORSヘッダ追加が恒久解(380MBの同梱回避)。前:v20260816s -->
@@ -125,7 +126,7 @@
 /* ★キャッシュ制御(栗本さん依頼): ver.txtを常に取り直し、ページ埋込版BUILDと違えば自動で1回だけ最新へリロード。
    無限ループ防止=sessionStorageガード。これで毎回「?v=」を打たなくても、新版が出れば自動で最新を掴む。
    ※deploy毎に ver.txt と 下のBUILD を同じ版に更新すること。 */
-(function(){var BUILD='20260818m';try{fetch('ver.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();if(!t)return;if(t===BUILD){sessionStorage.removeItem('_glvr');return;}if(!sessionStorage.getItem('_glvr')){sessionStorage.setItem('_glvr','1');location.replace(location.pathname+'?_v='+encodeURIComponent(t));}}).catch(function(){});}catch(e){}})();
+(function(){var BUILD='20260819a';try{fetch('ver.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();if(!t)return;if(t===BUILD){sessionStorage.removeItem('_glvr');return;}if(!sessionStorage.getItem('_glvr')){sessionStorage.setItem('_glvr','1');location.replace(location.pathname+'?_v='+encodeURIComponent(t));}}).catch(function(){});}catch(e){}})();
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- ===== 権限管理ガード v1.0 (2026-05-10) - 必ず他スクリプトより前に配置 ===== -->
@@ -794,7 +795,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260818m 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260819a 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -3599,6 +3600,38 @@ function showDebug(msg){var el=document.getElementById('debugPanel');if(!el){el=
 // ======== 都市計画情報（用途地域 XKT002） ========
 var URBAN_API_BASE = WORKER_BASE + '/api';
 
+// v20260819a (ドクター:都市計画区域/用途地域が非常に遅い): XKTタイルをキャッシュ＋スロットル取得。
+//   一度取得したタイル(z/x/y)は _xktTileCache に保持し再取得しない→地図移動時は"新しく画面に入ったタイルだけ"取得。
+//   同時4件・403/429は指数バックオフ再試行(本体 farmland-tracker.html と同ロジックに統一)。
+//   従来の Promise.all 一斉fetch(キャッシュ無し)を置換。挙動(描画/判定)は不変・追加のみ・戻し容易。
+var _xktTileCache = {};   // key: layerCode+'/'+z+'/'+x+'/'+y -> features配列(空配列=取得済み・無データ)
+async function _fetchXktThrottled(tiles, layerCode){
+  var out=[], need=[], i;
+  for(i=0;i<tiles.length;i++){
+    var t=tiles[i], ck=layerCode+'/'+t.z+'/'+t.x+'/'+t.y, c=_xktTileCache[ck];
+    if(c){ if(c.length) out.push.apply(out,c); } else need.push(t);
+  }
+  var idx=0, CONC=4;
+  async function w(){
+    while(idx<need.length){
+      var t=need[idx++], ck=layerCode+'/'+t.z+'/'+t.x+'/'+t.y, got=null;
+      for(var a=0;a<4;a++){
+        try{
+          var res=await fetch(URBAN_API_BASE+"/"+layerCode+"?response_format=geojson&z="+t.z+"&x="+t.x+"&y="+t.y);
+          if(res.ok){var d=await res.json(); got=(d&&d.features)?d.features:[]; break;}
+          if(res.status===403||res.status===429){await new Promise(function(r){setTimeout(r,250*(a+1));}); continue;}
+          break;
+        }catch(e){await new Promise(function(r){setTimeout(r,250*(a+1));});}
+      }
+      if(got!==null){ _xktTileCache[ck]=got; if(got.length) out.push.apply(out,got); }
+      // got===null(全リトライ失敗)はキャッシュしない=次回再試行
+    }
+  }
+  var ws=[]; for(i=0;i<Math.min(CONC,need.length);i++)ws.push(w());
+  await Promise.all(ws);
+  return out;
+}
+
 var YOTO_COLOR = {
   '第一種低層住居専用地域':   '#FFC107',
   '第二種低層住居専用地域':   '#FF8F00',
@@ -3689,15 +3722,7 @@ async function _fetchAndRenderUrban() {
     return;
   }
 
-  var allFeatures = [];
-  await Promise.all(tiles.map(async ({ x, y, z }) => {
-    try {
-      var res = await fetch(URBAN_API_BASE + "/XKT002?response_format=geojson&z="+z+"&x="+x+"&y="+y);
-      if (!res.ok) return;
-      var data = await res.json();
-      if (data.features) allFeatures.push(...data.features);
-    } catch (e) { console.warn('urban fetch error', e); }
-  }));
+  var allFeatures = await _fetchXktThrottled(tiles, 'XKT002');
 
   if (!urbanEnabled) return;
   if (urbanLayer) { map.removeLayer(urbanLayer); urbanLayer = null; }
@@ -3833,15 +3858,7 @@ async function _fetchAndRenderCityPlan() {
     return;
   }
 
-  const allFeatures = [];
-  await Promise.all(tiles.map(async ({ x, y, z }) => {
-    try {
-      const res = await fetch(`${URBAN_API_BASE}/XKT001?response_format=geojson&z=${z}&x=${x}&y=${y}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.features) allFeatures.push(...data.features);
-    } catch (e) { console.warn('cityplan fetch error', e); }
-  }));
+  const allFeatures = await _fetchXktThrottled(tiles, 'XKT001');
 
   if (!cityPlanEnabled) return;
   if (cityPlanLayer) { map.removeLayer(cityPlanLayer); cityPlanLayer = null; }
