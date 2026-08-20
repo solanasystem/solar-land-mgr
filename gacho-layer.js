@@ -289,31 +289,37 @@ function _gmEnsureCss(){
   document.head.appendChild(s);
 }
 function _gmHideFloat(){var e=document.getElementById('gmFloatBox');if(e&&e.parentNode)e.parentNode.removeChild(e);}
+var _GM_HOVER_DELAY=500; // 乗せてこの時間(ms)静止で表示。素早い通過では取得しない=無駄課金防止(ドクター)。float方式は発火が確実なので遅延が正しく効く。
 function _gmHoverBind(layer,lat,lng){
   if(!_gmKey()||lat==null||lng==null)return; // キー未設定 or 座標無し=OFF
   var url=_gmStaticUrl(lat,lng);if(!url)return;
   _gmEnsureCss();
-  // v20260820e: Leaflet tooltip方式(canvas描画マーカーで表示に至らない)を廃止し、mouseoverで画像divを
-  //   地図コンテナに直接重ねる自前方式へ。クリックが効く=mouseover/mouseoutは発火しているので確実に出る。
-  //   画像はmouseover時に取得=乗せた時だけ・2回目以降キャッシュ・NG済は除外・無料枠内で実質無料。
+  // v20260820f: Leaflet tooltipを廃した自前div方式(v20260820e)に、0.5秒の静止遅延を復帰。
+  //   前回0.5秒が出なかったのはtooltip openTooltipの不具合でタイマー自体は正常→float方式なら遅延後に確実表示。
+  //   =素早い通過は取得せず(課金しない)、フラグで0.5秒止めた時だけ表示。2回目以降キャッシュ・NG済は除外。
+  var timer=null;
   layer.on('mouseover',function(){
-    var m=getMap();if(!m)return;
-    _gmHideFloat();
-    var cp; try{cp=m.latLngToContainerPoint([lat,lng]);}catch(_){return;}
-    var C=m.getContainer(), W=C.clientWidth;
-    var box=document.createElement('div');box.id='gmFloatBox';box.className='gm-hover gm-float';
-    var left=cp.x+14; if(left+220>W)left=cp.x-234; if(left<6)left=6;
-    var top=cp.y-210; if(top<6)top=cp.y+16;
-    box.style.left=left+'px';box.style.top=top+'px';
-    var img=document.createElement('img');img.alt='latest satellite';
-    img.onerror=function(){box.innerHTML='<div class="gm-hover-err">画像取得不可（キー/リファラー制限/割当を確認）</div>';};
-    img.src=url;
-    var cap=document.createElement('div');cap.className='gm-hover-cap';cap.textContent='🛰 最新衛星(Google)・目視専用';
-    box.appendChild(img);box.appendChild(cap);
-    C.appendChild(box);
-    try{window.__gmLoads=(window.__gmLoads||0)+1;}catch(_){} // 実取得(課金)回数の目安
+    if(timer)clearTimeout(timer);
+    timer=setTimeout(function(){
+      timer=null;
+      var m=getMap();if(!m)return;
+      _gmHideFloat();
+      var cp; try{cp=m.latLngToContainerPoint([lat,lng]);}catch(_){return;}
+      var C=m.getContainer(), W=C.clientWidth;
+      var box=document.createElement('div');box.id='gmFloatBox';box.className='gm-hover gm-float';
+      var left=cp.x+14; if(left+220>W)left=cp.x-234; if(left<6)left=6;
+      var top=cp.y-210; if(top<6)top=cp.y+16;
+      box.style.left=left+'px';box.style.top=top+'px';
+      var img=document.createElement('img');img.alt='latest satellite';
+      img.onerror=function(){box.innerHTML='<div class="gm-hover-err">画像取得不可（キー/リファラー制限/割当を確認）</div>';};
+      img.src=url;
+      var cap=document.createElement('div');cap.className='gm-hover-cap';cap.textContent='🛰 最新衛星(Google)・目視専用';
+      box.appendChild(img);box.appendChild(cap);
+      C.appendChild(box);
+      try{window.__gmLoads=(window.__gmLoads||0)+1;}catch(_){} // 実取得(課金)回数の目安
+    },_GM_HOVER_DELAY);
   });
-  layer.on('mouseout',_gmHideFloat);
+  layer.on('mouseout',function(){ if(timer){clearTimeout(timer);timer=null;} _gmHideFloat(); });
 }
 
 function renderLayerGroups(){
