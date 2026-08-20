@@ -1934,10 +1934,12 @@ function loadFude() {
 }
 
 async function loadData() {
-  const { data: cases } = await db.from('cases').select('id, case_no, display_case_no, kubun, status, area_name');
-  const { data: lands } = await db.from('land_info').select('*');
-  const { data: surveys } = await db.from('field_survey_status').select('*');
-  const { data: landowners } = await db.from('landowner_info').select('id, case_id, name');
+  // v20260820: Supabase既定1000行上限で案件が欠落(九州フラグが出ない/232件しか出ない)を根治。全件ページング取得(ORDER BY必須=取りこぼし防止)。
+  async function _all(build){var a=[],f=0,s=1000;while(true){var r=await build().range(f,f+s-1);if(r.error)return{data:a,error:r.error};var rows=r.data||[];a=a.concat(rows);if(rows.length<s)break;f+=s;}return{data:a,error:null};}
+  const { data: cases } = await _all(()=>db.from('cases').select('id, case_no, display_case_no, kubun, status, area_name').order('id',{ascending:true}));
+  const { data: lands } = await _all(()=>db.from('land_info').select('*').order('id',{ascending:true}));
+  const { data: surveys } = await _all(()=>db.from('field_survey_status').select('*').order('id',{ascending:true}));
+  const { data: landowners } = await _all(()=>db.from('landowner_info').select('id, case_id, name').order('id',{ascending:true}));
   if (!cases) return;
   allCases = cases; allLands = lands || []; allSurveys = surveys || []; allLandowners = landowners || [];
   /* localStorageから調査計画を復元（電力会社別） */
