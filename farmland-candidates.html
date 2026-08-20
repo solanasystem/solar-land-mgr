@@ -43,10 +43,11 @@
 
 <!-- v20260623c: XKT001点照合バグ修正(全ポリゴン走査→最具体区分採用)。 -->
 <!-- v20260623d: 永続プレフィックスに trackB_ 追加。Track Bからの「✅案件候補へ」登録分が日付に依らず候補一覧に出現。 -->
-<title>開拓案件候補 | GRID LAND MGR v4.0 (v20260820c-全件安定)</title>
+<title>開拓案件候補 | GRID LAND MGR v4.0 (v20260820d-トラック分類)</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="city-pref-map.js?v=20260820a"></script>
+<script src="track-filter.js?v=20260820a"></script>
 <style>
 :root{--bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;--accent:#f0b429;--green:#3fb950;--red:#f85149;--orange:#ff8c00;--fuchsia:#c026d3;--text:#e6edf3;--text-muted:#8b949e;--font-main:'Zen Kaku Gothic New',sans-serif;--font-mono:'Share Tech Mono',monospace;}
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -198,6 +199,16 @@ th.col-action,td.col-action{width:240px;}
 </div>
 
 <div class="filter-bar">
+  <span class="filter-label">トラック</span>
+  <select class="filter-select" id="filterTrack">
+    <option value="active">活性（太陽光+蓄電池+その他）</option>
+    <option value="solar">☀太陽光（①〜⑧）</option>
+    <option value="battery">🔋低圧蓄電池</option>
+    <option value="battery_record">🔋調整区域（記録保持）</option>
+    <option value="other">📌その他（手ピック/売りたい/納品）</option>
+    <option value="reject">✖落ち</option>
+    <option value="all">すべて</option>
+  </select>
   <span class="filter-label">市区町村</span>
   <select class="filter-select" id="filterCity"><option value="">すべて</option></select>
   <span class="filter-label">意向</span>
@@ -278,7 +289,7 @@ window.addEventListener('storage',function(e){
 
 
 var farmlands=[];
-var filters={city:'',intent:'all',price:'all',status:'all',teiatsu:false};
+var filters={track:'active',city:'',intent:'all',price:'all',status:'all',teiatsu:false};
 var sortBy='city',sortDir='asc';
 
 function showToast(msg,type){
@@ -417,6 +428,14 @@ async function loadData(){
 
 function getFilteredSorted(){
   var list=farmlands.slice();
+  // トラック区分フィルタ(単一定義=track-filter.js)。active=太陽光+蓄電池+その他。調整区域(記録)/落ちは選択時のみ。
+  if(filters.track && filters.track!=='all' && typeof classifyTrack==='function'){
+    if(filters.track==='active'){
+      list=list.filter(function(f){var t=classifyTrack(f);return t==='solar'||t==='battery'||t==='other';});
+    }else{
+      list=list.filter(function(f){return classifyTrack(f)===filters.track;});
+    }
+  }
   if(filters.city)list=list.filter(function(f){return f.city===filters.city;});
   if(filters.intent==='sell')list=list.filter(function(f){return f.intent==='\u58f2\u308a\u305f\u3044';});
   else if(filters.intent==='rent')list=list.filter(function(f){return f.intent==='\u8cb8\u3057\u305f\u3044';});
@@ -590,7 +609,8 @@ function setSort(col){
 }
 
 function resetFilters(){
-  filters={city:'',intent:'all',price:'all',status:'all',teiatsu:false};
+  filters={track:'active',city:'',intent:'all',price:'all',status:'all',teiatsu:false};
+  var ft=document.getElementById('filterTrack'); if(ft)ft.value='active';
   document.getElementById('filterCity').value='';
   document.getElementById('filterIntent').value='all';
   document.getElementById('filterPrice').value='all';
@@ -653,6 +673,7 @@ async function saveComment(featureId,input){
 }
 
 // \u30d5\u30a3\u30eb\u30bf\u30fc\u30a4\u30d9\u30f3\u30c8
+document.getElementById('filterTrack').addEventListener('change',function(){filters.track=this.value;renderTable();});
 document.getElementById('filterCity').addEventListener('change',function(){filters.city=this.value;renderTable();});
 document.getElementById('filterIntent').addEventListener('change',function(){filters.intent=this.value;renderTable();});
 document.getElementById('filterPrice').addEventListener('change',function(){filters.price=this.value;renderTable();});
