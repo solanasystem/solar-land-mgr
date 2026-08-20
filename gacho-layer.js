@@ -307,8 +307,8 @@ function _gmHoverBind(layer,lat,lng){
         img.src=url;
         var cap=document.createElement('div');cap.className='gm-hover-cap';cap.textContent='🛰 最新衛星(Google)・目視専用';
         d.appendChild(img);d.appendChild(cap);return d;
-      },{direction:'top',sticky:true,opacity:1,className:'gm-hover-tt',offset:[0,-4]});
-      try{layer.openTooltip();}catch(_){}
+      },{direction:'top',sticky:false,opacity:1,className:'gm-hover-tt',offset:[0,-4]});
+      try{layer.openTooltip();}catch(_){} // sticky:false=マーカー上部に固定表示(静止openTooltipでも確実に出る。v20260819fのstickyはmousemove無しで非表示になる回帰)
     },_GM_HOVER_DELAY);
   });
   layer.on('mouseout',function(){
