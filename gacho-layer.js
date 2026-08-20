@@ -1,4 +1,5 @@
 /* 画層(レイヤー)システム。本番トラッカーのインラインIIFEを外部化(内容は同一)。分析ページ等で共有。 */
+/* v20260820m(ドクター): 判定済みフラグの見た目を変える。onReview(fid,marker)/reviewState(fid)公開API＋判定時(applyScore/setStatus/setCrit)にマーカーを減光＋色枠(OK緑/NG赤/閲覧灰破線)=一度見たか一目で判る。feature_id基準で再描画でも保持。 */
 /* v20260820j(ドクター): window.__gacho.satImgHtml(lat,lng)=ポップアップに最新衛星画像を直接埋め込むHTML(クリックで必ず出る=ホバー非依存)。農地ナビ等の全フラグで再利用。 */
 /* v20260820i(ドクター): 「📦 納品300を突合して削除」=SUNトラスト納品を座標突合(<50m)＋「○○｜納品」レイヤーを画層から完全削除。削除前にSW退避(localStorage復元キー＋JSON DL)＝DB無変更・「↩ 納品を戻す」で完全復元(purgeDelivered/restoreDelivered)。 */
 /* v20260820h(ドクター): (1)スコアカードに「✏️敷地境界を手描き→面積を増やす」(drawArea+_drawTarget=描いた面積を対象フラグ⑥へ反映/可視の敷地境界画層に残す)。
@@ -705,12 +706,33 @@ function _scoreCardHtml(l,it){
   var drawBtn='<button class="gsc-draw" onclick="window.__gacho.drawArea(\''+l.id+'\',\''+iid+'\')" title="小さい土地でも隣接を含め敷地境界を手描き→面積を再計算(⑥面積に反映)">✏️ 敷地境界を手描き→面積を増やす</button>';
   return _gmImgHtml(it)+'<div class="gsc">'+rows+vd+drawBtn+'<button class="gsc-fix" onclick="window.__gacho.applyScore(\''+l.id+'\',\''+iid+'\')">この判定を確定</button></div>';
 }
+/* ===== v20260820m(ドクター): 判定済み(OK/NG/閲覧)フラグの見た目を変える=一度見たか一目で判る =====
+   ページ側マーカー(開拓候補/公式放棄地/紫151/御所218)はfeature_idでonReview登録→判定時とマーカー再生成時に減光＋色枠。
+   OK=緑枠/NG=赤枠/閲覧のみ=灰破線、いずれも減光。未判定は元の明るい色のまま。 */
+var _reviewMarks={}; // fid -> Leafletマーカー
+function _reviewStateOf(fid){
+  if(!fid)return null;
+  for(var i=0;i<state.layers.length;i++){var its=state.layers[i].items;for(var j=0;j<its.length;j++){var it=its[j];if(it.feature_id===fid){if(it.status==='ok'||it.status==='ng')return it.status;if(it.viewed)return 'viewed';}}}
+  if(_gDbOk&&_gDbOk[fid])return 'ok';
+  if(_gDbNg&&_gDbNg[fid])return 'ng';
+  return null;
+}
+function _reviewStyle(st){
+  if(st==='ok')return {color:'#22c55e',weight:3,fillOpacity:0.30};
+  if(st==='ng')return {color:'#ef4444',weight:3,fillOpacity:0.22};
+  if(st==='viewed')return {color:'#c9d1d9',weight:2.5,fillOpacity:0.35,dashArray:'3,3'};
+  return null;
+}
+function _restyleMark(fid,st){var mk=_reviewMarks[fid];if(mk&&mk.setStyle){var s=_reviewStyle(st);if(s){try{mk.setStyle(s);}catch(_){}}}}
 window.__gacho={
   // v20260820g: 外部(分析ページ本体)のマーカーにも最新衛星ホバーを付けられる公開API。
   //   例) window.__gacho.hoverBind(mk, lat, lng)。農地ナビフラグ/過去AI候補に付けて手作業調査の武器にする。
   hoverBind:function(mk,lat,lng){try{_gmHoverBind(mk,lat,lng);}catch(_){}},
   // v20260820j(ドクター): ポップアップに最新衛星画像を直接埋め込むHTML(クリックで必ず出る=ホバー非依存)。キー未設定なら''。
   satImgHtml:function(lat,lng){try{return _gmImgHtml({lat:lat,lng:lng});}catch(_){return '';}},
+  // v20260820m(ドクター): ページ側フラグの判定済み見た目。onReview(fid,marker)で登録=判定時＋再描画時に減光/色枠。
+  reviewState:function(fid){return _reviewStateOf(fid);},
+  onReview:function(fid,marker){if(!fid||!marker)return;_reviewMarks[fid]=marker;var st=_reviewStateOf(fid);if(st)_restyleMark(fid,st);},
   removeItem:function(lid,itemIid){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();setTimeout(function(){render();},0);},
   /* v20260818c: 手動ピック等の画層から、判定関数isMatchに合致する項目(=納品済)を別画層dstNameへ移して退避(archived)。
      作業台の手動ピックには「今調査中の分だけ」を残し、旧納品分と連動して動かなくする。isMatch(item)→true=退避対象。返り値=移動件数。 */
@@ -730,14 +752,16 @@ window.__gacho={
     return moved.length;
   },
   review:function(lid,itemIid,val){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid)it.viewed=!!val;});saveState();render();},
-  setStatus:function(lid,itemIid,val){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid){it.status=(it.status===val?null:val);it.viewed=true;_persistJudgment(it.feature_id,it.lat,it.lng,it.status);}});saveState();setTimeout(function(){render();},0);},
+  setStatus:function(lid,itemIid,val){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid){it.status=(it.status===val?null:val);it.viewed=true;_persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed');}});saveState();setTimeout(function(){render();},0);},
   setCrit:function(lid,iid,ck,val,btn){var l=byId(lid);if(!l)return;var itr=null;l.items.forEach(function(it){if(it.iid===iid){itr=it;var s=_score(it);s[ck]=val;it.viewed=true;if(ck==='c7'&&val!=='x')it.ngsub=[];}});saveState();
     try{var row=btn.parentNode;row.querySelectorAll('.gsc-b').forEach(function(bb){bb.style.background='';bb.style.color='';bb.style.fontWeight='';});var col=(val==='o'?'#3fb950':(val==='x'?'#f85149':'#eab308'));btn.style.background=col;btn.style.color='#0d1117';btn.style.fontWeight='700';
       if(ck==='c7'){var sub=document.getElementById('gsub_'+iid);if(sub)sub.style.display=(val==='x'?'':'none');}
       if(itr){var vd=document.getElementById('gscvd_'+iid);if(vd)vd.innerHTML=(_hasX(_score(itr))?'<b style="color:#f85149">✖あり → 除外(NG)</b>':'<b style="color:#3fb950">✖なし → OK可</b>');}
-    }catch(_){}},
+    }catch(_){}
+    if(itr&&itr.feature_id&&itr.status!=='ok'&&itr.status!=='ng')_restyleMark(itr.feature_id,'viewed'); // v20260820m: 触った時点で「閲覧済み」表示(確定前でも一度見た印)
+  },
   setSub:function(lid,iid,t,btn){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){it.ngsub=it.ngsub||[];var i=it.ngsub.indexOf(t);if(i>=0)it.ngsub.splice(i,1);else it.ngsub.push(t);}});saveState();try{btn.classList.toggle('on');}catch(_){}},
-  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;_persistJudgmentScored(it,s);}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
+  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;_persistJudgmentScored(it,s);_restyleMark(it.feature_id,it.status);}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   /* v20260812j: 画層名を指定して(無ければ作成)取込先にし、敷地境界の描画を開始。手動ピック等のポップアップの「✏️敷地境界を描く」から呼ぶ */
   drawInLayer:function(name,color){var l=state.layers.filter(function(x){return x.name===name;})[0];if(!l){l={id:uid(),name:name,color:color||'#ff1493',visible:true,active:false,items:[]};state.layers.push(l);}state.layers.forEach(function(x){x.active=(x.id===l.id);});var m=getMap();if(m)m.closePopup();saveState();render();if(!_drawMode)toggleDraw();},
