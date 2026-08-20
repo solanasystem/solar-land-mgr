@@ -1,4 +1,6 @@
 /* 画層(レイヤー)システム。本番トラッカーのインラインIIFEを外部化(内容は同一)。分析ページ等で共有。 */
+/* v20260820h(ドクター): (1)スコアカードに「✏️敷地境界を手描き→面積を増やす」(drawArea+_drawTarget=描いた面積を対象フラグ⑥へ反映/可視の敷地境界画層に残す)。
+   (2)公開API flagScoreCard(fid,meta)=画層でないフラグ(開拓候補/公式放棄地)にも同じ8項目スコアカードを出す(既存ハンドラ再利用=単一定義)。noMapで二重描画防止。meta.seedで実ゲート状態を初期反映。 */
 (function(){
 'use strict';
 var LS_KEY='trackerGacho_v1';
@@ -8,6 +10,7 @@ var state=loadState();
 var _pane=null,_groups={},_rectMode=false,_rectStart=null,_rectLayer=null;
 var _drawMode=false,_drawPts=[],_drawTemp=null,_drawMarkers=[];
 var _pickMode=false;
+var _drawTarget=null; // v20260820h(ドクター): 手描き敷地境界→対象フラグの面積を更新(小さい土地を800㎡以上へ)。{lid,iid}
 var _addMode=false;
 
 function loadState(){
@@ -154,7 +157,11 @@ function toggleDraw(){
 function drawClick(e){var m=getMap();try{m.closePopup();}catch(_){}_drawPts.push([e.latlng.lat,e.latlng.lng]);var mk=L.circleMarker(e.latlng,{pane:'gachoPane',radius:4,color:'#fff',weight:1,fillColor:'#f59e0b',fillOpacity:1}).addTo(m);_drawMarkers.push(mk);redrawTemp();}
 function redrawTemp(){var m=getMap();if(_drawTemp){try{m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}if(_drawPts.length>=2){var ring=_drawPts.slice();if(_drawPts.length>=3)ring=ring.concat([_drawPts[0]]);_drawTemp=L.polyline(ring,{pane:'gachoPane',color:'#f59e0b',weight:2,dashArray:'5,5'}).addTo(m);}}
 function drawUndo(){var m=getMap();if(!_drawPts.length){toast('戻す頂点がありません');return;}_drawPts.pop();var mk=_drawMarkers.pop();if(mk&&m){try{m.removeLayer(mk);}catch(_){}}redrawTemp();toast('1つ戻しました（残り頂点'+_drawPts.length+'）');}
-function drawFinish(e){if(e){try{L.DomEvent.stop(e);}catch(_){}}if(_drawPts.length<3){toast('3点以上必要です');return;}var l=activeLayer();if(!l){cancelDraw();return;}var latlngs=_drawPts.slice();var area=polyArea(latlngs);var c=centroid(latlngs);l.items.push({iid:iid(),type:'boundary',latlngs:latlngs,area:area,lat:c[0],lng:c[1],address:'敷地境界'});saveState();cancelDraw();render();toast('敷地境界を「'+l.name+'」に追加（約'+Math.round(area).toLocaleString()+'㎡）');}
+function drawFinish(e){if(e){try{L.DomEvent.stop(e);}catch(_){}}if(_drawPts.length<3){toast('3点以上必要です');return;}var l=activeLayer();if(!l){cancelDraw();return;}var latlngs=_drawPts.slice();var area=polyArea(latlngs);var c=centroid(latlngs);l.items.push({iid:iid(),type:'boundary',latlngs:latlngs,area:area,lat:c[0],lng:c[1],address:'敷地境界'});
+  // v20260820h(ドクター): _drawTarget があれば、描いた面積を対象フラグ(候補)に反映=小さい土地を手描きで800㎡以上へ。⑥面積スコアも更新。
+  var tgt=_drawTarget;_drawTarget=null;var tmsg='';
+  if(tgt){var tl=byId(tgt.lid);if(tl){tl.items.forEach(function(it){if(it.iid===tgt.iid){it.area=area;it.handArea=area;it.handLatlngs=latlngs;var s=_score(it);s.c6=(area>=800?'o':'x');it.viewed=true;}});}tmsg='／ 対象フラグの面積を '+Math.round(area).toLocaleString()+'㎡ に更新(⑥面積'+(area>=800?'〇':'✖')+')';}
+  saveState();cancelDraw();render();toast('敷地境界を「'+l.name+'」に追加（約'+Math.round(area).toLocaleString()+'㎡）'+tmsg);}
 function cancelDraw(){var m=getMap();_drawMarkers.forEach(function(mk){try{if(m)m.removeLayer(mk);}catch(_){}});_drawMarkers=[];if(_drawTemp){try{if(m)m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}_drawPts=[];if(_pane)_pane.style.pointerEvents='';if(m){m.off('click',drawClick);m.off('dblclick',drawFinish);try{m.doubleClickZoom.enable();}catch(_){}m.getContainer().style.cursor='';}_drawMode=false;renderPanel();}
 
 function toggleRect(){var m=getMap();if(!m)return;_rectMode=!_rectMode;if(_rectMode){if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();try{m.dragging.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('mousedown',rectDown);toast('地図上をドラッグで囲むと、その範囲の筆・フラグを取り込みます（ESCで終了）');}else{cleanupRect();}renderPanel();}
@@ -332,6 +339,7 @@ function renderLayerGroups(){
     var show=l.visible&&(!state.solo||state.solo===l.id);if(!show)return;
     var g=L.layerGroup([],{pane:'gachoPane'});
     l.items.forEach(function(it){
+      if(it.noMap)return; // v20260820h: フラグ判定専用アイテム(既存レイヤーが地図描画)→gachoでは描かない=二重マーカー防止
       if(state.hideReviewed&&it.viewed)return;
       if(!state.showNg && it.status==='ng')return; // NG(除外)=削除＝地図から消す（既定）。「除外も表示」で戻せる
       var vd=!!it.viewed;
@@ -633,7 +641,8 @@ function _scoreCardHtml(l,it){
     return '<div class="gsc-row"><span class="gsc-t">'+esc(c.t)+'</span><span class="gsc-bs">'+b('o','〇','#3fb950')+b('t','△','#eab308')+b('x','✖','#f85149')+'</span></div>'+sub;
   }).join('');
   var vd='<div class="gsc-vd" id="gscvd_'+iid+'">'+(_hasX(s)?'<b style="color:#f85149">✖あり → 除外(NG)</b>':'<b style="color:#3fb950">✖なし → OK可</b>')+'</div>';
-  return _gmImgHtml(it)+'<div class="gsc">'+rows+vd+'<button class="gsc-fix" onclick="window.__gacho.applyScore(\''+l.id+'\',\''+iid+'\')">この判定を確定</button></div>';
+  var drawBtn='<button class="gsc-draw" onclick="window.__gacho.drawArea(\''+l.id+'\',\''+iid+'\')" title="小さい土地でも隣接を含め敷地境界を手描き→面積を再計算(⑥面積に反映)">✏️ 敷地境界を手描き→面積を増やす</button>';
+  return _gmImgHtml(it)+'<div class="gsc">'+rows+vd+drawBtn+'<button class="gsc-fix" onclick="window.__gacho.applyScore(\''+l.id+'\',\''+iid+'\')">この判定を確定</button></div>';
 }
 window.__gacho={
   // v20260820g: 外部(分析ページ本体)のマーカーにも最新衛星ホバーを付けられる公開API。
@@ -669,6 +678,37 @@ window.__gacho={
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   /* v20260812j: 画層名を指定して(無ければ作成)取込先にし、敷地境界の描画を開始。手動ピック等のポップアップの「✏️敷地境界を描く」から呼ぶ */
   drawInLayer:function(name,color){var l=state.layers.filter(function(x){return x.name===name;})[0];if(!l){l={id:uid(),name:name,color:color||'#ff1493',visible:true,active:false,items:[]};state.layers.push(l);}state.layers.forEach(function(x){x.active=(x.id===l.id);});var m=getMap();if(m)m.closePopup();saveState();render();if(!_drawMode)toggleDraw();},
+  /* v20260820h(ドクター): スコアカードの「✏️敷地境界を手描き→面積を増やす」。描いた面積を対象フラグ(lid,iid)へ反映(⑥面積)。
+     描画ポリゴンは可視の「敷地境界（実測）」画層に残す=SWルームへ書出可。小さい土地を隣接含め手描きで800㎡以上に。 */
+  drawArea:function(lid,iid){var m=getMap();if(m)m.closePopup();
+    _drawTarget={lid:lid,iid:iid};
+    var name='敷地境界（実測）';var bl=state.layers.filter(function(x){return x.name===name;})[0];
+    if(!bl){bl={id:uid(),name:name,color:'#f59e0b',visible:true,active:false,items:[]};state.layers.push(bl);}
+    bl.visible=true;state.layers.forEach(function(x){x.active=(x.id===bl.id);});
+    saveState();render();if(!_drawMode)toggleDraw();
+    toast('敷地境界を手描き: 頂点クリック→ダブルクリックで確定。面積が対象フラグ(⑥面積)へ反映されます');
+  },
+  /* v20260820h(ドクター): 開拓候補/公式放棄地など「画層でないフラグ」にも同じ8項目スコアカードを出す公開API。
+     feature_idで全画層横断→既存判定があれば再利用(一貫性)、無ければ判定専用アイテム(noMap=地図に二重描画しない/visible:false画層)を作る。
+     返り値=なぜ候補か+最新衛星+8項目+✏️手描き+この判定を確定 のHTML。setCrit/applyScore/drawArea は既存ハンドラをそのまま使う=単一定義。 */
+  flagScoreCard:function(fid,meta){
+    meta=meta||{};
+    var it=null,fl=null,created=false;
+    state.layers.forEach(function(x){x.items.forEach(function(y){if(!it&&y.feature_id===fid){it=y;fl=x;}});});
+    if(!it){
+      var lname=meta.layerName||'候補判定';
+      fl=state.layers.filter(function(x){return x.name===lname;})[0];
+      if(!fl){fl={id:uid(),name:lname,color:meta.color||'#0891b2',visible:false,active:false,items:[],judgeOnly:true};state.layers.push(fl);}
+      it={iid:iid(),feature_id:fid,noMap:true,src:meta.src||'flag',
+          lat:(meta.lat!=null?Number(meta.lat):null),lng:(meta.lng!=null?Number(meta.lng):null),
+          area:(meta.area!=null?Number(meta.area):null),address:meta.address||'',city:meta.city||'',
+          toshi:meta.toshi||'',level:meta.level||'',reject:(meta.reject!=null?meta.reject:null)};
+      fl.items.push(it);created=true;saveState();
+    }
+    var s=_score(it);
+    if(created&&meta.seed){for(var k in meta.seed){if(meta.seed[k])s[k]=meta.seed[k];}saveState();} // 実ゲート状態を初期反映(接道PENDING→△等)。再開時は手動編集を保持
+    return _whyHtml(it)+_scoreCardHtml(fl,it);
+  },
   moveItem:function(lid,itemIid){
     var l=byId(lid);if(!l)return;
     var others=state.layers.filter(function(x){return x.id!==lid;});
@@ -770,6 +810,7 @@ function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=do
 +'.gsc-sb{border:1px solid #30363d;background:#21262d;color:#c9d1d9;border-radius:10px;cursor:pointer;font-size:10px;padding:1px 7px;}'
 +'.gsc-sb.on{background:#f85149;color:#0d1117;border-color:#f85149;font-weight:700;}'
 +'.gsc-vd{font-size:12px;margin:5px 0;text-align:center;}'
++'.gsc-draw{width:100%;background:#3a2a06;border:1px solid #f59e0b;color:#fcd34d;border-radius:6px;padding:6px;cursor:pointer;font-size:11px;font-weight:700;margin-bottom:5px;}'
 +'.gsc-fix{width:100%;background:#238636;border:1px solid #2ea043;color:#fff;border-radius:6px;padding:6px;cursor:pointer;font-size:12px;font-weight:700;}'
 +'.gsc-img{margin:2px 0 6px 0;text-align:center;}'
 +'.gsc-img img{display:block;width:100%;height:190px;object-fit:cover;border-radius:8px;border:2px solid #22c55e;background:#161b22;}'
