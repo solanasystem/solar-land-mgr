@@ -1,4 +1,5 @@
 /* 画層(レイヤー)システム。本番トラッカーのインラインIIFEを外部化(内容は同一)。分析ページ等で共有。 */
+/* v20260820n(ドクター): レイヤー構造移行 Phase0=「📸 移行前スナップショット」。全gacho状態(全フラグ＋判定OK/NG/閲覧をfeature_id付き)を丸ごとSW(JSON DL＋復元キー)＋基準カウント(_migCounts)。「↩スナップに戻す」で完全復元。組み替え前後で数字一致を確認する検問。 */
 /* v20260820m(ドクター): 判定済みフラグの見た目を変える。onReview(fid,marker)/reviewState(fid)公開API＋判定時(applyScore/setStatus/setCrit)にマーカーを減光＋色枠(OK緑/NG赤/閲覧灰破線)=一度見たか一目で判る。feature_id基準で再描画でも保持。 */
 /* v20260820j(ドクター): window.__gacho.satImgHtml(lat,lng)=ポップアップに最新衛星画像を直接埋め込むHTML(クリックで必ず出る=ホバー非依存)。農地ナビ等の全フラグで再利用。 */
 /* v20260820i(ドクター): 「📦 納品300を突合して削除」=SUNトラスト納品を座標突合(<50m)＋「○○｜納品」レイヤーを画層から完全削除。削除前にSW退避(localStorage復元キー＋JSON DL)＝DB無変更・「↩ 納品を戻す」で完全復元(purgeDelivered/restoreDelivered)。 */
@@ -326,6 +327,51 @@ function restoreDelivered(){
 }
 function _hasDelivBackup(){try{return !!localStorage.getItem(_DELIV_BK_KEY);}catch(_){return false;}}
 
+/* ===== v20260820n(ドクター): レイヤー構造移行 Phase0=移行前スナップショット＋基準カウント =====
+   全gacho状態(全フラグ＋判定OK/NG/閲覧をfeature_id付き)を丸ごとSWへ書出(JSON DL＋localStorage復元キー)。
+   組み替え(Phase1〜4)は追加/表示のみ・非破壊だが、これを「消えない・判定が残る」の証拠＆完全復元点にする。
+   各Phase前後で _migCounts() を突き合わせ、数字が減ったら停止=ロールバック。 */
+var _MIG_SNAP_KEY='trackerGacho_migSnapshot_v1';
+function _migCounts(){
+  var c={layers:0,items:0,ok:0,ng:0,viewed:0,withFid:0,dbOk:0,dbNg:0,byClient:{}};
+  state.layers.forEach(function(l){
+    if(l.judgeOnly)return; // 判定メモ層は二重計上しない(実フラグのみ)
+    c.layers++;
+    l.items.forEach(function(it){
+      c.items++;
+      if(it.feature_id)c.withFid++;
+      if(it.status==='ok')c.ok++; else if(it.status==='ng')c.ng++; else if(it.viewed)c.viewed++;
+    });
+  });
+  // 判定メモ層(flagScoreCard由来)も判定数には含める(ページ側フラグの判定はここに入る)
+  state.layers.forEach(function(l){ if(!l.judgeOnly)return; l.items.forEach(function(it){ if(it.status==='ok')c.ok++; else if(it.status==='ng')c.ng++; else if(it.viewed)c.viewed++; }); });
+  try{c.dbOk=Object.keys(_gDbOk||{}).length;c.dbNg=Object.keys(_gDbNg||{}).length;}catch(_){}
+  return c;
+}
+function _migCountText(c){
+  return '総フラグ '+c.items+'（feature_id付 '+c.withFid+'）／ 画層 '+c.layers
+    +'\n判定: OK '+c.ok+' ・ NG '+c.ng+' ・ 閲覧のみ '+c.viewed
+    +'\nDB永続判定: OK '+c.dbOk+' ・ NG '+c.dbNg;
+}
+function snapshotMigration(){
+  var c=_migCounts();
+  var snap={ts:_stamp(),counts:c,state:JSON.parse(JSON.stringify(state))};
+  try{localStorage.setItem(_MIG_SNAP_KEY,JSON.stringify(snap));}catch(_){}
+  try{download('移行前スナップショット_'+_stamp()+'.json',JSON.stringify(snap),'application/json');}catch(_){}
+  renderPanel();
+  try{alert('📸 移行前スナップショットを保存しました（SW＝JSON書出＋復元キー）。\n\n【基準カウント】\n'+_migCountText(c)+'\n\nこの数字を基準に、各Phaseの前後で一致を確認します（減ったら停止＝復元）。');}catch(_){}
+  toast('移行前スナップショット保存: 総'+c.items+'/OK'+c.ok+'/NG'+c.ng+'/閲覧'+c.viewed);
+}
+function restoreMigrationSnapshot(){
+  var raw=null;try{raw=localStorage.getItem(_MIG_SNAP_KEY);}catch(_){}
+  if(!raw){toast('スナップショットがありません');return;}
+  if(!confirm('移行前スナップショットに戻します。現在の画層状態はスナップショット時点に置き換わります。よろしいですか？'))return;
+  var snap;try{snap=JSON.parse(raw);}catch(_){toast('スナップショットが壊れています');return;}
+  if(snap&&snap.state&&snap.state.layers){ state=snap.state; saveState(); render(); var c=_migCounts(); try{alert('↩ スナップショットに復元しました。\n\n'+_migCountText(c));}catch(_){}; toast('スナップショットに復元: 総'+c.items+'件'); }
+  else toast('スナップショットにstateがありません');
+}
+function _hasMigSnapshot(){try{return !!localStorage.getItem(_MIG_SNAP_KEY);}catch(_){return false;}}
+
 /* 0画層(既存すべて)の表示切替: base地図タイルと画層paneを除く全paneをまとめて隠す/戻す */
 function applyBase0(){var m=getMap();if(!m)return;var panes=m.getPanes();Object.keys(panes).forEach(function(name){if(name==='mapPane'||name==='tilePane'||name==='gachoPane'||name==='popupPane'||name==='noshinPane'||name==='farmlandPane'||name==='cityPlanPane')return;try{panes[name].style.display=state.base0Visible?'':'none';}catch(_){}});}
 /* 面積ラベル: ズームを引いた時(z<15)や手動OFF時はまとめて非表示にして地図を邪魔しない */
@@ -469,6 +515,8 @@ function renderPanel(){
   h+='<div class="gacho-master"><button id="gachoBulkOk" class="gacho-btn" title="既に開いて見た(未判定)を全画層でまとめてOKに（開き直し不要）">👁→✓ 見た分をOKに一括</button><button id="gachoShowNg" class="gacho-btn'+(state.showNg?' on':'')+'" title="NG(除外)にした筆を地図に表示するか。既定OFF＝除外は地図から消える">'+(state.showNg?'🚫 除外も表示（ON）':'🚫 除外は非表示')+'</button></div>';
   // v20260820i(ドクター): 納品300を座標突合して画層から完全削除(先にSW退避=DB無変更・完全復元可)
   h+='<div class="gacho-master"><button id="gachoPurgeDeliv" class="gacho-btn" title="SUNトラスト納品300を座標突合(<50m)＋「○○｜納品」レイヤーを画層から完全削除。削除前にSW退避(JSON DL＋復元キー)＝DBは無変更・いつでも戻せる">📦 納品300を突合して削除</button>'+(_hasDelivBackup()?'<button id="gachoRestoreDeliv" class="gacho-btn on" title="退避した納品を画層へ戻す">↩ 納品を戻す</button>':'')+'</div>';
+  // v20260820n(ドクター): レイヤー構造移行 Phase0=移行前スナップショット(全フラグ＋判定を丸ごとSW＋基準カウント)＋復元
+  h+='<div class="gacho-master"><button id="gachoMigSnap" class="gacho-btn" title="レイヤー構造の組み替え前に、全フラグ＋判定(OK/NG/閲覧)を丸ごとSWへ書出＋基準カウント。消えない・判定が残るの証拠＆完全復元点">📸 移行前スナップショット</button>'+(_hasMigSnapshot()?'<button id="gachoMigRestore" class="gacho-btn on" title="スナップショット時点の画層状態に戻す">↩ スナップに戻す</button>':'')+'</div>';
   // ★v20260818j(栗本さん:根拠のある数字だけ見せろ): OK/NGは「判定対象の候補レイヤー」だけで意味を持つ。
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
@@ -571,6 +619,8 @@ function bindPanel(){
   var sn=q('#gachoShowNg');if(sn)sn.onclick=function(){state.showNg=!state.showNg;saveState();render();};
   var pd=q('#gachoPurgeDeliv');if(pd)pd.onclick=function(){if(confirm('SUNトラスト納品300を座標突合して画層から完全削除します。\n・先にSW退避(JSONダウンロード＋復元キー保存)＝いつでも「↩ 納品を戻す」で復元可\n・DB(客の納品記録)は一切変更しません\nよろしいですか？'))purgeDelivered();};
   var rd=q('#gachoRestoreDeliv');if(rd)rd.onclick=function(){restoreDelivered();};
+  var ms=q('#gachoMigSnap');if(ms)ms.onclick=function(){snapshotMigration();};
+  var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
