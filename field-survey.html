@@ -26,6 +26,7 @@
 <!-- ===== MODE SELECT 戻るボタン v20260515ad (mode-back.js) ===== -->
 <script src="mode-back.js?v=20260516u"></script>
 <script src="power-company-utils.js?v=20260619a"></script>
+<script src="noshin-pref-bounds.js?v=20260820"></script>
 
 
 <script>
@@ -2275,6 +2276,12 @@ function setPowerCompany(pc) {
   // モバイル：電力会社ドロップダウンを閉じる
   document.getElementById('pcTabs')?.classList.remove('expanded');
   renderMarkersForCurrentPower();
+  // v20260820: 電力会社切替時に、その会社のフラグ群へ地図を自動フィット。
+  //   既定=中部で地図が中部のまま→九州等を選んでもフラグが画面外で「出ない」不具合を根治。
+  try {
+    var _pts = Object.keys(markers).map(function(k){ return markers[k].marker.getLatLng(); });
+    if (_pts.length) map.fitBounds(L.latLngBounds(_pts), { padding: [50,50], maxZoom: 13 });
+  } catch(e) {}
   recalcFieldStats();
   updateSurveyUI();
   showToast('電力会社を切り替えました：' + pc, 'success');
@@ -4475,19 +4482,10 @@ async function _fetchAndRenderCityPlan() {
 // ======== 農振農用地（11県対応） ========
 let noshinEnabled=false,noshinLayer=null,noshinCache={},_noshinMoveHandler=null,noshinFetching={};
 const NOSHIN_MIN_ZOOM=12;
-const NOSHIN_PREF_BOUNDS={
-  tochigi:{latMin:36.2,latMax:37.2,lngMin:139.3,lngMax:140.3,file:'data/noshin/noshin_tochigi.geojson'},
-  gunma:{latMin:36.0,latMax:37.1,lngMin:138.4,lngMax:139.7,file:'data/noshin/noshin_gunma.geojson'},
-  saitama:{latMin:35.75,latMax:36.3,lngMin:138.7,lngMax:140.0,file:'data/noshin/noshin_saitama.geojson'},
-  chiba:{latMin:34.9,latMax:36.1,lngMin:139.7,lngMax:140.9,file:'data/noshin/noshin_chiba.geojson'},
-  nagano:{latMin:35.2,latMax:37.0,lngMin:137.45,lngMax:138.7,file:'data/noshin/noshin_nagano.geojson'},
-  gifu:{latMin:35.1,latMax:36.5,lngMin:136.3,lngMax:137.45,file:'data/noshin/noshin_gifu.geojson'},
-  shizuoka:{latMin:34.55,latMax:35.4,lngMin:137.5,lngMax:139.2,file:'data/noshin/noshin_shizuoka.geojson'},
-  aichi:{latMin:34.5,latMax:35.4,lngMin:136.5,lngMax:137.7,file:WORKER_BASE.replace('/api','')+'/r2/noshin_aichi.geojson'},
-  mie:{latMin:33.7,latMax:35.1,lngMin:135.9,lngMax:136.9,file:'data/noshin/noshin_mie.geojson'},
-  shiga:{latMin:34.8,latMax:35.7,lngMin:135.8,lngMax:136.5,file:'data/noshin/noshin_shiga.geojson'},
-  hyogo:{latMin:34.1,latMax:35.7,lngMin:134.2,lngMax:135.5,file:WORKER_BASE.replace('/api','')+'/r2/noshin_hyogo.geojson'}
-};
+// v20260820: 農振農用地の県定義を単一共有ファイル(noshin-pref-bounds.js)へ集約=全国(北海道/四国/沖縄除く41県)。
+//   従来この現地調査マップだけ11県の別実装で取り残され、九州等で農振が出なかった不具合を根治。
+//   トラッカー/分析も将来この共有定義へ移行してレイヤー構造を統一する。
+const NOSHIN_PREF_BOUNDS = (typeof window!=='undefined' && window.NOSHIN_PREF_BOUNDS) ? window.NOSHIN_PREF_BOUNDS : {};
 function detectNoshinPrefsInView(){
   const mb=map.getBounds(),w=mb.getWest(),e=mb.getEast(),s=mb.getSouth(),n=mb.getNorth();
   return Object.keys(NOSHIN_PREF_BOUNDS).filter(k=>{const b=NOSHIN_PREF_BOUNDS[k];return!(b.lngMax<w||b.lngMin>e||b.latMax<s||b.latMin>n);});
