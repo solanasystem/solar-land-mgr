@@ -284,25 +284,36 @@ function _gmEnsureCss(){
     +'.leaflet-tooltip.gm-hover-tt:before{display:none;}'
     +'.gm-hover img{display:block;width:460px;height:460px;object-fit:cover;border-radius:8px;border:2px solid #22c55e;box-shadow:0 6px 18px rgba(0,0,0,.55);background:#161b22;}'
     +'.gm-hover-cap{font-size:10px;color:#e6edf3;background:rgba(0,0,0,.72);border-radius:0 0 7px 7px;padding:2px 6px;text-align:center;}'
+    +'.gm-float{position:absolute;z-index:2000;pointer-events:none;}'
     +'.gm-hover-err{width:200px;padding:14px;font-size:11px;color:#f85149;background:#161b22;border:1px solid #f85149;border-radius:8px;text-align:center;}';
   document.head.appendChild(s);
 }
+function _gmHideFloat(){var e=document.getElementById('gmFloatBox');if(e&&e.parentNode)e.parentNode.removeChild(e);}
 function _gmHoverBind(layer,lat,lng){
   if(!_gmKey()||lat==null||lng==null)return; // キー未設定 or 座標無し=OFF
   var url=_gmStaticUrl(lat,lng);if(!url)return;
   _gmEnsureCss();
-  // v20260820d: 「バインドしておいてmouseoverでLeafletが自動表示」方式に復帰(v20260819cの実績版)。
-  //   0.5秒静止式(v20260819f)は小マーカー上で判定が成立せず出ない回帰だった。画像はtooltip表示時に遅延読込
-  //   =カーソルを乗せた時だけ取得(2回目以降はブラウザキャッシュ)。NG済はrenderLayerGroups側で除外。無料枠(月~10万枚)内で実質無料。
-  layer.bindTooltip(function(){
-    try{window.__gmLoads=(window.__gmLoads||0)+1;}catch(_){} // 実取得(課金)回数の目安
-    var d=document.createElement('div');d.className='gm-hover';
+  // v20260820e: Leaflet tooltip方式(canvas描画マーカーで表示に至らない)を廃止し、mouseoverで画像divを
+  //   地図コンテナに直接重ねる自前方式へ。クリックが効く=mouseover/mouseoutは発火しているので確実に出る。
+  //   画像はmouseover時に取得=乗せた時だけ・2回目以降キャッシュ・NG済は除外・無料枠内で実質無料。
+  layer.on('mouseover',function(){
+    var m=getMap();if(!m)return;
+    _gmHideFloat();
+    var cp; try{cp=m.latLngToContainerPoint([lat,lng]);}catch(_){return;}
+    var C=m.getContainer(), W=C.clientWidth;
+    var box=document.createElement('div');box.id='gmFloatBox';box.className='gm-hover gm-float';
+    var left=cp.x+14; if(left+220>W)left=cp.x-234; if(left<6)left=6;
+    var top=cp.y-210; if(top<6)top=cp.y+16;
+    box.style.left=left+'px';box.style.top=top+'px';
     var img=document.createElement('img');img.alt='latest satellite';
-    img.onerror=function(){d.innerHTML='<div class="gm-hover-err">画像取得不可（キー/リファラー制限/割当を確認）</div>';};
+    img.onerror=function(){box.innerHTML='<div class="gm-hover-err">画像取得不可（キー/リファラー制限/割当を確認）</div>';};
     img.src=url;
     var cap=document.createElement('div');cap.className='gm-hover-cap';cap.textContent='🛰 最新衛星(Google)・目視専用';
-    d.appendChild(img);d.appendChild(cap);return d;
-  },{direction:'top',sticky:true,opacity:1,className:'gm-hover-tt',offset:[0,-6]});
+    box.appendChild(img);box.appendChild(cap);
+    C.appendChild(box);
+    try{window.__gmLoads=(window.__gmLoads||0)+1;}catch(_){} // 実取得(課金)回数の目安
+  });
+  layer.on('mouseout',_gmHideFloat);
 }
 
 function renderLayerGroups(){
