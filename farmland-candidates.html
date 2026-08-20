@@ -43,7 +43,7 @@
 
 <!-- v20260623c: XKT001点照合バグ修正(全ポリゴン走査→最具体区分採用)。 -->
 <!-- v20260623d: 永続プレフィックスに trackB_ 追加。Track Bからの「✅案件候補へ」登録分が日付に依らず候補一覧に出現。 -->
-<title>開拓案件候補 | GRID LAND MGR v4.0 (v20260820a-県名前置)</title>
+<title>開拓案件候補 | GRID LAND MGR v4.0 (v20260820b-NG全件)</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="city-pref-map.js?v=20260820a"></script>
@@ -307,9 +307,10 @@ async function loadData(){
     }
     var latestDate=dateRes.data[0].snapshot_date;
     // === paging fetch helper（Supabase max-rows=1000 制限を回避）===
-    async function _fetchAllPaged(buildQuery){
+    async function _fetchAllPaged(buildQuery,maxPages){
       var all=[];
-      for(var page=0;page<30;page++){
+      var _mp=(typeof maxPages==='number'&&maxPages>0)?maxPages:30;
+      for(var page=0;page<_mp;page++){
         var from=page*1000,to=from+999;
         var res=await buildQuery().range(from,to);
         if(res.error)return{data:null,error:res.error};
@@ -325,7 +326,7 @@ async function loadData(){
       _fetchAllPaged(function(){return db.from('farmland_snapshots').select('*').eq('snapshot_date',latestDate).not('feature_id','ilike','pubH\\_%').not('feature_id','ilike','emaffN\\_%');}),
       // v20260515d: 永続系（pubH_ / emaffN_）は日付問わず全件取得（取込日が異なっても拾える）
       _fetchAllPaged(function(){return db.from('farmland_snapshots').select('*').or('feature_id.ilike.pubH\\_%,feature_id.ilike.emaffN\\_%,feature_id.ilike.trackB\\_%');}),
-      _fetchAllPaged(function(){return db.from('farmland_ng_list').select('*');}),
+      _fetchAllPaged(function(){return db.from('farmland_ng_list').select('*');},1000),
       db.from('farmland_status').select('feature_id,status').limit(10000),
       db.from('farmland_comments').select('feature_id,comment').limit(10000),
       db.from('farmland_promoted').select('feature_id').limit(10000),
