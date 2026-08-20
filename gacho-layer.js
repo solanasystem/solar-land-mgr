@@ -1,4 +1,5 @@
 /* 画層(レイヤー)システム。本番トラッカーのインラインIIFEを外部化(内容は同一)。分析ページ等で共有。 */
+/* v20260820i(ドクター): 「📦 納品300を突合して削除」=SUNトラスト納品を座標突合(<50m)＋「○○｜納品」レイヤーを画層から完全削除。削除前にSW退避(localStorage復元キー＋JSON DL)＝DB無変更・「↩ 納品を戻す」で完全復元(purgeDelivered/restoreDelivered)。 */
 /* v20260820h(ドクター): (1)スコアカードに「✏️敷地境界を手描き→面積を増やす」(drawArea+_drawTarget=描いた面積を対象フラグ⑥へ反映/可視の敷地境界画層に残す)。
    (2)公開API flagScoreCard(fid,meta)=画層でないフラグ(開拓候補/公式放棄地)にも同じ8項目スコアカードを出す(既存ハンドラ再利用=単一定義)。noMapで二重描画防止。meta.seedで実ゲート状態を初期反映。 */
 (function(){
@@ -268,6 +269,61 @@ function bulkViewedOk(){
   toast(targets.length+'件をOKにしました');
 }
 
+/* ===== v20260820i(ドクター): SUNトラスト納品300を「突合して画層から完全削除(一旦)」＋完全復元 =====
+   ・複数レイヤーに跨る納品フラグを座標突合(<50m)で拾い、'○○｜納品'レイヤーも丸ごと対象。
+   ・削除前に必ず退避バックアップ(localStorage復元キー＋JSONダウンロード)=DBは一切触らない・完全に戻せる。
+   ・ロードマップ⑤(納品退避/フラグ復元)。判定メモ(judgeOnly)・退避済(archived)は対象外。 */
+var _DELIV_BK_KEY='trackerGacho_delivBackup_v1';
+function _distM(la1,lo1,la2,lo2){var R=6371000,p=Math.PI/180,dLa=(la2-la1)*p,dLo=(lo2-lo1)*p,a=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.cos(la1*p)*Math.cos(la2*p)*Math.sin(dLo/2)*Math.sin(dLo/2);return 2*R*Math.asin(Math.min(1,Math.sqrt(a)));}
+function purgeDelivered(){
+  toast('納品座標を読込→突合中…');
+  fetch('suntrust_cases_all.json?v='+(new Date()).getTime()).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(rows){
+    var D=[];
+    (rows||[]).forEach(function(r){if(r&&r.deliver==='納品'&&r.lat!=null&&r.lng!=null)D.push([Number(r.lat),Number(r.lng)]);});
+    // 既に画層に載っている '○○｜納品' の座標も納品として突合対象に加える(json未反映でも拾える)
+    state.layers.forEach(function(l){if(/｜納品$/.test(l.name||''))l.items.forEach(function(it){if(it.lat!=null&&it.lng!=null)D.push([Number(it.lat),Number(it.lng)]);});});
+    if(!D.length){toast('納品座標が0件でした(suntrust_cases_all.json が本番未反映かも)');return;}
+    var CELL=0.0006,g={}; // 約60mセル
+    D.forEach(function(pt){var k=Math.floor(pt[0]/CELL)+','+Math.floor(pt[1]/CELL);(g[k]=g[k]||[]).push(pt);});
+    function near(la,lo){var ci=Math.floor(la/CELL),cj=Math.floor(lo/CELL);for(var i=ci-1;i<=ci+1;i++)for(var j=cj-1;j<=cj+1;j++){var arr=g[i+','+j];if(arr)for(var t=0;t<arr.length;t++){if(_distM(la,lo,arr[t][0],arr[t][1])<=50)return true;}}return false;}
+    var removed=[];
+    state.layers.forEach(function(l){
+      if(l.judgeOnly||l.archived)return; // 判定メモ/退避済は触らない
+      var isDelivLayer=/｜納品$/.test(l.name||'');
+      var keep=[];
+      l.items.forEach(function(it){
+        var isDeliv=isDelivLayer||(it.deliver==='納品')||(it.lat!=null&&it.lng!=null&&near(Number(it.lat),Number(it.lng)));
+        if(isDeliv)removed.push({layer:l.name,color:l.color,item:it}); else keep.push(it);
+      });
+      l.items=keep;
+    });
+    if(!removed.length){toast('納品と一致するフラグはありませんでした(既に退避済み?)');return;}
+    var bk={ts:_stamp(),count:removed.length,removed:removed};
+    try{localStorage.setItem(_DELIV_BK_KEY,JSON.stringify(bk));}catch(_){}
+    try{download('納品退避_'+_stamp()+'.json',JSON.stringify(bk,null,2),'application/json');}catch(_){}
+    // 空になった候補レイヤーは削除(判定メモ/退避は残す)
+    state.layers=state.layers.filter(function(l){return (l.items&&l.items.length)||l.judgeOnly||l.archived;});
+    saveState();render();
+    toast('納品 '+removed.length+'件を突合→SW退避＋画層から削除。DBは無変更。「↩ 納品を戻す」でいつでも復元。');
+  }).catch(function(){toast('suntrust_cases_all.json の読込に失敗しました');});
+}
+function restoreDelivered(){
+  var raw=null;try{raw=localStorage.getItem(_DELIV_BK_KEY);}catch(_){}
+  if(!raw){toast('復元データがありません(退避していない)');return;}
+  var bk;try{bk=JSON.parse(raw);}catch(_){toast('復元データが壊れています');return;}
+  var byLayer={};
+  (bk.removed||[]).forEach(function(r){(byLayer[r.layer]=byLayer[r.layer]||{color:r.color,items:[]}).items.push(r.item);});
+  Object.keys(byLayer).forEach(function(name){
+    var l=state.layers.filter(function(x){return x.name===name;})[0];
+    if(!l){l={id:uid(),name:name,color:byLayer[name].color||'#22c55e',visible:true,active:false,items:[]};state.layers.push(l);}
+    byLayer[name].items.forEach(function(it){var dup=l.items.filter(function(x){return x.iid===it.iid;})[0];if(!dup)l.items.push(it);});
+  });
+  try{localStorage.removeItem(_DELIV_BK_KEY);}catch(_){}
+  saveState();render();
+  toast('納品 '+(bk.count||0)+'件を画層へ復元しました');
+}
+function _hasDelivBackup(){try{return !!localStorage.getItem(_DELIV_BK_KEY);}catch(_){return false;}}
+
 /* 0画層(既存すべて)の表示切替: base地図タイルと画層paneを除く全paneをまとめて隠す/戻す */
 function applyBase0(){var m=getMap();if(!m)return;var panes=m.getPanes();Object.keys(panes).forEach(function(name){if(name==='mapPane'||name==='tilePane'||name==='gachoPane'||name==='popupPane'||name==='noshinPane'||name==='farmlandPane'||name==='cityPlanPane')return;try{panes[name].style.display=state.base0Visible?'':'none';}catch(_){}});}
 /* 面積ラベル: ズームを引いた時(z<15)や手動OFF時はまとめて非表示にして地図を邪魔しない */
@@ -409,6 +465,8 @@ function renderPanel(){
   h+='<div class="gacho-master"><button id="gachoShowAll" class="gacho-btn">👁 全て表示</button><button id="gachoHideAll" class="gacho-btn">🚫 全て隠す</button></div>';
   h+='<div class="gacho-master"><button id="gachoOnlyUnrev" class="gacho-btn'+(state.hideReviewed?' on':'')+'" title="見た筆を隠して未確認だけ表示">👀 未確認のみ表示'+(state.hideReviewed?'（ON）':'')+'</button><button id="gachoAreaLbl" class="gacho-btn'+(state.showArea?' on':'')+'" title="敷地境界の面積ラベル表示（ズーム15以上で表示）">㎡ 面積ラベル</button></div>';
   h+='<div class="gacho-master"><button id="gachoBulkOk" class="gacho-btn" title="既に開いて見た(未判定)を全画層でまとめてOKに（開き直し不要）">👁→✓ 見た分をOKに一括</button><button id="gachoShowNg" class="gacho-btn'+(state.showNg?' on':'')+'" title="NG(除外)にした筆を地図に表示するか。既定OFF＝除外は地図から消える">'+(state.showNg?'🚫 除外も表示（ON）':'🚫 除外は非表示')+'</button></div>';
+  // v20260820i(ドクター): 納品300を座標突合して画層から完全削除(先にSW退避=DB無変更・完全復元可)
+  h+='<div class="gacho-master"><button id="gachoPurgeDeliv" class="gacho-btn" title="SUNトラスト納品300を座標突合(<50m)＋「○○｜納品」レイヤーを画層から完全削除。削除前にSW退避(JSON DL＋復元キー)＝DBは無変更・いつでも戻せる">📦 納品300を突合して削除</button>'+(_hasDelivBackup()?'<button id="gachoRestoreDeliv" class="gacho-btn on" title="退避した納品を画層へ戻す">↩ 納品を戻す</button>':'')+'</div>';
   // ★v20260818j(栗本さん:根拠のある数字だけ見せろ): OK/NGは「判定対象の候補レイヤー」だけで意味を持つ。
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
@@ -509,6 +567,8 @@ function bindPanel(){
   var alb=q('#gachoAreaLbl');if(alb)alb.onclick=function(){state.showArea=!state.showArea;saveState();updateAreaLabels();renderPanel();};
   var bo=q('#gachoBulkOk');if(bo)bo.onclick=bulkViewedOk;
   var sn=q('#gachoShowNg');if(sn)sn.onclick=function(){state.showNg=!state.showNg;saveState();render();};
+  var pd=q('#gachoPurgeDeliv');if(pd)pd.onclick=function(){if(confirm('SUNトラスト納品300を座標突合して画層から完全削除します。\n・先にSW退避(JSONダウンロード＋復元キー保存)＝いつでも「↩ 納品を戻す」で復元可\n・DB(客の納品記録)は一切変更しません\nよろしいですか？'))purgeDelivered();};
+  var rd=q('#gachoRestoreDeliv');if(rd)rd.onclick=function(){restoreDelivered();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
