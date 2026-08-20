@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- BUILD: farmland-tracker-analysis v20260816v / 🌾農振農用地が実機で見えない件の【真因確定・根治】。診断HUDが「描画OK 19面 overlay(400)」を示し=描画はされていた。真因=私が作った画層(gacho)システムの applyBase0()(gacho-layer.js 265行)が「0画層｜既存すべて」OFF時に gachoPane等を除く全paneを display:none にし、農振の居る overlayPane を丸ごと非表示にしていた(個別レイヤー操作で変わらなかったのはこのため)。根治2点=①農振を専用pane 'noshinPane'(zIndex460=筆450より上・ピン610/候補640より下)へ描画 ②applyBase0の非表示除外に noshinPane を追加→base0 OFFでも農振は常時表示(栗本さん「常にon」運用)。診断HUDは確認用に残置(次版で撤去)。前:v20260816u -->
+<!-- BUILD: farmland-tracker-analysis v20260820g / ホバーを拡張(ドクター:手作業調査の武器): gacho-layer.jsにwindow.__gacho.hoverBind公開API追加。分析ページ本体の(1)農地フラグ=農地ナビ(farmlandPane)(2)開拓候補(candPane)(3)衛星分析/母集団 の各マーカーにも最新衛星ホバーを付与。今セッションのAI候補だけでなく過去候補・農地ナビ全フラグで0.5秒ホバー→衛星画像。前:v20260820f / 自前divホバー -->
 <!-- BUILD: farmland-tracker-analysis v20260820f / 自前divホバー(v20260820e)に0.5秒の静止遅延を復帰。素早い通過は取得せず(課金しない)・フラグで0.5秒止めた時だけ表示。前回0.5秒が出なかったのはtooltip側の不具合でタイマーは正常だった。前:v20260820e / ホバーをLeaflet tooltip(canvas描画マーカーで表示に至らず)からmouseoverで画像divを地図に直接重ねる自前方式へ変更。クリックが効く=mouseover発火はしているので確実に出す狙い。前:v20260820d / ホバー(地図上)が出ない件を根治: 0.5秒静止式(v20260819f)を撤去し「バインドしておいてmouseoverでLeaflet自動表示」の実績版(v20260819c方式)へ復帰。小マーカー上で静止判定が成立せず出なかった。三重/田原など全域が対象。カーソルを乗せれば即表示。前:v20260820c / ホバー(地図上)が出ない回帰を修正: _gmHoverBindのtooltipをsticky:true→false。v20260819fの無駄課金対策でsticky+setTimeout openTooltipにした際、マウス静止(mousemove無し)でtooltipが配置されず非表示になっていた。sticky:falseでマーカー上部に固定表示=確実に出る。田原含む全域が対象。前:v20260820b / 愛知・田原市のAI候補を分析ページに読込む導線を追加(waitTahara→gacho画層「愛知県｜田原 ①適当/②検討」)。田原は強化農振ゲートで再クリーン=残250(対象2648→建物258/農振1664/ハザード476除外)。前:v20260820a / スコアカード改善(ドクター): 判定枠に最新衛星画像を直接埋込(ホバー依存を解消・クリックで即表示)＋現況✖でサブ理由(既存太陽光/建物/耕作/資材/その他)が出るバグ修正(id参照に是正)。✖→確定でNGの流れは踏襲。前:v20260819h / (B)AI候補フラグに8項目スコアカード(〇/△/✖)を実装(ドクター)。なぜ候補か表示＋#7現況はホバー衛星で目視。✖が1つでも→除外(NG)。構造化ラベルを学習へ: NG=farmland_ng_list.ng_reason='gacho_ng|コード'(.likeで復元)・OK=ai_ok_labels.memo。auto_retrain_reject.pyのMANUALにgacho_ng追加＋prefix一致で負例化(従来gacho_ngは学習未使用だった抜け穴も是正)。前:v20260819g -->
 <!-- BUILD: farmland-tracker-analysis v20260819g / 大台大紀の農振ゲート強化(cleanup_candidates.py in_noshin: 9点contains→筆bbox(一辺2r・下限15m)連続交差=旧上位互換)で再クリーン。農振98除外・残95→94。残る農振はA12データの穴が主因(NG理由⑦で学習補完)。前:v20260819f -->
 <!-- BUILD: farmland-tracker-analysis v20260819f / ①ホバーの無駄課金対策(ドクター指摘): (1)ホバー静止0.5秒で初めて画像取得=通過/即NGクリックは課金しない (2)NG済フラグはホバー無効 (3)window.__gmLoadsに実取得回数を計上。前:v20260819e -->
@@ -133,7 +134,7 @@
 /* ★キャッシュ制御(栗本さん依頼): ver.txtを常に取り直し、ページ埋込版BUILDと違えば自動で1回だけ最新へリロード。
    無限ループ防止=sessionStorageガード。これで毎回「?v=」を打たなくても、新版が出れば自動で最新を掴む。
    ※deploy毎に ver.txt と 下のBUILD を同じ版に更新すること。 */
-(function(){var BUILD='20260820f';try{fetch('ver.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();if(!t)return;if(t===BUILD){sessionStorage.removeItem('_glvr');return;}if(!sessionStorage.getItem('_glvr')){sessionStorage.setItem('_glvr','1');location.replace(location.pathname+'?_v='+encodeURIComponent(t));}}).catch(function(){});}catch(e){}})();
+(function(){var BUILD='20260820g';try{fetch('ver.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();if(!t)return;if(t===BUILD){sessionStorage.removeItem('_glvr');return;}if(!sessionStorage.getItem('_glvr')){sessionStorage.setItem('_glvr','1');location.replace(location.pathname+'?_v='+encodeURIComponent(t));}}).catch(function(){});}catch(e){}})();
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- ===== 権限管理ガード v1.0 (2026-05-10) - 必ず他スクリプトより前に配置 ===== -->
@@ -802,7 +803,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260820f 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260820g 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -1830,6 +1831,7 @@ async function _fetchAndRenderFarmland() {
       renderer: farmlandCanvas, pane: 'farmlandPane', radius: 5,
       fillColor: color, color: borderColor, weight: 1, fillOpacity: 1
     });
+    if(window.__gacho&&window.__gacho.hoverBind)window.__gacho.hoverBind(m,f.lat,f.lng); // ①ホバー最新衛星(農地ナビフラグ・手作業調査の武器)
     var addrEsc = (f.address||'').replace(/'/g,'&apos;').replace(/"/g,'&quot;');
     m.bindPopup(
       '<div class="popup-body">' +
@@ -2895,6 +2897,7 @@ function _addMarkerFromItem(item,changeType){
   }
   if(hasComment){bc='#3b82f6';wt=3;}
   var mk=L.circleMarker([item.lat,item.lng],{radius:sz,fillColor:c,color:bc,weight:wt,fillOpacity:op});
+  if(window.__gacho&&window.__gacho.hoverBind)window.__gacho.hoverBind(mk,item.lat,item.lng); // ①ホバー最新衛星(過去AI候補=衛星分析/母集団)
   mk._featureId=item.feature_id;
   mk._changeType=changeType;
   mk._item=item;
@@ -4131,6 +4134,7 @@ function _renderCandidates(){
     if(candMinArea>0&&(Number(c.area_sqm)||0)<candMinArea)return;
     if(candCrossFilter&&!candCrossFilter[_candZoneGroup(c)+'_'+_areaBucketIdx(Number(c.area_sqm)||0)])return; // クロス集計の選択セルのみ表示
     var m=L.circleMarker([lat,lng],{renderer:candRenderer,pane:'candPane',radius:7,color:u.color,weight:2,fillColor:u.fill,fillOpacity:0.95,opacity:1});
+    if(window.__gacho&&window.__gacho.hoverBind)window.__gacho.hoverBind(m,lat,lng); // ①ホバー最新衛星(過去AI候補=開拓候補)
     m._fid=c.feature_id; m._c=c; m._u=u;
     m.bindPopup(function(){return _candPopupHtml(m._c,m._u);},{maxWidth:280,minWidth:220}); // 遅延生成=再作図高速化
     candLayer.addLayer(m); n++;
@@ -8366,7 +8370,7 @@ if(typeof map!=='undefined'&&map&&map.on){
 
 <!-- 画層システム(外部)＋AI候補ローダ。分析ページ=検証ステージ。本番は無関係。 -->
 <script src="gmap-config.js?v=20260819c"></script>
-<script src="gacho-layer.js?v=20260820f"></script>
+<script src="gacho-layer.js?v=20260820g"></script>
 <script src="ai_kuwana_inabe.js?v=20260816b"></script>
 <script>
 (function waitAIKI(){
