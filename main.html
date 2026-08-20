@@ -1500,10 +1500,22 @@ async function _fetchChibanMap(){
   }
   return map;
 }
+// v20260820: 案件マスターの1000件上限撤廃。Supabase既定max-rows(1000)を超える案件を全件取得(ページング)。
+//   created_at + id の安定ORDERでページングの取りこぼし/重複を防ぐ(ORDER BY欠落の轍を回避)。
+async function _fetchAllCases(){
+  var all=[], from=0, size=1000;
+  while(true){
+    var res=await db.from('cases').select('*').order('created_at',{ascending:false}).order('id',{ascending:false}).range(from,from+size-1);
+    if(res.error)return {data:null,error:res.error};
+    var rows=res.data||[]; all=all.concat(rows);
+    if(rows.length<size)break; from+=size;
+  }
+  return {data:all,error:null};
+}
 async function loadCases(){
   try{
     const[casesRes,losRes,chibanMap]=await Promise.all([
-      db.from('cases').select('*').order('created_at',{ascending:false}),
+      _fetchAllCases(),
       db.from('landowner_info').select('case_id,name'),
       _fetchChibanMap()
     ]);
