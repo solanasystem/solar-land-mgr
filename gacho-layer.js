@@ -287,35 +287,22 @@ function _gmEnsureCss(){
     +'.gm-hover-err{width:200px;padding:14px;font-size:11px;color:#f85149;background:#161b22;border:1px solid #f85149;border-radius:8px;text-align:center;}';
   document.head.appendChild(s);
 }
-var _GM_HOVER_DELAY=500; // ホバー静止この時間(ms)で初めて画像取得。通過や即NGクリックでは取得しない=無駄課金防止(ドクター指摘)
-function _gmHoverEnabled(){return (typeof window==='undefined')||window.__gmHoverOn!==false;} // window.__gmHoverOn=falseで一括OFF
 function _gmHoverBind(layer,lat,lng){
   if(!_gmKey()||lat==null||lng==null)return; // キー未設定 or 座標無し=OFF
   var url=_gmStaticUrl(lat,lng);if(!url)return;
-  var timer=null;
-  layer.on('mouseover',function(){
-    if(!_gmHoverEnabled())return;
-    if(timer)clearTimeout(timer);
-    timer=setTimeout(function(){
-      timer=null;
-      _gmEnsureCss();
-      layer.bindTooltip(function(){
-        try{window.__gmLoads=(window.__gmLoads||0)+1;}catch(_){} // 実取得(課金)回数の目安。ブラウザキャッシュ再表示も加算=上限値
-        var d=document.createElement('div');d.className='gm-hover';
-        var img=document.createElement('img');img.alt='latest satellite';
-        img.onerror=function(){d.innerHTML='<div class="gm-hover-err">画像取得不可（キー/リファラー制限/割当を確認）</div>';};
-        img.src=url;
-        var cap=document.createElement('div');cap.className='gm-hover-cap';cap.textContent='🛰 最新衛星(Google)・目視専用';
-        d.appendChild(img);d.appendChild(cap);return d;
-      },{direction:'top',sticky:false,opacity:1,className:'gm-hover-tt',offset:[0,-4]});
-      try{layer.openTooltip();}catch(_){} // sticky:false=マーカー上部に固定表示(静止openTooltipでも確実に出る。v20260819fのstickyはmousemove無しで非表示になる回帰)
-    },_GM_HOVER_DELAY);
-  });
-  layer.on('mouseout',function(){
-    if(timer){clearTimeout(timer);timer=null;}
-    try{layer.closeTooltip();}catch(_){}
-    try{layer.unbindTooltip();}catch(_){} // 次回ホバーで再バインド(即開き防止・重複防止)
-  });
+  _gmEnsureCss();
+  // v20260820d: 「バインドしておいてmouseoverでLeafletが自動表示」方式に復帰(v20260819cの実績版)。
+  //   0.5秒静止式(v20260819f)は小マーカー上で判定が成立せず出ない回帰だった。画像はtooltip表示時に遅延読込
+  //   =カーソルを乗せた時だけ取得(2回目以降はブラウザキャッシュ)。NG済はrenderLayerGroups側で除外。無料枠(月~10万枚)内で実質無料。
+  layer.bindTooltip(function(){
+    try{window.__gmLoads=(window.__gmLoads||0)+1;}catch(_){} // 実取得(課金)回数の目安
+    var d=document.createElement('div');d.className='gm-hover';
+    var img=document.createElement('img');img.alt='latest satellite';
+    img.onerror=function(){d.innerHTML='<div class="gm-hover-err">画像取得不可（キー/リファラー制限/割当を確認）</div>';};
+    img.src=url;
+    var cap=document.createElement('div');cap.className='gm-hover-cap';cap.textContent='🛰 最新衛星(Google)・目視専用';
+    d.appendChild(img);d.appendChild(cap);return d;
+  },{direction:'top',sticky:true,opacity:1,className:'gm-hover-tt',offset:[0,-6]});
 }
 
 function renderLayerGroups(){
