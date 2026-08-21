@@ -1080,7 +1080,7 @@ function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=do
 document.head.appendChild(st);}
 
 /* v20260820s(ドクター): 手描き敷地境界=当然OK。既存の手描き図形(type='boundary')を読込時に一括でOK判定に格上げ(冪等)。 */
-function _upgradeHandDrawnOk(){try{var n=0;state.layers.forEach(function(l){l.items.forEach(function(it){if(it.type==='boundary'&&(it.status!=='ok'||!it.userJudged)){it.status='ok';it.userJudged=true;if(!it.src)it.src='handdraw';n++;}});});if(n){saveState();try{console.log('[画層] 手描き敷地境界 '+n+'件をOK判定に格上げ');}catch(_){}}}catch(_){}}
+function _upgradeHandDrawnOk(){try{var n=0,un=0;state.layers.forEach(function(l){var hasB=false;l.items.forEach(function(it){if(it.type==='boundary'){hasB=true;if(it.status!=='ng'&&(it.status!=='ok'||!it.userJudged)){it.status='ok';it.userJudged=true;if(!it.src)it.src='handdraw';n++;}}});if(hasB&&l.archived){l.archived=false;l.visible=true;un++;} });if(n||un){saveState();try{console.log('[画層] 手描き境界 '+n+'件OK＋退避解除 '+un+'画層');}catch(_){}}}catch(_){}}
 /* v20260821h(ドクター): 「自動OKを外す」で赤化(未確認に戻った)フラグを、朝の📸スナップショットからOKへ自動復元。
    スナップショットでstatus=okだった筆で、今status無し(NGでない)のものをokに戻す=被害を元に戻す。NG/既OKは触らない。 */
 function _restoreClearedAutoOk(){try{var raw=localStorage.getItem(_MIG_SNAP_KEY);if(!raw)return;var snap=JSON.parse(raw);if(!snap||!snap.state||!snap.state.layers)return;var snapOk={};snap.state.layers.forEach(function(l){(l.items||[]).forEach(function(it){if(it.status==='ok'){var k=it.feature_id||it.iid;if(k)snapOk[k]=1;}});});var n=0;state.layers.forEach(function(l){l.items.forEach(function(it){var k=it.feature_id||it.iid;if(k&&snapOk[k]&&it.status!=='ok'&&it.status!=='ng'){it.status='ok';n++;}});});if(n){saveState();try{console.log('[復元] 自動OK '+n+'件を復元');}catch(_){}}}catch(_){}}
