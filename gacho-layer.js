@@ -457,7 +457,7 @@ function renderLayerGroups(){
       if(it.noMap)return; // v20260820h: フラグ判定専用アイテム(既存レイヤーが地図描画)→gachoでは描かない=二重マーカー防止
       if(_reviewFilter && it.type!=='boundary' && !(_isPresetOk(l,it)||_reviewTouchedHas(it)))return; // v20260820u: レビュー中も「未確定の既OK」＋判定済(残す)＋手描き境界(常時表示=消さない)を描く
       if(state.hideReviewed&&it.viewed)return;
-      if(!state.showNg && it.status==='ng')return; // NG(除外)=削除＝地図から消す（既定）。「除外も表示」で戻せる
+      if(it.status==='ng')return; // v20260821e(ドクター): NGにした筆は地図から消す(常時)
       var vd=!!it.viewed;
       var under=(it.area!=null&&it.area<800);
       var areaTxt=(it.area!=null)?('面積 <b style="font-size:14px;color:'+(under?'#f85149':'#3fb950')+'">'+Math.round(it.area).toLocaleString()+' ㎡</b>'+(under?'<br><span style="color:#f85149">⚠ 800㎡未満：隣接を含め敷地境界を手描きで作成</span>':'')):'<span style="color:#8b949e">面積 不明</span>';
@@ -564,8 +564,6 @@ function renderPanel(){
   h+='<div class="gacho-master"><button id="gachoMigSnap" class="gacho-btn" title="レイヤー構造の組み替え前に、全フラグ＋判定(OK/NG/閲覧)を丸ごとSWへ書出＋基準カウント。消えない・判定が残るの証拠＆完全復元点">📸 移行前スナップショット</button>'+(_hasMigSnapshot()?'<button id="gachoMigRestore" class="gacho-btn on" title="スナップショット時点の画層状態に戻す">↩ スナップに戻す</button>':'')+'</div>';
   // v20260820q(ドクター): 「未確定の既OK(要再確認)」だけを表示するレビュービュー。判定すると消えて残数が減る＝進捗。
   h+='<div class="gacho-master"><button id="gachoReviewFilter" class="gacho-btn'+(_reviewFilter?' on':'')+'" title="私が判定していない「既OK(自動OK/未オープン)」だけを地図に絞って表示。1件ずつ開いてOK/NG確定すると消えて残数が減る＝進捗が見える。非破壊(所属は保持)">🔎 未確定の既OK（要再確認）'+_presetOkCount()+'件'+(_reviewFilter?'（表示中・これだけ）':'')+'</button>'+(_reviewFilter?'<button id="gachoReviewNext" class="gacho-btn on" title="次の未確認へ地図を飛ばしてポップアップを開く=探さず順に潰せる">▶ 次へ</button>':'')+'</div>';
-  // v20260821d(ドクター「正しいモノだけ残す」): 自動OK(未確認)を一括で外す=あなたの判定だけ残す。
-  h+='<div class="gacho-master"><button id="gachoClearPreset" class="gacho-btn" title="あなたが確認していない自動OKを一括で外す(未判定に戻す)。あなたが確定した判定・手描きOKは残る。非破壊・スナップショットで復元可">🧹 自動OKを外す（私の判定だけ残す）'+_presetOkCount()+'件</button></div>';
   // ★v20260818j(栗本さん:根拠のある数字だけ見せろ): OK/NGは「判定対象の候補レイヤー」だけで意味を持つ。
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
@@ -687,7 +685,6 @@ function bindPanel(){
   var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
   var rf=q('#gachoReviewFilter');if(rf)rf.onclick=function(){_reviewFilter=!_reviewFilter;if(_reviewFilter){_reviewTouched={};_reviewSeen={};toast('未確定の既OK '+_presetOkCount()+'件だけ表示中。確定した筆は緑(OK)/赤(NG)で残り、残数だけ減ります。「▶次へ」で順に回れます');}render();};
   var rn=q('#gachoReviewNext');if(rn)rn.onclick=function(){reviewNext();};
-  var cp=q('#gachoClearPreset');if(cp)cp.onclick=function(){clearPresetOk();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
@@ -840,7 +837,10 @@ function _reviewStyle(st){
   if(st==='viewed')return {color:'#c9d1d9',weight:2.5,fillOpacity:0.35,dashArray:'3,3'};
   return null;
 }
-function _restyleMark(fid,st){var mk=_reviewMarks[fid];if(mk&&mk.setStyle){var s=_reviewStyle(st);if(s){try{mk.setStyle(s);}catch(_){}}}}
+function _restyleMark(fid,st){var mk=_reviewMarks[fid];if(!mk)return;
+  if(st==='ng'){ try{mk.remove();}catch(_){} return; } // v20260821e(ドクター): NGにした筆は地図から消す(マーカー除去)
+  if(mk.setStyle){var s=_reviewStyle(st);if(s){try{mk.setStyle(s);}catch(_){}}}
+}
 window.__gacho={
   // v20260820g: 外部(分析ページ本体)のマーカーにも最新衛星ホバーを付けられる公開API。
   //   例) window.__gacho.hoverBind(mk, lat, lng)。農地ナビフラグ/過去AI候補に付けて手作業調査の武器にする。
