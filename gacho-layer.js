@@ -708,12 +708,12 @@ function renderLayerGroups(){
       var vd=!!it.viewed;
       var under=(it.area!=null&&it.area<800);
       var areaTxt=(it.area!=null)?('面積 <b style="font-size:14px;color:'+(under?'#f85149':'#3fb950')+'">'+Math.round(it.area).toLocaleString()+' ㎡</b>'+(under?'<br><span style="color:#f85149">⚠ 800㎡未満：隣接を含め敷地境界を手描きで作成</span>':'')):'<span style="color:#8b949e">面積 不明</span>';
-      var acts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.useFudeAsBoundary(\''+l.id+'\',\''+(it.iid||'')+'\')" style="background:rgba(34,197,94,.2);border:1px solid #22c55e;color:#e6edf3;border-radius:4px;padding:3px 7px" title="ピンの下の筆(農水省筆ポリゴン)を実測の形で敷地境界に。無ければ既知面積の下敷き">📐 筆を敷地境界に(実測)</button> <button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 手描き</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')" title="この画層から筆を取り除く（元データは無傷）">🗑 外す</button></div>';
+      var acts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.useFudeAsBoundary(\''+l.id+'\',\''+(it.iid||'')+'\')" style="background:rgba(34,197,94,.2);border:1px solid #22c55e;color:#e6edf3;border-radius:4px;padding:3px 7px" title="ピンの下の筆(農水省筆ポリゴン)を実測の形で敷地境界に。無ければ既知面積の下敷き">📐 筆を敷地境界に(実測)</button> <button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 手描き</button> <button onclick="window.__gacho.deleteFlag(\''+l.id+'\',\''+(it.iid||'')+'\')" style="background:rgba(248,81,73,.2);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px" title="この筆を削除しOK記録も外す＝カウントから消える">🗑 削除</button></div>';
       var seen='<span style="color:#9aa4ae">'+(vd?'✓ 見た':'')+'</span>';
       var stat=it.status==='ok'?' <b style="color:#3fb950">✓OK</b>':(it.status==='ng'?' <b style="color:#f85149">🚫NG(除外)</b>':'');
       var gmap='<div style="margin-top:6px"><a href="https://www.google.com/maps/search/?api=1&query='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🌐 Googleマップ</a> ｜ <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🚶 ストリートビュー</a></div>';
       if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
-        var bacts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.redraw(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 描き直す</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 削除</button></div>';
+        var bacts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.redraw(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 描き直す</button> <button onclick="window.__gacho.deleteFlag(\''+l.id+'\',\''+(it.iid||'')+'\')" style="background:rgba(248,81,73,.2);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🗑 削除</button></div>';
         var pg=L.polygon(it.latlngs,it.status==='ng'?{pane:'gachoPane',color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.1,dashArray:'4,4'}:(it.status==='ok'?{pane:'gachoPane',color:'#22c55e',weight:3,fillColor:'#22c55e',fillOpacity:0.30}:{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null})); // v20260821g(ドクター): 手描き=OK=緑の枠+緑の塗り(ピンクにしない)
         pg.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>敷地境界<br>'+areaTxt+gmap+bacts+'</div>');
         pg.bindTooltip(Math.round(it.area||0).toLocaleString()+'㎡',{permanent:true,direction:'center',className:'gacho-area-lbl',pane:'gachoPane'});
@@ -842,6 +842,9 @@ function renderPanel(){
   // ★v20260818j(栗本さん:グループのOK/NGは意味が混ざる): グループ見出しは「計(件数)」だけにする。
   //   判定のOK/NGは候補レイヤー各行と最上部「調査中の判定合計」だけに出す=数字が全部根拠を持つ。
   var _lcnt=function(ls){var a=0;ls.forEach(function(l){a+=l.items.length;});return '計'+a;};
+  // 第2回納品候補の「行政区域別 確定OK件数」を固定データ(delivery2-candidates.js)から表示=AIが数え直さない・ブレない。
+  var _D2=window.DELIVERY2;
+  var _d2c=function(pref,city){ try{ if(!_D2||!_D2.locCount)return null; if(city!=null)return (_D2.locCount[pref]&&_D2.locCount[pref][city])||0; var s=0,o=_D2.locCount[pref]||{}; for(var k in o)s+=o[k]; return s; }catch(_){return null;} };
   var _row=function(l){
     var okc=l.items.filter(function(it){return it.status==='ok';}).length;
     var ngc=l.items.filter(function(it){return it.status==='ng';}).length;
@@ -871,7 +874,7 @@ function renderPanel(){
   Object.keys(_tree).sort().forEach(function(cli){
     var ck='C:'+cli; var co=_gopen(ck);
     var call=[];Object.keys(_tree[cli]).forEach(function(p){Object.keys(_tree[cli][p]).forEach(function(rr){call=call.concat(_tree[cli][p][rr]);});});
-    h+='<div class="gacho-grp" data-grp="'+esc(ck)+'" style="cursor:pointer;margin-top:8px;padding:5px 6px;background:rgba(88,166,255,.10);border:1px solid #2a3742;border-radius:6px;font-weight:800"><span style="width:12px;display:inline-block">'+(co?'▾':'▸')+'</span>🏢 '+esc(cli)+'<span style="float:right;font-weight:400;color:#8b949e;font-size:11px">'+_lcnt(call)+'</span></div>';
+    h+='<div class="gacho-grp" data-grp="'+esc(ck)+'" style="cursor:pointer;margin-top:8px;padding:5px 6px;background:rgba(88,166,255,.10);border:1px solid #2a3742;border-radius:6px;font-weight:800"><span style="width:12px;display:inline-block">'+(co?'▾':'▸')+'</span>🏢 '+esc(cli)+(cli==='第2回納品候補'&&_D2?' <b style="color:#22d3ee;font-weight:700">確定OK '+_D2.totalItems+'件・'+_D2.totalLocations+'カ所</b>':'')+'<span style="float:right;font-weight:400;color:#8b949e;font-size:11px">'+_lcnt(call)+'</span></div>';
     if(!co)return;
     var periods=Object.keys(_tree[cli]).sort(function(a,b){var pa=/精査/.test(a)?0:1,pb=/精査/.test(b)?0:1;return pa-pb||a.localeCompare(b);});
     periods.forEach(function(per){
@@ -1131,7 +1134,8 @@ function _scoreCardHtml(l,it){
   var vd='<div class="gsc-vd" id="gscvd_'+iid+'">'+(_hasX(s)?'<b style="color:#f85149">✖あり → 除外(NG)</b>':'<b style="color:#3fb950">✖なし → OK可</b>')+'</div>';
   var drawBtn='<button class="gsc-draw" style="background:#062b12;border-color:#22c55e;color:#86efac" onclick="window.__gacho.useFudeAsBoundary(\''+l.id+'\',\''+iid+'\')" title="ピンの下の筆(農水省筆ポリゴン)を実測の形で敷地境界に。無ければ既知面積の下敷き">📐 この筆を敷地境界にする（実測）</button>'
     +'<button class="gsc-draw" onclick="window.__gacho.drawArea(\''+l.id+'\',\''+iid+'\')" title="実測が無い/形を変えたい時: 隣接を含め手描き→面積を再計算(⑥面積に反映)">✏️ 手描きで敷地境界（面積を増やす）</button>';
-  return _gmImgHtml(it)+'<div class="gsc">'+rows+vd+drawBtn+'<button class="gsc-fix" onclick="window.__gacho.applyScore(\''+l.id+'\',\''+iid+'\')">この判定を確定</button></div>';
+  return _gmImgHtml(it)+'<div class="gsc">'+rows+vd+drawBtn+'<button class="gsc-fix" onclick="window.__gacho.applyScore(\''+l.id+'\',\''+iid+'\')">この判定を確定</button>'
+    +'<button class="gsc-fix" style="background:#7f1d1d;border-color:#f85149;margin-top:5px" onclick="window.__gacho.deleteFlag(\''+l.id+'\',\''+iid+'\')">🗑 この筆を削除（OKから外す）</button></div>';
 }
 /* ===== v20260820m(ドクター): 判定済み(OK/NG/閲覧)フラグの見た目を変える=一度見たか一目で判る =====
    ページ側マーカー(開拓候補/公式放棄地/紫151/御所218)はfeature_idでonReview登録→判定時とマーカー再生成時に減光＋色枠。
@@ -1164,6 +1168,22 @@ window.__gacho={
   reviewState:function(fid){return _reviewStateOf(fid);},
   onReview:function(fid,marker){if(!fid||!marker)return;_reviewMarks[fid]=marker;var st=_reviewStateOf(fid);if(st)_restyleMark(fid,st);},
   removeItem:function(lid,itemIid){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();setTimeout(function(){render();},0);},
+  /* v20260821z22(ドクター): 全筆に削除ボタン。この筆をOK/NGから外し、DBのOK記録(gacho_ok/手描き境界)も削除=カウントから確実に外す。1筆ずつ・確認付き。 */
+  deleteFlag:function(lid,itemIid){
+    var m=getMap();var l=byId(lid);if(!l)return;var it=null;l.items.forEach(function(x){if(x.iid===itemIid)it=x;});
+    if(!it)return;
+    if(!confirm('この筆を削除します。\n・OK/NG判定を外し、DBのOK記録も削除＝カウントから外れます\n・地図/作業台からこの筆を消します\nよろしいですか？'))return;
+    var fid=it.feature_id, d=_gDb();
+    try{
+      if(d&&fid){ d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){}); d.from('farmland_ng_list').delete().eq('feature_id',fid).like('ng_reason','gacho_ng%').then(function(){},function(){}); }
+      if(d&&it.type==='boundary'&&it.iid){ d.from('ai_ok_labels').delete().eq('source','handdraw_boundary').contains('member_fids',[it.iid]).then(function(){},function(){}); }
+    }catch(_){}
+    if(fid){try{delete _gDbOk[fid];delete _gDbNg[fid];}catch(_){}}
+    l.items=l.items.filter(function(x){return x.iid!==itemIid;});
+    try{if(fid)_restyleMark(fid,null);}catch(_){}
+    if(m)m.closePopup();saveState();setTimeout(function(){render();},0);
+    toast('🗑 削除しました（カウントから外しました）');
+  },
   /* v20260818c: 手動ピック等の画層から、判定関数isMatchに合致する項目(=納品済)を別画層dstNameへ移して退避(archived)。
      作業台の手動ピックには「今調査中の分だけ」を残し、旧納品分と連動して動かなくする。isMatch(item)→true=退避対象。返り値=移動件数。 */
   separatePicks:function(srcName,isMatch,dstName,dstColor){
