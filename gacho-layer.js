@@ -577,7 +577,7 @@ function renderPanel(){
       else if(it.status==='ng'){_tAll++;_tNg++;if(it.viewed)_tV++;}
     });
   });
-  h+='<div class="gacho-total">あなたが確定した判定　<span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span> ／ 計'+_tAll+'<span style="color:#8b949e;font-weight:400"> （自動OK・未確認は含まない）</span></div>';
+  // v20260820y(ドクター): 「あなたが確定した判定」の計表示を削除。同一地点に重なった別フラグを重複計上し数字が信用できない=意味がないため撤去。
   // ★検索: 打つとその画層だけを地図・パネルに絞る(見えすぎ/だらだら解消)。空で解除。
   h+='<div class="gacho-master" style="gap:4px"><input id="gachoSearch" placeholder="🔍 画層を検索して絞る（大台/田原/SUN…）" value="'+esc(_gFilter)+'" style="flex:1;padding:6px 9px;border-radius:6px;border:1px solid '+(_gFilter?'#f59e0b':'#30363d')+';background:#0d1117;color:#e6edf3;font-size:12px;outline:none">'+(_gFilter?'<button id="gachoSearchClr" class="gacho-btn" style="padding:2px 8px">✕</button>':'')+'</div>';
   if(_gFilter){h+='<div style="font-size:11px;color:#f0b429;margin:2px 0 4px">🔍「'+esc(_gFilter)+'」で絞り込み中＝この画層だけ地図に表示。✕で解除。</div>';}
