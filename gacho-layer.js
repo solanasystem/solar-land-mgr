@@ -1188,8 +1188,8 @@ window.__gacho={
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   /* v20260821z12(ドクター): ピンの下の農水省筆ポリゴン(実測の形)を取得→そのまま敷地境界に=勘で描かない。
      無ければ既知面積から下敷き(正方形)を配置(ドクター発想:面積が出る=情報が在る)。どちらも面積確認モーダル→✓OKで確定。 */
-  useFudeAsBoundary:function(lid,iid){
-    var l=byId(lid);if(!l)return;var it=null;l.items.forEach(function(x){if(x.iid===iid)it=x;});
+  useFudeAsBoundary:function(lid,itmIid){
+    var l=byId(lid);if(!l)return;var it=null;l.items.forEach(function(x){if(x.iid===itmIid)it=x;});
     if(!it||it.lat==null){toast('位置が不明です');return;}
     var la=Number(it.lat),ln=Number(it.lng);
     toast('📐 農水省の筆ポリゴンを取得中…');
@@ -1202,9 +1202,9 @@ window.__gacho={
       var nb={iid:iid(),type:'boundary',latlngs:latlngs,area:area,lat:c[0],lng:c[1],address:'敷地境界('+note+')',status:null,userJudged:false,src:'fude'};
       bl.items.push(nb);it.handBoundaryIid=nb.iid;try{_saveBoundaryToDb(nb);}catch(_){}
       it.area=area;it.handArea=area;it.handLatlngs=latlngs;var s=_score(it);s.c6=(area>=800?'o':'x');it.viewed=true;
-      _lastDrawnBoundary={lid:bl.id,iid:nb.iid};_lastDrawTarget={lid:lid,iid:iid};
+      _lastDrawnBoundary={lid:bl.id,iid:nb.iid};_lastDrawTarget={lid:lid,iid:itmIid};
       saveState();render();try{if(m)m.setView([c[0],c[1]],Math.max(m.getZoom(),18));}catch(_){}
-      _showAreaConfirm(area,{lid:lid,iid:iid});
+      _showAreaConfirm(area,{lid:lid,iid:itmIid});
     };
     var squareFrom=function(A){ if(!A||A<=0)return null; var side=Math.sqrt(A); var dLat=side/2/111000; var dLng=side/2/(111000*Math.cos(la*Math.PI/180)); return [[la-dLat,ln-dLng],[la-dLat,ln+dLng],[la+dLat,ln+dLng],[la+dLat,ln-dLng]]; };
     var fallback=function(){ var sq=squareFrom(it.area); if(sq){ toast('筆ポリゴンが無いため、既知面積'+(it.area?Math.round(it.area).toLocaleString():'?')+'㎡の下敷きを配置。面積を確認→✓OK（形の微修正は描き直し）'); use(sq,it.area,'面積下敷き'); } else { toast('筆ポリゴンも面積も無い＝手描きしてください'); } };
