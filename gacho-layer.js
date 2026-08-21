@@ -751,7 +751,15 @@ var _gDbOk={}, _gDbNg={};
 function _gDb(){ try{ if(typeof window!=='undefined'&&window.db)return window.db; if(typeof db!=='undefined')return db; }catch(_){ } return null; }
 /* v20260821q(ドクター「やれ」): 手描き境界をDBへ永続保存＋復元。二度と消えない様に。ai_ok_labels(source=handdraw_boundary)にmemo=JSONで幾何を保存。 */
 function _boundaryMemo(it){ return JSON.stringify({iid:it.iid,latlngs:it.latlngs,area:it.area,address:it.address||'',status:(it.status==='ng'?'ng':'ok'),lat:it.lat,lng:it.lng}); }
-function _saveBoundaryToDb(it){ var d=_gDb(); if(!d||!it||it.type!=='boundary'||!it.latlngs)return; try{ d.from('ai_ok_labels').insert({source:'handdraw_boundary',member_fids:[it.iid],lat:(it.lat!=null?Number(it.lat):null),lng:(it.lng!=null?Number(it.lng):null),memo:_boundaryMemo(it)}).then(function(){},function(){}); }catch(_){ } }
+/* v20260821t(ドクター「やれ」): 手描き線の保存結果を必ず画面表示。silent failureを廃止。
+   ★supabase-jsはDBエラーを例外でなく res.error に入れる→第2コールバックでは捕まらない。第1コールバックで res.error を判定する。 */
+function _sbToast(msg,type){ try{ if(typeof window.showToast==='function'){window.showToast(msg,type||'success');return;} }catch(_){ } try{ toast(msg); }catch(_){ } }
+function _saveBoundaryToDb(it){ if(!it||it.type!=='boundary'||!it.latlngs)return; var d=_gDb();
+  if(!d){ _sbToast('⚠ DB未接続＝この手描き線は保存できていません。リロードで再接続してから、もう一度確定してください','error'); return; }
+  try{ d.from('ai_ok_labels').insert({source:'handdraw_boundary',member_fids:[it.iid],lat:(it.lat!=null?Number(it.lat):null),lng:(it.lng!=null?Number(it.lng):null),memo:_boundaryMemo(it)}).then(
+      function(res){ if(res&&res.error){ _sbToast('⚠ 手描き線のDB保存 失敗：'+((res.error&&res.error.message)||'')+' ／ もう一度ダブルクリックで確定してください','error'); } else { _sbToast('✓ 手描き線をDBに保存しました（約'+Math.round(it.area||0).toLocaleString()+'㎡）','success'); } },
+      function(err){ _sbToast('⚠ 手描き線のDB保存 失敗（通信）：'+((err&&err.message)||'')+' ／ もう一度確定してください','error'); }
+    ); }catch(e){ _sbToast('⚠ 手描き線のDB保存 失敗（例外）：'+((e&&e.message)||'')+' ／ もう一度確定してください','error'); } }
 function saveAllBoundariesToDb(){
   var d=_gDb(); if(!d){toast('DB未接続で保存できません');return;}
   var bs=[]; state.layers.forEach(function(l){l.items.forEach(function(it){if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3)bs.push(it);});});
