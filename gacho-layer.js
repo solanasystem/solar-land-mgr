@@ -1322,8 +1322,10 @@ window.__gacho={
       fl.items.push(found);
     }
     found.status=(found.status===val?null:val);found.viewed=true;
+    /* ★v20260822a(ドクター「ブラウザに残すから消える」): 手動ピックのOK/NGを通常フラグと同じDB永続化(絶対に消えないアウトボックス)に載せる。以前はsaveState()=localStorageのみ=DB非書込で消えていた。 */
+    try{ _persistJudgment(found.feature_id,found.lat,found.lng,found.status); }catch(_){}
     saveState();setTimeout(function(){render();},0);
-    toast('「'+fl.name+'」'+(found.status==='ok'?'✓OK':(found.status==='ng'?'🚫NG':'判定解除'))+' ／ この画層 計'+fl.items.length+'件（OK'+fl.items.filter(function(x){return x.status==='ok';}).length+'・NG'+fl.items.filter(function(x){return x.status==='ng';}).length+'）');
+    toast('「'+fl.name+'」'+(found.status==='ok'?'✓OK':(found.status==='ng'?'🚫NG':'判定解除'))+' ／ DBへ保存（消えません）／ この画層 計'+fl.items.length+'件（OK'+fl.items.filter(function(x){return x.status==='ok';}).length+'・NG'+fl.items.filter(function(x){return x.status==='ng';}).length+'）');
   },
   /* AI候補等を画層に中立(未判定)で一括読込。feature_idで重複防止。以後は画層のフラグ=標準モーダル・OK/NGがその場で効く。 */
   // 手動ピックを常時可視の画層(gachoPane)へ積む。0画層OFF(base0非表示)でも必ず見える=「フラグが立たない」の根治。
