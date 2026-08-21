@@ -732,6 +732,10 @@ async function loadDbJudgments(){
     frm=0;
     while(true){ var r2=await d.from('farmland_ng_list').select('feature_id').like('ng_reason','gacho_ng%').range(frm,frm+999); var rows2=(r2&&r2.data)||[]; rows2.forEach(function(x){_gDbNg[x.feature_id]=1;}); if(rows2.length<1000)break; frm+=1000; }
     _applyDbStatusToItems();
+    // v20260821k(ドクター): DB判定の読込後、ページ側マーカー(公式放棄地/開拓候補/紫151/御所218)を判定に合わせて塗り直す。
+    //   →描画がDB読込より先で「チェック済みなのに赤(未チェック)のまま」を解消。OK=緑/NG=消す。
+    try{ for(var _fid in _reviewMarks){ _restyleMark(_fid,_reviewStateOf(_fid)); } }catch(_){}
+    try{ render(); }catch(_){}
   }catch(e){}
 }
 window.__gachoReloadJudgments=loadDbJudgments;
