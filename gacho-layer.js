@@ -467,13 +467,13 @@ function renderLayerGroups(){
       var gmap='<div style="margin-top:6px"><a href="https://www.google.com/maps/search/?api=1&query='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🌐 Googleマップ</a> ｜ <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🚶 ストリートビュー</a></div>';
       if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
         var bacts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.redraw(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 描き直す</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 削除</button></div>';
-        var pg=L.polygon(it.latlngs,it.status==='ng'?{pane:'gachoPane',color:'#991b1b',weight:1,fillColor:'#ef4444',fillOpacity:0.12,dashArray:'4,4'}:(it.status==='ok'?{pane:'gachoPane',color:'#22c55e',weight:3,fillColor:l.color,fillOpacity:0.3}:{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null})); // v20260820v: OK=緑の輪郭で統一(手描きの塗り色は保持)
+        var pg=L.polygon(it.latlngs,it.status==='ng'?{pane:'gachoPane',color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.1,dashArray:'4,4'}:(it.status==='ok'?{pane:'gachoPane',color:'#3fb950',weight:3,fillColor:l.color,fillOpacity:0.3}:{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null}));
         pg.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>敷地境界<br>'+areaTxt+gmap+bacts+'</div>');
         pg.bindTooltip(Math.round(it.area||0).toLocaleString()+'㎡',{permanent:true,direction:'center',className:'gacho-area-lbl',pane:'gachoPane'});
         pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{pg.setStyle({fillOpacity:0.08,dashArray:'4,4'});}catch(_){}saveState();renderPanel();}});
         g.addLayer(pg);
       }else{
-        var _sty=_judgeStyle(it.status==='ok'?'ok':(it.status==='ng'?'ng':(vd?'viewed':null)),l.color); // v20260820v: 全フラグ統一の判定見た目
+        var _sty=it.status==='ng'?{radius:5,color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.3}:(it.status==='ok'?{radius:7,color:'#3fb950',weight:3,fillColor:l.color,fillOpacity:0.95}:{radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95});
         var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
         if(_reviewFilter&&it.iid)_reviewMarkerByIid[it.iid]=mk; // v20260820t: 送り機能でopenPopup
         if(it.status!=='ng') _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(NG済は除外=課金しない・キー無ければno-op)
@@ -813,16 +813,13 @@ function _reviewStateOf(fid){
   if(_gDbNg&&_gDbNg[fid])return 'ng';
   return null;
 }
-/* v20260820v(ドクター): 判定状態の見た目を全フラグで完全統一。どのフラグでも
-   OK=緑塗り+白枠 / NG=赤 / 見た(未確定)=灰破線 / 未確認=元色で明るく。
-   gachoマーカーもページマーカー(開拓候補/公式放棄地/紫151/御所218/農地ナビ)も同じ_judgeStyleを使う=「終わった時の見極め」が常に同じ。 */
-function _judgeStyle(st,base){
-  if(st==='ok')return {radius:8,color:'#ffffff',weight:2.5,fillColor:'#22c55e',fillOpacity:0.95,dashArray:null};
-  if(st==='ng')return {radius:5,color:'#991b1b',weight:1,fillColor:'#ef4444',fillOpacity:0.55,dashArray:null};
-  if(st==='viewed')return {radius:6,color:'#9aa4ae',weight:1.5,fillColor:'#9aa4ae',fillOpacity:0.4,dashArray:'3,3'};
-  return {radius:7,color:'#ffffff',weight:2,fillColor:(base||'#f59e0b'),fillOpacity:0.95,dashArray:null};
+function _reviewStyle(st){
+  if(st==='ok')return {color:'#22c55e',weight:3,fillOpacity:0.30};
+  if(st==='ng')return {color:'#ef4444',weight:3,fillOpacity:0.22};
+  if(st==='viewed')return {color:'#c9d1d9',weight:2.5,fillOpacity:0.35,dashArray:'3,3'};
+  return null;
 }
-function _restyleMark(fid,st){var mk=_reviewMarks[fid];if(mk){var s=_judgeStyle(st);try{if(mk.setRadius&&s.radius)mk.setRadius(s.radius);if(mk.setStyle)mk.setStyle(s);}catch(_){}}}
+function _restyleMark(fid,st){var mk=_reviewMarks[fid];if(mk&&mk.setStyle){var s=_reviewStyle(st);if(s){try{mk.setStyle(s);}catch(_){}}}}
 window.__gacho={
   // v20260820g: 外部(分析ページ本体)のマーカーにも最新衛星ホバーを付けられる公開API。
   //   例) window.__gacho.hoverBind(mk, lat, lng)。農地ナビフラグ/過去AI候補に付けて手作業調査の武器にする。
