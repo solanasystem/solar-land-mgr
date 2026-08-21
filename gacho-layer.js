@@ -477,7 +477,7 @@ function renderLayerGroups(){
         pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{pg.setStyle({fillOpacity:0.08,dashArray:'4,4'});}catch(_){}saveState();renderPanel();}});
         g.addLayer(pg);
       }else{
-        var _sty=it.status==='ng'?{radius:5,color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.3}:(it.status==='ok'?{radius:7,color:'#3fb950',weight:3,fillColor:l.color,fillOpacity:0.95}:{radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95});
+        var _sty=Object.assign({},_judgeStyle(_stOf(it))); // v20260821a: 全フラグ統一 OK=緑〇/NG=赤〇/未確認=灰〇(確定分だけ緑赤)
         var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
         if(_reviewFilter&&it.iid)_reviewMarkerByIid[it.iid]=mk; // v20260820t: 送り機能でopenPopup
         if(it.status!=='ng') _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(NG済は除外=課金しない・キー無ければno-op)
@@ -816,20 +816,25 @@ function _scoreCardHtml(l,it){
    ページ側マーカー(開拓候補/公式放棄地/紫151/御所218)はfeature_idでonReview登録→判定時とマーカー再生成時に減光＋色枠。
    OK=緑枠/NG=赤枠/閲覧のみ=灰破線、いずれも減光。未判定は元の明るい色のまま。 */
 var _reviewMarks={}; // fid -> Leafletマーカー
-function _reviewStateOf(fid){
-  if(!fid)return null;
-  for(var i=0;i<state.layers.length;i++){var its=state.layers[i].items;for(var j=0;j<its.length;j++){var it=its[j];if(it.feature_id===fid){if(it.status==='ok'||it.status==='ng')return it.status;if(it.viewed)return 'viewed';}}}
+/* ===== v20260821a(ドクター): チェック後のフラグを全種類で完全統一。
+   OK=緑〇 / NG=赤〇 / 未確認=灰〇(黄色を残さない)。
+   ★あなたが確定した(userJudged)分だけ緑/赤。自動OK(未確認)は灰=まだ。前回の混乱(未確認まで緑)を是正。 ===== */
+function _judgeStyle(st){
+  if(st==='ok')return {radius:8,color:'#ffffff',weight:2,fillColor:'#22c55e',fillOpacity:1,dashArray:null};   // OK=緑〇
+  if(st==='ng')return {radius:8,color:'#ffffff',weight:2,fillColor:'#ef4444',fillOpacity:1,dashArray:null};   // NG=赤〇
+  return {radius:6,color:'#ffffff',weight:1.5,fillColor:'#9ca3af',fillOpacity:0.9,dashArray:null};            // 未確認=灰〇(黄色を残さない)
+}
+function _stOf(it){ return (_isUserJudged(it)?(it.status==='ok'?'ok':(it.status==='ng'?'ng':'u')):'u'); } // 確定した分だけok/ng、それ以外(自動OK/未確認)は灰
+function _markStateOf(fid){
+  if(!fid)return 'u';
+  var found=null;
+  for(var i=0;i<state.layers.length&&!found;i++){var its=state.layers[i].items;for(var j=0;j<its.length;j++){if(its[j].feature_id===fid){found=its[j];break;}}}
+  if(found)return _stOf(found);
   if(_gDbOk&&_gDbOk[fid])return 'ok';
   if(_gDbNg&&_gDbNg[fid])return 'ng';
-  return null;
+  return 'u';
 }
-function _reviewStyle(st){
-  if(st==='ok')return {color:'#22c55e',weight:3,fillOpacity:0.30};
-  if(st==='ng')return {color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.45}; // v20260820z(ドクター): NGは灰色に退色=除外が一目(黄色のまま残らない)。塗り色も変える。
-  if(st==='viewed')return {color:'#c9d1d9',weight:2.5,fillOpacity:0.35,dashArray:'3,3'};
-  return null;
-}
-function _restyleMark(fid,st){var mk=_reviewMarks[fid];if(mk&&mk.setStyle){var s=_reviewStyle(st);if(s){try{mk.setStyle(s);}catch(_){}}}}
+function _restyleMark(fid,st){var mk=_reviewMarks[fid];if(mk){var s=_judgeStyle(st);try{if(mk.setRadius&&s.radius)mk.setRadius(s.radius);if(mk.setStyle)mk.setStyle(s);}catch(_){}}}
 window.__gacho={
   // v20260820g: 外部(分析ページ本体)のマーカーにも最新衛星ホバーを付けられる公開API。
   //   例) window.__gacho.hoverBind(mk, lat, lng)。農地ナビフラグ/過去AI候補に付けて手作業調査の武器にする。
@@ -837,8 +842,8 @@ window.__gacho={
   // v20260820j(ドクター): ポップアップに最新衛星画像を直接埋め込むHTML(クリックで必ず出る=ホバー非依存)。キー未設定なら''。
   satImgHtml:function(lat,lng){try{return _gmImgHtml({lat:lat,lng:lng});}catch(_){return '';}},
   // v20260820m(ドクター): ページ側フラグの判定済み見た目。onReview(fid,marker)で登録=判定時＋再描画時に減光/色枠。
-  reviewState:function(fid){return _reviewStateOf(fid);},
-  onReview:function(fid,marker){if(!fid||!marker)return;_reviewMarks[fid]=marker;var st=_reviewStateOf(fid);if(st)_restyleMark(fid,st);},
+  reviewState:function(fid){return _markStateOf(fid);},
+  onReview:function(fid,marker){if(!fid||!marker)return;_reviewMarks[fid]=marker;_restyleMark(fid,_markStateOf(fid));}, // v20260821a: 未確認も灰に統一(黄色を残さない)
   removeItem:function(lid,itemIid){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();setTimeout(function(){render();},0);},
   /* v20260818c: 手動ピック等の画層から、判定関数isMatchに合致する項目(=納品済)を別画層dstNameへ移して退避(archived)。
      作業台の手動ピックには「今調査中の分だけ」を残し、旧納品分と連動して動かなくする。isMatch(item)→true=退避対象。返り値=移動件数。 */
@@ -863,7 +868,7 @@ window.__gacho={
     if(it.status===val&&it.userJudged){ it.status=null; it.userJudged=false; }
     else { it.status=val; it.userJudged=true; if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1; }
     it.viewed=true;
-    _persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed');
+    _persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,_stOf(it));
   }});saveState();setTimeout(function(){render();},0);},
   setCrit:function(lid,iid,ck,val,btn){var l=byId(lid);if(!l)return;var itr=null;l.items.forEach(function(it){if(it.iid===iid){itr=it;var s=_score(it);s[ck]=val;it.viewed=true;if(ck==='c7'&&val!=='x')it.ngsub=[];}});saveState();
     try{var row=btn.parentNode;row.querySelectorAll('.gsc-b').forEach(function(bb){bb.style.background='';bb.style.color='';bb.style.fontWeight='';});var col=(val==='o'?'#3fb950':(val==='x'?'#f85149':'#eab308'));btn.style.background=col;btn.style.color='#0d1117';btn.style.fontWeight='700';
@@ -873,7 +878,7 @@ window.__gacho={
     if(itr&&itr.feature_id&&itr.status!=='ok'&&itr.status!=='ng')_restyleMark(itr.feature_id,'viewed'); // v20260820m: 触った時点で「閲覧済み」表示(確定前でも一度見た印)
   },
   setSub:function(lid,iid,t,btn){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){it.ngsub=it.ngsub||[];var i=it.ngsub.indexOf(t);if(i>=0)it.ngsub.splice(i,1);else it.ngsub.push(t);}});saveState();try{btn.classList.toggle('on');}catch(_){}},
-  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;it.userJudged=true;if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1;_persistJudgmentScored(it,s);_restyleMark(it.feature_id,it.status);}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
+  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;it.userJudged=true;if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1;_persistJudgmentScored(it,s);_restyleMark(it.feature_id,_stOf(it));}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   /* v20260812j: 画層名を指定して(無ければ作成)取込先にし、敷地境界の描画を開始。手動ピック等のポップアップの「✏️敷地境界を描く」から呼ぶ */
   drawInLayer:function(name,color){var l=state.layers.filter(function(x){return x.name===name;})[0];if(!l){l={id:uid(),name:name,color:color||'#ff1493',visible:true,active:false,items:[]};state.layers.push(l);}state.layers.forEach(function(x){x.active=(x.id===l.id);});var m=getMap();if(m)m.closePopup();saveState();render();if(!_drawMode)toggleDraw();},
