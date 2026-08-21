@@ -858,7 +858,7 @@ function renderPanel(){
   h+='<div class="gacho-actions">';
   if(al){
     h+='<div class="gacho-active-note">取込先: <b style="color:'+al.color+'">'+esc(al.name)+'</b></div>';
-    h+='<button id="gachoPickBtn" class="gacho-btn wide'+(_pickMode?' on':'')+'">🖱 クリックで1件ずつ取込'+(_pickMode?'（ESCで終了）':'')+'</button>';
+    // v20260821z10(ドクター): 「🖱 クリックで1件ずつ取込」撤去(未使用)。手動ピックは📍で。
     h+='<button id="gachoAddPt" class="gacho-btn wide'+(_addMode?' on':'')+'" style="background:rgba(255,20,147,.16);border-color:#ff1493">📍 地図クリックで手動ピック記録（案件候補）'+(_addMode?'（クリック→確認→保存／ESCで終了）':'')+'</button>';
     h+='<button id="gachoCapView" class="gacho-btn wide">＋ 表示中の範囲を取り込む（全部）</button>';
     h+='<div class="gacho-cond">面積 ≥ <input id="gachoMinArea" type="number" min="0" step="50" value="'+(state.lastMinArea!=null?state.lastMinArea:800)+'"> ㎡ <button id="gachoCapCond" class="gacho-btn">条件で取込</button></div>';
@@ -898,7 +898,6 @@ function bindPanel(){
   all('.gacho-del[data-del]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-del'));if(!l)return;if(confirm('画層「'+l.name+'」を削除しますか？（割当のみ削除・元データは無傷）')){state.layers=state.layers.filter(function(x){return x.id!==l.id;});if(state.solo===l.id)state.solo=null;saveState();render();}};});
   var cv=q('#gachoCapView');if(cv)cv.onclick=function(){captureViewport();};
   var cc=q('#gachoCapCond');if(cc)cc.onclick=function(){var el=q('#gachoMinArea');var v=el?Number(el.value):800;if(isNaN(v))v=0;state.lastMinArea=v;saveState();captureViewport({minArea:v});};
-  var pk=q('#gachoPickBtn');if(pk)pk.onclick=togglePick;
   var ap=q('#gachoAddPt');if(ap)ap.onclick=toggleAdd;
   var du=q('#gachoDrawUndo');if(du)du.onclick=drawUndo;
   var dn=q('#gachoDrawDone');if(dn)dn.onclick=function(){drawFinish();};
@@ -923,12 +922,49 @@ function _boundaryMemo(it){ return JSON.stringify({iid:it.iid,latlngs:it.latlngs
 /* v20260821t(ドクター「やれ」): 手描き線の保存結果を必ず画面表示。silent failureを廃止。
    ★supabase-jsはDBエラーを例外でなく res.error に入れる→第2コールバックでは捕まらない。第1コールバックで res.error を判定する。 */
 function _sbToast(msg,type){ try{ if(typeof window.showToast==='function'){window.showToast(msg,type||'success');return;} }catch(_){ } try{ toast(msg); }catch(_){ } }
-function _saveBoundaryToDb(it){ if(!it||it.type!=='boundary'||!it.latlngs)return; var d=_gDb();
-  if(!d){ _sbToast('⚠ DB未接続＝この手描き線は保存できていません。リロードで再接続してから、もう一度確定してください','error'); return; }
-  try{ d.from('ai_ok_labels').insert({source:'handdraw_boundary',member_fids:[it.iid],lat:(it.lat!=null?Number(it.lat):null),lng:(it.lng!=null?Number(it.lng):null),memo:_boundaryMemo(it)}).then(
-      function(res){ if(res&&res.error){ _sbToast('⚠ 手描き線のDB保存 失敗：'+((res.error&&res.error.message)||'')+' ／ もう一度ダブルクリックで確定してください','error'); } else { _sbToast('✓ 手描き線をDBに保存しました（約'+Math.round(it.area||0).toLocaleString()+'㎡）','success'); } },
-      function(err){ _sbToast('⚠ 手描き線のDB保存 失敗（通信）：'+((err&&err.message)||'')+' ／ もう一度確定してください','error'); }
-    ); }catch(e){ _sbToast('⚠ 手描き線のDB保存 失敗（例外）：'+((e&&e.message)||'')+' ／ もう一度確定してください','error'); } }
+/* ===== 絶対に消えない: アウトボックス（保存が確認できるまで諦めず再試行し続ける。DBに入るまでlocalStorageから消さない）。ドクター2026-08-21最優先。
+   判定(OK/NG)・手描き境界を積む→DB書込を試行→成功でだけ削除。失敗/DB未接続なら残して再試行(起動時/15秒毎/オンライン復帰時/操作時)。未保存はHUDで常時可視化。 ===== */
+var _OUTBOX_KEY='trackerGacho_outbox_v1';
+function _obGet(){try{return JSON.parse(localStorage.getItem(_OUTBOX_KEY)||'[]');}catch(_){return [];}}
+function _obSet(a){try{localStorage.setItem(_OUTBOX_KEY,JSON.stringify(a));}catch(_){}}
+function _obAdd(e){try{e.id=uid();e.ts=_stamp();var a=_obGet();a.push(e);_obSet(a);_updateSaveHud();_flushOutbox();}catch(_){}}
+var _obFlushing=false;
+function _obExec(d,e){
+  if(e.kind==='boundary')return d.from('ai_ok_labels').insert({source:'handdraw_boundary',member_fids:[e.iid],lat:e.lat,lng:e.lng,memo:e.memo});
+  if(e.kind==='ok')return d.from('ai_ok_labels').insert({source:'gacho_ok',member_fids:[e.fid],lat:e.lat,lng:e.lng,memo:e.memo||'gacho手動OK'});
+  if(e.kind==='ng')return d.from('farmland_ng_list').upsert({feature_id:e.fid,lat:e.lat,lng:e.lng,ng_reason:e.reason||'gacho_ng'},{onConflict:'feature_id'});
+  return null;
+}
+function _flushOutbox(){
+  try{
+    var a=_obGet(); if(!a.length){_updateSaveHud();return;}
+    var d=_gDb(); if(!d){_updateSaveHud();return;}        // DB未接続=残して後で再試行(絶対に消さない)
+    if(_obFlushing)return; _obFlushing=true;
+    var pending=a.slice(),i=0,ok={};
+    function fin(){ try{_obSet(_obGet().filter(function(x){return !ok[x.id];}));}catch(_){} _obFlushing=false; _updateSaveHud(); }
+    function step(){
+      if(i>=pending.length)return fin();
+      var e=pending[i++]; var qb;
+      try{ qb=_obExec(d,e); }catch(_){ return step(); }
+      if(!qb){ ok[e.id]=1; return step(); }               // 不明kindは破棄
+      try{ qb.then(function(res){ if(!(res&&res.error))ok[e.id]=1; step(); },function(){ step(); }); }
+      catch(_){ step(); }
+    }
+    step();
+  }catch(_){ _obFlushing=false; }
+}
+function _updateSaveHud(){
+  try{
+    var n=_obGet().length;
+    var el=document.getElementById('gachoSaveHud');
+    if(!el){ el=document.createElement('div'); el.id='gachoSaveHud'; el.style.cssText='position:fixed;bottom:10px;left:10px;z-index:100000;font:600 12px/1.4 system-ui,sans-serif;padding:6px 11px;border-radius:8px;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.4);transition:opacity .3s'; document.body.appendChild(el); }
+    if(n>0){ el.style.display=''; el.style.background='rgba(234,88,12,.94)'; el.style.color='#fff'; el.textContent='💾 DB保存中… 未保存 '+n+' 件（消えません・再試行中）'; }
+    else { el.style.background='rgba(22,163,74,.92)'; el.style.color='#fff'; el.textContent='✓ すべてDB保存済み'; setTimeout(function(){try{if(_obGet().length===0){el.style.display='none';}}catch(_){}} ,2200); }
+  }catch(_){}
+}
+function _saveBoundaryToDb(it){ if(!it||it.type!=='boundary'||!it.latlngs)return;
+  _obAdd({kind:'boundary',iid:it.iid,lat:(it.lat!=null?Number(it.lat):null),lng:(it.lng!=null?Number(it.lng):null),memo:_boundaryMemo(it)});
+  _sbToast('💾 手描き線を保存キューへ（DBに入るまで消えません）','success'); }
 function saveAllBoundariesToDb(){
   var d=_gDb(); if(!d){toast('DB未接続で保存できません');return;}
   var bs=[]; state.layers.forEach(function(l){l.items.forEach(function(it){if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3)bs.push(it);});});
@@ -985,10 +1021,10 @@ function _persistJudgment(fid,lat,lng,status){
   var d=_gDb(); if(!d||!fid)return;
   try{
     if(status==='ok'){ _gDbOk[fid]=1; delete _gDbNg[fid];
-      d.from('ai_ok_labels').insert({source:'gacho_ok',member_fids:[fid],lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),memo:'gacho手動OK'}).then(function(){},function(){});
+      _obAdd({kind:'ok',fid:fid,lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),memo:'gacho手動OK'});
       d.from('farmland_ng_list').delete().eq('feature_id',fid).like('ng_reason','gacho_ng%').then(function(){},function(){});
     } else if(status==='ng'){ _gDbNg[fid]=1; delete _gDbOk[fid];
-      d.from('farmland_ng_list').upsert({feature_id:fid,lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),ng_reason:'gacho_ng'},{onConflict:'feature_id'}).then(function(){},function(){});
+      _obAdd({kind:'ng',fid:fid,lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),reason:'gacho_ng'});
       d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
     } else { delete _gDbOk[fid]; delete _gDbNg[fid];
       d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
@@ -1019,10 +1055,10 @@ function _persistJudgmentScored(it,s){
   var d=_gDb();if(!d||!it||!it.feature_id)return;var fid=it.feature_id,lat=it.lat,lng=it.lng;var ng=_hasX(s);
   try{
     if(ng){ _gDbNg[fid]=1; delete _gDbOk[fid];
-      d.from('farmland_ng_list').upsert({feature_id:fid,lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),ng_reason:('gacho_ng|'+_scoreCodes(it,s))},{onConflict:'feature_id'}).then(function(){},function(){});
+      _obAdd({kind:'ng',fid:fid,lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),reason:('gacho_ng|'+_scoreCodes(it,s))});
       d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
     } else { _gDbOk[fid]=1; delete _gDbNg[fid];
-      d.from('ai_ok_labels').insert({source:'gacho_ok',member_fids:[fid],lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),memo:('gacho手動OK|'+_okPattern(s))}).then(function(){},function(){});
+      _obAdd({kind:'ok',fid:fid,lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),memo:('gacho手動OK|'+_okPattern(s))});
       d.from('farmland_ng_list').delete().eq('feature_id',fid).like('ng_reason','gacho_ng%').then(function(){},function(){});
     }
   }catch(e){}
@@ -1304,6 +1340,10 @@ function _restoreClearedAutoOk(){try{var raw=localStorage.getItem(_MIG_SNAP_KEY)
 function _fullRestoreOnce(){try{if(localStorage.getItem('trackerGacho_fullRestore_20260821'))return;var raw=localStorage.getItem(_MIG_SNAP_KEY);if(!raw)return;var snap=JSON.parse(raw);if(!snap||!snap.state||!snap.state.layers||!snap.state.layers.length)return;state=snap.state;saveState();localStorage.setItem('trackerGacho_fullRestore_20260821','1');try{console.log('[全復元] 08:58スナップショットへ復元');}catch(_){}}catch(_){}}
 function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_reArchiveFromSnapOnce();_upgradeHandDrawnOk();injectStyle();buildPanel();ensurePane(m);render();applyBase0();try{loadDbJudgments();setTimeout(loadDbJudgments,2500);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
   try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
+  // 絶対に消えない: 起動時に未保存をDBへ再送→15秒毎に再試行→オンライン復帰で即再送。HUDで未保存件数を常時表示。
+  try{ _updateSaveHud(); _flushOutbox(); setTimeout(_flushOutbox,3000); setInterval(_flushOutbox,15000);
+    if(typeof window!=='undefined'){window.addEventListener('online',function(){_flushOutbox();}); window.addEventListener('focus',function(){_flushOutbox();});}
+  }catch(_){}
   try{m.on('movestart zoomstart dragstart popupopen click',function(){_gmHideFloat();});m.getContainer().addEventListener('mouseleave',function(){_gmHideFloat();});}catch(_){} // v20260821i: ホバー衛星画像の取り残し(黒箱)対策
   document.addEventListener('keydown',function(e){var tag=((e.target&&e.target.tagName)||'').toLowerCase();if(tag==='input'||tag==='textarea')return;if(e.key==='Escape'){if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();}if(_drawMode&&(e.key==='Backspace'||((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')))){e.preventDefault();drawUndo();}});}
 boot();
