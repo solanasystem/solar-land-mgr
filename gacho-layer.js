@@ -630,7 +630,7 @@ function restoreFromFile(){
 }
 
 /* 0画層(既存すべて)の表示切替: base地図タイルと画層paneを除く全paneをまとめて隠す/戻す */
-function applyBase0(){var m=getMap();if(!m)return;var panes=m.getPanes();Object.keys(panes).forEach(function(name){if(name==='mapPane'||name==='tilePane'||name==='gachoPane'||name==='popupPane'||name==='noshinPane'||name==='farmlandPane'||name==='cityPlanPane')return;try{panes[name].style.display=state.base0Visible?'':'none';}catch(_){}});}
+function applyBase0(){var m=getMap();if(!m)return;var panes=m.getPanes();Object.keys(panes).forEach(function(name){if(name==='mapPane'||name==='tilePane'||name==='gachoPane'||name==='popupPane'||name==='noshinPane'||name==='cityPlanPane')return;try{panes[name].style.display=state.base0Visible?'':'none';}catch(_){}});} // v20260821z33: farmlandPane(農地ナビ)も0画層OFFで隠す=ゴミ非表示。農振/都市計画(規制)は残す
 /* 面積ラベル: ズームを引いた時(z<15)や手動OFF時はまとめて非表示にして地図を邪魔しない */
 function updateAreaLabels(){var m=getMap();if(!m)return;var hide=(!state.showArea)||(m.getZoom()<15);try{m.getContainer().classList.toggle('gacho-noarea',hide);}catch(_){}}
 
@@ -846,8 +846,7 @@ function renderPanel(){
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
   var _isRef=function(l){ if(l.archived)return true; return /保留|対象外|敷地境界|納品|要確認/.test(l.name||''); };
-  var _cc=_liveCounts();
-  h+='<div class="gacho-total">今の作業台 確定OK <span style="color:#3fb950;font-size:15px">'+_cc.ok+'</span> ・ NG <span style="color:#f85149">'+_cc.ng+'</span><span style="color:#8b949e;font-weight:400;font-size:10px"> （手判定の重複なし実数・納品/自動OK除外・削除で減る）</span></div>';
+  // v20260821z33(ドクター): カウンター撤去(ゴミと共に消せ)。正の数字は固定データ(第2回=337カ所)のみ。
   // ★検索: 打つとその画層だけを地図・パネルに絞る(見えすぎ/だらだら解消)。空で解除。
   h+='<div class="gacho-master" style="gap:4px"><input id="gachoSearch" placeholder="🔍 画層を検索して絞る（大台/田原/SUN…）" value="'+esc(_gFilter)+'" style="flex:1;padding:6px 9px;border-radius:6px;border:1px solid '+(_gFilter?'#f59e0b':'#30363d')+';background:#0d1117;color:#e6edf3;font-size:12px;outline:none">'+(_gFilter?'<button id="gachoSearchClr" class="gacho-btn" style="padding:2px 8px">✕</button>':'')+'</div>';
   if(_gFilter){h+='<div style="font-size:11px;color:#f0b429;margin:2px 0 4px">🔍「'+esc(_gFilter)+'」で絞り込み中＝この画層だけ地図に表示。✕で解除。</div>';}
@@ -1464,7 +1463,9 @@ async function _sweepDeletedFlags(){
   }catch(_){}
 }
 window.__gachoSweepDeleted=_sweepDeletedFlags;
-function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_reArchiveFromSnapOnce();injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments();setTimeout(loadDbJudgments,2500);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
+function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_reArchiveFromSnapOnce();
+  try{if(!localStorage.getItem('gacho_hidebase_z33')){state.base0Visible=false;saveState();localStorage.setItem('gacho_hidebase_z33','1');}}catch(_){} // v20260821z33(ドクター): ゴミ(素の候補フラグ)を一度だけ非表示に。👁0画層で戻せる
+  injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments();setTimeout(loadDbJudgments,2500);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
   try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
   // 削除した筆を復活させない: 起動時＋遅延描画に追随して掃引
   try{ _sweepDeletedFlags(); setTimeout(_sweepDeletedFlags,1800); setTimeout(_sweepDeletedFlags,4500); setTimeout(_sweepDeletedFlags,9000); setInterval(_sweepDeletedFlags,20000); m.on('moveend zoomend',function(){_sweepDeletedFlags();}); }catch(_){}
