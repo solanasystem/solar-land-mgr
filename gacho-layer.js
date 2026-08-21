@@ -1179,8 +1179,9 @@ window.__gacho={
       if(d&&it.type==='boundary'&&it.iid){ d.from('ai_ok_labels').delete().eq('source','handdraw_boundary').contains('member_fids',[it.iid]).then(function(){},function(){}); }
     }catch(_){}
     if(fid){try{delete _gDbOk[fid];delete _gDbNg[fid];}catch(_){}}
-    l.items=l.items.filter(function(x){return x.iid!==itemIid;});
-    try{if(fid){_restyleMark(fid,'ng');delete _reviewMarks[fid];}}catch(_){} // ページ側マーカーも即除去(NGと同じ方式=地図から消す)
+    state.layers.forEach(function(L){L.items=L.items.filter(function(x){return x.iid!==itemIid && !(fid&&x.feature_id===fid);});}); // 全gachoレイヤーから除去(別レイヤーの重複も)
+    try{if(fid){_restyleMark(fid,'ng');delete _reviewMarks[fid];}}catch(_){}
+    try{if(fid&&typeof window.__gachoRemoveFeatureMarker==='function')window.__gachoRemoveFeatureMarker(fid);}catch(_){} // ページ側マーカー層を横断除去=地図から確実に消す
     if(m)m.closePopup();saveState();setTimeout(function(){render();},0);
     toast('🗑 削除しました（カウントから外しました）');
   },
