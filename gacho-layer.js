@@ -165,11 +165,36 @@ function toggleDraw(){
 function drawClick(e){var m=getMap();try{m.closePopup();}catch(_){}_drawPts.push([e.latlng.lat,e.latlng.lng]);var mk=L.circleMarker(e.latlng,{pane:'gachoPane',radius:4,color:'#fff',weight:1,fillColor:'#f59e0b',fillOpacity:1}).addTo(m);_drawMarkers.push(mk);redrawTemp();}
 function redrawTemp(){var m=getMap();if(_drawTemp){try{m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}if(_drawPts.length>=2){var ring=_drawPts.slice();if(_drawPts.length>=3)ring=ring.concat([_drawPts[0]]);_drawTemp=L.polyline(ring,{pane:'gachoPane',color:'#f59e0b',weight:2,dashArray:'5,5'}).addTo(m);}}
 function drawUndo(){var m=getMap();if(!_drawPts.length){toast('戻す頂点がありません');return;}_drawPts.pop();var mk=_drawMarkers.pop();if(mk&&m){try{m.removeLayer(mk);}catch(_){}}redrawTemp();toast('1つ戻しました（残り頂点'+_drawPts.length+'）');}
-function drawFinish(e){if(e){try{L.DomEvent.stop(e);}catch(_){}}if(_drawPts.length<3){toast('3点以上必要です');return;}var l=activeLayer();if(!l){cancelDraw();return;}var latlngs=_drawPts.slice();var area=polyArea(latlngs);var c=centroid(latlngs);var _nb={iid:iid(),type:'boundary',latlngs:latlngs,area:area,lat:c[0],lng:c[1],address:'敷地境界',status:'ok',userJudged:true,src:'handdraw'};l.items.push(_nb);try{_saveBoundaryToDb(_nb);}catch(_){} // v20260820s: 手描き=OK。v20260821q: 描いた瞬間にDBへ保存(消えない)
+function drawFinish(e){if(e){try{L.DomEvent.stop(e);}catch(_){}}if(_drawPts.length<3){toast('3点以上必要です');return;}var l=activeLayer();if(!l){cancelDraw();return;}var latlngs=_drawPts.slice();var area=polyArea(latlngs);var c=centroid(latlngs);var _nb={iid:iid(),type:'boundary',latlngs:latlngs,area:area,lat:c[0],lng:c[1],address:'敷地境界',status:null,userJudged:false,src:'handdraw'};l.items.push(_nb);try{_saveBoundaryToDb(_nb);}catch(_){} // v20260821z11(ドクター): ダブルクリック=線画完了(未確定)。面積を確認→✓OKで初めて確定。描いた瞬間に下書きとしてDB保存(消えない)
   // v20260820h(ドクター): _drawTarget があれば、描いた面積を対象フラグ(候補)に反映=小さい土地を手描きで800㎡以上へ。⑥面積スコアも更新。
   var tgt=_drawTarget;_drawTarget=null;var tmsg='';
   if(tgt){var tl=byId(tgt.lid);if(tl){tl.items.forEach(function(it){if(it.iid===tgt.iid){it.area=area;it.handArea=area;it.handLatlngs=latlngs;var s=_score(it);s.c6=(area>=800?'o':'x');it.viewed=true;}});}tmsg='／ 対象フラグの面積を '+Math.round(area).toLocaleString()+'㎡ に更新(⑥面積'+(area>=800?'〇':'✖')+')';}
-  saveState();cancelDraw();render();toast('敷地境界を「'+l.name+'」に追加（約'+Math.round(area).toLocaleString()+'㎡）'+tmsg);}
+  saveState();_lastDrawnBoundary={lid:l.id,iid:_nb.iid};_lastDrawTarget=tgt;cancelDraw();render();
+  try{_showAreaConfirm(area,tgt);}catch(_){toast('線画完了（約'+Math.round(area).toLocaleString()+'㎡）。線をクリック→✓OKで確定');}}
+var _lastDrawnBoundary=null,_lastDrawTarget=null;
+/* v20260821z11(ドクター): ダブルクリック=線画完了。ここで面積を確認して✓OKを押して初めて確定=作業完了。足りなければ描き直し。 */
+function _showAreaConfirm(area,tgt){
+  var ok=area>=800;var col=ok?'#22c55e':'#f85149';
+  var ex=document.getElementById('gachoAreaConfirm');if(ex){try{ex.remove();}catch(_){}}
+  var ov=document.createElement('div');ov.id='gachoAreaConfirm';
+  ov.style.cssText='position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;';
+  ov.innerHTML='<div style="background:#0d1117;border:1px solid #30363d;border-radius:12px;padding:20px 24px;max-width:330px;text-align:center;color:#e6edf3;font:14px/1.5 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.6)">'
+    +'<div style="font-size:13px;color:#8b949e">線画完了 → 最終チェック</div>'
+    +'<div style="font-size:32px;font-weight:800;color:'+col+';margin:8px 0">'+Math.round(area).toLocaleString()+' ㎡</div>'
+    +'<div style="font-size:12px;color:'+col+';margin-bottom:14px">'+(ok?'✓ 800㎡以上 → OKにできます':'⚠ 800㎡未満 → 足りません（描き直し推奨）')+'</div>'
+    +'<div style="display:flex;gap:8px">'
+    +'<button id="_gacOkBtn" style="flex:1;background:#238636;border:1px solid #2ea043;color:#fff;border-radius:8px;padding:9px;font-weight:700;cursor:pointer">✓ OK（確定）</button>'
+    +'<button id="_gacReBtn" style="flex:1;background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:8px;padding:9px;cursor:pointer">↺ 描き直す</button>'
+    +'</div><div style="font-size:10px;color:#6e7681;margin-top:8px">後で決めるなら、この線をクリック→✓OK。線はもう保存済み（消えません）</div></div>';
+  document.body.appendChild(ov);
+  function close(){try{ov.remove();}catch(_){}}
+  var okb=document.getElementById('_gacOkBtn');if(okb)okb.onclick=function(){close();
+    try{ if(tgt){ window.__gacho.applyScore(tgt.lid,tgt.iid); } else if(_lastDrawnBoundary){ window.__gacho.setStatus(_lastDrawnBoundary.lid,_lastDrawnBoundary.iid,'ok'); } }catch(_){}
+  };
+  var reb=document.getElementById('_gacReBtn');if(reb)reb.onclick=function(){close();
+    try{ if(_lastDrawnBoundary){var bl=byId(_lastDrawnBoundary.lid);if(bl)bl.items=bl.items.filter(function(x){return x.iid!==_lastDrawnBoundary.iid;});saveState();} if(_lastDrawTarget)_drawTarget=_lastDrawTarget; render(); if(!_drawMode)toggleDraw(); toast('描き直し: クリックで頂点→ダブルクリックで確定'); }catch(_){}
+  };
+}
 function cancelDraw(){var m=getMap();_drawMarkers.forEach(function(mk){try{if(m)m.removeLayer(mk);}catch(_){}});_drawMarkers=[];if(_drawTemp){try{if(m)m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}_drawPts=[];_drawPanesOn();if(m){m.off('click',drawClick);m.off('dblclick',drawFinish);try{m.doubleClickZoom.enable();}catch(_){}m.getContainer().style.cursor='';}_drawMode=false;renderPanel();}
 
 function toggleRect(){var m=getMap();if(!m)return;_rectMode=!_rectMode;if(_rectMode){if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();try{m.dragging.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('mousedown',rectDown);toast('地図上をドラッグで囲むと、その範囲の筆・フラグを取り込みます（ESCで終了）');}else{cleanupRect();}renderPanel();}
@@ -774,7 +799,7 @@ function renderPanel(){
   h+='<div class="gacho-body" id="gachoBody">';
   h+='<div class="gacho-master"><button id="gachoShowAll" class="gacho-btn">👁 全て表示</button><button id="gachoHideAll" class="gacho-btn">🚫 全て隠す</button></div>';
   // v20260821z(ドクター): 「未確認のみ表示」撤去(断捨離)。面積ラベルは残す。
-  h+='<div class="gacho-master"><button id="gachoAreaLbl" class="gacho-btn'+(state.showArea?' on':'')+'" title="敷地境界の面積ラベル表示（ズーム15以上で表示）">㎡ 面積ラベル</button></div>';
+  // v20260821z11(ドクター): 「㎡ 面積ラベル」撤去(面積はポップアップ/描画後表示で確認)。
   // v20260821z4(ドクター): 初回納品済を一律グレーで表示=二度出し防止。新規開拓(緑)と一目で区別。
   if(window.DELIVERED300)h+='<div class="gacho-master"><button id="gachoShowDeliv" class="gacho-btn'+(state.showDelivered?' on':'')+'" style="'+(state.showDelivered?'background:rgba(148,163,184,.30);border-color:#94a3b8':'')+'" title="初回納品済'+(window.DELIVERED300.count||300)+'をグレーで地図に表示=同じ場所を二度出さないため。新規開拓(緑)と一目で区別">'+(state.showDelivered?'🏁 納品済を表示中（グレー）':'🏁 納品済を地図に表示')+'</button></div>';
   // v20260821z2(ドクター): 「見た分をOKに一括」「除外は非表示」撤去(断捨離)。NGは既定(showNg=false)で地図から隠れたまま=機能は維持。
@@ -879,7 +904,6 @@ function bindPanel(){
   var mn=q('#gachoMin');if(mn)mn.onclick=function(){var b=q('#gachoBody');if(b)b.style.display=(b.style.display==='none'?'':'none');};
   var sa=q('#gachoShowAll');if(sa)sa.onclick=showAll;
   var ha=q('#gachoHideAll');if(ha)ha.onclick=hideAll;
-  var alb=q('#gachoAreaLbl');if(alb)alb.onclick=function(){state.showArea=!state.showArea;saveState();updateAreaLabels();renderPanel();};
   var shd=q('#gachoShowDeliv');if(shd)shd.onclick=function(){state.showDelivered=!state.showDelivered;saveState();try{renderDelivered();}catch(_){}renderPanel();};
   var d2d=q('#gachoD2Del');if(d2d)d2d.onclick=function(){deleteEmptiedD2();};
   var d2u=q('#gachoD2Undo');if(d2u)d2u.onclick=function(){undoDelivery2();};
@@ -918,7 +942,7 @@ function bindPanel(){
 var _gDbOk={}, _gDbNg={};
 function _gDb(){ try{ if(typeof window!=='undefined'&&window.db)return window.db; if(typeof db!=='undefined')return db; }catch(_){ } return null; }
 /* v20260821q(ドクター「やれ」): 手描き境界をDBへ永続保存＋復元。二度と消えない様に。ai_ok_labels(source=handdraw_boundary)にmemo=JSONで幾何を保存。 */
-function _boundaryMemo(it){ return JSON.stringify({iid:it.iid,latlngs:it.latlngs,area:it.area,address:it.address||'',status:(it.status==='ng'?'ng':'ok'),lat:it.lat,lng:it.lng}); }
+function _boundaryMemo(it){ return JSON.stringify({iid:it.iid,latlngs:it.latlngs,area:it.area,address:it.address||'',status:(it.status==='ng'?'ng':(it.status==='ok'?'ok':'pending')),lat:it.lat,lng:it.lng}); }
 /* v20260821t(ドクター「やれ」): 手描き線の保存結果を必ず画面表示。silent failureを廃止。
    ★supabase-jsはDBエラーを例外でなく res.error に入れる→第2コールバックでは捕まらない。第1コールバックで res.error を判定する。 */
 function _sbToast(msg,type){ try{ if(typeof window.showToast==='function'){window.showToast(msg,type||'success');return;} }catch(_){ } try{ toast(msg); }catch(_){ } }
@@ -984,12 +1008,16 @@ async function loadBoundariesFromDb(){
   try{
     var have={}; state.layers.forEach(function(l){l.items.forEach(function(it){if(it.iid)have[it.iid]=1;});});
     var r=await d.from('ai_ok_labels').select('memo').eq('source','handdraw_boundary'); var rows=(r&&r.data)||[]; var added=0; var l=null;
-    rows.forEach(function(x){try{var m=JSON.parse(x.memo||'{}'); if(!m.iid||!m.latlngs||m.latlngs.length<3||have[m.iid])return;
+    // v20260821z11: 同一iidが複数行(下書きpending＋確定ok)になり得る→iidごとに ok>ng>pending の最良を採用。
+    var best={},rank={ok:3,ng:2,pending:1};
+    rows.forEach(function(x){try{var m=JSON.parse(x.memo||'{}'); if(!m.iid||!m.latlngs||m.latlngs.length<3)return; var st=(m.status==='ng'?'ng':(m.status==='ok'?'ok':'pending')); var rk=rank[st]||1; if(!best[m.iid]||rk>best[m.iid].rk){best[m.iid]={m:m,st:st,rk:rk};}}catch(_){}});
+    Object.keys(best).forEach(function(iid){ if(have[iid])return; var b=best[iid],m=b.m;
       if(!l){ l=state.layers.filter(function(y){return y.name==='敷地境界（実測）';})[0]; if(!l){l={id:uid(),name:'敷地境界（実測）',color:'#f59e0b',visible:true,active:false,items:[]};state.layers.push(l);} }
       l.archived=false; l.visible=true;
-      l.items.push({iid:m.iid,type:'boundary',latlngs:m.latlngs,area:m.area,lat:(m.lat!=null?m.lat:(m.latlngs[0]?m.latlngs[0][0]:null)),lng:(m.lng!=null?m.lng:(m.latlngs[0]?m.latlngs[0][1]:null)),address:m.address||'敷地境界',status:(m.status==='ng'?'ng':'ok'),userJudged:true,src:'handdraw'});
+      var _st=(b.st==='pending'?null:b.st); // 未確定(pending)はstatus無し=OKに数えない
+      l.items.push({iid:m.iid,type:'boundary',latlngs:m.latlngs,area:m.area,lat:(m.lat!=null?m.lat:(m.latlngs[0]?m.latlngs[0][0]:null)),lng:(m.lng!=null?m.lng:(m.latlngs[0]?m.latlngs[0][1]:null)),address:m.address||'敷地境界',status:_st,userJudged:(_st==='ok'||_st==='ng'),src:'handdraw'});
       have[m.iid]=1; added++;
-    }catch(_){}});
+    });
     if(added){saveState();render();try{console.log('[DB復元] 手描き境界 '+added+'件');}catch(_){}}
   }catch(e){}
 }
@@ -1144,7 +1172,8 @@ window.__gacho={
     if(it.status===val&&it.userJudged){ it.status=null; it.userJudged=false; }
     else { it.status=val; it.userJudged=true; if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1; }
     it.viewed=true;
-    _persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed');
+    if(it.type==='boundary'){ try{_saveBoundaryToDb(it);}catch(_){} } // v20260821z11: 境界のOK/NG確定をDBへ(消えない・アウトボックス)
+    else { _persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed'); }
   }});saveState();setTimeout(function(){render();},0);},
   setCrit:function(lid,iid,ck,val,btn){var l=byId(lid);if(!l)return;var itr=null;l.items.forEach(function(it){if(it.iid===iid){itr=it;var s=_score(it);s[ck]=val;it.viewed=true;if(ck==='c7'&&val!=='x')it.ngsub=[];}});saveState();
     try{var row=btn.parentNode;row.querySelectorAll('.gsc-b').forEach(function(bb){bb.style.background='';bb.style.color='';bb.style.fontWeight='';});var col=(val==='o'?'#3fb950':(val==='x'?'#f85149':'#eab308'));btn.style.background=col;btn.style.color='#0d1117';btn.style.fontWeight='700';
@@ -1338,7 +1367,7 @@ function _restoreClearedAutoOk(){try{var raw=localStorage.getItem(_MIG_SNAP_KEY)
 /* v20260821i(ドクター): 「自動OKを外す」被害を確実に戻すため、朝08:58の📸スナップショットへ一度だけ完全復元。
    その後 loadDbJudgments であなたのDB確定判定(OK/NG)を再適用=紫/赤含め全部が朝の状態＋あなたの判定に戻る。一度きり(フラグで再実行しない)。 */
 function _fullRestoreOnce(){try{if(localStorage.getItem('trackerGacho_fullRestore_20260821'))return;var raw=localStorage.getItem(_MIG_SNAP_KEY);if(!raw)return;var snap=JSON.parse(raw);if(!snap||!snap.state||!snap.state.layers||!snap.state.layers.length)return;state=snap.state;saveState();localStorage.setItem('trackerGacho_fullRestore_20260821','1');try{console.log('[全復元] 08:58スナップショットへ復元');}catch(_){}}catch(_){}}
-function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_reArchiveFromSnapOnce();_upgradeHandDrawnOk();injectStyle();buildPanel();ensurePane(m);render();applyBase0();try{loadDbJudgments();setTimeout(loadDbJudgments,2500);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
+function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_reArchiveFromSnapOnce();injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments();setTimeout(loadDbJudgments,2500);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
   try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
   // 絶対に消えない: 起動時に未保存をDBへ再送→15秒毎に再試行→オンライン復帰で即再送。HUDで未保存件数を常時表示。
   try{ _updateSaveHud(); _flushOutbox(); setTimeout(_flushOutbox,3000); setInterval(_flushOutbox,15000);
