@@ -779,11 +779,7 @@ function renderPanel(){
   if(window.DELIVERED300)h+='<div class="gacho-master"><button id="gachoShowDeliv" class="gacho-btn'+(state.showDelivered?' on':'')+'" style="'+(state.showDelivered?'background:rgba(148,163,184,.30);border-color:#94a3b8':'')+'" title="初回納品済'+(window.DELIVERED300.count||300)+'をグレーで地図に表示=同じ場所を二度出さないため。新規開拓(緑)と一目で区別">'+(state.showDelivered?'🏁 納品済を表示中（グレー）':'🏁 納品済を地図に表示')+'</button></div>';
   // v20260821z2(ドクター): 「見た分をOKに一括」「除外は非表示」撤去(断捨離)。NGは既定(showNg=false)で地図から隠れたまま=機能は維持。
   // v20260820i(ドクター): 納品300を座標突合して画層から完全削除(先にSW退避=DB無変更・完全復元可)
-  // v20260821z(ドクター): 「📦 納品300を突合して削除」は撤去(納品300は第2回母集団で除外済＝不要な危険ボタン・断捨離)。退避戻しは退避がある時だけ残す。
-  if(_hasDelivBackup())h+='<div class="gacho-master"><button id="gachoRestoreDeliv" class="gacho-btn on" title="退避した納品を画層へ戻す">↩ 納品を戻す</button></div>';
-  // v20260820n(ドクター): レイヤー構造移行 Phase0=移行前スナップショット(全フラグ＋判定を丸ごとSW＋基準カウント)＋復元
-  h+='<div class="gacho-master"><button id="gachoMigSnap" class="gacho-btn" title="レイヤー構造の組み替え前に、全フラグ＋判定(OK/NG/閲覧)を丸ごとSWへ書出＋基準カウント。消えない・判定が残るの証拠＆完全復元点">📸 移行前スナップショット</button>'+(_hasMigSnapshot()?'<button id="gachoMigRestore" class="gacho-btn on" title="スナップショット時点の画層状態に戻す">↩ スナップに戻す</button>':'')+'</div>';
-  h+='<div class="gacho-master"><button id="gachoRestoreFile" class="gacho-btn on" title="ダウンロード済みの移行前スナップショットJSONファイルを選んで直接復元(手描き境界を戻す)">📂 スナップJSONから復元</button></div>';
+  // v20260821z9(ドクター): 断捨離。↩納品を戻す/📸移行前スナップショット/↩スナップに戻す/📂スナップJSONから復元 を撤去(移行完了・仰々しい)。🔄第2回一致とその↩だけ残す。復元は自動DLしたJSON＋git履歴が担保。
   // 第2回納品候補 県→市町村 移行（慎重運用: 移動だけでは消えない・削除は別・総数変化で自動中断復元）
   if(window.DELIVERY2){
     h+='<div class="gacho-master"><button id="gachoD2Rebuild" class="gacho-btn" style="background:rgba(8,145,178,.28);border-color:#22d3ee;font-weight:700" title="第2回納品候補の階層を確定データ('+(window.DELIVERY2.totalItems||512)+')に完全一致。移動/補完/外れNGの除外を一括・可逆・推奨">🔄 第2回を確定データに一致（'+(window.DELIVERY2.totalItems||512)+'）</button></div>';
@@ -885,10 +881,6 @@ function bindPanel(){
   var ha=q('#gachoHideAll');if(ha)ha.onclick=hideAll;
   var alb=q('#gachoAreaLbl');if(alb)alb.onclick=function(){state.showArea=!state.showArea;saveState();updateAreaLabels();renderPanel();};
   var shd=q('#gachoShowDeliv');if(shd)shd.onclick=function(){state.showDelivered=!state.showDelivered;saveState();try{renderDelivered();}catch(_){}renderPanel();};
-  var rd=q('#gachoRestoreDeliv');if(rd)rd.onclick=function(){restoreDelivered();};
-  var ms=q('#gachoMigSnap');if(ms)ms.onclick=function(){snapshotMigration();};
-  var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
-  var rff=q('#gachoRestoreFile');if(rff)rff.onclick=function(){restoreFromFile();};
   var d2d=q('#gachoD2Del');if(d2d)d2d.onclick=function(){deleteEmptiedD2();};
   var d2u=q('#gachoD2Undo');if(d2u)d2u.onclick=function(){undoDelivery2();};
   var d2r=q('#gachoD2Rebuild');if(d2r)d2r.onclick=function(){rebuildDelivery2();};
