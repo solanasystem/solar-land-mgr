@@ -1190,10 +1190,12 @@ window.__gacho={
     if(!confirm('この筆を削除します。\n・OK/NG判定を外し、DBのOK記録も削除＝カウントから外れます\n・地図/作業台からこの筆を消します\nよろしいですか？'))return;
     var fid=it.feature_id, d=_gDb();
     try{
-      if(d&&fid){ d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){}); d.from('farmland_ng_list').delete().eq('feature_id',fid).like('ng_reason','gacho_ng%').then(function(){},function(){}); }
+      if(d&&fid){ d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
+        // ★除外リストに登録=リロードで元データから再描画されても、この筆は除外され二度と戻らない。
+        d.from('farmland_ng_list').upsert({feature_id:fid,lat:(it.lat!=null?Number(it.lat):null),lng:(it.lng!=null?Number(it.lng):null),ng_reason:'gacho_ng|deleted'},{onConflict:'feature_id'}).then(function(){},function(){}); }
       if(d&&it.type==='boundary'&&it.iid){ d.from('ai_ok_labels').delete().eq('source','handdraw_boundary').contains('member_fids',[it.iid]).then(function(){},function(){}); }
     }catch(_){}
-    if(fid){try{delete _gDbOk[fid];delete _gDbNg[fid];}catch(_){}}
+    if(fid){try{delete _gDbOk[fid];_gDbNg[fid]=1;}catch(_){}}
     state.layers.forEach(function(L){L.items=L.items.filter(function(x){return x.iid!==itemIid && !(fid&&x.feature_id===fid);});}); // 全gachoレイヤーから除去(別レイヤーの重複も)
     try{if(fid){_restyleMark(fid,'ng');delete _reviewMarks[fid];}}catch(_){}
     try{if(typeof window.__gachoRemoveFeatureMarker==='function')window.__gachoRemoveFeatureMarker(fid,(it.lat!=null?Number(it.lat):null),(it.lng!=null?Number(it.lng):null));}catch(_){} // マップ横断でfid/座標一致マーカーを地図から除去
