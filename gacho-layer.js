@@ -473,7 +473,8 @@ function renderLayerGroups(){
         pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{pg.setStyle({fillOpacity:0.08,dashArray:'4,4'});}catch(_){}saveState();renderPanel();}});
         g.addLayer(pg);
       }else{
-        var _sty=it.status==='ng'?{radius:5,color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.3}:(it.status==='ok'?{radius:7,color:'#3fb950',weight:3,fillColor:l.color,fillOpacity:0.95}:{radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95});
+        // v20260821c(ドクター): OK=緑リング(枠緑・中透明)に統一。NGは地図から見えなくする(OKだけでいい)。未確認は元のまま。
+        var _sty=it.status==='ok'?{radius:7,color:'#22c55e',weight:3,fillColor:l.color,fillOpacity:0.30}:{radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95};
         var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
         if(_reviewFilter&&it.iid)_reviewMarkerByIid[it.iid]=mk; // v20260820t: 送り機能でopenPopup
         if(it.status!=='ng') _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(NG済は除外=課金しない・キー無ければno-op)
@@ -814,8 +815,8 @@ function _reviewStateOf(fid){
   return null;
 }
 function _reviewStyle(st){
-  if(st==='ok')return {color:'#22c55e',weight:3,fillOpacity:0.30};
-  if(st==='ng')return {color:'#ef4444',weight:3,fillOpacity:0.22};
+  if(st==='ok')return {color:'#22c55e',weight:3,fillOpacity:0.30}; // OK=緑リング(枠緑・中透明)
+  if(st==='ng')return {opacity:0,fillOpacity:0}; // v20260821c(ドクター): NGは地図から見えなくする(OKだけでいい)
   if(st==='viewed')return {color:'#c9d1d9',weight:2.5,fillOpacity:0.35,dashArray:'3,3'};
   return null;
 }
