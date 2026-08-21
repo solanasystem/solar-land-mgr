@@ -804,6 +804,21 @@ function reviewNext(){
   if(mk){setTimeout(function(){try{mk.openPopup();}catch(_){}},280);}
   toast('未確認の既OK 残'+list.length+'件 ／ この筆を確認→✓OK/🚫NG（送り='+(pend.length-1)+'件）');
 }
+/* 今の作業台の確定OK/NGの重複なし実数。納品300(名前｜納品＋座標)・自動OK(未判定)は除外。カウンターと削除トーストが同じ定義を使う=数字が一致・削除で必ず減る。 */
+function _liveCounts(){
+  var delivSet=null;
+  try{ if(window.DELIVERED300&&window.DELIVERED300.pts){ delivSet={}; window.DELIVERED300.pts.forEach(function(p){ delivSet[Math.round(p[0]/0.0003)+'_'+Math.round(p[1]/0.0003)]=1; }); } }catch(_){}
+  function isDelivC(lat,lng){ if(!delivSet||lat==null||lng==null)return false; var gl=Math.round(lat/0.0003),gn=Math.round(lng/0.0003); for(var dx=-1;dx<=1;dx++)for(var dy=-1;dy<=1;dy++){ if(delivSet[(gl+dx)+'_'+(gn+dy)])return true; } return false; }
+  var okS={},ngS={},bokS={};
+  state.layers.forEach(function(l){ if(l.archived)return; (l.items||[]).forEach(function(it){
+    if(_isDeliveredItem(l,it))return;
+    if(isDelivC(Number(it.lat),Number(it.lng)))return;
+    if(it.type==='boundary'){ if(it.status==='ok'){var bk=it.iid||('b:'+it.lat+','+it.lng);bokS[bk]=1;} return; }
+    var key=it.feature_id||it.iid;
+    if(it.status==='ok')okS[key]=1; else if(it.status==='ng')ngS[key]=1;
+  });});
+  return {ok:Object.keys(okS).length+Object.keys(bokS).length, ng:Object.keys(ngS).length};
+}
 function renderPanel(){
   window.__gachoMapMode=!!(_drawMode||_rectMode||_pickMode||_addMode); // v20260812j: 地番ポップアップ/手動ピック確認モーダルの抑止フラグ(描画等の邪魔をしない)
   var box=document.getElementById('gachoPanel');if(!box)return;var al=activeLayer();var h='';
@@ -831,22 +846,8 @@ function renderPanel(){
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
   var _isRef=function(l){ if(l.archived)return true; return /保留|対象外|敷地境界|納品|要確認/.test(l.name||''); };
-  // v20260821z26(ドクター): 掃除しながら見る「今の作業台の確定OK件数」。削除するたび減る=真の数に絞れる。重複除去(フラグ=feature_id/境界=iid)・納品除外・自動OK(未オープン)は数えない。
-  // 納品済300を座標でも除外(レイヤー名｜納品だけでは、納品場所の境界が数に入ってしまうため)。約33mグリッド＋3x3近傍。
-  var _delivSet=null;
-  try{ if(window.DELIVERED300&&window.DELIVERED300.pts){ _delivSet={}; window.DELIVERED300.pts.forEach(function(p){ _delivSet[Math.round(p[0]/0.0003)+'_'+Math.round(p[1]/0.0003)]=1; }); } }catch(_){}
-  var _isDelivCoord=function(lat,lng){ if(!_delivSet||lat==null||lng==null)return false; var gl=Math.round(lat/0.0003),gn=Math.round(lng/0.0003); for(var dx=-1;dx<=1;dx++)for(var dy=-1;dy<=1;dy++){ if(_delivSet[(gl+dx)+'_'+(gn+dy)])return true; } return false; };
-  var _okS={},_ngS={},_bokS={};
-  state.layers.forEach(function(l){ if(l.archived)return; l.items.forEach(function(it){
-    if(_isDeliveredItem(l,it))return;
-    if(_isDelivCoord(Number(it.lat),Number(it.lng)))return; // 納品300の場所は数えない(座標一致)
-    if(it.type==='boundary'){ if(it.status==='ok'){var bk=it.iid||('b:'+it.lat+','+it.lng);_bokS[bk]=1;} return; }
-    // v20260821z27: status=okのものは全部数える(userJudged印の有無に依らない)=削除で必ず減る・per-layer OKと一致
-    var key=it.feature_id||it.iid;
-    if(it.status==='ok')_okS[key]=1; else if(it.status==='ng')_ngS[key]=1;
-  });});
-  var _okN=Object.keys(_okS).length+Object.keys(_bokS).length, _ngN=Object.keys(_ngS).length;
-  h+='<div class="gacho-total">今の作業台 確定OK <span style="color:#3fb950;font-size:15px">'+_okN+'</span> ・ NG <span style="color:#f85149">'+_ngN+'</span><span style="color:#8b949e;font-weight:400;font-size:10px"> （手判定OKの重複なし実数・削除で減る／固定512とは別）</span></div>';
+  var _cc=_liveCounts();
+  h+='<div class="gacho-total">今の作業台 確定OK <span style="color:#3fb950;font-size:15px">'+_cc.ok+'</span> ・ NG <span style="color:#f85149">'+_cc.ng+'</span><span style="color:#8b949e;font-weight:400;font-size:10px"> （手判定の重複なし実数・納品/自動OK除外・削除で減る）</span></div>';
   // ★検索: 打つとその画層だけを地図・パネルに絞る(見えすぎ/だらだら解消)。空で解除。
   h+='<div class="gacho-master" style="gap:4px"><input id="gachoSearch" placeholder="🔍 画層を検索して絞る（大台/田原/SUN…）" value="'+esc(_gFilter)+'" style="flex:1;padding:6px 9px;border-radius:6px;border:1px solid '+(_gFilter?'#f59e0b':'#30363d')+';background:#0d1117;color:#e6edf3;font-size:12px;outline:none">'+(_gFilter?'<button id="gachoSearchClr" class="gacho-btn" style="padding:2px 8px">✕</button>':'')+'</div>';
   if(_gFilter){h+='<div style="font-size:11px;color:#f0b429;margin:2px 0 4px">🔍「'+esc(_gFilter)+'」で絞り込み中＝この画層だけ地図に表示。✕で解除。</div>';}
@@ -1199,8 +1200,8 @@ window.__gacho={
     state.layers.forEach(function(L){L.items=L.items.filter(function(x){return x.iid!==itemIid && !(fid&&x.feature_id===fid);});}); // 全gachoレイヤーから除去(別レイヤーの重複も)
     try{if(fid){_restyleMark(fid,'ng');delete _reviewMarks[fid];}}catch(_){}
     try{if(typeof window.__gachoRemoveFeatureMarker==='function')window.__gachoRemoveFeatureMarker(fid,(it.lat!=null?Number(it.lat):null),(it.lng!=null?Number(it.lng):null));}catch(_){} // マップ横断でfid/座標一致マーカーを地図から除去
-    if(m)m.closePopup();saveState();setTimeout(function(){render();},0);
-    toast('🗑 削除しました（カウントから外しました）');
+    if(m)m.closePopup();saveState();render();
+    try{var _c=_liveCounts();toast('🗑 削除 → 今の確定OK '+_c.ok+' ・ NG '+_c.ng);}catch(_){toast('🗑 削除しました');}
   },
   /* v20260818c: 手動ピック等の画層から、判定関数isMatchに合致する項目(=納品済)を別画層dstNameへ移して退避(archived)。
      作業台の手動ピックには「今調査中の分だけ」を残し、旧納品分と連動して動かなくする。isMatch(item)→true=退避対象。返り値=移動件数。 */
