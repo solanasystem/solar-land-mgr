@@ -1447,8 +1447,27 @@ function _restoreClearedAutoOk(){try{var raw=localStorage.getItem(_MIG_SNAP_KEY)
 /* v20260821i(ドクター): 「自動OKを外す」被害を確実に戻すため、朝08:58の📸スナップショットへ一度だけ完全復元。
    その後 loadDbJudgments であなたのDB確定判定(OK/NG)を再適用=紫/赤含め全部が朝の状態＋あなたの判定に戻る。一度きり(フラグで再実行しない)。 */
 function _fullRestoreOnce(){try{if(localStorage.getItem('trackerGacho_fullRestore_20260821'))return;var raw=localStorage.getItem(_MIG_SNAP_KEY);if(!raw)return;var snap=JSON.parse(raw);if(!snap||!snap.state||!snap.state.layers||!snap.state.layers.length)return;state=snap.state;saveState();localStorage.setItem('trackerGacho_fullRestore_20260821','1');try{console.log('[全復元] 08:58スナップショットへ復元');}catch(_){}}catch(_){}}
+/* ★削除した筆を二度と復活させない(ドクター): 除外リスト(gacho_ng|deleted)を読み、gachoレイヤーから除去＋ページ側マーカーを掃引。起動時＋数秒おき(遅延描画対策)。 */
+var _deletedFidSet={};
+async function _sweepDeletedFlags(){
+  try{ var d=_gDb(); if(!d)return;
+    var r=await d.from('farmland_ng_list').select('feature_id,lat,lng').eq('ng_reason','gacho_ng|deleted');
+    var rows=(r&&r.data)||[]; var any=false;
+    // ★OK保護: 現在OK(gacho_ok=_gDbOk)の筆は絶対に掃引しない(再OKした削除済みを誤消去しない)。
+    rows=rows.filter(function(x){ return x.feature_id!=null && !(_gDbOk&&_gDbOk[x.feature_id]); });
+    rows.forEach(function(x){ _deletedFidSet[x.feature_id]=1; });
+    // gachoレイヤーから削除済みfidを除去(OKでないもののみ=上でOK除外済み)。境界(type=boundary)や手描きは触らない。
+    state.layers.forEach(function(l){ if(!l.items)return; var before=l.items.length; l.items=l.items.filter(function(it){ if(it.type==='boundary')return true; if(it.status==='ok')return true; return !(it.feature_id&&_deletedFidSet[it.feature_id]); }); if(l.items.length!==before)any=true; });
+    if(any){saveState();try{render();}catch(_){}}
+    // ページ側マーカーを掃引(座標も渡す)
+    rows.forEach(function(x){ try{ if(typeof window.__gachoRemoveFeatureMarker==='function')window.__gachoRemoveFeatureMarker(x.feature_id,x.lat,x.lng); }catch(_){} });
+  }catch(_){}
+}
+window.__gachoSweepDeleted=_sweepDeletedFlags;
 function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_reArchiveFromSnapOnce();injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments();setTimeout(loadDbJudgments,2500);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
   try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
+  // 削除した筆を復活させない: 起動時＋遅延描画に追随して掃引
+  try{ _sweepDeletedFlags(); setTimeout(_sweepDeletedFlags,1800); setTimeout(_sweepDeletedFlags,4500); setTimeout(_sweepDeletedFlags,9000); setInterval(_sweepDeletedFlags,20000); m.on('moveend zoomend',function(){_sweepDeletedFlags();}); }catch(_){}
   // 絶対に消えない: 起動時に未保存をDBへ再送→15秒毎に再試行→オンライン復帰で即再送。HUDで未保存件数を常時表示。
   try{ _updateSaveHud(); _flushOutbox(); setTimeout(_flushOutbox,3000); setInterval(_flushOutbox,15000);
     if(typeof window!=='undefined'){window.addEventListener('online',function(){_flushOutbox();}); window.addEventListener('focus',function(){_flushOutbox();});}
