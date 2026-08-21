@@ -334,21 +334,22 @@ function _hasDelivBackup(){try{return !!localStorage.getItem(_DELIV_BK_KEY);}cat
 var _MIG_SNAP_KEY='trackerGacho_migSnapshot_v1';
 function _isDeliveredLayer(l){ return /｜納品$/.test(l.name||''); }
 function _isDeliveredItem(l,it){ return _isDeliveredLayer(l)||it.deliver==='納品'; }
+// ドクターが実際に開いて判定したか。userJudged印(今回以降)またはDB永続(ai_ok_labels/farmland_ng_list=過去に確定)。
+function _isUserJudged(it){ return !!(it.userJudged||(it.feature_id&&((it.status==='ok'&&_gDbOk[it.feature_id])||(it.status==='ng'&&_gDbNg[it.feature_id])))); }
 function _migCounts(){
-  // ドクター指示(2026-08-21): 判定OK/NG/閲覧は「納品済み」を入れない。納品(deliver='納品'/'○○｜納品'層)・退避済は除外。
-  var c={layers:0,items:0,withFid:0,ok:0,ng:0,viewed:0,delivered:0,dbOk:0,dbNg:0,okByLayer:{}};
+  // ドクター指示(2026-08-21): 判定OK/NGは「納品済み」を入れない＋「私が一度も開いていない(=実判定でない)モノ」を入れない。
+  //   御所218等のプリセットOK(自動status=ok・未オープン・DB未記録)は除外。OK/NG=実判定のみ。
+  var c={layers:0,items:0,withFid:0,ok:0,ng:0,viewed:0,delivered:0,presetOk:0,presetNg:0,dbOk:0,dbNg:0,okByLayer:{}};
+  function tally(l,it){
+    if(_isDeliveredItem(l,it)){ c.delivered++; return; } // 納品済みは判定カウントに入れない
+    if(it.status==='ok'){ if(_isUserJudged(it)){c.ok++;c.okByLayer[l.name]=(c.okByLayer[l.name]||0)+1;} else c.presetOk++; }
+    else if(it.status==='ng'){ if(_isUserJudged(it))c.ng++; else c.presetNg++; }
+    else if(it.viewed)c.viewed++;
+  }
   state.layers.forEach(function(l){
-    if(l.judgeOnly){ // 判定メモ層(ページ側フラグの判定)=候補判定として数える。フラグ実数には数えない
-      l.items.forEach(function(it){ if(_isDeliveredItem(l,it)){c.delivered++;return;} if(it.status==='ok'){c.ok++;c.okByLayer[l.name]=(c.okByLayer[l.name]||0)+1;} else if(it.status==='ng')c.ng++; else if(it.viewed)c.viewed++; });
-      return;
-    }
+    if(l.judgeOnly){ l.items.forEach(function(it){tally(l,it);}); return; } // 判定メモ層=候補判定。フラグ実数には数えない
     c.layers++;
-    l.items.forEach(function(it){
-      c.items++; if(it.feature_id)c.withFid++;
-      if(_isDeliveredItem(l,it)){ c.delivered++; return; } // 納品済みは判定カウントに入れない
-      if(l.archived)return; // 退避済も除外
-      if(it.status==='ok'){c.ok++;c.okByLayer[l.name]=(c.okByLayer[l.name]||0)+1;} else if(it.status==='ng')c.ng++; else if(it.viewed)c.viewed++;
-    });
+    l.items.forEach(function(it){ c.items++; if(it.feature_id)c.withFid++; if(l.archived){return;} tally(l,it); });
   });
   try{c.dbOk=Object.keys(_gDbOk||{}).length;c.dbNg=Object.keys(_gDbNg||{}).length;}catch(_){}
   return c;
@@ -357,10 +358,10 @@ function _migCountText(c){
   var tops=Object.keys(c.okByLayer).sort(function(a,b){return c.okByLayer[b]-c.okByLayer[a];}).slice(0,5)
     .map(function(n){return '　・'+n+'：OK '+c.okByLayer[n];}).join('\n');
   return '総フラグ '+c.items+'（feature_id付 '+c.withFid+'）／ 画層 '+c.layers
-    +'\n判定(納品除外): OK '+c.ok+' ・ NG '+c.ng+' ・ 閲覧のみ '+c.viewed
-    +'\n納品済(判定から除外): '+c.delivered
-    +'\nDB永続判定: OK '+c.dbOk+' ・ NG '+c.dbNg
-    +(tops?('\n\n判定OKの内訳(層別・上位5):\n'+tops):'');
+    +'\n★私が判定(開いて確定): OK '+c.ok+' ・ NG '+c.ng+' ・ 閲覧のみ '+c.viewed
+    +'\n除外→ 納品済 '+c.delivered+' ／ 既OK(未オープン) '+c.presetOk+' ／ 既NG(未オープン) '+c.presetNg
+    +'\nDB永続判定(参考): OK '+c.dbOk+' ・ NG '+c.dbNg
+    +(tops?('\n\n私の判定OKの内訳(層別・上位5):\n'+tops):'');
 }
 function snapshotMigration(){
   var c=_migCounts();
@@ -811,7 +812,7 @@ window.__gacho={
     return moved.length;
   },
   review:function(lid,itemIid,val){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid)it.viewed=!!val;});saveState();render();},
-  setStatus:function(lid,itemIid,val){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid){it.status=(it.status===val?null:val);it.viewed=true;_persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed');}});saveState();setTimeout(function(){render();},0);},
+  setStatus:function(lid,itemIid,val){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid){it.status=(it.status===val?null:val);it.viewed=true;it.userJudged=true;_persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed');}});saveState();setTimeout(function(){render();},0);},
   setCrit:function(lid,iid,ck,val,btn){var l=byId(lid);if(!l)return;var itr=null;l.items.forEach(function(it){if(it.iid===iid){itr=it;var s=_score(it);s[ck]=val;it.viewed=true;if(ck==='c7'&&val!=='x')it.ngsub=[];}});saveState();
     try{var row=btn.parentNode;row.querySelectorAll('.gsc-b').forEach(function(bb){bb.style.background='';bb.style.color='';bb.style.fontWeight='';});var col=(val==='o'?'#3fb950':(val==='x'?'#f85149':'#eab308'));btn.style.background=col;btn.style.color='#0d1117';btn.style.fontWeight='700';
       if(ck==='c7'){var sub=document.getElementById('gsub_'+iid);if(sub)sub.style.display=(val==='x'?'':'none');}
@@ -820,7 +821,7 @@ window.__gacho={
     if(itr&&itr.feature_id&&itr.status!=='ok'&&itr.status!=='ng')_restyleMark(itr.feature_id,'viewed'); // v20260820m: 触った時点で「閲覧済み」表示(確定前でも一度見た印)
   },
   setSub:function(lid,iid,t,btn){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){it.ngsub=it.ngsub||[];var i=it.ngsub.indexOf(t);if(i>=0)it.ngsub.splice(i,1);else it.ngsub.push(t);}});saveState();try{btn.classList.toggle('on');}catch(_){}},
-  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;_persistJudgmentScored(it,s);_restyleMark(it.feature_id,it.status);}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
+  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;it.userJudged=true;_persistJudgmentScored(it,s);_restyleMark(it.feature_id,it.status);}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   /* v20260812j: 画層名を指定して(無ければ作成)取込先にし、敷地境界の描画を開始。手動ピック等のポップアップの「✏️敷地境界を描く」から呼ぶ */
   drawInLayer:function(name,color){var l=state.layers.filter(function(x){return x.name===name;})[0];if(!l){l={id:uid(),name:name,color:color||'#ff1493',visible:true,active:false,items:[]};state.layers.push(l);}state.layers.forEach(function(x){x.active=(x.id===l.id);});var m=getMap();if(m)m.closePopup();saveState();render();if(!_drawMode)toggleDraw();},
