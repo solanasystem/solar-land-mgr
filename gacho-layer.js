@@ -150,11 +150,15 @@ function polyArea(latlngs){
   return Math.abs(s/2);
 }
 function centroid(latlngs){var la=0,ln=0;latlngs.forEach(function(p){la+=p[0];ln+=p[1];});return [la/latlngs.length,ln/latlngs.length];}
+/* v20260820w(ドクター): 描画中は基本地図以外の全pane(筆ポリゴン/農地フラグ/候補等)のクリックを無効化=クリックが描画だけに行き、他レイヤーのポップアップで作業が妨げられない。 */
+var _savedPE=null;
+function _drawPanesOff(){var m=getMap();if(!m)return;_savedPE={};var panes=m.getPanes();Object.keys(panes).forEach(function(k){if(k==='mapPane'||k==='tilePane')return;try{_savedPE[k]=panes[k].style.pointerEvents;panes[k].style.pointerEvents='none';}catch(_){}});}
+function _drawPanesOn(){var m=getMap();if(!m||!_savedPE)return;var panes=m.getPanes();Object.keys(_savedPE).forEach(function(k){try{if(panes[k])panes[k].style.pointerEvents=_savedPE[k]||'';}catch(_){}});_savedPE=null;}
 function toggleDraw(){
   var m=getMap();if(!m)return;
   if(!activeLayer()){toast('先に取込先の画層を選ぶ/作ってください');return;}
   _drawMode=!_drawMode;
-  if(_drawMode){if(_rectMode)cleanupRect();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();m.closePopup();if(_pane)_pane.style.pointerEvents='none';try{m.doubleClickZoom.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('click',drawClick);m.on('dblclick',drawFinish);toast('頂点をクリックで追加→ダブルクリックで確定（ESCで取消）');}
+  if(_drawMode){if(_rectMode)cleanupRect();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();m.closePopup();_drawPanesOff();try{m.doubleClickZoom.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('click',drawClick);m.on('dblclick',drawFinish);toast('頂点をクリックで追加→ダブルクリックで確定（ESCで取消）');}
   else{cancelDraw();}
   renderPanel();
 }
@@ -166,7 +170,7 @@ function drawFinish(e){if(e){try{L.DomEvent.stop(e);}catch(_){}}if(_drawPts.leng
   var tgt=_drawTarget;_drawTarget=null;var tmsg='';
   if(tgt){var tl=byId(tgt.lid);if(tl){tl.items.forEach(function(it){if(it.iid===tgt.iid){it.area=area;it.handArea=area;it.handLatlngs=latlngs;var s=_score(it);s.c6=(area>=800?'o':'x');it.viewed=true;}});}tmsg='／ 対象フラグの面積を '+Math.round(area).toLocaleString()+'㎡ に更新(⑥面積'+(area>=800?'〇':'✖')+')';}
   saveState();cancelDraw();render();toast('敷地境界を「'+l.name+'」に追加（約'+Math.round(area).toLocaleString()+'㎡）'+tmsg);}
-function cancelDraw(){var m=getMap();_drawMarkers.forEach(function(mk){try{if(m)m.removeLayer(mk);}catch(_){}});_drawMarkers=[];if(_drawTemp){try{if(m)m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}_drawPts=[];if(_pane)_pane.style.pointerEvents='';if(m){m.off('click',drawClick);m.off('dblclick',drawFinish);try{m.doubleClickZoom.enable();}catch(_){}m.getContainer().style.cursor='';}_drawMode=false;renderPanel();}
+function cancelDraw(){var m=getMap();_drawMarkers.forEach(function(mk){try{if(m)m.removeLayer(mk);}catch(_){}});_drawMarkers=[];if(_drawTemp){try{if(m)m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}_drawPts=[];_drawPanesOn();if(m){m.off('click',drawClick);m.off('dblclick',drawFinish);try{m.doubleClickZoom.enable();}catch(_){}m.getContainer().style.cursor='';}_drawMode=false;renderPanel();}
 
 function toggleRect(){var m=getMap();if(!m)return;_rectMode=!_rectMode;if(_rectMode){if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();try{m.dragging.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('mousedown',rectDown);toast('地図上をドラッグで囲むと、その範囲の筆・フラグを取り込みます（ESCで終了）');}else{cleanupRect();}renderPanel();}
 function rectDown(e){_rectStart=e.latlng;var m=getMap();m.on('mousemove',rectMove);m.on('mouseup',rectUp);}
@@ -558,16 +562,22 @@ function renderPanel(){
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
   var _isRef=function(l){ if(l.archived)return true; return /保留|対象外|敷地境界|納品|要確認/.test(l.name||''); };
   var _tOk=0,_tNg=0,_tV=0,_tAll=0,_tHidden=0;
-  // v20260820t(ドクター): 判定メモ層(ページ側フラグ=開拓候補/公式放棄地/紫151/御所218の判定)は名前/可視に関係なく常に数える。
-  //   手描き敷地境界のOK(手描き=OK)も参照層でも数える。→「判定したのに加算されない」を解消。
+  // v20260820x(ドクター): OK/NGは「あなたが実際に確定した(userJudged)分だけ」数える。自動OK(未確認)はOKに入れない=確定して初めて+1。
+  //   判定メモ層(ページ側フラグの判定)は常に対象・手描き敷地境界のOK(手描き=OK)は数える・納品済は除外。
   state.layers.forEach(function(l){
     if(l.archived)return;
-    if(l.judgeOnly){ l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;}); return; }
-    if(!l.visible){_tHidden++;return;}
-    if(_isRef(l)){ l.items.forEach(function(it){ if(it.type==='boundary'&&it.status==='ok'){_tAll++;_tOk++;if(it.viewed)_tV++;} }); return; }
-    l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;});
+    var force=!!l.judgeOnly;
+    if(!force && !l.visible){_tHidden++;return;}
+    l.items.forEach(function(it){
+      if(_isDeliveredItem(l,it))return; // 納品済は数えない
+      if(it.type==='boundary'){ if(it.status==='ok'){_tAll++;_tOk++;if(it.viewed)_tV++;} return; } // 手描き=OK
+      if(!force && _isRef(l))return; // 参照層(保留/対象外/要確認等)は数えない
+      if(!_isUserJudged(it))return; // ★自動OK/未確認は数えない=あなたが確定した分だけ
+      if(it.status==='ok'){_tAll++;_tOk++;if(it.viewed)_tV++;}
+      else if(it.status==='ng'){_tAll++;_tNg++;if(it.viewed)_tV++;}
+    });
   });
-  h+='<div class="gacho-total">調査中の判定合計　👁'+_tV+' ／ <span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span> ／ 計'+_tAll+'<span style="color:#8b949e;font-weight:400"> （表示中の候補レイヤーのみ）</span></div>';
+  h+='<div class="gacho-total">あなたが確定した判定　<span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span> ／ 計'+_tAll+'<span style="color:#8b949e;font-weight:400"> （自動OK・未確認は含まない）</span></div>';
   // ★検索: 打つとその画層だけを地図・パネルに絞る(見えすぎ/だらだら解消)。空で解除。
   h+='<div class="gacho-master" style="gap:4px"><input id="gachoSearch" placeholder="🔍 画層を検索して絞る（大台/田原/SUN…）" value="'+esc(_gFilter)+'" style="flex:1;padding:6px 9px;border-radius:6px;border:1px solid '+(_gFilter?'#f59e0b':'#30363d')+';background:#0d1117;color:#e6edf3;font-size:12px;outline:none">'+(_gFilter?'<button id="gachoSearchClr" class="gacho-btn" style="padding:2px 8px">✕</button>':'')+'</div>';
   if(_gFilter){h+='<div style="font-size:11px;color:#f0b429;margin:2px 0 4px">🔍「'+esc(_gFilter)+'」で絞り込み中＝この画層だけ地図に表示。✕で解除。</div>';}
