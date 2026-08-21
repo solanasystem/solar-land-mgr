@@ -1,5 +1,5 @@
 /* 画層(レイヤー)システム。本番トラッカーのインラインIIFEを外部化(内容は同一)。分析ページ等で共有。 */
-/* v20260820n(ドクター): レイヤー構造移行 Phase0=「📸 移行前スナップショット」。全gacho状態(全フラグ＋判定OK/NG/閲覧をfeature_id付き)を丸ごとSW(JSON DL＋復元キー)＋基準カウント(_migCounts)。「↩スナップに戻す」で完全復元。組み替え前後で数字一致を確認する検問。 */
+/* v20260820o(ドクター): 移行前カウントから納品済(deliver=納品/○○｜納品層)を除外＋判定OKの層別内訳表示。/ v20260820n: Phase0=「📸 移行前スナップショット」。全gacho状態(全フラグ＋判定OK/NG/閲覧をfeature_id付き)を丸ごとSW(JSON DL＋復元キー)＋基準カウント(_migCounts)。「↩スナップに戻す」で完全復元。組み替え前後で数字一致を確認する検問。 */
 /* v20260820m(ドクター): 判定済みフラグの見た目を変える。onReview(fid,marker)/reviewState(fid)公開API＋判定時(applyScore/setStatus/setCrit)にマーカーを減光＋色枠(OK緑/NG赤/閲覧灰破線)=一度見たか一目で判る。feature_id基準で再描画でも保持。 */
 /* v20260820j(ドクター): window.__gacho.satImgHtml(lat,lng)=ポップアップに最新衛星画像を直接埋め込むHTML(クリックで必ず出る=ホバー非依存)。農地ナビ等の全フラグで再利用。 */
 /* v20260820i(ドクター): 「📦 納品300を突合して削除」=SUNトラスト納品を座標突合(<50m)＋「○○｜納品」レイヤーを画層から完全削除。削除前にSW退避(localStorage復元キー＋JSON DL)＝DB無変更・「↩ 納品を戻す」で完全復元(purgeDelivered/restoreDelivered)。 */
@@ -332,26 +332,35 @@ function _hasDelivBackup(){try{return !!localStorage.getItem(_DELIV_BK_KEY);}cat
    組み替え(Phase1〜4)は追加/表示のみ・非破壊だが、これを「消えない・判定が残る」の証拠＆完全復元点にする。
    各Phase前後で _migCounts() を突き合わせ、数字が減ったら停止=ロールバック。 */
 var _MIG_SNAP_KEY='trackerGacho_migSnapshot_v1';
+function _isDeliveredLayer(l){ return /｜納品$/.test(l.name||''); }
+function _isDeliveredItem(l,it){ return _isDeliveredLayer(l)||it.deliver==='納品'; }
 function _migCounts(){
-  var c={layers:0,items:0,ok:0,ng:0,viewed:0,withFid:0,dbOk:0,dbNg:0,byClient:{}};
+  // ドクター指示(2026-08-21): 判定OK/NG/閲覧は「納品済み」を入れない。納品(deliver='納品'/'○○｜納品'層)・退避済は除外。
+  var c={layers:0,items:0,withFid:0,ok:0,ng:0,viewed:0,delivered:0,dbOk:0,dbNg:0,okByLayer:{}};
   state.layers.forEach(function(l){
-    if(l.judgeOnly)return; // 判定メモ層は二重計上しない(実フラグのみ)
+    if(l.judgeOnly){ // 判定メモ層(ページ側フラグの判定)=候補判定として数える。フラグ実数には数えない
+      l.items.forEach(function(it){ if(_isDeliveredItem(l,it)){c.delivered++;return;} if(it.status==='ok'){c.ok++;c.okByLayer[l.name]=(c.okByLayer[l.name]||0)+1;} else if(it.status==='ng')c.ng++; else if(it.viewed)c.viewed++; });
+      return;
+    }
     c.layers++;
     l.items.forEach(function(it){
-      c.items++;
-      if(it.feature_id)c.withFid++;
-      if(it.status==='ok')c.ok++; else if(it.status==='ng')c.ng++; else if(it.viewed)c.viewed++;
+      c.items++; if(it.feature_id)c.withFid++;
+      if(_isDeliveredItem(l,it)){ c.delivered++; return; } // 納品済みは判定カウントに入れない
+      if(l.archived)return; // 退避済も除外
+      if(it.status==='ok'){c.ok++;c.okByLayer[l.name]=(c.okByLayer[l.name]||0)+1;} else if(it.status==='ng')c.ng++; else if(it.viewed)c.viewed++;
     });
   });
-  // 判定メモ層(flagScoreCard由来)も判定数には含める(ページ側フラグの判定はここに入る)
-  state.layers.forEach(function(l){ if(!l.judgeOnly)return; l.items.forEach(function(it){ if(it.status==='ok')c.ok++; else if(it.status==='ng')c.ng++; else if(it.viewed)c.viewed++; }); });
   try{c.dbOk=Object.keys(_gDbOk||{}).length;c.dbNg=Object.keys(_gDbNg||{}).length;}catch(_){}
   return c;
 }
 function _migCountText(c){
+  var tops=Object.keys(c.okByLayer).sort(function(a,b){return c.okByLayer[b]-c.okByLayer[a];}).slice(0,5)
+    .map(function(n){return '　・'+n+'：OK '+c.okByLayer[n];}).join('\n');
   return '総フラグ '+c.items+'（feature_id付 '+c.withFid+'）／ 画層 '+c.layers
-    +'\n判定: OK '+c.ok+' ・ NG '+c.ng+' ・ 閲覧のみ '+c.viewed
-    +'\nDB永続判定: OK '+c.dbOk+' ・ NG '+c.dbNg;
+    +'\n判定(納品除外): OK '+c.ok+' ・ NG '+c.ng+' ・ 閲覧のみ '+c.viewed
+    +'\n納品済(判定から除外): '+c.delivered
+    +'\nDB永続判定: OK '+c.dbOk+' ・ NG '+c.dbNg
+    +(tops?('\n\n判定OKの内訳(層別・上位5):\n'+tops):'');
 }
 function snapshotMigration(){
   var c=_migCounts();
