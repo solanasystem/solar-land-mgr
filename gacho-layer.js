@@ -1209,7 +1209,7 @@ window.__gacho={
     var squareFrom=function(A){ if(!A||A<=0)return null; var side=Math.sqrt(A); var dLat=side/2/111000; var dLng=side/2/(111000*Math.cos(la*Math.PI/180)); return [[la-dLat,ln-dLng],[la-dLat,ln+dLng],[la+dLat,ln+dLng],[la+dLat,ln-dLng]]; };
     var fallback=function(){ var sq=squareFrom(it.area); if(sq){ toast('筆ポリゴンが無いため、既知面積'+(it.area?Math.round(it.area).toLocaleString():'?')+'㎡の下敷きを配置。面積を確認→✓OK（形の微修正は描き直し）'); use(sq,it.area,'面積下敷き'); } else { toast('筆ポリゴンも面積も無い＝手描きしてください'); } };
     if(typeof window.__getFudeParcelAt==='function'){
-      try{ window.__getFudeParcelAt(la,ln).then(function(res){ if(res&&res.latlngs&&res.latlngs.length>=3){ toast('✓ 農水省の筆ポリゴンを取得（実測の形）'); use(res.latlngs,res.area,'農水省筆'); } else { fallback(); } },function(){ fallback(); }); }catch(_){ fallback(); }
+      try{ window.__getFudeParcelAt(la,ln).then(function(res){ if(res&&res.latlngs&&res.latlngs.length>=3){ toast(res.near?'✓ 最寄りの農水省筆を採用（ピンが筆から少しズレていたため。違えば手描き/描き直し）':'✓ 農水省の筆ポリゴンを取得（実測の形）'); use(res.latlngs,res.area,res.near?'農水省筆(最寄)':'農水省筆'); } else { fallback(); } },function(){ fallback(); }); }catch(_){ fallback(); }
     } else { fallback(); }
   },
   /* v20260812j: 画層名を指定して(無ければ作成)取込先にし、敷地境界の描画を開始。手動ピック等のポップアップの「✏️敷地境界を描く」から呼ぶ */
