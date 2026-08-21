@@ -487,7 +487,8 @@ function _hasD2Snap(){try{return !!localStorage.getItem(_D2_SNAP_KEY);}catch(_){
 /* レイヤー整理: 旧レイヤー(第2回=県→市町村・手作業・手動ピック 以外)をSWへ退避し作業台から外す=県→市町村だけの綺麗な作業台に。可逆(退避↩で戻せる)。ドクター2026-08-21 */
 function _isD2Layer(l){return !!(l.meta&&l.meta.client==='第2回納品候補');}
 function tidyOldLayers(){
-  var old=state.layers.filter(function(l){ return !l.archived && l.items && l.items.length && !_isD2Layer(l) && !_d2IsPink(l) && !/手動ピック/.test(l.name||''); });
+  // v20260821z21(ドクター): 「敷地境界」や境界(手描き/筆)を含むレイヤーは絶対に退避しない=境界が消えて見えるのを防ぐ。第2回/手作業/手動ピックも残す。
+  var old=state.layers.filter(function(l){ if(l.archived||!(l.items&&l.items.length))return false; if(_isD2Layer(l)||_d2IsPink(l))return false; if(/手動ピック|敷地境界/.test(l.name||''))return false; if(l.items.some(function(it){return it.type==='boundary';}))return false; return true; });
   if(!old.length){toast('片付ける旧レイヤーがありません（既に県→市町村＋手作業＋手動ピックだけ）');return;}
   var names=old.slice(0,6).map(function(l){return l.name;}).join('／')+(old.length>6?' …他'+(old.length-6):'');
   if(!confirm('旧レイヤー '+old.length+' 個（'+names+'）をSWルームへ退避し、作業台から外します。\n・データは消えません（アーカイブに畳む＝退避欄の↩で戻せる）\n・第2回(県→市町村)・手作業ピック・手動ピックは残します\n実行しますか？'))return;
