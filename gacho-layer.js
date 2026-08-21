@@ -500,6 +500,29 @@ function migrateManualPicks(){
   try{alert('✓ 手作業ピックを県→市町村へ整理しました\n\n移動 '+moved+' 件（うち区域不明 '+unknown+'）\n総数 '+before+' → '+after+'（不変）\n\nピックの中身は変えていません（入れ物のレイヤーだけ整理）。\n違和感があれば「↩ 移行を元に戻す」。');}catch(_){}
   toast('✓ 手作業ピック移動'+moved+'件（不明'+unknown+'）総数'+before+'不変');
 }
+/* DBの正(items=526)から、ブラウザに無い不足分を第2回階層へ補完。既存はfeature_id/iidで重複させない。可逆。 */
+function completeDelivery2FromDb(){
+  var D=window.DELIVERY2;
+  if(!D||!D.items){toast('補完データ(items)未読込＝中断');return;}
+  if(!confirm('第2回納品候補の不足分を、DBの正から階層へ補完します（目標'+D.totalItems+'件）。\n・既にある分は重複させません（feature_id/iidで判定）\n・先に自動スナップショット＝可逆\n実行しますか？'))return;
+  var snap;try{snap=JSON.stringify({ts:_stamp(),state:state});localStorage.setItem(_D2_SNAP_KEY,snap);}catch(_){toast('スナップショット失敗＝中断');return;}
+  try{download('補完前スナップ_'+_stamp()+'.json',snap,'application/json');}catch(_){}
+  var haveF={},haveB={};
+  state.layers.forEach(function(l){l.items.forEach(function(it){if(it.type==='boundary'){if(it.iid)haveB[it.iid]=1;}else if(it.feature_id)haveF[it.feature_id]=1;});});
+  var before=_d2TotalItems(),added=0;
+  D.items.forEach(function(x){
+    if(x.k==='b'){ if(haveB[x.id])return; _d2Dest(x.pref,x.city).items.push({iid:x.id,type:'boundary',latlngs:x.latlngs,area:x.area,lat:x.lat,lng:x.lng,address:'敷地境界',status:'ok',userJudged:true,src:'handdraw'}); haveB[x.id]=1; added++; }
+    else { if(haveF[x.id])return; _d2Dest(x.pref,x.city).items.push({iid:iid(),feature_id:x.id,lat:x.lat,lng:x.lng,address:'OK候補',status:'ok',userJudged:true,src:'d2complete'}); haveF[x.id]=1; added++; }
+  });
+  var after=_d2TotalItems();
+  if(after!==before+added){ try{var s=JSON.parse(localStorage.getItem(_D2_SNAP_KEY));if(s&&s.state)state=s.state;}catch(_){} saveState();render(); toast('⚠ 補完数が不一致＝異常。元に戻しました'); return; }
+  var df={},db2={};
+  state.layers.forEach(function(l){if(!(l.meta&&l.meta.client==='第2回納品候補'))return;l.items.forEach(function(it){if(it.type==='boundary'){if(it.iid)db2[it.iid]=1;}else if(it.feature_id)df[it.feature_id]=1;});});
+  var tot=Object.keys(df).length+Object.keys(db2).length;
+  saveState();render();
+  try{alert('✓ 不足分をDBから補完しました\n\n追加 '+added+' 件\n第2回納品候補の実数 = '+tot+'（目標'+D.totalItems+'）\n\n違和感があれば「↩ 移行を元に戻す」。');}catch(_){}
+  toast('✓ 補完'+added+'件・第2回候補 実数'+tot);
+}
 /* v20260821m(ドクター復旧): ダウンロード済みスナップJSONファイルを選んで直接復元(ブラウザ内が壊れていても、確認済みの09:13ファイルから手描き境界を戻す)。 */
 function restoreFromFile(){
   try{
@@ -705,6 +728,7 @@ function renderPanel(){
   // 第2回納品候補 県→市町村 移行（慎重運用: 移動だけでは消えない・削除は別・総数変化で自動中断復元）
   if(window.DELIVERY2){
     h+='<div class="gacho-master"><button id="gachoD2Migrate" class="gacho-btn" style="background:rgba(8,145,178,.18);border-color:#0891b2" title="OKフラグ＋手描き境界を『第2回納品候補｜県｜市町村』へ移動(納品300除外・固定割当526)。先に自動スナップ・移動だけでは消えない・総数不変を確認">🗂 第2回納品候補へ整理（県→市町村）</button></div>';
+    h+='<div class="gacho-master"><button id="gachoD2Complete" class="gacho-btn" style="background:rgba(63,185,80,.16);border-color:#3fb950" title="DBの正(526)から、ブラウザに無い不足分を第2回階層へ補完。既存は重複させない・可逆">➕ 不足分をDBから補完（'+(window.DELIVERY2.totalItems||526)+'へ）</button></div>';
     h+='<div class="gacho-master"><button id="gachoD2Manual" class="gacho-btn" style="background:rgba(255,20,147,.16);border-color:#ff1493" title="手作業ピック(ピンク)を『手作業｜県｜市町村』へ整理して階層表示。ピックの中身は不変・入れ物だけ整理・可逆">🖐 手作業ピックも県→市町村へ</button></div>';
     if(_d2Emptied.length||_hasD2Snap()){
       h+='<div class="gacho-master">'+(_d2Emptied.length?'<button id="gachoD2Del" class="gacho-btn on" title="移動で空になった元レイヤーを削除(0件のみ・総数不変を再確認)">🗑 空レイヤー削除（'+_d2Emptied.length+'）</button>':'')+(_hasD2Snap()?'<button id="gachoD2Undo" class="gacho-btn on" title="第2回移行を移行前に戻す">↩ 移行を元に戻す</button>':'')+'</div>';
@@ -834,6 +858,7 @@ function bindPanel(){
   var d2m=q('#gachoD2Migrate');if(d2m)d2m.onclick=function(){migrateDelivery2();};
   var d2d=q('#gachoD2Del');if(d2d)d2d.onclick=function(){deleteEmptiedD2();};
   var d2u=q('#gachoD2Undo');if(d2u)d2u.onclick=function(){undoDelivery2();};
+  var d2c=q('#gachoD2Complete');if(d2c)d2c.onclick=function(){completeDelivery2FromDb();};
   var d2mn=q('#gachoD2Manual');if(d2mn)d2mn.onclick=function(){migrateManualPicks();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
