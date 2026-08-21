@@ -1038,6 +1038,9 @@ document.head.appendChild(st);}
 
 /* v20260820s(ドクター): 手描き敷地境界=当然OK。既存の手描き図形(type='boundary')を読込時に一括でOK判定に格上げ(冪等)。 */
 function _upgradeHandDrawnOk(){try{var n=0;state.layers.forEach(function(l){l.items.forEach(function(it){if(it.type==='boundary'&&(it.status!=='ok'||!it.userJudged)){it.status='ok';it.userJudged=true;if(!it.src)it.src='handdraw';n++;}});});if(n){saveState();try{console.log('[画層] 手描き敷地境界 '+n+'件をOK判定に格上げ');}catch(_){}}}catch(_){}}
-function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_upgradeHandDrawnOk();injectStyle();buildPanel();ensurePane(m);render();applyBase0();try{loadDbJudgments();setTimeout(loadDbJudgments,2500);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();document.addEventListener('keydown',function(e){var tag=((e.target&&e.target.tagName)||'').toLowerCase();if(tag==='input'||tag==='textarea')return;if(e.key==='Escape'){if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();}if(_drawMode&&(e.key==='Backspace'||((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')))){e.preventDefault();drawUndo();}});}
+function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_upgradeHandDrawnOk();injectStyle();buildPanel();ensurePane(m);render();applyBase0();try{loadDbJudgments();setTimeout(loadDbJudgments,2500);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
+  // v20260820w(ドクター): ホバー衛星画像が地図に取り残されるバグ対策。パン/ズーム/クリック/ポップアップで必ず消す。
+  try{m.on('movestart zoomstart dragstart popupopen click',function(){_gmHideFloat();});m.getContainer().addEventListener('mouseleave',function(){_gmHideFloat();});}catch(_){}
+  document.addEventListener('keydown',function(e){var tag=((e.target&&e.target.tagName)||'').toLowerCase();if(tag==='input'||tag==='textarea')return;if(e.key==='Escape'){if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();}if(_drawMode&&(e.key==='Backspace'||((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')))){e.preventDefault();drawUndo();}});}
 boot();
 })();
