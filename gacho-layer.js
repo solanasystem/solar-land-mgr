@@ -1180,7 +1180,7 @@ window.__gacho={
     }catch(_){}
     if(fid){try{delete _gDbOk[fid];delete _gDbNg[fid];}catch(_){}}
     l.items=l.items.filter(function(x){return x.iid!==itemIid;});
-    try{if(fid)_restyleMark(fid,null);}catch(_){}
+    try{if(fid){_restyleMark(fid,'ng');delete _reviewMarks[fid];}}catch(_){} // ページ側マーカーも即除去(NGと同じ方式=地図から消す)
     if(m)m.closePopup();saveState();setTimeout(function(){render();},0);
     toast('🗑 削除しました（カウントから外しました）');
   },
