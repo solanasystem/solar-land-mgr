@@ -1077,6 +1077,20 @@ async function loadDbJudgments(){
   }catch(e){}
 }
 window.__gachoReloadJudgments=loadDbJudgments;
+/* ★v20260822a(ドクター「ブラウザに残すから消える」): 手動ピック(feature_id='cc'+id)の判定が過去にlocalStorageだけに残っている分を、起動時にDBへ固定(バックフィル)する。
+   これで修正前に付けた63OK/6NG等も二度と消えない。_gDbOk/_gDbNg に既にある分はスキップ＝冪等(毎起動で重複しない)。手動ピックのみ('cc'始まり)＝プリセット/通常フラグは触らない。 */
+function _backfillManualJudgmentsToDb(){
+  var d=_gDb(); if(!d)return; var n=0;
+  try{
+    state.layers.forEach(function(l){ if(l.archived)return; (l.items||[]).forEach(function(it){
+      var fid=it.feature_id; if(!fid||!/^cc[0-9a-fA-F]/.test(String(fid)))return; if(it.type==='boundary')return;
+      if(it.status==='ok'&&!_gDbOk[fid]){ _persistJudgment(fid,it.lat,it.lng,'ok'); n++; }
+      else if(it.status==='ng'&&!_gDbNg[fid]){ _persistJudgment(fid,it.lat,it.lng,'ng'); n++; }
+    }); });
+    if(n>0){ try{toast('🔒 手動ピックの判定 '+n+'件をDBへ固定（もう消えません）');}catch(_){}}
+  }catch(e){}
+}
+window.__gachoBackfillManual=_backfillManualJudgmentsToDb;
 function _persistJudgment(fid,lat,lng,status){
   var d=_gDb(); if(!d||!fid)return;
   try{
@@ -1468,7 +1482,7 @@ async function _sweepDeletedFlags(){
 window.__gachoSweepDeleted=_sweepDeletedFlags;
 function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_reArchiveFromSnapOnce();
   try{if(!localStorage.getItem('gacho_hidebase_z33')){state.base0Visible=false;saveState();localStorage.setItem('gacho_hidebase_z33','1');}}catch(_){} // v20260821z33(ドクター): ゴミ(素の候補フラグ)を一度だけ非表示に。👁0画層で戻せる
-  injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments();setTimeout(loadDbJudgments,2500);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
+  injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments().then(function(){try{_backfillManualJudgmentsToDb();}catch(_){}});setTimeout(loadDbJudgments,2500);setTimeout(_backfillManualJudgmentsToDb,4200);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
   try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
   // 削除した筆を復活させない: 起動時＋遅延描画に追随して掃引
   try{ _sweepDeletedFlags(); setTimeout(_sweepDeletedFlags,1800); setTimeout(_sweepDeletedFlags,4500); setTimeout(_sweepDeletedFlags,9000); setInterval(_sweepDeletedFlags,20000); m.on('moveend zoomend',function(){_sweepDeletedFlags();}); }catch(_){}
