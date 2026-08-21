@@ -939,7 +939,7 @@ function bindPanel(){
   var d2d=q('#gachoD2Del');if(d2d)d2d.onclick=function(){deleteEmptiedD2();};
   var d2u=q('#gachoD2Undo');if(d2u)d2u.onclick=function(){undoDelivery2();};
   var d2r=q('#gachoD2Rebuild');if(d2r)d2r.onclick=function(){rebuildDelivery2();};
-  var d2mn=q('#gachoD2Manual');if(d2mn)d2mn.onclick=function(){migrateManualPicks();};
+  var d2mn=q('#gachoD2Manual');if(d2mn)d2mn.onclick=function(){try{_backfillManualJudgmentsToDb();}catch(_){}rebuildManualPicksFromDb(false);};
   var tdy=q('#gachoTidy');if(tdy)tdy.onclick=function(){tidyOldLayers();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
@@ -1091,6 +1091,74 @@ function _backfillManualJudgmentsToDb(){
   }catch(e){}
 }
 window.__gachoBackfillManual=_backfillManualJudgmentsToDb;
+/* ★v20260822b(ドクター「新しい場所で保存したら各市町村レイヤーへ移るんだろうな」):
+   手動ピックの判定済み(cc+id)を、DBを正として県→市町村(手作業｜県｜市町村)へ自動整理。起動時に毎回DBから組み直す=localStorageを消しても復元。
+   新しい場所=座標→市町村の対応が無い分はGSI逆ジオで解決し、DB(case_candidates.address)へ書き戻す=次回から対応表無しでも即座に正しい市町村へ入る。 */
+var _MGEO_LS='trackerManualGeo_v1';
+function _mgeoCache(){try{return JSON.parse(localStorage.getItem(_MGEO_LS)||'{}');}catch(_){return {};}}
+function _mgeoSet(c){try{localStorage.setItem(_MGEO_LS,JSON.stringify(c));}catch(_){}}
+var _PREFN={'01':'北海道','02':'青森県','03':'岩手県','04':'宮城県','05':'秋田県','06':'山形県','07':'福島県','08':'茨城県','09':'栃木県','10':'群馬県','11':'埼玉県','12':'千葉県','13':'東京都','14':'神奈川県','15':'新潟県','16':'富山県','17':'石川県','18':'福井県','19':'山梨県','20':'長野県','21':'岐阜県','22':'静岡県','23':'愛知県','24':'三重県','25':'滋賀県','26':'京都府','27':'大阪府','28':'兵庫県','29':'奈良県','30':'和歌山県','31':'鳥取県','32':'島根県','33':'岡山県','34':'広島県','35':'山口県','36':'徳島県','37':'香川県','38':'愛媛県','39':'高知県','40':'福岡県','41':'佐賀県','42':'長崎県','43':'熊本県','44':'大分県','45':'宮崎県','46':'鹿児島県','47':'沖縄県'};
+var _gsiMuni=null,_gsiMuniPromise=null;
+function _loadGsiMuni(){
+  if(_gsiMuni)return Promise.resolve(_gsiMuni);
+  if(_gsiMuniPromise)return _gsiMuniPromise;
+  _gsiMuniPromise=fetch('https://maps.gsi.go.jp/js/muni.js').then(function(r){return r.text();}).then(function(t){
+    var m={},re=/GSI\.MUNI_ARRAY\[\s*['"]?(\d+)['"]?\s*\]\s*=\s*['"]([^'"]+)['"]/g,x;
+    while((x=re.exec(t))){ var code=('00000'+x[1]).slice(-5); m[code]=x[2].split(','); }
+    _gsiMuni=m; return m;
+  }).catch(function(){_gsiMuni={};return _gsiMuni;});
+  return _gsiMuniPromise;
+}
+/* 座標→{pref,city}。①localStorageキャッシュ ②静的対応表 manualGeoByCoord ③GSI逆ジオ(市町村名はmuni.js)。見つからなければnull。 */
+function _resolveManualGeo(la,ln){
+  var key=la.toFixed(4)+','+ln.toFixed(4);
+  var cache=_mgeoCache(); if(cache[key])return Promise.resolve(cache[key]);
+  var G=window.DELIVERY2&&window.DELIVERY2.manualGeoByCoord;
+  if(G){ if(G[key])return Promise.resolve(G[key]);
+    for(var dx=-1;dx<=1;dx++)for(var dy=-1;dy<=1;dy++){var kk=(la+dx*0.0001).toFixed(4)+','+(ln+dy*0.0001).toFixed(4);if(G[kk])return Promise.resolve(G[kk]);} }
+  return _loadGsiMuni().then(function(){
+    return fetch('https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress?lat='+la+'&lon='+ln).then(function(r){return r.json();}).then(function(j){
+      var res=(j&&j.results)||{}; var mc=res.muniCd; if(!mc)return null;
+      var code=('00000'+mc).slice(-5); var pref=_PREFN[code.slice(0,2)]||null; var city=null;
+      var parts=_gsiMuni&&_gsiMuni[code];
+      if(parts){ for(var i=0;i<parts.length;i++){var p=parts[i]; if(/[市町村区]/.test(p)&&!/[県都府道]/.test(p)){city=p;break;}}
+        if(!pref){ for(var k=0;k<parts.length;k++){if(/[県都府道]$/.test(parts[k])){pref=parts[k];break;}} } }
+      if(!pref||!city)return null;
+      var v={pref:pref,city:city}; var c=_mgeoCache(); c[key]=v; _mgeoSet(c); return v;
+    }).catch(function(){return null;});
+  });
+}
+/* DBを正に、判定済み手動ピック(cc+id)を県→市町村へ自動整理。冪等・毎起動で復元可能。 */
+async function rebuildManualPicksFromDb(silent){
+  var d=_gDb(); if(!d)return;
+  try{
+    var picks=[],frm=0;
+    while(true){ var r=await d.from('case_candidates').select('id,latitude,longitude,address').range(frm,frm+999); var rows=(r&&r.data)||[]; picks=picks.concat(rows); if(rows.length<1000)break; frm+=1000; }
+    var existing={};
+    state.layers.forEach(function(l){ if(l.meta&&l.meta.manual){ (l.items||[]).forEach(function(it){ if(it.feature_id)existing[it.feature_id]=l; }); } });
+    var added=0,unknown=0;
+    for(var pi=0;pi<picks.length;pi++){ var p=picks[pi];
+      var fid='cc'+p.id; var st=_gDbOk[fid]?'ok':(_gDbNg[fid]?'ng':null);
+      if(!st)continue; if(existing[fid])continue;
+      var la=Number(p.latitude),ln=Number(p.longitude); if(isNaN(la)||isNaN(ln))continue;
+      var geo=null;
+      // ①DBのaddressに「県+市町村」が既にあれば最優先(逆ジオ済み・durable)
+      if(p.address){ var mm=String(p.address).match(/(.{2,3}[県都府道])(.+?[市町村区])/); if(mm)geo={pref:mm[1],city:mm[2]}; }
+      if(!geo){ try{ geo=await _resolveManualGeo(la,ln); }catch(_){ geo=null; }
+        if(geo){ try{ d.from('case_candidates').update({address:geo.pref+geo.city}).eq('id',p.id).then(function(){},function(){}); }catch(_){} } }
+      var pref=geo?geo.pref:'区域不明',city=geo?geo.city:'区域不明'; if(!geo)unknown++;
+      var L=_d2ManualDest(pref,city);
+      L.items.push({iid:iid(),feature_id:fid,lat:la,lng:ln,address:'手動ピック '+la.toFixed(5)+', '+ln.toFixed(5),src:'手動ピック',status:st});
+      existing[fid]=L; added++;
+    }
+    // 二重表示防止: 整理済みの判定を作業台のフラット「手動ピック（判定）」から外す
+    var removed=0;
+    state.layers.forEach(function(l){ if(l.meta&&l.meta.manual)return; if(!/手動ピック/.test(l.name||''))return;
+      var keep=[]; (l.items||[]).forEach(function(it){ if(it.feature_id&&existing[it.feature_id]&&it.type!=='boundary'){removed++;return;} keep.push(it); }); l.items=keep; });
+    if(added||removed){ saveState(); render(); if(!silent){ try{toast('🗂 手動ピックを県→市町村へ整理（新規'+added+'・作業台から'+removed+'／区域不明'+unknown+'）');}catch(_){} } }
+  }catch(e){}
+}
+window.__gachoRebuildManual=rebuildManualPicksFromDb;
 function _persistJudgment(fid,lat,lng,status){
   var d=_gDb(); if(!d||!fid)return;
   try{
@@ -1482,7 +1550,7 @@ async function _sweepDeletedFlags(){
 window.__gachoSweepDeleted=_sweepDeletedFlags;
 function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_reArchiveFromSnapOnce();
   try{if(!localStorage.getItem('gacho_hidebase_z33')){state.base0Visible=false;saveState();localStorage.setItem('gacho_hidebase_z33','1');}}catch(_){} // v20260821z33(ドクター): ゴミ(素の候補フラグ)を一度だけ非表示に。👁0画層で戻せる
-  injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments().then(function(){try{_backfillManualJudgmentsToDb();}catch(_){}});setTimeout(loadDbJudgments,2500);setTimeout(_backfillManualJudgmentsToDb,4200);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
+  injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments().then(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}});setTimeout(loadDbJudgments,2500);setTimeout(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}},4200);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
   try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
   // 削除した筆を復活させない: 起動時＋遅延描画に追随して掃引
   try{ _sweepDeletedFlags(); setTimeout(_sweepDeletedFlags,1800); setTimeout(_sweepDeletedFlags,4500); setTimeout(_sweepDeletedFlags,9000); setInterval(_sweepDeletedFlags,20000); m.on('moveend zoomend',function(){_sweepDeletedFlags();}); }catch(_){}
