@@ -825,7 +825,7 @@ function _reviewStateOf(fid){
 }
 function _reviewStyle(st){
   if(st==='ok')return {color:'#22c55e',weight:3,fillOpacity:0.30};
-  if(st==='ng')return {color:'#ef4444',weight:3,fillOpacity:0.22};
+  if(st==='ng')return {color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.45}; // v20260820z(ドクター): NGは灰色に退色=除外が一目(黄色のまま残らない)。塗り色も変える。
   if(st==='viewed')return {color:'#c9d1d9',weight:2.5,fillOpacity:0.35,dashArray:'3,3'};
   return null;
 }
