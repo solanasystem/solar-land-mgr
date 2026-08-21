@@ -761,7 +761,8 @@ function renderPanel(){
   h+='<div class="gacho-master"><button id="gachoOnlyUnrev" class="gacho-btn'+(state.hideReviewed?' on':'')+'" title="見た筆を隠して未確認だけ表示">👀 未確認のみ表示'+(state.hideReviewed?'（ON）':'')+'</button><button id="gachoAreaLbl" class="gacho-btn'+(state.showArea?' on':'')+'" title="敷地境界の面積ラベル表示（ズーム15以上で表示）">㎡ 面積ラベル</button></div>';
   h+='<div class="gacho-master"><button id="gachoBulkOk" class="gacho-btn" title="既に開いて見た(未判定)を全画層でまとめてOKに（開き直し不要）">👁→✓ 見た分をOKに一括</button><button id="gachoShowNg" class="gacho-btn'+(state.showNg?' on':'')+'" title="NG(除外)にした筆を地図に表示するか。既定OFF＝除外は地図から消える">'+(state.showNg?'🚫 除外も表示（ON）':'🚫 除外は非表示')+'</button></div>';
   // v20260820i(ドクター): 納品300を座標突合して画層から完全削除(先にSW退避=DB無変更・完全復元可)
-  h+='<div class="gacho-master"><button id="gachoPurgeDeliv" class="gacho-btn" title="SUNトラスト納品300を座標突合(<50m)＋「○○｜納品」レイヤーを画層から完全削除。削除前にSW退避(JSON DL＋復元キー)＝DBは無変更・いつでも戻せる">📦 納品300を突合して削除</button>'+(_hasDelivBackup()?'<button id="gachoRestoreDeliv" class="gacho-btn on" title="退避した納品を画層へ戻す">↩ 納品を戻す</button>':'')+'</div>';
+  // v20260821z(ドクター): 「📦 納品300を突合して削除」は撤去(納品300は第2回母集団で除外済＝不要な危険ボタン・断捨離)。退避戻しは退避がある時だけ残す。
+  if(_hasDelivBackup())h+='<div class="gacho-master"><button id="gachoRestoreDeliv" class="gacho-btn on" title="退避した納品を画層へ戻す">↩ 納品を戻す</button></div>';
   // v20260820n(ドクター): レイヤー構造移行 Phase0=移行前スナップショット(全フラグ＋判定を丸ごとSW＋基準カウント)＋復元
   h+='<div class="gacho-master"><button id="gachoMigSnap" class="gacho-btn" title="レイヤー構造の組み替え前に、全フラグ＋判定(OK/NG/閲覧)を丸ごとSWへ書出＋基準カウント。消えない・判定が残るの証拠＆完全復元点">📸 移行前スナップショット</button>'+(_hasMigSnapshot()?'<button id="gachoMigRestore" class="gacho-btn on" title="スナップショット時点の画層状態に戻す">↩ スナップに戻す</button>':'')+'</div>';
   h+='<div class="gacho-master"><button id="gachoRestoreFile" class="gacho-btn on" title="ダウンロード済みの移行前スナップショットJSONファイルを選んで直接復元(手描き境界を戻す)">📂 スナップJSONから復元</button></div>';
@@ -891,7 +892,6 @@ function bindPanel(){
   var alb=q('#gachoAreaLbl');if(alb)alb.onclick=function(){state.showArea=!state.showArea;saveState();updateAreaLabels();renderPanel();};
   var bo=q('#gachoBulkOk');if(bo)bo.onclick=bulkViewedOk;
   var sn=q('#gachoShowNg');if(sn)sn.onclick=function(){state.showNg=!state.showNg;saveState();render();};
-  var pd=q('#gachoPurgeDeliv');if(pd)pd.onclick=function(){if(confirm('SUNトラスト納品300を座標突合して画層から完全削除します。\n・先にSW退避(JSONダウンロード＋復元キー保存)＝いつでも「↩ 納品を戻す」で復元可\n・DB(客の納品記録)は一切変更しません\nよろしいですか？'))purgeDelivered();};
   var rd=q('#gachoRestoreDeliv');if(rd)rd.onclick=function(){restoreDelivered();};
   var ms=q('#gachoMigSnap');if(ms)ms.onclick=function(){snapshotMigration();};
   var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
