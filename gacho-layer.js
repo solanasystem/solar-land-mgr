@@ -161,7 +161,7 @@ function toggleDraw(){
 function drawClick(e){var m=getMap();try{m.closePopup();}catch(_){}_drawPts.push([e.latlng.lat,e.latlng.lng]);var mk=L.circleMarker(e.latlng,{pane:'gachoPane',radius:4,color:'#fff',weight:1,fillColor:'#f59e0b',fillOpacity:1}).addTo(m);_drawMarkers.push(mk);redrawTemp();}
 function redrawTemp(){var m=getMap();if(_drawTemp){try{m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}if(_drawPts.length>=2){var ring=_drawPts.slice();if(_drawPts.length>=3)ring=ring.concat([_drawPts[0]]);_drawTemp=L.polyline(ring,{pane:'gachoPane',color:'#f59e0b',weight:2,dashArray:'5,5'}).addTo(m);}}
 function drawUndo(){var m=getMap();if(!_drawPts.length){toast('戻す頂点がありません');return;}_drawPts.pop();var mk=_drawMarkers.pop();if(mk&&m){try{m.removeLayer(mk);}catch(_){}}redrawTemp();toast('1つ戻しました（残り頂点'+_drawPts.length+'）');}
-function drawFinish(e){if(e){try{L.DomEvent.stop(e);}catch(_){}}if(_drawPts.length<3){toast('3点以上必要です');return;}var l=activeLayer();if(!l){cancelDraw();return;}var latlngs=_drawPts.slice();var area=polyArea(latlngs);var c=centroid(latlngs);l.items.push({iid:iid(),type:'boundary',latlngs:latlngs,area:area,lat:c[0],lng:c[1],address:'敷地境界',status:'ok',userJudged:true,src:'handdraw'}); // v20260820s(ドクター): 手描き敷地境界=当然OK。OK判定として数える
+function drawFinish(e){if(e){try{L.DomEvent.stop(e);}catch(_){}}if(_drawPts.length<3){toast('3点以上必要です');return;}var l=activeLayer();if(!l){cancelDraw();return;}var latlngs=_drawPts.slice();var area=polyArea(latlngs);var c=centroid(latlngs);var _nb={iid:iid(),type:'boundary',latlngs:latlngs,area:area,lat:c[0],lng:c[1],address:'敷地境界',status:'ok',userJudged:true,src:'handdraw'};l.items.push(_nb);try{_saveBoundaryToDb(_nb);}catch(_){} // v20260820s: 手描き=OK。v20260821q: 描いた瞬間にDBへ保存(消えない)
   // v20260820h(ドクター): _drawTarget があれば、描いた面積を対象フラグ(候補)に反映=小さい土地を手描きで800㎡以上へ。⑥面積スコアも更新。
   var tgt=_drawTarget;_drawTarget=null;var tmsg='';
   if(tgt){var tl=byId(tgt.lid);if(tl){tl.items.forEach(function(it){if(it.iid===tgt.iid){it.area=area;it.handArea=area;it.handLatlngs=latlngs;var s=_score(it);s.c6=(area>=800?'o':'x');it.viewed=true;}});}tmsg='／ 対象フラグの面積を '+Math.round(area).toLocaleString()+'㎡ に更新(⑥面積'+(area>=800?'〇':'✖')+')';}
@@ -583,6 +583,7 @@ function renderPanel(){
   // v20260820n(ドクター): レイヤー構造移行 Phase0=移行前スナップショット(全フラグ＋判定を丸ごとSW＋基準カウント)＋復元
   h+='<div class="gacho-master"><button id="gachoMigSnap" class="gacho-btn" title="レイヤー構造の組み替え前に、全フラグ＋判定(OK/NG/閲覧)を丸ごとSWへ書出＋基準カウント。消えない・判定が残るの証拠＆完全復元点">📸 移行前スナップショット</button>'+(_hasMigSnapshot()?'<button id="gachoMigRestore" class="gacho-btn on" title="スナップショット時点の画層状態に戻す">↩ スナップに戻す</button>':'')+'</div>';
   h+='<div class="gacho-master"><button id="gachoRestoreFile" class="gacho-btn on" title="ダウンロード済みの移行前スナップショットJSONファイルを選んで直接復元(手描き境界を戻す)">📂 スナップJSONから復元</button></div>';
+  h+='<div class="gacho-master"><button id="gachoSaveBnd" class="gacho-btn on" title="今ある手描き境界を全部DBへ保存(二度と消えない)。以後は描いた瞬間に自動保存＋起動時にDBから復元">💾 手描き境界をDBへ保存</button></div>';
   // ★v20260818j(栗本さん:根拠のある数字だけ見せろ): OK/NGは「判定対象の候補レイヤー」だけで意味を持つ。
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
@@ -703,6 +704,7 @@ function bindPanel(){
   var ms=q('#gachoMigSnap');if(ms)ms.onclick=function(){snapshotMigration();};
   var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
   var rff=q('#gachoRestoreFile');if(rff)rff.onclick=function(){restoreFromFile();};
+  var sbn=q('#gachoSaveBnd');if(sbn)sbn.onclick=function(){saveAllBoundariesToDb();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
@@ -745,6 +747,37 @@ function bindPanel(){
 //   gachoのOK/NG判定をSupabaseにも保存し、リロード/別端末でも復元する。DBが無い/失敗しても既存動作は壊さない。
 var _gDbOk={}, _gDbNg={};
 function _gDb(){ try{ if(typeof window!=='undefined'&&window.db)return window.db; if(typeof db!=='undefined')return db; }catch(_){ } return null; }
+/* v20260821q(ドクター「やれ」): 手描き境界をDBへ永続保存＋復元。二度と消えない様に。ai_ok_labels(source=handdraw_boundary)にmemo=JSONで幾何を保存。 */
+function _boundaryMemo(it){ return JSON.stringify({iid:it.iid,latlngs:it.latlngs,area:it.area,address:it.address||'',status:(it.status==='ng'?'ng':'ok'),lat:it.lat,lng:it.lng}); }
+function _saveBoundaryToDb(it){ var d=_gDb(); if(!d||!it||it.type!=='boundary'||!it.latlngs)return; try{ d.from('ai_ok_labels').insert({source:'handdraw_boundary',member_fids:[it.iid],lat:(it.lat!=null?Number(it.lat):null),lng:(it.lng!=null?Number(it.lng):null),memo:_boundaryMemo(it)}).then(function(){},function(){}); }catch(_){ } }
+function saveAllBoundariesToDb(){
+  var d=_gDb(); if(!d){toast('DB未接続で保存できません');return;}
+  var bs=[]; state.layers.forEach(function(l){l.items.forEach(function(it){if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3)bs.push(it);});});
+  if(!bs.length){toast('手描き境界がありません');return;}
+  d.from('ai_ok_labels').select('memo').eq('source','handdraw_boundary').then(function(r){
+    var have={}; (((r&&r.data))||[]).forEach(function(x){try{var m=JSON.parse(x.memo||'{}');if(m.iid)have[m.iid]=1;}catch(_){}});
+    var recs=bs.filter(function(it){return !have[it.iid];}).map(function(it){return {source:'handdraw_boundary',member_fids:[it.iid],lat:(it.lat!=null?Number(it.lat):null),lng:(it.lng!=null?Number(it.lng):null),memo:_boundaryMemo(it)};});
+    if(!recs.length){toast('手描き境界 '+bs.length+'件は既にDB保存済みです（消えません）');return;}
+    d.from('ai_ok_labels').insert(recs).then(function(){toast('手描き境界 '+recs.length+'件をDBへ保存しました（もう消えません）');},function(){toast('保存に失敗');});
+  },function(){
+    var recs=bs.map(function(it){return {source:'handdraw_boundary',member_fids:[it.iid],lat:(it.lat!=null?Number(it.lat):null),lng:(it.lng!=null?Number(it.lng):null),memo:_boundaryMemo(it)};});
+    d.from('ai_ok_labels').insert(recs).then(function(){toast('手描き境界 '+recs.length+'件をDBへ保存');},function(){toast('保存失敗');});
+  });
+}
+async function loadBoundariesFromDb(){
+  var d=_gDb(); if(!d)return;
+  try{
+    var have={}; state.layers.forEach(function(l){l.items.forEach(function(it){if(it.iid)have[it.iid]=1;});});
+    var r=await d.from('ai_ok_labels').select('memo').eq('source','handdraw_boundary'); var rows=(r&&r.data)||[]; var added=0; var l=null;
+    rows.forEach(function(x){try{var m=JSON.parse(x.memo||'{}'); if(!m.iid||!m.latlngs||m.latlngs.length<3||have[m.iid])return;
+      if(!l){ l=state.layers.filter(function(y){return y.name==='敷地境界（実測）';})[0]; if(!l){l={id:uid(),name:'敷地境界（実測）',color:'#f59e0b',visible:true,active:false,items:[]};state.layers.push(l);} }
+      l.archived=false; l.visible=true;
+      l.items.push({iid:m.iid,type:'boundary',latlngs:m.latlngs,area:m.area,lat:(m.lat!=null?m.lat:(m.latlngs[0]?m.latlngs[0][0]:null)),lng:(m.lng!=null?m.lng:(m.latlngs[0]?m.latlngs[0][1]:null)),address:m.address||'敷地境界',status:(m.status==='ng'?'ng':'ok'),userJudged:true,src:'handdraw'});
+      have[m.iid]=1; added++;
+    }catch(_){}});
+    if(added){saveState();render();try{console.log('[DB復元] 手描き境界 '+added+'件');}catch(_){}}
+  }catch(e){}
+}
 function _applyDbStatusToItems(){
   var ch=false;
   state.layers.forEach(function(l){l.items.forEach(function(it){ if(it&&it.feature_id){
@@ -1091,6 +1124,7 @@ function _restoreClearedAutoOk(){try{var raw=localStorage.getItem(_MIG_SNAP_KEY)
    その後 loadDbJudgments であなたのDB確定判定(OK/NG)を再適用=紫/赤含め全部が朝の状態＋あなたの判定に戻る。一度きり(フラグで再実行しない)。 */
 function _fullRestoreOnce(){try{if(localStorage.getItem('trackerGacho_fullRestore_20260821'))return;var raw=localStorage.getItem(_MIG_SNAP_KEY);if(!raw)return;var snap=JSON.parse(raw);if(!snap||!snap.state||!snap.state.layers||!snap.state.layers.length)return;state=snap.state;saveState();localStorage.setItem('trackerGacho_fullRestore_20260821','1');try{console.log('[全復元] 08:58スナップショットへ復元');}catch(_){}}catch(_){}}
 function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_reArchiveFromSnapOnce();_upgradeHandDrawnOk();injectStyle();buildPanel();ensurePane(m);render();applyBase0();try{loadDbJudgments();setTimeout(loadDbJudgments,2500);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
+  try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
   try{m.on('movestart zoomstart dragstart popupopen click',function(){_gmHideFloat();});m.getContainer().addEventListener('mouseleave',function(){_gmHideFloat();});}catch(_){} // v20260821i: ホバー衛星画像の取り残し(黒箱)対策
   document.addEventListener('keydown',function(e){var tag=((e.target&&e.target.tagName)||'').toLowerCase();if(tag==='input'||tag==='textarea')return;if(e.key==='Escape'){if(_rectMode)cleanupRect();if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();}if(_drawMode&&(e.key==='Backspace'||((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')))){e.preventDefault();drawUndo();}});}
 boot();
