@@ -868,7 +868,7 @@ function renderPanel(){
     h+='<div class="gacho-cond">面積 ≥ <input id="gachoMinArea" type="number" min="0" step="50" value="'+(state.lastMinArea!=null?state.lastMinArea:800)+'"> ㎡ <button id="gachoCapCond" class="gacho-btn">条件で取込</button></div>';
     // v20260821z7(ドクター): 「範囲ドラッグで取り込む」「敷地境界を描く」撤去。手描きは各フラグのポップアップ内✏️から。描画中の↩/✓は下に出る。
     if(_drawMode){h+='<div class="gacho-master"><button id="gachoDrawUndo" class="gacho-btn">↩ 1つ戻す</button><button id="gachoDrawDone" class="gacho-btn" style="background:rgba(63,185,80,.2);border-color:#3fb950">✓ 確定</button></div>';}
-    h+='<div class="gacho-exp">書き出し <button id="gachoExpKml" class="gacho-btn" title="Google Earthで開ける・クライアント納品用">KML</button><button id="gachoExpGeo" class="gacho-btn" title="GIS標準・AI連携用">GeoJSON</button><button id="gachoExpCopy" class="gacho-btn" title="コピーして貼付でAIへ">📋</button></div>';
+    // v20260821z8(ドクター): 書き出し(KML/GeoJSON/📋)撤去(未使用)。
   }else{h+='<div class="gacho-active-note">取込先の画層を選択/作成してください</div>';}
   // v20260821z5(ドクター): 4ボタン撤去(断捨離)。✏️敷地境界の画層作成/納品済手動ピック退避/SUNトラスト納品読込(397)/御所218読込。納品は🏁表示・候補は第2回階層に統合済で不要。手描き自体はフラグ✏️/作業レイヤーの✏️で可能。
   h+='<button id="gachoAdd" class="gacho-btn wide add">＋ 新規画層</button>';
@@ -910,9 +910,6 @@ function bindPanel(){
   var ap=q('#gachoAddPt');if(ap)ap.onclick=toggleAdd;
   var du=q('#gachoDrawUndo');if(du)du.onclick=drawUndo;
   var dn=q('#gachoDrawDone');if(dn)dn.onclick=function(){drawFinish();};
-  var eg=q('#gachoExpGeo');if(eg)eg.onclick=function(){exportLayer('geojson');};
-  var ek=q('#gachoExpKml');if(ek)ek.onclick=function(){exportLayer('kml');};
-  var ep=q('#gachoExpCopy');if(ep)ep.onclick=function(){exportLayer('copy');};
   var ad=q('#gachoAdd');if(ad)ad.onclick=addLayer;
   // グループ折りたたみ（①客/②時期/③区域/アーカイブ）
   all('.gacho-grp[data-grp]').forEach(function(el){el.addEventListener('click',function(ev){var t=ev.target;if(t&&(t.hasAttribute('data-evac')||t.hasAttribute('data-restore')))return;var k=el.getAttribute('data-grp');if(!state.grpOpen)state.grpOpen={};var cur=(k in state.grpOpen)?!!state.grpOpen[k]:_grpDefOpen(k);state.grpOpen[k]=!cur;saveState();renderPanel();});});
