@@ -381,6 +381,28 @@ function restoreMigrationSnapshot(){
   else toast('スナップショットにstateがありません');
 }
 function _hasMigSnapshot(){try{return !!localStorage.getItem(_MIG_SNAP_KEY);}catch(_){return false;}}
+/* v20260821m(ドクター復旧): ダウンロード済みスナップJSONファイルを選んで直接復元(ブラウザ内が壊れていても、確認済みの09:13ファイルから手描き境界を戻す)。 */
+function restoreFromFile(){
+  try{
+    var inp=document.createElement('input');inp.type='file';inp.accept='.json,application/json';
+    inp.onchange=function(){var f=inp.files&&inp.files[0];if(!f)return;var rd=new FileReader();
+      rd.onload=function(){try{
+        var snap=JSON.parse(rd.result);
+        var st=(snap&&snap.state)?snap.state:(snap&&snap.layers?snap:null);
+        if(st&&st.layers&&st.layers.length){ state=st; saveState();
+          try{localStorage.setItem(_MIG_SNAP_KEY,JSON.stringify({ts:(snap.ts||''),state:st}));}catch(_){}
+          render();
+          var bn=0; st.layers.forEach(function(l){(l.items||[]).forEach(function(it){if(it.type==='boundary')bn++;});});
+          try{alert('スナップJSONから復元しました。\n画層 '+st.layers.length+' ／ 手描き境界 '+bn+'件。\nこの後DBの判定が自動で乗ります。');}catch(_){}
+          toast('JSON復元: 画層'+st.layers.length+'・境界'+bn+'件');
+          try{if(typeof loadDbJudgments==='function'){loadDbJudgments();setTimeout(loadDbJudgments,2000);}}catch(_){}
+        } else { alert('このJSONに復元データ(state.layers)がありません'); }
+      }catch(e){ alert('JSON読込失敗: '+((e&&e.message)||e)); }};
+      rd.readAsText(f,'utf-8');
+    };
+    inp.click();
+  }catch(e){ toast('ファイル選択に失敗'); }
+}
 
 /* 0画層(既存すべて)の表示切替: base地図タイルと画層paneを除く全paneをまとめて隠す/戻す */
 function applyBase0(){var m=getMap();if(!m)return;var panes=m.getPanes();Object.keys(panes).forEach(function(name){if(name==='mapPane'||name==='tilePane'||name==='gachoPane'||name==='popupPane'||name==='noshinPane'||name==='farmlandPane'||name==='cityPlanPane')return;try{panes[name].style.display=state.base0Visible?'':'none';}catch(_){}});}
@@ -554,6 +576,7 @@ function renderPanel(){
   h+='<div class="gacho-master"><button id="gachoPurgeDeliv" class="gacho-btn" title="SUNトラスト納品300を座標突合(<50m)＋「○○｜納品」レイヤーを画層から完全削除。削除前にSW退避(JSON DL＋復元キー)＝DBは無変更・いつでも戻せる">📦 納品300を突合して削除</button>'+(_hasDelivBackup()?'<button id="gachoRestoreDeliv" class="gacho-btn on" title="退避した納品を画層へ戻す">↩ 納品を戻す</button>':'')+'</div>';
   // v20260820n(ドクター): レイヤー構造移行 Phase0=移行前スナップショット(全フラグ＋判定を丸ごとSW＋基準カウント)＋復元
   h+='<div class="gacho-master"><button id="gachoMigSnap" class="gacho-btn" title="レイヤー構造の組み替え前に、全フラグ＋判定(OK/NG/閲覧)を丸ごとSWへ書出＋基準カウント。消えない・判定が残るの証拠＆完全復元点">📸 移行前スナップショット</button>'+(_hasMigSnapshot()?'<button id="gachoMigRestore" class="gacho-btn on" title="スナップショット時点の画層状態に戻す">↩ スナップに戻す</button>':'')+'</div>';
+  h+='<div class="gacho-master"><button id="gachoRestoreFile" class="gacho-btn on" title="ダウンロード済みの移行前スナップショットJSONファイルを選んで直接復元(手描き境界を戻す)">📂 スナップJSONから復元</button></div>';
   // ★v20260818j(栗本さん:根拠のある数字だけ見せろ): OK/NGは「判定対象の候補レイヤー」だけで意味を持つ。
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
@@ -673,6 +696,7 @@ function bindPanel(){
   var rd=q('#gachoRestoreDeliv');if(rd)rd.onclick=function(){restoreDelivered();};
   var ms=q('#gachoMigSnap');if(ms)ms.onclick=function(){snapshotMigration();};
   var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
+  var rff=q('#gachoRestoreFile');if(rff)rff.onclick=function(){restoreFromFile();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
