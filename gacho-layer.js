@@ -445,6 +445,7 @@ function _gmHoverBind(layer,lat,lng){
 
 function renderLayerGroups(){
   var m=getMap();if(!m)return;ensurePane(m);
+  _reviewMarkerByIid={}; // v20260820t: 送り機能用に毎描画で作り直す
   Object.keys(_groups).forEach(function(id){try{m.removeLayer(_groups[id]);}catch(_){}delete _groups[id];});
   state.layers.forEach(function(l){
     if(l.archived)return; // 退避済は地図に描かない
@@ -474,6 +475,7 @@ function renderLayerGroups(){
       }else{
         var _sty=it.status==='ng'?{radius:5,color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.3}:(it.status==='ok'?{radius:7,color:'#3fb950',weight:3,fillColor:l.color,fillOpacity:0.95}:{radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95});
         var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
+        if(_reviewFilter&&it.iid)_reviewMarkerByIid[it.iid]=mk; // v20260820t: 送り機能でopenPopup
         if(it.status!=='ng') _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(NG済は除外=課金しない・キー無ければno-op)
         mk.bindPopup('<div style="font-size:12px;min-width:250px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+(it.src==='aiKI'?(_whyHtml(it)+_scoreCardHtml(l,it)):acts)+'</div>');
         mk.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{mk.setRadius(5);mk.setStyle({color:'#9aa4ae',weight:1,fillOpacity:0.35});}catch(_){}saveState();renderPanel();}});
@@ -518,8 +520,24 @@ function buildPanel(){if(document.getElementById('gachoPanel'))return;var box=do
 var _gFilter=''; // ★画層検索の絞り込み文字(localStorageに残さない・その場のみ)。栗本さん:だらだら/見えすぎ解消
 var _reviewFilter=false; // v20260820q(ドクター): 「未確定の既OK(要再確認)」だけを地図に表示するビュー。非破壊(所属は保持)。
 var _reviewTouched={}; // v20260820r: レビュー中に判定した筆(fid)。確定してもその場から消さず残す(緑=OK/赤=NG)。残数だけ減る。
+var _reviewMarkerByIid={}; // v20260820t: レビュー描画中のマーカーをiidで保持(送り機能でopenPopup用)
+var _reviewSeen={}; // v20260820t: 「次の未確認へ」で一巡管理(判定せず送っても全件回れる)
 function _isPresetOk(l,it){ return it.status==='ok'&&!_isUserJudged(it)&&!_isDeliveredItem(l,it); } // 既OK=自動OK/未オープン(DB未記録)
 function _presetOkCount(){ var n=0; state.layers.forEach(function(l){ if(l.archived)return; l.items.forEach(function(it){ if(_isPresetOk(l,it))n++; }); }); return n; }
+/* v20260820t(ドクター): 「▶ 次の未確認へ」。押すたびに未確認の既OKへ地図を飛ばしてポップアップを開く=探す手間ゼロで137件を順に潰す。判定せず送っても一巡できる(_reviewSeen)。 */
+function reviewNext(){
+  var m=getMap();if(!m)return;
+  if(!_reviewFilter){toast('先に「🔎 未確定の既OK」をONにしてください');return;}
+  var list=[];state.layers.forEach(function(l){if(l.archived)return;l.items.forEach(function(it){if(_isPresetOk(l,it)&&it.lat!=null&&it.lng!=null)list.push(it);});});
+  if(!list.length){toast('未確認の既OKは残っていません（0件）。お疲れさまでした');return;}
+  var pend=list.filter(function(it){return !_reviewSeen[it.iid];});
+  if(!pend.length){_reviewSeen={};pend=list;toast('一巡しました。残'+list.length+'件を最初から再度回ります');}
+  var it=pend[0];_reviewSeen[it.iid]=1;
+  try{m.closePopup();m.setView([Number(it.lat),Number(it.lng)],Math.max(m.getZoom(),17));}catch(_){}
+  var mk=_reviewMarkerByIid[it.iid];
+  if(mk){setTimeout(function(){try{mk.openPopup();}catch(_){}},280);}
+  toast('未確認の既OK 残'+list.length+'件 ／ この筆を確認→✓OK/🚫NG（送り='+(pend.length-1)+'件）');
+}
 function renderPanel(){
   window.__gachoMapMode=!!(_drawMode||_rectMode||_pickMode||_addMode); // v20260812j: 地番ポップアップ/手動ピック確認モーダルの抑止フラグ(描画等の邪魔をしない)
   var box=document.getElementById('gachoPanel');if(!box)return;var al=activeLayer();var h='';
@@ -533,13 +551,21 @@ function renderPanel(){
   // v20260820n(ドクター): レイヤー構造移行 Phase0=移行前スナップショット(全フラグ＋判定を丸ごとSW＋基準カウント)＋復元
   h+='<div class="gacho-master"><button id="gachoMigSnap" class="gacho-btn" title="レイヤー構造の組み替え前に、全フラグ＋判定(OK/NG/閲覧)を丸ごとSWへ書出＋基準カウント。消えない・判定が残るの証拠＆完全復元点">📸 移行前スナップショット</button>'+(_hasMigSnapshot()?'<button id="gachoMigRestore" class="gacho-btn on" title="スナップショット時点の画層状態に戻す">↩ スナップに戻す</button>':'')+'</div>';
   // v20260820q(ドクター): 「未確定の既OK(要再確認)」だけを表示するレビュービュー。判定すると消えて残数が減る＝進捗。
-  h+='<div class="gacho-master"><button id="gachoReviewFilter" class="gacho-btn'+(_reviewFilter?' on':'')+'" title="私が判定していない「既OK(自動OK/未オープン)」だけを地図に絞って表示。1件ずつ開いてOK/NG確定すると消えて残数が減る＝進捗が見える。非破壊(所属は保持)">🔎 未確定の既OK（要再確認）'+_presetOkCount()+'件'+(_reviewFilter?'（表示中・これだけ）':'')+'</button></div>';
+  h+='<div class="gacho-master"><button id="gachoReviewFilter" class="gacho-btn'+(_reviewFilter?' on':'')+'" title="私が判定していない「既OK(自動OK/未オープン)」だけを地図に絞って表示。1件ずつ開いてOK/NG確定すると消えて残数が減る＝進捗が見える。非破壊(所属は保持)">🔎 未確定の既OK（要再確認）'+_presetOkCount()+'件'+(_reviewFilter?'（表示中・これだけ）':'')+'</button>'+(_reviewFilter?'<button id="gachoReviewNext" class="gacho-btn on" title="次の未確認へ地図を飛ばしてポップアップを開く=探さず順に潰せる">▶ 次へ</button>':'')+'</div>';
   // ★v20260818j(栗本さん:根拠のある数字だけ見せろ): OK/NGは「判定対象の候補レイヤー」だけで意味を持つ。
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
   var _isRef=function(l){ if(l.archived)return true; return /保留|対象外|敷地境界|納品|要確認/.test(l.name||''); };
   var _tOk=0,_tNg=0,_tV=0,_tAll=0,_tHidden=0;
-  state.layers.forEach(function(l){if(l.archived)return;if(!l.visible){_tHidden++;return;}if(_isRef(l))return;l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;});});
+  // v20260820t(ドクター): 判定メモ層(ページ側フラグ=開拓候補/公式放棄地/紫151/御所218の判定)は名前/可視に関係なく常に数える。
+  //   手描き敷地境界のOK(手描き=OK)も参照層でも数える。→「判定したのに加算されない」を解消。
+  state.layers.forEach(function(l){
+    if(l.archived)return;
+    if(l.judgeOnly){ l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;}); return; }
+    if(!l.visible){_tHidden++;return;}
+    if(_isRef(l)){ l.items.forEach(function(it){ if(it.type==='boundary'&&it.status==='ok'){_tAll++;_tOk++;if(it.viewed)_tV++;} }); return; }
+    l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;});
+  });
   h+='<div class="gacho-total">調査中の判定合計　👁'+_tV+' ／ <span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span> ／ 計'+_tAll+'<span style="color:#8b949e;font-weight:400"> （表示中の候補レイヤーのみ）</span></div>';
   // ★検索: 打つとその画層だけを地図・パネルに絞る(見えすぎ/だらだら解消)。空で解除。
   h+='<div class="gacho-master" style="gap:4px"><input id="gachoSearch" placeholder="🔍 画層を検索して絞る（大台/田原/SUN…）" value="'+esc(_gFilter)+'" style="flex:1;padding:6px 9px;border-radius:6px;border:1px solid '+(_gFilter?'#f59e0b':'#30363d')+';background:#0d1117;color:#e6edf3;font-size:12px;outline:none">'+(_gFilter?'<button id="gachoSearchClr" class="gacho-btn" style="padding:2px 8px">✕</button>':'')+'</div>';
@@ -638,7 +664,8 @@ function bindPanel(){
   var rd=q('#gachoRestoreDeliv');if(rd)rd.onclick=function(){restoreDelivered();};
   var ms=q('#gachoMigSnap');if(ms)ms.onclick=function(){snapshotMigration();};
   var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
-  var rf=q('#gachoReviewFilter');if(rf)rf.onclick=function(){_reviewFilter=!_reviewFilter;if(_reviewFilter){_reviewTouched={};toast('未確定の既OK '+_presetOkCount()+'件だけ表示中。確定した筆は緑(OK)/赤(NG)で残り、残数だけ減ります');}render();};
+  var rf=q('#gachoReviewFilter');if(rf)rf.onclick=function(){_reviewFilter=!_reviewFilter;if(_reviewFilter){_reviewTouched={};_reviewSeen={};toast('未確定の既OK '+_presetOkCount()+'件だけ表示中。確定した筆は緑(OK)/赤(NG)で残り、残数だけ減ります。「▶次へ」で順に回れます');}render();};
+  var rn=q('#gachoReviewNext');if(rn)rn.onclick=function(){reviewNext();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
