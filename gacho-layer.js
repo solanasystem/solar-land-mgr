@@ -831,7 +831,17 @@ function renderPanel(){
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
   var _isRef=function(l){ if(l.archived)return true; return /保留|対象外|敷地境界|納品|要確認/.test(l.name||''); };
-  // v20260821z4(ドクター): 「あなたが確定した判定 OK/NG」カウンター撤去。作業台の合算は固定数(第2回=512)と食い違い混乱の元＝ゴミ。正の数字は固定データ(delivery2-candidates.js)とSWルームだけが持つ。
+  // v20260821z26(ドクター): 掃除しながら見る「今の作業台の確定OK件数」。削除するたび減る=真の数に絞れる。重複除去(フラグ=feature_id/境界=iid)・納品除外・自動OK(未オープン)は数えない。
+  var _okS={},_ngS={},_bokS={};
+  state.layers.forEach(function(l){ if(l.archived)return; l.items.forEach(function(it){
+    if(_isDeliveredItem(l,it))return;
+    if(it.type==='boundary'){ if(it.status==='ok'){var bk=it.iid||('b:'+it.lat+','+it.lng);_bokS[bk]=1;} return; }
+    if(!_isUserJudged(it))return;
+    var key=it.feature_id||it.iid;
+    if(it.status==='ok')_okS[key]=1; else if(it.status==='ng')_ngS[key]=1;
+  });});
+  var _okN=Object.keys(_okS).length+Object.keys(_bokS).length, _ngN=Object.keys(_ngS).length;
+  h+='<div class="gacho-total">今の作業台 確定OK <span style="color:#3fb950;font-size:15px">'+_okN+'</span> ・ NG <span style="color:#f85149">'+_ngN+'</span><span style="color:#8b949e;font-weight:400;font-size:10px"> （手判定OKの重複なし実数・削除で減る／固定512とは別）</span></div>';
   // ★検索: 打つとその画層だけを地図・パネルに絞る(見えすぎ/だらだら解消)。空で解除。
   h+='<div class="gacho-master" style="gap:4px"><input id="gachoSearch" placeholder="🔍 画層を検索して絞る（大台/田原/SUN…）" value="'+esc(_gFilter)+'" style="flex:1;padding:6px 9px;border-radius:6px;border:1px solid '+(_gFilter?'#f59e0b':'#30363d')+';background:#0d1117;color:#e6edf3;font-size:12px;outline:none">'+(_gFilter?'<button id="gachoSearchClr" class="gacho-btn" style="padding:2px 8px">✕</button>':'')+'</div>';
   if(_gFilter){h+='<div style="font-size:11px;color:#f0b429;margin:2px 0 4px">🔍「'+esc(_gFilter)+'」で絞り込み中＝この画層だけ地図に表示。✕で解除。</div>';}
