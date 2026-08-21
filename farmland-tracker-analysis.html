@@ -822,7 +822,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822c 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822d 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8460,7 +8460,7 @@ if(typeof map!=='undefined'&&map&&map.on){
 <script src="delivered-300.js?v=20260822c"></script>
 <script src="delivery2-candidates.js?v=20260822c"></script>
 <script src="gacho-layer.js?v=20260822c"></script>
-<script src="cyan-candidates.js?v=20260822c"></script>
+<script src="cyan-candidates.js?v=20260822d"></script>
 <script src="ai_kuwana_inabe.js?v=20260816b"></script>
 <script>
 (function waitAIKI(){
@@ -8475,10 +8475,10 @@ if(typeof map!=='undefined'&&map&&map.on){
 (function cyanToggleInit(){
   if(typeof map==='undefined'||!map||typeof L==='undefined'){return setTimeout(cyanToggleInit,300);}
   var LAY=L.layerGroup(); var on=false; var built=false; var rnd=L.canvas({padding:0.5});
+  var items=(window.CYAN&&window.CYAN.items)||[];
   function build(){
     if(built)return; built=true;
-    var d=(window.CYAN&&window.CYAN.items)||[];
-    d.forEach(function(it){
+    items.forEach(function(it){
       var mk=L.circleMarker([it.la,it.ln],{renderer:rnd,radius:7,color:'#00e5ff',weight:2,fillColor:'#00e5ff',fillOpacity:0.55});
       var rej=(it.r==null?'未採点(暫定)':('reject '+it.r+(it.r<0.5?'=残す':'')));
       mk.bindPopup('<div style="min-width:180px"><div style="color:#00e5ff;font-weight:800">🟦 適地候補（条件合致）</div>'
@@ -8488,19 +8488,41 @@ if(typeof map!=='undefined'&&map&&map.on){
       LAY.addLayer(mk);
     });
   }
+  // 市町村別の集計(件数・確定keep・中心座標)＝どこにあるか判る＋飛べる
+  var G={};
+  items.forEach(function(it){ var c=it.c||'(市町村不明)'; if(!G[c])G[c]={n:0,keep:0,la:0,ln:0}; var g=G[c]; g.n++; g.la+=it.la; g.ln+=it.ln; if(it.r!=null&&it.r<0.5)g.keep++; });
+  var regs=Object.keys(G).map(function(c){var g=G[c];return {c:c,n:g.n,keep:g.keep,la:g.la/g.n,ln:g.ln/g.n};});
+  regs.sort(function(a,b){return (b.keep-a.keep)||(b.n-a.n);});
   var ctl=L.control({position:'topright'});
   ctl.onAdd=function(){
     var n=(window.CYAN&&window.CYAN.total)||0;
-    var div=L.DomUtil.create('div','');
-    div.style.cssText='background:#0b1220;border:1px solid #00e5ff;border-radius:8px;padding:6px 9px;cursor:pointer;color:#e6edf3;font:700 12px sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.4);user-select:none;margin:6px';
-    div.innerHTML='🟦 適地候補シアン <span style="color:#00e5ff">'+n+'</span>件 <span id="cyanSw" style="color:#6e7681">OFF</span>';
-    L.DomEvent.disableClickPropagation(div);
-    div.onclick=function(){
-      on=!on; var sw=div.querySelector('#cyanSw');
-      if(on){ build(); LAY.addTo(map); sw.textContent='ON'; sw.style.color='#00e5ff'; }
-      else { map.removeLayer(LAY); sw.textContent='OFF'; sw.style.color='#6e7681'; }
+    var wrap=L.DomUtil.create('div',''); wrap.style.cssText='margin:6px;font:700 12px sans-serif';
+    var btn=document.createElement('div');
+    btn.style.cssText='background:#0b1220;border:1px solid #00e5ff;border-radius:8px;padding:6px 9px;cursor:pointer;color:#e6edf3;box-shadow:0 2px 8px rgba(0,0,0,.4);user-select:none';
+    btn.innerHTML='🟦 適地候補シアン <span style="color:#00e5ff">'+n+'</span>件 <span id="cyanSw" style="color:#6e7681">OFF</span>';
+    var list=document.createElement('div');
+    list.style.cssText='display:none;margin-top:5px;max-height:320px;overflow:auto;background:#0b1220;border:1px solid #00e5ff;border-radius:8px;padding:4px;width:200px';
+    var html='<div style="color:#00e5ff;font-size:10px;padding:3px 5px;line-height:1.4">市町村（クリックで移動）<br>右=確定/計</div>';
+    regs.forEach(function(r){
+      html+='<div class="cyanReg" data-la="'+r.la.toFixed(5)+'" data-ln="'+r.ln.toFixed(5)+'" style="padding:4px 6px;border-top:1px solid #1e293b;cursor:pointer;color:#e6edf3;display:flex;justify-content:space-between;gap:6px">'
+        +'<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+r.c+'</span>'
+        +'<span style="color:#00e5ff;white-space:nowrap">'+r.keep+'/'+r.n+'</span></div>';
+    });
+    list.innerHTML=html;
+    wrap.appendChild(btn); wrap.appendChild(list);
+    L.DomEvent.disableClickPropagation(wrap); L.DomEvent.disableScrollPropagation(list);
+    btn.onclick=function(){
+      on=!on; var sw=btn.querySelector('#cyanSw');
+      if(on){ build(); LAY.addTo(map); list.style.display='block'; sw.textContent='ON'; sw.style.color='#00e5ff'; }
+      else { map.removeLayer(LAY); list.style.display='none'; sw.textContent='OFF'; sw.style.color='#6e7681'; }
     };
-    return div;
+    list.addEventListener('click',function(e){
+      var row=e.target.closest?e.target.closest('.cyanReg'):null; if(!row)return;
+      var la=parseFloat(row.getAttribute('data-la')), ln=parseFloat(row.getAttribute('data-ln'));
+      if(!on){ on=true; build(); LAY.addTo(map); list.style.display='block'; var sw=btn.querySelector('#cyanSw'); sw.textContent='ON'; sw.style.color='#00e5ff'; }
+      map.flyTo([la,ln],14);
+    });
+    return wrap;
   };
   ctl.addTo(map);
 })();
