@@ -871,10 +871,7 @@ function renderPanel(){
     if(_drawMode){h+='<div class="gacho-master"><button id="gachoDrawUndo" class="gacho-btn">↩ 1つ戻す</button><button id="gachoDrawDone" class="gacho-btn" style="background:rgba(63,185,80,.2);border-color:#3fb950">✓ 確定</button></div>';}
     h+='<div class="gacho-exp">書き出し <button id="gachoExpKml" class="gacho-btn" title="Google Earthで開ける・クライアント納品用">KML</button><button id="gachoExpGeo" class="gacho-btn" title="GIS標準・AI連携用">GeoJSON</button><button id="gachoExpCopy" class="gacho-btn" title="コピーして貼付でAIへ">📋</button></div>';
   }else{h+='<div class="gacho-active-note">取込先の画層を選択/作成してください</div>';}
-  h+='<button id="gachoAddBoundary" class="gacho-btn wide" style="background:rgba(236,72,153,.18);border-color:#ec4899">✏️＋ 敷地境界の画層を作る</button>';
-  if(typeof window.__sepDeliveredPicks==='function'&&state.layers.some(function(x){return x.name==='手動ピック（判定）'&&!x.archived&&(x.items||[]).length;})){h+='<button id="gachoSepDeliv" class="gacho-btn wide" style="background:rgba(16,185,129,.16);border-color:#10b981">📦 納品済の手動ピックを退避（今調査中だけ残す）</button>';}
-  h+='<button id="gachoLoadSuntrust" class="gacho-btn wide" style="background:rgba(245,158,11,.18);border-color:#f59e0b">📦 SUNトラスト納品を画層に読込（確定397）</button>';
-  h+='<button id="gachoLoadGose" class="gacho-btn wide" style="background:rgba(245,158,11,.14);border-color:#f59e0b">☀ 御所218を画層に読込（全OK）</button>';
+  // v20260821z5(ドクター): 4ボタン撤去(断捨離)。✏️敷地境界の画層作成/納品済手動ピック退避/SUNトラスト納品読込(397)/御所218読込。納品は🏁表示・候補は第2回階層に統合済で不要。手描き自体はフラグ✏️/作業レイヤーの✏️で可能。
   h+='<button id="gachoAdd" class="gacho-btn wide add">＋ 新規画層</button>';
   h+='</div>';
   h+='<div class="gacho-hint">既存の筆・フラグを条件別に画層へまとめ、切替えて分析。0画層＝今まで全部。取込は割当のみ・元データは無傷。</div>';
@@ -919,10 +916,6 @@ function bindPanel(){
   var ek=q('#gachoExpKml');if(ek)ek.onclick=function(){exportLayer('kml');};
   var ep=q('#gachoExpCopy');if(ep)ep.onclick=function(){exportLayer('copy');};
   var rb=q('#gachoRectBtn');if(rb)rb.onclick=toggleRect;
-  var ab=q('#gachoAddBoundary');if(ab)ab.onclick=addBoundaryLayer;
-  var sd=q('#gachoSepDeliv');if(sd)sd.onclick=function(){if(confirm('手動ピック（判定）から、SUNトラスト納品済に一致する分を「手動ピック（納品済）」へ退避します。\n作業台には今調査中の分だけが残ります（データは消えません・アーカイブに畳まれます）。\n実行しますか？'))window.__sepDeliveredPicks();};
-  var ls=q('#gachoLoadSuntrust');if(ls)ls.onclick=loadSuntrust;
-  var lg=q('#gachoLoadGose');if(lg)lg.onclick=loadGose;
   var ad=q('#gachoAdd');if(ad)ad.onclick=addLayer;
   // グループ折りたたみ（①客/②時期/③区域/アーカイブ）
   all('.gacho-grp[data-grp]').forEach(function(el){el.addEventListener('click',function(ev){var t=ev.target;if(t&&(t.hasAttribute('data-evac')||t.hasAttribute('data-restore')))return;var k=el.getAttribute('data-grp');if(!state.grpOpen)state.grpOpen={};var cur=(k in state.grpOpen)?!!state.grpOpen[k]:_grpDefOpen(k);state.grpOpen[k]=!cur;saveState();renderPanel();});});
