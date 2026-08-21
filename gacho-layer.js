@@ -389,12 +389,18 @@ function restoreFromFile(){
       rd.onload=function(){try{
         var snap=JSON.parse(rd.result);
         var st=(snap&&snap.state)?snap.state:(snap&&snap.layers?snap:null);
-        if(st&&st.layers&&st.layers.length){ state=st; saveState();
-          try{localStorage.setItem(_MIG_SNAP_KEY,JSON.stringify({ts:(snap.ts||''),state:st}));}catch(_){}
-          render();
-          var bn=0; st.layers.forEach(function(l){(l.items||[]).forEach(function(it){if(it.type==='boundary')bn++;});});
-          try{alert('スナップJSONから復元しました。\n画層 '+st.layers.length+' ／ 手描き境界 '+bn+'件。\nこの後DBの判定が自動で乗ります。');}catch(_){}
-          toast('JSON復元: 画層'+st.layers.length+'・境界'+bn+'件');
+        if(st&&st.layers&&st.layers.length){
+          // v20260821m(ドクター): 置き換えでなくマージ。今の作業(田原等)は残し、ファイルの手描き境界・判定を「足す」だけ。
+          var cur={}; state.layers.forEach(function(l){(l.items||[]).forEach(function(it){if(it.iid)cur[it.iid]=1;});});
+          var added=0,bn=0;
+          st.layers.forEach(function(sl){
+            var tl=state.layers.filter(function(x){return x.name===sl.name;})[0];
+            if(!tl){ tl={id:uid(),name:sl.name,color:sl.color||'#f59e0b',visible:(sl.visible!==false),active:false,items:[],judgeOnly:sl.judgeOnly,archived:sl.archived}; state.layers.push(tl); }
+            (sl.items||[]).forEach(function(it){ if(it.iid&&cur[it.iid])return; tl.items.push(it); cur[it.iid]=1; added++; if(it.type==='boundary')bn++; });
+          });
+          saveState(); render();
+          try{alert('復元(マージ)しました。\n追加 '+added+'件（うち手描き境界 '+bn+'件）。\n今の田原などの作業は残したまま、朝の分を足しました。DBの判定も自動で乗ります。');}catch(_){}
+          toast('JSONマージ復元: 追加'+added+'・境界'+bn);
           try{if(typeof loadDbJudgments==='function'){loadDbJudgments();setTimeout(loadDbJudgments,2000);}}catch(_){}
         } else { alert('このJSONに復元データ(state.layers)がありません'); }
       }catch(e){ alert('JSON読込失敗: '+((e&&e.message)||e)); }};
