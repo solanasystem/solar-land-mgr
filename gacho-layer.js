@@ -702,7 +702,22 @@ function renderLayerGroups(){
   updateAreaLabels();
 }
 
-function render(){renderPanel();renderLayerGroups();}
+function render(){renderPanel();renderLayerGroups();try{renderDelivered();}catch(_){}}
+/* 納品済300を地図に一律グレーで表示(二度出し防止・ドクター2026-08-21)。既定OFF・候補より下pane・クリック不要の背景。 */
+var _deliveredLayer=null;
+function renderDelivered(){
+  var m=getMap(); if(!m)return;
+  if(_deliveredLayer){try{m.removeLayer(_deliveredLayer);}catch(_){}_deliveredLayer=null;}
+  if(!state.showDelivered||!window.DELIVERED300||!window.DELIVERED300.pts)return;
+  if(!m.getPane('gachoDelivPane')){var p=m.createPane('gachoDelivPane');p.style.zIndex=445;}
+  var g=L.layerGroup([]);
+  window.DELIVERED300.pts.forEach(function(pt){
+    var mk=L.circleMarker([pt[0],pt[1]],{pane:'gachoDelivPane',radius:6,color:'#334155',weight:1,fillColor:'#94a3b8',fillOpacity:0.9,interactive:true});
+    mk.bindTooltip('納品済（初回）',{direction:'top'});
+    g.addLayer(mk);
+  });
+  g.addTo(m); _deliveredLayer=g;
+}
 
 /* ===== 画層の分類(①クライアント②納品時期③行政区域) — レイヤー構造を明確化 ===== */
 function layerMeta(l){
@@ -760,6 +775,8 @@ function renderPanel(){
   h+='<div class="gacho-master"><button id="gachoShowAll" class="gacho-btn">👁 全て表示</button><button id="gachoHideAll" class="gacho-btn">🚫 全て隠す</button></div>';
   // v20260821z(ドクター): 「未確認のみ表示」撤去(断捨離)。面積ラベルは残す。
   h+='<div class="gacho-master"><button id="gachoAreaLbl" class="gacho-btn'+(state.showArea?' on':'')+'" title="敷地境界の面積ラベル表示（ズーム15以上で表示）">㎡ 面積ラベル</button></div>';
+  // v20260821z4(ドクター): 初回納品済を一律グレーで表示=二度出し防止。新規開拓(緑)と一目で区別。
+  if(window.DELIVERED300)h+='<div class="gacho-master"><button id="gachoShowDeliv" class="gacho-btn'+(state.showDelivered?' on':'')+'" style="'+(state.showDelivered?'background:rgba(148,163,184,.30);border-color:#94a3b8':'')+'" title="初回納品済'+(window.DELIVERED300.count||300)+'をグレーで地図に表示=同じ場所を二度出さないため。新規開拓(緑)と一目で区別">'+(state.showDelivered?'🏁 納品済を表示中（グレー）':'🏁 納品済を地図に表示')+'</button></div>';
   // v20260821z2(ドクター): 「見た分をOKに一括」「除外は非表示」撤去(断捨離)。NGは既定(showNg=false)で地図から隠れたまま=機能は維持。
   // v20260820i(ドクター): 納品300を座標突合して画層から完全削除(先にSW退避=DB無変更・完全復元可)
   // v20260821z(ドクター): 「📦 納品300を突合して削除」は撤去(納品300は第2回母集団で除外済＝不要な危険ボタン・断捨離)。退避戻しは退避がある時だけ残す。
@@ -780,25 +797,7 @@ function renderPanel(){
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
   var _isRef=function(l){ if(l.archived)return true; return /保留|対象外|敷地境界|納品|要確認/.test(l.name||''); };
-  var _tOk=0,_tNg=0,_tV=0,_tAll=0,_tHidden=0;
-  // v20260820t(ドクター): 判定メモ層(ページ側フラグ=開拓候補/公式放棄地/紫151/御所218の判定)は名前/可視に関係なく常に数える。
-  //   手描き敷地境界のOK(手描き=OK)も参照層でも数える。→「判定したのに加算されない」を解消。
-  // v20260821d(ドクター): カウンターは単一の正しい定義に固定=「あなたが確定した(userJudged)OK/NGの重複しない実数」。
-  //   feature_idで重複除去(重なった筆で二重に増えない)・自動OK除外・納品除外。手描き敷地境界=OK。表示可視に依存しない=数字が勝手に変わらない。
-  var _okSet={},_ngSet={},_bOkSet={};
-  state.layers.forEach(function(l){
-    if(l.archived)return;
-    l.items.forEach(function(it){
-      if(_isDeliveredItem(l,it))return;                       // 納品除外
-      // v20260821u(ドクター): 手描き境界を iid で重複除去。同じ境界が複数レイヤー/DB再読込で二重計上されるのを是正(連打・再読込で増えない)。
-      if(it.type==='boundary'){ if(it.status==='ok'){ var bk=it.iid||('b:'+(it.lat)+','+(it.lng)); _bOkSet[bk]=1; } return; }
-      if(!_isUserJudged(it))return;                            // あなたが確定した分だけ(自動OKは数えない)
-      var key=it.feature_id||it.iid;
-      if(it.status==='ok')_okSet[key]=1; else if(it.status==='ng')_ngSet[key]=1;
-    });
-  });
-  _tOk=Object.keys(_okSet).length+Object.keys(_bOkSet).length; _tNg=Object.keys(_ngSet).length;
-  h+='<div class="gacho-total">あなたが確定した判定　<span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span><span style="color:#8b949e;font-weight:400"> （確定した実数・自動OK/未確認は除く・重複なし）</span></div>';
+  // v20260821z4(ドクター): 「あなたが確定した判定 OK/NG」カウンター撤去。作業台の合算は固定数(第2回=512)と食い違い混乱の元＝ゴミ。正の数字は固定データ(delivery2-candidates.js)とSWルームだけが持つ。
   // ★検索: 打つとその画層だけを地図・パネルに絞る(見えすぎ/だらだら解消)。空で解除。
   h+='<div class="gacho-master" style="gap:4px"><input id="gachoSearch" placeholder="🔍 画層を検索して絞る（大台/田原/SUN…）" value="'+esc(_gFilter)+'" style="flex:1;padding:6px 9px;border-radius:6px;border:1px solid '+(_gFilter?'#f59e0b':'#30363d')+';background:#0d1117;color:#e6edf3;font-size:12px;outline:none">'+(_gFilter?'<button id="gachoSearchClr" class="gacho-btn" style="padding:2px 8px">✕</button>':'')+'</div>';
   if(_gFilter){h+='<div style="font-size:11px;color:#f0b429;margin:2px 0 4px">🔍「'+esc(_gFilter)+'」で絞り込み中＝この画層だけ地図に表示。✕で解除。</div>';}
@@ -889,6 +888,7 @@ function bindPanel(){
   var sa=q('#gachoShowAll');if(sa)sa.onclick=showAll;
   var ha=q('#gachoHideAll');if(ha)ha.onclick=hideAll;
   var alb=q('#gachoAreaLbl');if(alb)alb.onclick=function(){state.showArea=!state.showArea;saveState();updateAreaLabels();renderPanel();};
+  var shd=q('#gachoShowDeliv');if(shd)shd.onclick=function(){state.showDelivered=!state.showDelivered;saveState();try{renderDelivered();}catch(_){}renderPanel();};
   var rd=q('#gachoRestoreDeliv');if(rd)rd.onclick=function(){restoreDelivered();};
   var ms=q('#gachoMigSnap');if(ms)ms.onclick=function(){snapshotMigration();};
   var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
