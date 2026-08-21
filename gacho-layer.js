@@ -1198,8 +1198,9 @@ window.__gacho={
       if(!area)area=polyArea(latlngs);var c=centroid(latlngs);
       var name='敷地境界（実測）';var bl=state.layers.filter(function(x){return x.name===name;})[0];
       if(!bl){bl={id:uid(),name:name,color:'#f59e0b',visible:true,active:false,items:[]};state.layers.push(bl);}
+      if(it.handBoundaryIid){ state.layers.forEach(function(L){L.items=L.items.filter(function(x){return x.iid!==it.handBoundaryIid;});}); } // 再押しで重ねない=前の境界を差し替え
       var nb={iid:iid(),type:'boundary',latlngs:latlngs,area:area,lat:c[0],lng:c[1],address:'敷地境界('+note+')',status:null,userJudged:false,src:'fude'};
-      bl.items.push(nb);try{_saveBoundaryToDb(nb);}catch(_){}
+      bl.items.push(nb);it.handBoundaryIid=nb.iid;try{_saveBoundaryToDb(nb);}catch(_){}
       it.area=area;it.handArea=area;it.handLatlngs=latlngs;var s=_score(it);s.c6=(area>=800?'o':'x');it.viewed=true;
       _lastDrawnBoundary={lid:bl.id,iid:nb.iid};_lastDrawTarget={lid:lid,iid:iid};
       saveState();render();try{if(m)m.setView([c[0],c[1]],Math.max(m.getZoom(),18));}catch(_){}
