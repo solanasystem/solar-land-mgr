@@ -951,7 +951,7 @@ function bindPanel(){
   all('.gacho-name[data-sel]').forEach(function(el){el.onclick=function(){setActive(el.getAttribute('data-sel'));};});
   all('.gacho-solo[data-solo]').forEach(function(el){el.onclick=function(){var id=el.getAttribute('data-solo');state.solo=(state.solo===id?null:id);saveState();render();};});
   all('.gacho-ren[data-ren]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-ren'));if(!l)return;var n=prompt('画層名',l.name);if(n!=null&&n.trim()){l.name=n.trim();saveState();render();}};});
-  all('.gacho-del[data-del]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-del'));if(!l)return;if(confirm('画層「'+l.name+'」を削除しますか？（割当のみ削除・元データは無傷）')){state.layers=state.layers.filter(function(x){return x.id!==l.id;});if(state.solo===l.id)state.solo=null;saveState();render();}};});
+  all('.gacho-del[data-del]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-del'));if(!l)return;if(confirm('画層「'+l.name+'」を削除しますか？（割当のみ削除・元データは無傷）\n※この画層名を「削除済み」に記録し、リロードで自動復活させません')){if(!state.removedLayers)state.removedLayers={};state.removedLayers[l.name]=1;state.layers=state.layers.filter(function(x){return x.id!==l.id;});if(state.solo===l.id)state.solo=null;saveState();render();}};});
   var cv=q('#gachoCapView');if(cv)cv.onclick=function(){captureViewport();};
   var cc=q('#gachoCapCond');if(cc)cc.onclick=function(){var el=q('#gachoMinArea');var v=el?Number(el.value):800;if(isNaN(v))v=0;state.lastMinArea=v;saveState();captureViewport({minArea:v});};
   var ap=q('#gachoAddPt');if(ap)ap.onclick=toggleAdd;
@@ -1356,6 +1356,7 @@ window.__gacho={
   loadNeutral:function(items,layerName,color,prefix){
     if(!items||!items.length)return;
     var l=state.layers.filter(function(x){return x.name===layerName;})[0];
+    if(state.removedLayers&&state.removedLayers[layerName])return; // ★削除済み画層名は自動読込で復活させない(ドクター:消したレイヤーが復活する)
     if(l&&l.archived)return; // ★退避済み画層は自動読込で復活/再投入しない(栗本さん:退避が毎回復活するのを防ぐ)。戻すのは↩のみ
     if(!l){l={id:uid(),name:layerName,color:color||'#00e5ff',visible:true,active:false,items:[]};state.layers.push(l);}
     var pfx=(prefix||'aiKI');
