@@ -385,6 +385,80 @@ function restoreMigrationSnapshot(){
   else toast('スナップショットにstateがありません');
 }
 function _hasMigSnapshot(){try{return !!localStorage.getItem(_MIG_SNAP_KEY);}catch(_){return false;}}
+/* ===== 第2回納品候補 県→市町村 移行（ドクター2026-08-21 v20260821v・慎重運用）
+   単一の正=delivery2-candidates.js(fid/iid→県市町村の固定割当)。画面はそれを読むだけ・その場で数え直さない。
+   安全: スナップショット→移動(移動だけでは1件も消えない)→総数一致を確認→別ボタンで空レイヤー削除→総数が変われば即中断して自動復元。
+   ピンク(手動ピック)・納品退避(archived)は絶対に触らない。 ===== */
+var _D2_SNAP_KEY='trackerGacho_d2_snapshot_v1';
+var _d2Emptied=[];
+function _d2TotalItems(){var n=0;state.layers.forEach(function(l){n+=(l.items?l.items.length:0);});return n;}
+function _d2IsPink(l){return /手動ピック|手作業|ピンク/.test(l.name||'')|| (l.meta&&l.meta.manual);}
+function _d2Dest(pref,city){
+  var name='第2回納品候補｜'+pref+'｜'+city;
+  var l=state.layers.filter(function(x){return x.name===name;})[0];
+  if(!l){l={id:uid(),name:name,color:'#0891b2',visible:true,active:false,items:[],meta:{client:'第2回納品候補',period:pref,region:city,pref:pref,city:city}};state.layers.push(l);}
+  return l;
+}
+function migrateDelivery2(){
+  var D=window.DELIVERY2;
+  if(!D||!D.byFeature){toast('第2回候補データ未読込(delivery2-candidates.js)＝中断');return;}
+  if(!confirm('第2回納品候補（OKフラグ＋手描き境界／納品300は除外）を「県→市町村」レイヤーへ移動します。\n\n・先に自動スナップショット（復元キー＋JSON書出）＝いつでも「↩ 移行を元に戻す」で復元可\n・移動だけでは1件も消えません（削除は別ボタン）\n・総数が変わったら自動で中止し元に戻します\n・手動ピック（ピンク）・納品退避は触りません\n\n実行しますか？'))return;
+  var snap;
+  try{snap=JSON.stringify({ts:_stamp(),state:state});localStorage.setItem(_D2_SNAP_KEY,snap);}catch(_){toast('スナップショット失敗＝中断');return;}
+  try{download('第2回移行前スナップ_'+_stamp()+'.json',snap,'application/json');}catch(_){}
+  var before=_d2TotalItems();
+  var moved=0,emptied=[];
+  state.layers.slice().forEach(function(l){
+    if(l.meta&&l.meta.client==='第2回納品候補')return; // 宛先自身
+    if(l.archived)return;                              // 納品退避・退避済は触らない
+    if(_d2IsPink(l))return;                            // 手動ピック(ピンク)は絶対に触らない
+    var had=l.items.length,keep=[];
+    l.items.forEach(function(it){
+      var a=null;
+      if(it.type==='boundary'&&it.iid&&D.byBoundary[it.iid])a=D.byBoundary[it.iid];
+      else if(it.feature_id&&D.byFeature[it.feature_id])a=D.byFeature[it.feature_id];
+      if(a){_d2Dest(a.pref,a.city).items.push(it);moved++;}
+      else keep.push(it);
+    });
+    l.items=keep;
+    if(had>0&&l.items.length===0)emptied.push(l.id);
+  });
+  var after=_d2TotalItems();
+  if(after!==before){ // 1件でも失ったら復元して中断
+    try{var s=JSON.parse(localStorage.getItem(_D2_SNAP_KEY));if(s&&s.state){state=s.state;}}catch(_){}
+    saveState();render();
+    toast('⚠ 総数が変化('+before+'→'+after+')＝異常。移行を中止し元に戻しました');
+    return;
+  }
+  _d2Emptied=emptied;saveState();render();
+  try{alert('✓ 第2回納品候補へ移動しました\n\n移動 '+moved+' 件（DB割当526に対して現在ブラウザにある分）\n総数 '+before+' → '+after+'（不変＝1件も失っていません）\n空になった元レイヤー '+emptied.length+' 個\n\n数字を確認し、問題なければ「🗑 空レイヤー削除」を押してください。\n違和感があれば「↩ 移行を元に戻す」で即復元できます。');}catch(_){}
+  toast('✓ 移動'+moved+'件・総数'+before+'不変。空'+emptied.length+'個は別ボタンで削除');
+}
+function deleteEmptiedD2(){
+  if(!_d2Emptied.length){toast('削除対象の空レイヤーがありません（先に移行を実行）');return;}
+  if(!confirm('移動で空になった元レイヤー '+_d2Emptied.length+' 個を削除します。\n・0件のものだけ・第2回宛先/納品退避は対象外\n・総数が変わったら自動で中止し復元\n実行しますか？'))return;
+  var before=_d2TotalItems();
+  var del=0,ids=_d2Emptied.slice();
+  state.layers=state.layers.filter(function(l){
+    if(ids.indexOf(l.id)>=0&&l.items.length===0&&!(l.meta&&l.meta.client==='第2回納品候補')&&!l.archived){del++;if(state.solo===l.id)state.solo=null;return false;}
+    return true;
+  });
+  var after=_d2TotalItems();
+  if(after!==before){
+    try{var s=JSON.parse(localStorage.getItem(_D2_SNAP_KEY));if(s&&s.state){state=s.state;}}catch(_){}
+    saveState();render();toast('⚠ 削除で総数変化＝異常。元に戻しました');return;
+  }
+  _d2Emptied=[];saveState();render();toast('✓ 空になった元レイヤー'+del+'個を削除（総数'+before+'不変）');
+}
+function undoDelivery2(){
+  var raw=null;try{raw=localStorage.getItem(_D2_SNAP_KEY);}catch(_){}
+  if(!raw){toast('復元用スナップショットがありません');return;}
+  if(!confirm('第2回移行を、移行前の状態に戻します。よろしいですか？'))return;
+  var s;try{s=JSON.parse(raw);}catch(_){toast('スナップショットが壊れています');return;}
+  if(s&&s.state&&s.state.layers){state=s.state;_d2Emptied=[];saveState();render();toast('↩ 第2回移行を元に戻しました');}
+  else toast('スナップショットにstateがありません');
+}
+function _hasD2Snap(){try{return !!localStorage.getItem(_D2_SNAP_KEY);}catch(_){return false;}}
 /* v20260821m(ドクター復旧): ダウンロード済みスナップJSONファイルを選んで直接復元(ブラウザ内が壊れていても、確認済みの09:13ファイルから手描き境界を戻す)。 */
 function restoreFromFile(){
   try{
@@ -587,6 +661,13 @@ function renderPanel(){
   // v20260820n(ドクター): レイヤー構造移行 Phase0=移行前スナップショット(全フラグ＋判定を丸ごとSW＋基準カウント)＋復元
   h+='<div class="gacho-master"><button id="gachoMigSnap" class="gacho-btn" title="レイヤー構造の組み替え前に、全フラグ＋判定(OK/NG/閲覧)を丸ごとSWへ書出＋基準カウント。消えない・判定が残るの証拠＆完全復元点">📸 移行前スナップショット</button>'+(_hasMigSnapshot()?'<button id="gachoMigRestore" class="gacho-btn on" title="スナップショット時点の画層状態に戻す">↩ スナップに戻す</button>':'')+'</div>';
   h+='<div class="gacho-master"><button id="gachoRestoreFile" class="gacho-btn on" title="ダウンロード済みの移行前スナップショットJSONファイルを選んで直接復元(手描き境界を戻す)">📂 スナップJSONから復元</button></div>';
+  // 第2回納品候補 県→市町村 移行（慎重運用: 移動だけでは消えない・削除は別・総数変化で自動中断復元）
+  if(window.DELIVERY2){
+    h+='<div class="gacho-master"><button id="gachoD2Migrate" class="gacho-btn" style="background:rgba(8,145,178,.18);border-color:#0891b2" title="OKフラグ＋手描き境界を『第2回納品候補｜県｜市町村』へ移動(納品300除外・固定割当526)。先に自動スナップ・移動だけでは消えない・総数不変を確認">🗂 第2回納品候補へ整理（県→市町村）</button></div>';
+    if(_d2Emptied.length||_hasD2Snap()){
+      h+='<div class="gacho-master">'+(_d2Emptied.length?'<button id="gachoD2Del" class="gacho-btn on" title="移動で空になった元レイヤーを削除(0件のみ・総数不変を再確認)">🗑 空レイヤー削除（'+_d2Emptied.length+'）</button>':'')+(_hasD2Snap()?'<button id="gachoD2Undo" class="gacho-btn on" title="第2回移行を移行前に戻す">↩ 移行を元に戻す</button>':'')+'</div>';
+    }
+  }
   // ★v20260818j(栗本さん:根拠のある数字だけ見せろ): OK/NGは「判定対象の候補レイヤー」だけで意味を持つ。
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
@@ -708,6 +789,9 @@ function bindPanel(){
   var ms=q('#gachoMigSnap');if(ms)ms.onclick=function(){snapshotMigration();};
   var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
   var rff=q('#gachoRestoreFile');if(rff)rff.onclick=function(){restoreFromFile();};
+  var d2m=q('#gachoD2Migrate');if(d2m)d2m.onclick=function(){migrateDelivery2();};
+  var d2d=q('#gachoD2Del');if(d2d)d2d.onclick=function(){deleteEmptiedD2();};
+  var d2u=q('#gachoD2Undo');if(d2u)d2u.onclick=function(){undoDelivery2();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
