@@ -484,6 +484,17 @@ function undoDelivery2(){
   else toast('スナップショットにstateがありません');
 }
 function _hasD2Snap(){try{return !!localStorage.getItem(_D2_SNAP_KEY);}catch(_){return false;}}
+/* レイヤー整理: 旧レイヤー(第2回=県→市町村・手作業・手動ピック 以外)をSWへ退避し作業台から外す=県→市町村だけの綺麗な作業台に。可逆(退避↩で戻せる)。ドクター2026-08-21 */
+function _isD2Layer(l){return !!(l.meta&&l.meta.client==='第2回納品候補');}
+function tidyOldLayers(){
+  var old=state.layers.filter(function(l){ return !l.archived && l.items && l.items.length && !_isD2Layer(l) && !_d2IsPink(l) && !/手動ピック/.test(l.name||''); });
+  if(!old.length){toast('片付ける旧レイヤーがありません（既に県→市町村＋手作業＋手動ピックだけ）');return;}
+  var names=old.slice(0,6).map(function(l){return l.name;}).join('／')+(old.length>6?' …他'+(old.length-6):'');
+  if(!confirm('旧レイヤー '+old.length+' 個（'+names+'）をSWルームへ退避し、作業台から外します。\n・データは消えません（アーカイブに畳む＝退避欄の↩で戻せる）\n・第2回(県→市町村)・手作業ピック・手動ピックは残します\n実行しますか？'))return;
+  try{ if(typeof evacuateLayers==='function'){ evacuateLayers(old,'旧作業台整理','退避_'+_stamp()); } else { old.forEach(function(l){l.archived=true;l.visible=false;if(state.solo===l.id)state.solo=null;}); saveState(); render(); } }
+  catch(_){ old.forEach(function(l){l.archived=true;l.visible=false;}); saveState(); render(); }
+  toast('✓ 旧レイヤー'+old.length+'個を退避（SW書出＋作業台から外す）。作業台は県→市町村＋手作業＋手動ピックに整理');
+}
 /* 手作業ピック(ピンク)を県→市町村へ「手作業レイヤー」として表示。ピックの中身(座標/判定)は不変=入れ物のレイヤーだけ整理。可逆。 */
 function _d2ManualAssign(it){
   var G=window.DELIVERY2&&window.DELIVERY2.manualGeoByCoord; if(!G||it.lat==null||it.lng==null)return null;
@@ -810,6 +821,7 @@ function renderPanel(){
     h+='<div class="gacho-master"><button id="gachoD2Rebuild" class="gacho-btn" style="background:rgba(8,145,178,.28);border-color:#22d3ee;font-weight:700" title="第2回納品候補の階層を確定データ('+(window.DELIVERY2.totalItems||512)+')に完全一致。移動/補完/外れNGの除外を一括・可逆・推奨">🔄 第2回を確定データに一致（'+(window.DELIVERY2.totalItems||512)+'）</button></div>';
     // v20260821z3(ドクター): 🗂整理・➕補完は🔄に完全統合されたため撤去(断捨離)。今後OKを増やしたら🔄で再反映。
     h+='<div class="gacho-master"><button id="gachoD2Manual" class="gacho-btn" style="background:rgba(255,20,147,.16);border-color:#ff1493" title="手作業ピック(ピンク)を『手作業｜県｜市町村』へ整理して階層表示。ピックの中身は不変・入れ物だけ整理・可逆">🖐 手作業ピックも県→市町村へ</button></div>';
+    h+='<div class="gacho-master"><button id="gachoTidy" class="gacho-btn" style="background:rgba(210,153,34,.2);border-color:#d29922" title="旧レイヤー(保留/対象外/AI候補/適当/検討/要確認 等)をSWへ退避し作業台から外す=県→市町村＋手作業＋手動ピックだけの綺麗な作業台に。可逆(退避↩で戻せる)">🧹 旧レイヤーを退避で片付け（県→市町村だけに）</button></div>';
     if(_d2Emptied.length||_hasD2Snap()){
       h+='<div class="gacho-master">'+(_d2Emptied.length?'<button id="gachoD2Del" class="gacho-btn on" title="移動で空になった元レイヤーを削除(0件のみ・総数不変を再確認)">🗑 空レイヤー削除（'+_d2Emptied.length+'）</button>':'')+(_hasD2Snap()?'<button id="gachoD2Undo" class="gacho-btn on" title="第2回移行を移行前に戻す">↩ 移行を元に戻す</button>':'')+'</div>';
     }
@@ -909,6 +921,7 @@ function bindPanel(){
   var d2u=q('#gachoD2Undo');if(d2u)d2u.onclick=function(){undoDelivery2();};
   var d2r=q('#gachoD2Rebuild');if(d2r)d2r.onclick=function(){rebuildDelivery2();};
   var d2mn=q('#gachoD2Manual');if(d2mn)d2mn.onclick=function(){migrateManualPicks();};
+  var tdy=q('#gachoTidy');if(tdy)tdy.onclick=function(){tidyOldLayers();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
