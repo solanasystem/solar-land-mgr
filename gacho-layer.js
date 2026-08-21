@@ -758,8 +758,10 @@ function renderPanel(){
   h+='<div class="gacho-head"><span>🗂 画層</span><button class="gacho-min" id="gachoMin" title="開閉">—</button></div>';
   h+='<div class="gacho-body" id="gachoBody">';
   h+='<div class="gacho-master"><button id="gachoShowAll" class="gacho-btn">👁 全て表示</button><button id="gachoHideAll" class="gacho-btn">🚫 全て隠す</button></div>';
-  h+='<div class="gacho-master"><button id="gachoOnlyUnrev" class="gacho-btn'+(state.hideReviewed?' on':'')+'" title="見た筆を隠して未確認だけ表示">👀 未確認のみ表示'+(state.hideReviewed?'（ON）':'')+'</button><button id="gachoAreaLbl" class="gacho-btn'+(state.showArea?' on':'')+'" title="敷地境界の面積ラベル表示（ズーム15以上で表示）">㎡ 面積ラベル</button></div>';
-  h+='<div class="gacho-master"><button id="gachoBulkOk" class="gacho-btn" title="既に開いて見た(未判定)を全画層でまとめてOKに（開き直し不要）">👁→✓ 見た分をOKに一括</button><button id="gachoShowNg" class="gacho-btn'+(state.showNg?' on':'')+'" title="NG(除外)にした筆を地図に表示するか。既定OFF＝除外は地図から消える">'+(state.showNg?'🚫 除外も表示（ON）':'🚫 除外は非表示')+'</button></div>';
+  // v20260821z(ドクター): 「未確認のみ表示」撤去(断捨離)。面積ラベルは残す。
+  h+='<div class="gacho-master"><button id="gachoAreaLbl" class="gacho-btn'+(state.showArea?' on':'')+'" title="敷地境界の面積ラベル表示（ズーム15以上で表示）">㎡ 面積ラベル</button></div>';
+  // v20260821z(ドクター): 「見た分をOKに一括」撤去(断捨離・誤OKの元)。除外は非表示は残す。
+  h+='<div class="gacho-master"><button id="gachoShowNg" class="gacho-btn'+(state.showNg?' on':'')+'" title="NG(除外)にした筆を地図に表示するか。既定OFF＝除外は地図から消える">'+(state.showNg?'🚫 除外も表示（ON）':'🚫 除外は非表示')+'</button></div>';
   // v20260820i(ドクター): 納品300を座標突合して画層から完全削除(先にSW退避=DB無変更・完全復元可)
   // v20260821z(ドクター): 「📦 納品300を突合して削除」は撤去(納品300は第2回母集団で除外済＝不要な危険ボタン・断捨離)。退避戻しは退避がある時だけ残す。
   if(_hasDelivBackup())h+='<div class="gacho-master"><button id="gachoRestoreDeliv" class="gacho-btn on" title="退避した納品を画層へ戻す">↩ 納品を戻す</button></div>';
@@ -888,9 +890,7 @@ function bindPanel(){
   var mn=q('#gachoMin');if(mn)mn.onclick=function(){var b=q('#gachoBody');if(b)b.style.display=(b.style.display==='none'?'':'none');};
   var sa=q('#gachoShowAll');if(sa)sa.onclick=showAll;
   var ha=q('#gachoHideAll');if(ha)ha.onclick=hideAll;
-  var ou=q('#gachoOnlyUnrev');if(ou)ou.onclick=function(){state.hideReviewed=!state.hideReviewed;saveState();render();};
   var alb=q('#gachoAreaLbl');if(alb)alb.onclick=function(){state.showArea=!state.showArea;saveState();updateAreaLabels();renderPanel();};
-  var bo=q('#gachoBulkOk');if(bo)bo.onclick=bulkViewedOk;
   var sn=q('#gachoShowNg');if(sn)sn.onclick=function(){state.showNg=!state.showNg;saveState();render();};
   var rd=q('#gachoRestoreDeliv');if(rd)rd.onclick=function(){restoreDelivered();};
   var ms=q('#gachoMigSnap');if(ms)ms.onclick=function(){snapshotMigration();};
