@@ -587,7 +587,6 @@ function renderPanel(){
   // v20260820n(ドクター): レイヤー構造移行 Phase0=移行前スナップショット(全フラグ＋判定を丸ごとSW＋基準カウント)＋復元
   h+='<div class="gacho-master"><button id="gachoMigSnap" class="gacho-btn" title="レイヤー構造の組み替え前に、全フラグ＋判定(OK/NG/閲覧)を丸ごとSWへ書出＋基準カウント。消えない・判定が残るの証拠＆完全復元点">📸 移行前スナップショット</button>'+(_hasMigSnapshot()?'<button id="gachoMigRestore" class="gacho-btn on" title="スナップショット時点の画層状態に戻す">↩ スナップに戻す</button>':'')+'</div>';
   h+='<div class="gacho-master"><button id="gachoRestoreFile" class="gacho-btn on" title="ダウンロード済みの移行前スナップショットJSONファイルを選んで直接復元(手描き境界を戻す)">📂 スナップJSONから復元</button></div>';
-  h+='<div class="gacho-master"><button id="gachoSaveBnd" class="gacho-btn on" title="今ある手描き境界を全部DBへ保存(二度と消えない)。以後は描いた瞬間に自動保存＋起動時にDBから復元">💾 手描き境界をDBへ保存</button></div>';
   // ★v20260818j(栗本さん:根拠のある数字だけ見せろ): OK/NGは「判定対象の候補レイヤー」だけで意味を持つ。
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
@@ -708,7 +707,6 @@ function bindPanel(){
   var ms=q('#gachoMigSnap');if(ms)ms.onclick=function(){snapshotMigration();};
   var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
   var rff=q('#gachoRestoreFile');if(rff)rff.onclick=function(){restoreFromFile();};
-  var sbn=q('#gachoSaveBnd');if(sbn)sbn.onclick=function(){saveAllBoundariesToDb();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
