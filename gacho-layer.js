@@ -596,18 +596,19 @@ function renderPanel(){
   //   手描き敷地境界のOK(手描き=OK)も参照層でも数える。→「判定したのに加算されない」を解消。
   // v20260821d(ドクター): カウンターは単一の正しい定義に固定=「あなたが確定した(userJudged)OK/NGの重複しない実数」。
   //   feature_idで重複除去(重なった筆で二重に増えない)・自動OK除外・納品除外。手描き敷地境界=OK。表示可視に依存しない=数字が勝手に変わらない。
-  var _okSet={},_ngSet={},_bOk=0;
+  var _okSet={},_ngSet={},_bOkSet={};
   state.layers.forEach(function(l){
     if(l.archived)return;
     l.items.forEach(function(it){
       if(_isDeliveredItem(l,it))return;                       // 納品除外
-      if(it.type==='boundary'){ if(it.status==='ok')_bOk++; return; } // 手描き=OK(fid無し=個別)
+      // v20260821u(ドクター): 手描き境界を iid で重複除去。同じ境界が複数レイヤー/DB再読込で二重計上されるのを是正(連打・再読込で増えない)。
+      if(it.type==='boundary'){ if(it.status==='ok'){ var bk=it.iid||('b:'+(it.lat)+','+(it.lng)); _bOkSet[bk]=1; } return; }
       if(!_isUserJudged(it))return;                            // あなたが確定した分だけ(自動OKは数えない)
       var key=it.feature_id||it.iid;
       if(it.status==='ok')_okSet[key]=1; else if(it.status==='ng')_ngSet[key]=1;
     });
   });
-  _tOk=Object.keys(_okSet).length+_bOk; _tNg=Object.keys(_ngSet).length;
+  _tOk=Object.keys(_okSet).length+Object.keys(_bOkSet).length; _tNg=Object.keys(_ngSet).length;
   h+='<div class="gacho-total">あなたが確定した判定　<span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span><span style="color:#8b949e;font-weight:400"> （確定した実数・自動OK/未確認は除く・重複なし）</span></div>';
   // ★検索: 打つとその画層だけを地図・パネルに絞る(見えすぎ/だらだら解消)。空で解除。
   h+='<div class="gacho-master" style="gap:4px"><input id="gachoSearch" placeholder="🔍 画層を検索して絞る（大台/田原/SUN…）" value="'+esc(_gFilter)+'" style="flex:1;padding:6px 9px;border-radius:6px;border:1px solid '+(_gFilter?'#f59e0b':'#30363d')+';background:#0d1117;color:#e6edf3;font-size:12px;outline:none">'+(_gFilter?'<button id="gachoSearchClr" class="gacho-btn" style="padding:2px 8px">✕</button>':'')+'</div>';
