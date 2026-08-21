@@ -470,16 +470,17 @@ function renderLayerGroups(){
         var pg=L.polygon(it.latlngs,it.status==='ng'?{pane:'gachoPane',color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.1,dashArray:'4,4'}:(it.status==='ok'?{pane:'gachoPane',color:'#22c55e',weight:3,fillColor:'#22c55e',fillOpacity:0.30}:{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null})); // v20260821g(ドクター): 手描き=OK=緑の枠+緑の塗り(ピンクにしない)
         pg.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>敷地境界<br>'+areaTxt+gmap+bacts+'</div>');
         pg.bindTooltip(Math.round(it.area||0).toLocaleString()+'㎡',{permanent:true,direction:'center',className:'gacho-area-lbl',pane:'gachoPane'});
-        pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{pg.setStyle({fillOpacity:0.08,dashArray:'4,4'});}catch(_){}saveState();renderPanel();}});
+        pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;saveState();}}); // v20260821h(ドクター): クリックで色を変えない
         g.addLayer(pg);
       }else{
         // v20260821c(ドクター): OK=緑リング(枠緑・中透明)に統一。NGは地図から見えなくする(OKだけでいい)。未確認は元のまま。
-        var _sty=it.status==='ok'?{radius:7,color:'#22c55e',weight:3,fillColor:l.color,fillOpacity:0.30}:{radius:vd?5:7,color:vd?'#9aa4ae':'#fff',weight:vd?1:2,fillColor:l.color,fillOpacity:vd?0.35:0.95};
+        // v20260821h(ドクター): クリック(見た)で色を変えない=間違いの元を止める。OK=緑リング/未確認=白枠+元色(常に一定)。
+        var _sty=it.status==='ok'?{radius:7,color:'#22c55e',weight:3,fillColor:l.color,fillOpacity:0.30}:{radius:7,color:'#fff',weight:2,fillColor:l.color,fillOpacity:0.95};
         var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
         if(_reviewFilter&&it.iid)_reviewMarkerByIid[it.iid]=mk; // v20260820t: 送り機能でopenPopup
         if(it.status!=='ng') _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(NG済は除外=課金しない・キー無ければno-op)
         mk.bindPopup('<div style="font-size:12px;min-width:250px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+(it.src==='aiKI'?(_whyHtml(it)+_scoreCardHtml(l,it)):acts)+'</div>');
-        mk.on('popupopen',function(){if(!it.viewed){it.viewed=true;try{mk.setRadius(5);mk.setStyle({color:'#9aa4ae',weight:1,fillOpacity:0.35});}catch(_){}saveState();renderPanel();}});
+        mk.on('popupopen',function(){if(!it.viewed){it.viewed=true;saveState();}}); // v20260821h(ドクター): クリックで色を変えない
         g.addLayer(mk);
       }
     });
@@ -525,16 +526,7 @@ var _reviewMarkerByIid={}; // v20260820t: レビュー描画中のマーカー�
 var _reviewSeen={}; // v20260820t: 「次の未確認へ」で一巡管理(判定せず送っても全件回れる)
 function _isPresetOk(l,it){ return it.status==='ok'&&!_isUserJudged(it)&&!_isDeliveredItem(l,it); } // 既OK=自動OK/未オープン(DB未記録)
 function _presetOkCount(){ var n=0; state.layers.forEach(function(l){ if(l.archived)return; l.items.forEach(function(it){ if(_isPresetOk(l,it))n++; }); }); return n; }
-/* v20260821d(ドクター「正しいモノだけ残す」): 自動OK(=あなたが確認していないpreset-OK)を一括で外す(status=null=未判定に戻す)。
-   あなたが確定した判定(userJudged/DB)と手描き=OKは残る。非破壊(データは消さない・statusを外すだけ)・スナップショットで復元可。 */
-function clearPresetOk(){
-  var list=[]; state.layers.forEach(function(l){ if(l.archived)return; l.items.forEach(function(it){ if(_isPresetOk(l,it))list.push(it); }); });
-  if(!list.length){toast('外す自動OKはありません（0件）');return;}
-  if(!confirm('あなたが確認していない「自動OK」'+list.length+'件を外します（未判定に戻す）。\n・あなたが確定した判定・手描きOKは残ります\n・データは消えません(statusを外すだけ・スナップショットで復元可)\nよろしいですか？'))return;
-  list.forEach(function(it){it.status=null;it.viewed=false;});
-  saveState();render();
-  toast('自動OK '+list.length+'件を外しました。残るのはあなたが確定した判定だけです');
-}
+// v20260821h(ドクター): 「自動OKを外す」は最悪の仕組みだったため関数ごと完全削除。
 function _reviewTouchedHas(it){ return !!((it.feature_id&&_reviewTouched[it.feature_id])||(it.iid&&_reviewTouched[it.iid])); } // v20260820u: feature_id無し(手動ピック等)もiidで残す
 /* v20260820t(ドクター): 「▶ 次の未確認へ」。押すたびに未確認の既OKへ地図を飛ばしてポップアップを開く=探す手間ゼロで137件を順に潰す。判定せず送っても一巡できる(_reviewSeen)。 */
 function reviewNext(){
