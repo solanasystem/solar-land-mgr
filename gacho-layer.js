@@ -866,8 +866,7 @@ function renderPanel(){
     h+='<button id="gachoAddPt" class="gacho-btn wide'+(_addMode?' on':'')+'" style="background:rgba(255,20,147,.16);border-color:#ff1493">📍 地図クリックで手動ピック記録（案件候補）'+(_addMode?'（クリック→確認→保存／ESCで終了）':'')+'</button>';
     h+='<button id="gachoCapView" class="gacho-btn wide">＋ 表示中の範囲を取り込む（全部）</button>';
     h+='<div class="gacho-cond">面積 ≥ <input id="gachoMinArea" type="number" min="0" step="50" value="'+(state.lastMinArea!=null?state.lastMinArea:800)+'"> ㎡ <button id="gachoCapCond" class="gacho-btn">条件で取込</button></div>';
-    // v20260821z6(ドクター): 「範囲ドラッグで取り込む」撤去(新ワークフローでは不使用)。
-    h+='<button id="gachoDrawBtn" class="gacho-btn wide'+(_drawMode?' on':'')+'">✏️ 敷地境界を描く（面積）'+(_drawMode?'：クリックで頂点／Wクリック確定':'')+'</button>';
+    // v20260821z7(ドクター): 「範囲ドラッグで取り込む」「敷地境界を描く」撤去。手描きは各フラグのポップアップ内✏️から。描画中の↩/✓は下に出る。
     if(_drawMode){h+='<div class="gacho-master"><button id="gachoDrawUndo" class="gacho-btn">↩ 1つ戻す</button><button id="gachoDrawDone" class="gacho-btn" style="background:rgba(63,185,80,.2);border-color:#3fb950">✓ 確定</button></div>';}
     h+='<div class="gacho-exp">書き出し <button id="gachoExpKml" class="gacho-btn" title="Google Earthで開ける・クライアント納品用">KML</button><button id="gachoExpGeo" class="gacho-btn" title="GIS標準・AI連携用">GeoJSON</button><button id="gachoExpCopy" class="gacho-btn" title="コピーして貼付でAIへ">📋</button></div>';
   }else{h+='<div class="gacho-active-note">取込先の画層を選択/作成してください</div>';}
@@ -909,7 +908,6 @@ function bindPanel(){
   var cc=q('#gachoCapCond');if(cc)cc.onclick=function(){var el=q('#gachoMinArea');var v=el?Number(el.value):800;if(isNaN(v))v=0;state.lastMinArea=v;saveState();captureViewport({minArea:v});};
   var pk=q('#gachoPickBtn');if(pk)pk.onclick=togglePick;
   var ap=q('#gachoAddPt');if(ap)ap.onclick=toggleAdd;
-  var db=q('#gachoDrawBtn');if(db)db.onclick=toggleDraw;
   var du=q('#gachoDrawUndo');if(du)du.onclick=drawUndo;
   var dn=q('#gachoDrawDone');if(dn)dn.onclick=function(){drawFinish();};
   var eg=q('#gachoExpGeo');if(eg)eg.onclick=function(){exportLayer('geojson');};
