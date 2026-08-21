@@ -1181,7 +1181,7 @@ window.__gacho={
     if(fid){try{delete _gDbOk[fid];delete _gDbNg[fid];}catch(_){}}
     state.layers.forEach(function(L){L.items=L.items.filter(function(x){return x.iid!==itemIid && !(fid&&x.feature_id===fid);});}); // 全gachoレイヤーから除去(別レイヤーの重複も)
     try{if(fid){_restyleMark(fid,'ng');delete _reviewMarks[fid];}}catch(_){}
-    try{if(fid&&typeof window.__gachoRemoveFeatureMarker==='function')window.__gachoRemoveFeatureMarker(fid);}catch(_){} // ページ側マーカー層を横断除去=地図から確実に消す
+    try{if(typeof window.__gachoRemoveFeatureMarker==='function')window.__gachoRemoveFeatureMarker(fid,(it.lat!=null?Number(it.lat):null),(it.lng!=null?Number(it.lng):null));}catch(_){} // マップ横断でfid/座標一致マーカーを地図から除去
     if(m)m.closePopup();saveState();setTimeout(function(){render();},0);
     toast('🗑 削除しました（カウントから外しました）');
   },
