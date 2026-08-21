@@ -770,8 +770,7 @@ function renderPanel(){
   // 第2回納品候補 県→市町村 移行（慎重運用: 移動だけでは消えない・削除は別・総数変化で自動中断復元）
   if(window.DELIVERY2){
     h+='<div class="gacho-master"><button id="gachoD2Rebuild" class="gacho-btn" style="background:rgba(8,145,178,.28);border-color:#22d3ee;font-weight:700" title="第2回納品候補の階層を確定データ('+(window.DELIVERY2.totalItems||512)+')に完全一致。移動/補完/外れNGの除外を一括・可逆・推奨">🔄 第2回を確定データに一致（'+(window.DELIVERY2.totalItems||512)+'）</button></div>';
-    h+='<div class="gacho-master"><button id="gachoD2Migrate" class="gacho-btn" style="background:rgba(8,145,178,.18);border-color:#0891b2" title="OKフラグ＋手描き境界を『第2回納品候補｜県｜市町村』へ移動(納品300除外)。先に自動スナップ・移動だけでは消えない・総数不変を確認">🗂 第2回納品候補へ整理（県→市町村）</button></div>';
-    h+='<div class="gacho-master"><button id="gachoD2Complete" class="gacho-btn" style="background:rgba(63,185,80,.16);border-color:#3fb950" title="DBの正(526)から、ブラウザに無い不足分を第2回階層へ補完。既存は重複させない・可逆">➕ 不足分をDBから補完（'+(window.DELIVERY2.totalItems||526)+'へ）</button></div>';
+    // v20260821z3(ドクター): 🗂整理・➕補完は🔄に完全統合されたため撤去(断捨離)。今後OKを増やしたら🔄で再反映。
     h+='<div class="gacho-master"><button id="gachoD2Manual" class="gacho-btn" style="background:rgba(255,20,147,.16);border-color:#ff1493" title="手作業ピック(ピンク)を『手作業｜県｜市町村』へ整理して階層表示。ピックの中身は不変・入れ物だけ整理・可逆">🖐 手作業ピックも県→市町村へ</button></div>';
     if(_d2Emptied.length||_hasD2Snap()){
       h+='<div class="gacho-master">'+(_d2Emptied.length?'<button id="gachoD2Del" class="gacho-btn on" title="移動で空になった元レイヤーを削除(0件のみ・総数不変を再確認)">🗑 空レイヤー削除（'+_d2Emptied.length+'）</button>':'')+(_hasD2Snap()?'<button id="gachoD2Undo" class="gacho-btn on" title="第2回移行を移行前に戻す">↩ 移行を元に戻す</button>':'')+'</div>';
@@ -894,11 +893,9 @@ function bindPanel(){
   var ms=q('#gachoMigSnap');if(ms)ms.onclick=function(){snapshotMigration();};
   var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
   var rff=q('#gachoRestoreFile');if(rff)rff.onclick=function(){restoreFromFile();};
-  var d2m=q('#gachoD2Migrate');if(d2m)d2m.onclick=function(){migrateDelivery2();};
   var d2d=q('#gachoD2Del');if(d2d)d2d.onclick=function(){deleteEmptiedD2();};
   var d2u=q('#gachoD2Undo');if(d2u)d2u.onclick=function(){undoDelivery2();};
   var d2r=q('#gachoD2Rebuild');if(d2r)d2r.onclick=function(){rebuildDelivery2();};
-  var d2c=q('#gachoD2Complete');if(d2c)d2c.onclick=function(){completeDelivery2FromDb();};
   var d2mn=q('#gachoD2Manual');if(d2mn)d2mn.onclick=function(){migrateManualPicks();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
