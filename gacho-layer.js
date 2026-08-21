@@ -696,7 +696,7 @@ function renderLayerGroups(){
       var vd=!!it.viewed;
       var under=(it.area!=null&&it.area<800);
       var areaTxt=(it.area!=null)?('面積 <b style="font-size:14px;color:'+(under?'#f85149':'#3fb950')+'">'+Math.round(it.area).toLocaleString()+' ㎡</b>'+(under?'<br><span style="color:#f85149">⚠ 800㎡未満：隣接を含め敷地境界を手描きで作成</span>':'')):'<span style="color:#8b949e">面積 不明</span>';
-      var acts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 敷地境界を描く</button> <button onclick="window.__gacho.moveItem(\''+l.id+'\',\''+(it.iid||'')+'\')">⇄ 別画層へ</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')" title="この画層から筆を取り除く（元データは無傷）">🗑 外す</button></div>';
+      var acts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.useFudeAsBoundary(\''+l.id+'\',\''+(it.iid||'')+'\')" style="background:rgba(34,197,94,.2);border:1px solid #22c55e;color:#e6edf3;border-radius:4px;padding:3px 7px" title="ピンの下の筆(農水省筆ポリゴン)を実測の形で敷地境界に。無ければ既知面積の下敷き">📐 筆を敷地境界に(実測)</button> <button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 手描き</button> <button onclick="window.__gacho.removeItem(\''+l.id+'\',\''+(it.iid||'')+'\')" title="この画層から筆を取り除く（元データは無傷）">🗑 外す</button></div>';
       var seen='<span style="color:#9aa4ae">'+(vd?'✓ 見た':'')+'</span>';
       var stat=it.status==='ok'?' <b style="color:#3fb950">✓OK</b>':(it.status==='ng'?' <b style="color:#f85149">🚫NG(除外)</b>':'');
       var gmap='<div style="margin-top:6px"><a href="https://www.google.com/maps/search/?api=1&query='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🌐 Googleマップ</a> ｜ <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🚶 ストリートビュー</a></div>';
@@ -1115,7 +1115,8 @@ function _scoreCardHtml(l,it){
     return '<div class="gsc-row"><span class="gsc-t">'+esc(c.t)+'</span><span class="gsc-bs">'+b('o','〇','#3fb950')+b('t','△','#eab308')+b('x','✖','#f85149')+'</span></div>'+sub;
   }).join('');
   var vd='<div class="gsc-vd" id="gscvd_'+iid+'">'+(_hasX(s)?'<b style="color:#f85149">✖あり → 除外(NG)</b>':'<b style="color:#3fb950">✖なし → OK可</b>')+'</div>';
-  var drawBtn='<button class="gsc-draw" onclick="window.__gacho.drawArea(\''+l.id+'\',\''+iid+'\')" title="小さい土地でも隣接を含め敷地境界を手描き→面積を再計算(⑥面積に反映)">✏️ 敷地境界を手描き→面積を増やす</button>';
+  var drawBtn='<button class="gsc-draw" style="background:#062b12;border-color:#22c55e;color:#86efac" onclick="window.__gacho.useFudeAsBoundary(\''+l.id+'\',\''+iid+'\')" title="ピンの下の筆(農水省筆ポリゴン)を実測の形で敷地境界に。無ければ既知面積の下敷き">📐 この筆を敷地境界にする（実測）</button>'
+    +'<button class="gsc-draw" onclick="window.__gacho.drawArea(\''+l.id+'\',\''+iid+'\')" title="実測が無い/形を変えたい時: 隣接を含め手描き→面積を再計算(⑥面積に反映)">✏️ 手描きで敷地境界（面積を増やす）</button>';
   return _gmImgHtml(it)+'<div class="gsc">'+rows+vd+drawBtn+'<button class="gsc-fix" onclick="window.__gacho.applyScore(\''+l.id+'\',\''+iid+'\')">この判定を確定</button></div>';
 }
 /* ===== v20260820m(ドクター): 判定済み(OK/NG/閲覧)フラグの見た目を変える=一度見たか一目で判る =====
@@ -1185,6 +1186,31 @@ window.__gacho={
   setSub:function(lid,iid,t,btn){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){it.ngsub=it.ngsub||[];var i=it.ngsub.indexOf(t);if(i>=0)it.ngsub.splice(i,1);else it.ngsub.push(t);}});saveState();try{btn.classList.toggle('on');}catch(_){}},
   applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;it.userJudged=true;if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1;_persistJudgmentScored(it,s);_restyleMark(it.feature_id,it.status);}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
+  /* v20260821z12(ドクター): ピンの下の農水省筆ポリゴン(実測の形)を取得→そのまま敷地境界に=勘で描かない。
+     無ければ既知面積から下敷き(正方形)を配置(ドクター発想:面積が出る=情報が在る)。どちらも面積確認モーダル→✓OKで確定。 */
+  useFudeAsBoundary:function(lid,iid){
+    var l=byId(lid);if(!l)return;var it=null;l.items.forEach(function(x){if(x.iid===iid)it=x;});
+    if(!it||it.lat==null){toast('位置が不明です');return;}
+    var la=Number(it.lat),ln=Number(it.lng);
+    toast('📐 農水省の筆ポリゴンを取得中…');
+    var use=function(latlngs,area,note){
+      var m=getMap();if(m)m.closePopup();
+      if(!area)area=polyArea(latlngs);var c=centroid(latlngs);
+      var name='敷地境界（実測）';var bl=state.layers.filter(function(x){return x.name===name;})[0];
+      if(!bl){bl={id:uid(),name:name,color:'#f59e0b',visible:true,active:false,items:[]};state.layers.push(bl);}
+      var nb={iid:iid(),type:'boundary',latlngs:latlngs,area:area,lat:c[0],lng:c[1],address:'敷地境界('+note+')',status:null,userJudged:false,src:'fude'};
+      bl.items.push(nb);try{_saveBoundaryToDb(nb);}catch(_){}
+      it.area=area;it.handArea=area;it.handLatlngs=latlngs;var s=_score(it);s.c6=(area>=800?'o':'x');it.viewed=true;
+      _lastDrawnBoundary={lid:bl.id,iid:nb.iid};_lastDrawTarget={lid:lid,iid:iid};
+      saveState();render();try{if(m)m.setView([c[0],c[1]],Math.max(m.getZoom(),18));}catch(_){}
+      _showAreaConfirm(area,{lid:lid,iid:iid});
+    };
+    var squareFrom=function(A){ if(!A||A<=0)return null; var side=Math.sqrt(A); var dLat=side/2/111000; var dLng=side/2/(111000*Math.cos(la*Math.PI/180)); return [[la-dLat,ln-dLng],[la-dLat,ln+dLng],[la+dLat,ln+dLng],[la+dLat,ln-dLng]]; };
+    var fallback=function(){ var sq=squareFrom(it.area); if(sq){ toast('筆ポリゴンが無いため、既知面積'+(it.area?Math.round(it.area).toLocaleString():'?')+'㎡の下敷きを配置。面積を確認→✓OK（形の微修正は描き直し）'); use(sq,it.area,'面積下敷き'); } else { toast('筆ポリゴンも面積も無い＝手描きしてください'); } };
+    if(typeof window.__getFudeParcelAt==='function'){
+      try{ window.__getFudeParcelAt(la,ln).then(function(res){ if(res&&res.latlngs&&res.latlngs.length>=3){ toast('✓ 農水省の筆ポリゴンを取得（実測の形）'); use(res.latlngs,res.area,'農水省筆'); } else { fallback(); } },function(){ fallback(); }); }catch(_){ fallback(); }
+    } else { fallback(); }
+  },
   /* v20260812j: 画層名を指定して(無ければ作成)取込先にし、敷地境界の描画を開始。手動ピック等のポップアップの「✏️敷地境界を描く」から呼ぶ */
   drawInLayer:function(name,color){var l=state.layers.filter(function(x){return x.name===name;})[0];if(!l){l={id:uid(),name:name,color:color||'#ff1493',visible:true,active:false,items:[]};state.layers.push(l);}state.layers.forEach(function(x){x.active=(x.id===l.id);});var m=getMap();if(m)m.closePopup();saveState();render();if(!_drawMode)toggleDraw();},
   /* v20260820h(ドクター): スコアカードの「✏️敷地境界を手描き→面積を増やす」。描いた面積を対象フラグ(lid,iid)へ反映(⑥面積)。
