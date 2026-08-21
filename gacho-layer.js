@@ -562,8 +562,6 @@ function renderPanel(){
   h+='<div class="gacho-master"><button id="gachoPurgeDeliv" class="gacho-btn" title="SUNトラスト納品300を座標突合(<50m)＋「○○｜納品」レイヤーを画層から完全削除。削除前にSW退避(JSON DL＋復元キー)＝DBは無変更・いつでも戻せる">📦 納品300を突合して削除</button>'+(_hasDelivBackup()?'<button id="gachoRestoreDeliv" class="gacho-btn on" title="退避した納品を画層へ戻す">↩ 納品を戻す</button>':'')+'</div>';
   // v20260820n(ドクター): レイヤー構造移行 Phase0=移行前スナップショット(全フラグ＋判定を丸ごとSW＋基準カウント)＋復元
   h+='<div class="gacho-master"><button id="gachoMigSnap" class="gacho-btn" title="レイヤー構造の組み替え前に、全フラグ＋判定(OK/NG/閲覧)を丸ごとSWへ書出＋基準カウント。消えない・判定が残るの証拠＆完全復元点">📸 移行前スナップショット</button>'+(_hasMigSnapshot()?'<button id="gachoMigRestore" class="gacho-btn on" title="スナップショット時点の画層状態に戻す">↩ スナップに戻す</button>':'')+'</div>';
-  // v20260820q(ドクター): 「未確定の既OK(要再確認)」だけを表示するレビュービュー。判定すると消えて残数が減る＝進捗。
-  h+='<div class="gacho-master"><button id="gachoReviewFilter" class="gacho-btn'+(_reviewFilter?' on':'')+'" title="私が判定していない「既OK(自動OK/未オープン)」だけを地図に絞って表示。1件ずつ開いてOK/NG確定すると消えて残数が減る＝進捗が見える。非破壊(所属は保持)">🔎 未確定の既OK（要再確認）'+_presetOkCount()+'件'+(_reviewFilter?'（表示中・これだけ）':'')+'</button>'+(_reviewFilter?'<button id="gachoReviewNext" class="gacho-btn on" title="次の未確認へ地図を飛ばしてポップアップを開く=探さず順に潰せる">▶ 次へ</button>':'')+'</div>';
   // ★v20260818j(栗本さん:根拠のある数字だけ見せろ): OK/NGは「判定対象の候補レイヤー」だけで意味を持つ。
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
@@ -683,8 +681,6 @@ function bindPanel(){
   var rd=q('#gachoRestoreDeliv');if(rd)rd.onclick=function(){restoreDelivered();};
   var ms=q('#gachoMigSnap');if(ms)ms.onclick=function(){snapshotMigration();};
   var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
-  var rf=q('#gachoReviewFilter');if(rf)rf.onclick=function(){_reviewFilter=!_reviewFilter;if(_reviewFilter){_reviewTouched={};_reviewSeen={};toast('未確定の既OK '+_presetOkCount()+'件だけ表示中。確定した筆は緑(OK)/赤(NG)で残り、残数だけ減ります。「▶次へ」で順に回れます');}render();};
-  var rn=q('#gachoReviewNext');if(rn)rn.onclick=function(){reviewNext();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
