@@ -150,11 +150,15 @@ function polyArea(latlngs){
   return Math.abs(s/2);
 }
 function centroid(latlngs){var la=0,ln=0;latlngs.forEach(function(p){la+=p[0];ln+=p[1];});return [la/latlngs.length,ln/latlngs.length];}
+/* v20260821q(ドクター): 描画中は基本地図以外の全pane(筆ポリゴン/農地ナビ/候補等)のクリックを無効化=クリックが描画だけに行き、他レイヤーのポップアップで描画が妨げられない。 */
+var _savedPE=null;
+function _drawPanesOff(){var m=getMap();if(!m)return;_savedPE={};var panes=m.getPanes();Object.keys(panes).forEach(function(k){if(k==='mapPane'||k==='tilePane')return;try{_savedPE[k]=panes[k].style.pointerEvents;panes[k].style.pointerEvents='none';}catch(_){}});}
+function _drawPanesOn(){var m=getMap();if(!m||!_savedPE)return;var panes=m.getPanes();Object.keys(_savedPE).forEach(function(k){try{if(panes[k])panes[k].style.pointerEvents=_savedPE[k]||'';}catch(_){}});_savedPE=null;}
 function toggleDraw(){
   var m=getMap();if(!m)return;
   if(!activeLayer()){toast('先に取込先の画層を選ぶ/作ってください');return;}
   _drawMode=!_drawMode;
-  if(_drawMode){if(_rectMode)cleanupRect();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();m.closePopup();if(_pane)_pane.style.pointerEvents='none';try{m.doubleClickZoom.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('click',drawClick);m.on('dblclick',drawFinish);toast('頂点をクリックで追加→ダブルクリックで確定（ESCで取消）');}
+  if(_drawMode){if(_rectMode)cleanupRect();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();m.closePopup();_drawPanesOff();try{m.doubleClickZoom.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('click',drawClick);m.on('dblclick',drawFinish);toast('頂点をクリックで追加→ダブルクリックで確定（ESCで取消）');}
   else{cancelDraw();}
   renderPanel();
 }
@@ -166,7 +170,7 @@ function drawFinish(e){if(e){try{L.DomEvent.stop(e);}catch(_){}}if(_drawPts.leng
   var tgt=_drawTarget;_drawTarget=null;var tmsg='';
   if(tgt){var tl=byId(tgt.lid);if(tl){tl.items.forEach(function(it){if(it.iid===tgt.iid){it.area=area;it.handArea=area;it.handLatlngs=latlngs;var s=_score(it);s.c6=(area>=800?'o':'x');it.viewed=true;}});}tmsg='／ 対象フラグの面積を '+Math.round(area).toLocaleString()+'㎡ に更新(⑥面積'+(area>=800?'〇':'✖')+')';}
   saveState();cancelDraw();render();toast('敷地境界を「'+l.name+'」に追加（約'+Math.round(area).toLocaleString()+'㎡）'+tmsg);}
-function cancelDraw(){var m=getMap();_drawMarkers.forEach(function(mk){try{if(m)m.removeLayer(mk);}catch(_){}});_drawMarkers=[];if(_drawTemp){try{if(m)m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}_drawPts=[];if(_pane)_pane.style.pointerEvents='';if(m){m.off('click',drawClick);m.off('dblclick',drawFinish);try{m.doubleClickZoom.enable();}catch(_){}m.getContainer().style.cursor='';}_drawMode=false;renderPanel();}
+function cancelDraw(){var m=getMap();_drawMarkers.forEach(function(mk){try{if(m)m.removeLayer(mk);}catch(_){}});_drawMarkers=[];if(_drawTemp){try{if(m)m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}_drawPts=[];_drawPanesOn();if(m){m.off('click',drawClick);m.off('dblclick',drawFinish);try{m.doubleClickZoom.enable();}catch(_){}m.getContainer().style.cursor='';}_drawMode=false;renderPanel();}
 
 function toggleRect(){var m=getMap();if(!m)return;_rectMode=!_rectMode;if(_rectMode){if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();try{m.dragging.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('mousedown',rectDown);toast('地図上をドラッグで囲むと、その範囲の筆・フラグを取り込みます（ESCで終了）');}else{cleanupRect();}renderPanel();}
 function rectDown(e){_rectStart=e.latlng;var m=getMap();m.on('mousemove',rectMove);m.on('mouseup',rectUp);}
