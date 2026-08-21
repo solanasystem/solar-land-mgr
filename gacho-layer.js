@@ -832,11 +832,16 @@ function renderPanel(){
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
   var _isRef=function(l){ if(l.archived)return true; return /保留|対象外|敷地境界|納品|要確認/.test(l.name||''); };
   // v20260821z26(ドクター): 掃除しながら見る「今の作業台の確定OK件数」。削除するたび減る=真の数に絞れる。重複除去(フラグ=feature_id/境界=iid)・納品除外・自動OK(未オープン)は数えない。
+  // 納品済300を座標でも除外(レイヤー名｜納品だけでは、納品場所の境界が数に入ってしまうため)。約33mグリッド＋3x3近傍。
+  var _delivSet=null;
+  try{ if(window.DELIVERED300&&window.DELIVERED300.pts){ _delivSet={}; window.DELIVERED300.pts.forEach(function(p){ _delivSet[Math.round(p[0]/0.0003)+'_'+Math.round(p[1]/0.0003)]=1; }); } }catch(_){}
+  var _isDelivCoord=function(lat,lng){ if(!_delivSet||lat==null||lng==null)return false; var gl=Math.round(lat/0.0003),gn=Math.round(lng/0.0003); for(var dx=-1;dx<=1;dx++)for(var dy=-1;dy<=1;dy++){ if(_delivSet[(gl+dx)+'_'+(gn+dy)])return true; } return false; };
   var _okS={},_ngS={},_bokS={};
   state.layers.forEach(function(l){ if(l.archived)return; l.items.forEach(function(it){
     if(_isDeliveredItem(l,it))return;
+    if(_isDelivCoord(Number(it.lat),Number(it.lng)))return; // 納品300の場所は数えない(座標一致)
     if(it.type==='boundary'){ if(it.status==='ok'){var bk=it.iid||('b:'+it.lat+','+it.lng);_bokS[bk]=1;} return; }
-    if(!_isUserJudged(it))return;
+    // v20260821z27: status=okのものは全部数える(userJudged印の有無に依らない)=削除で必ず減る・per-layer OKと一致
     var key=it.feature_id||it.iid;
     if(it.status==='ok')_okS[key]=1; else if(it.status==='ng')_ngS[key]=1;
   });});
