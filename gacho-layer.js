@@ -454,7 +454,7 @@ function renderLayerGroups(){
     var g=L.layerGroup([],{pane:'gachoPane'});
     l.items.forEach(function(it){
       if(it.noMap)return; // v20260820h: フラグ判定専用アイテム(既存レイヤーが地図描画)→gachoでは描かない=二重マーカー防止
-      if(_reviewFilter && !_isPresetOk(l,it))return; // v20260820q: レビュー中は「未確定の既OK」だけ描く=153件だけ表示
+      if(_reviewFilter && !(_isPresetOk(l,it)||(it.feature_id&&_reviewTouched[it.feature_id])))return; // v20260820r: レビュー中は「未確定の既OK」＋今セッションで判定した筆(残す・緑/赤)を描く=確定しても消えない
       if(state.hideReviewed&&it.viewed)return;
       if(!state.showNg && it.status==='ng')return; // NG(除外)=削除＝地図から消す（既定）。「除外も表示」で戻せる
       var vd=!!it.viewed;
@@ -517,6 +517,7 @@ function buildPanel(){if(document.getElementById('gachoPanel'))return;var box=do
 
 var _gFilter=''; // ★画層検索の絞り込み文字(localStorageに残さない・その場のみ)。栗本さん:だらだら/見えすぎ解消
 var _reviewFilter=false; // v20260820q(ドクター): 「未確定の既OK(要再確認)」だけを地図に表示するビュー。非破壊(所属は保持)。
+var _reviewTouched={}; // v20260820r: レビュー中に判定した筆(fid)。確定してもその場から消さず残す(緑=OK/赤=NG)。残数だけ減る。
 function _isPresetOk(l,it){ return it.status==='ok'&&!_isUserJudged(it)&&!_isDeliveredItem(l,it); } // 既OK=自動OK/未オープン(DB未記録)
 function _presetOkCount(){ var n=0; state.layers.forEach(function(l){ if(l.archived)return; l.items.forEach(function(it){ if(_isPresetOk(l,it))n++; }); }); return n; }
 function renderPanel(){
@@ -637,7 +638,7 @@ function bindPanel(){
   var rd=q('#gachoRestoreDeliv');if(rd)rd.onclick=function(){restoreDelivered();};
   var ms=q('#gachoMigSnap');if(ms)ms.onclick=function(){snapshotMigration();};
   var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
-  var rf=q('#gachoReviewFilter');if(rf)rf.onclick=function(){_reviewFilter=!_reviewFilter;if(_reviewFilter)toast('未確定の既OK '+_presetOkCount()+'件だけ表示中。1件ずつ開いてOK/NG確定→消えて残数が減ります');render();};
+  var rf=q('#gachoReviewFilter');if(rf)rf.onclick=function(){_reviewFilter=!_reviewFilter;if(_reviewFilter){_reviewTouched={};toast('未確定の既OK '+_presetOkCount()+'件だけ表示中。確定した筆は緑(OK)/赤(NG)で残り、残数だけ減ります');}render();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
@@ -819,7 +820,7 @@ window.__gacho={
     return moved.length;
   },
   review:function(lid,itemIid,val){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid)it.viewed=!!val;});saveState();render();},
-  setStatus:function(lid,itemIid,val){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid){it.status=(it.status===val?null:val);it.viewed=true;it.userJudged=true;_persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed');}});saveState();setTimeout(function(){render();},0);},
+  setStatus:function(lid,itemIid,val){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===itemIid){it.status=(it.status===val?null:val);it.viewed=true;it.userJudged=true;if(_reviewFilter&&it.feature_id)_reviewTouched[it.feature_id]=1;_persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed');}});saveState();setTimeout(function(){render();},0);},
   setCrit:function(lid,iid,ck,val,btn){var l=byId(lid);if(!l)return;var itr=null;l.items.forEach(function(it){if(it.iid===iid){itr=it;var s=_score(it);s[ck]=val;it.viewed=true;if(ck==='c7'&&val!=='x')it.ngsub=[];}});saveState();
     try{var row=btn.parentNode;row.querySelectorAll('.gsc-b').forEach(function(bb){bb.style.background='';bb.style.color='';bb.style.fontWeight='';});var col=(val==='o'?'#3fb950':(val==='x'?'#f85149':'#eab308'));btn.style.background=col;btn.style.color='#0d1117';btn.style.fontWeight='700';
       if(ck==='c7'){var sub=document.getElementById('gsub_'+iid);if(sub)sub.style.display=(val==='x'?'':'none');}
@@ -828,7 +829,7 @@ window.__gacho={
     if(itr&&itr.feature_id&&itr.status!=='ok'&&itr.status!=='ng')_restyleMark(itr.feature_id,'viewed'); // v20260820m: 触った時点で「閲覧済み」表示(確定前でも一度見た印)
   },
   setSub:function(lid,iid,t,btn){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){it.ngsub=it.ngsub||[];var i=it.ngsub.indexOf(t);if(i>=0)it.ngsub.splice(i,1);else it.ngsub.push(t);}});saveState();try{btn.classList.toggle('on');}catch(_){}},
-  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;it.userJudged=true;_persistJudgmentScored(it,s);_restyleMark(it.feature_id,it.status);}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
+  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;it.userJudged=true;if(_reviewFilter&&it.feature_id)_reviewTouched[it.feature_id]=1;_persistJudgmentScored(it,s);_restyleMark(it.feature_id,it.status);}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   /* v20260812j: 画層名を指定して(無ければ作成)取込先にし、敷地境界の描画を開始。手動ピック等のポップアップの「✏️敷地境界を描く」から呼ぶ */
   drawInLayer:function(name,color){var l=state.layers.filter(function(x){return x.name===name;})[0];if(!l){l={id:uid(),name:name,color:color||'#ff1493',visible:true,active:false,items:[]};state.layers.push(l);}state.layers.forEach(function(x){x.active=(x.id===l.id);});var m=getMap();if(m)m.closePopup();saveState();render();if(!_drawMode)toggleDraw();},
