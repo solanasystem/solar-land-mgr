@@ -525,6 +525,16 @@ var _reviewMarkerByIid={}; // v20260820t: レビュー描画中のマーカー�
 var _reviewSeen={}; // v20260820t: 「次の未確認へ」で一巡管理(判定せず送っても全件回れる)
 function _isPresetOk(l,it){ return it.status==='ok'&&!_isUserJudged(it)&&!_isDeliveredItem(l,it); } // 既OK=自動OK/未オープン(DB未記録)
 function _presetOkCount(){ var n=0; state.layers.forEach(function(l){ if(l.archived)return; l.items.forEach(function(it){ if(_isPresetOk(l,it))n++; }); }); return n; }
+/* v20260821d(ドクター「正しいモノだけ残す」): 自動OK(=あなたが確認していないpreset-OK)を一括で外す(status=null=未判定に戻す)。
+   あなたが確定した判定(userJudged/DB)と手描き=OKは残る。非破壊(データは消さない・statusを外すだけ)・スナップショットで復元可。 */
+function clearPresetOk(){
+  var list=[]; state.layers.forEach(function(l){ if(l.archived)return; l.items.forEach(function(it){ if(_isPresetOk(l,it))list.push(it); }); });
+  if(!list.length){toast('外す自動OKはありません（0件）');return;}
+  if(!confirm('あなたが確認していない「自動OK」'+list.length+'件を外します（未判定に戻す）。\n・あなたが確定した判定・手描きOKは残ります\n・データは消えません(statusを外すだけ・スナップショットで復元可)\nよろしいですか？'))return;
+  list.forEach(function(it){it.status=null;it.viewed=false;});
+  saveState();render();
+  toast('自動OK '+list.length+'件を外しました。残るのはあなたが確定した判定だけです');
+}
 function _reviewTouchedHas(it){ return !!((it.feature_id&&_reviewTouched[it.feature_id])||(it.iid&&_reviewTouched[it.iid])); } // v20260820u: feature_id無し(手動ピック等)もiidで残す
 /* v20260820t(ドクター): 「▶ 次の未確認へ」。押すたびに未確認の既OKへ地図を飛ばしてポップアップを開く=探す手間ゼロで137件を順に潰す。判定せず送っても一巡できる(_reviewSeen)。 */
 function reviewNext(){
@@ -554,6 +564,8 @@ function renderPanel(){
   h+='<div class="gacho-master"><button id="gachoMigSnap" class="gacho-btn" title="レイヤー構造の組み替え前に、全フラグ＋判定(OK/NG/閲覧)を丸ごとSWへ書出＋基準カウント。消えない・判定が残るの証拠＆完全復元点">📸 移行前スナップショット</button>'+(_hasMigSnapshot()?'<button id="gachoMigRestore" class="gacho-btn on" title="スナップショット時点の画層状態に戻す">↩ スナップに戻す</button>':'')+'</div>';
   // v20260820q(ドクター): 「未確定の既OK(要再確認)」だけを表示するレビュービュー。判定すると消えて残数が減る＝進捗。
   h+='<div class="gacho-master"><button id="gachoReviewFilter" class="gacho-btn'+(_reviewFilter?' on':'')+'" title="私が判定していない「既OK(自動OK/未オープン)」だけを地図に絞って表示。1件ずつ開いてOK/NG確定すると消えて残数が減る＝進捗が見える。非破壊(所属は保持)">🔎 未確定の既OK（要再確認）'+_presetOkCount()+'件'+(_reviewFilter?'（表示中・これだけ）':'')+'</button>'+(_reviewFilter?'<button id="gachoReviewNext" class="gacho-btn on" title="次の未確認へ地図を飛ばしてポップアップを開く=探さず順に潰せる">▶ 次へ</button>':'')+'</div>';
+  // v20260821d(ドクター「正しいモノだけ残す」): 自動OK(未確認)を一括で外す=あなたの判定だけ残す。
+  h+='<div class="gacho-master"><button id="gachoClearPreset" class="gacho-btn" title="あなたが確認していない自動OKを一括で外す(未判定に戻す)。あなたが確定した判定・手描きOKは残る。非破壊・スナップショットで復元可">🧹 自動OKを外す（私の判定だけ残す）'+_presetOkCount()+'件</button></div>';
   // ★v20260818j(栗本さん:根拠のある数字だけ見せろ): OK/NGは「判定対象の候補レイヤー」だけで意味を持つ。
   //   参照(保留/対象外/要確認)・納品済(archived)・敷地境界(描画)はOK/NGが無意味なので、計(件数)だけ出し合計に入れない。
   //   合計は「表示中(👁ON)かつ候補レイヤー」だけ=いま調査中の判定進捗になる。
@@ -561,14 +573,21 @@ function renderPanel(){
   var _tOk=0,_tNg=0,_tV=0,_tAll=0,_tHidden=0;
   // v20260820t(ドクター): 判定メモ層(ページ側フラグ=開拓候補/公式放棄地/紫151/御所218の判定)は名前/可視に関係なく常に数える。
   //   手描き敷地境界のOK(手描き=OK)も参照層でも数える。→「判定したのに加算されない」を解消。
+  // v20260821d(ドクター): カウンターは単一の正しい定義に固定=「あなたが確定した(userJudged)OK/NGの重複しない実数」。
+  //   feature_idで重複除去(重なった筆で二重に増えない)・自動OK除外・納品除外。手描き敷地境界=OK。表示可視に依存しない=数字が勝手に変わらない。
+  var _okSet={},_ngSet={},_bOk=0;
   state.layers.forEach(function(l){
     if(l.archived)return;
-    if(l.judgeOnly){ l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;}); return; }
-    if(!l.visible){_tHidden++;return;}
-    if(_isRef(l)){ l.items.forEach(function(it){ if(it.type==='boundary'&&it.status==='ok'){_tAll++;_tOk++;if(it.viewed)_tV++;} }); return; }
-    l.items.forEach(function(it){_tAll++;if(it.status==='ok')_tOk++;else if(it.status==='ng')_tNg++;if(it.viewed)_tV++;});
+    l.items.forEach(function(it){
+      if(_isDeliveredItem(l,it))return;                       // 納品除外
+      if(it.type==='boundary'){ if(it.status==='ok')_bOk++; return; } // 手描き=OK(fid無し=個別)
+      if(!_isUserJudged(it))return;                            // あなたが確定した分だけ(自動OKは数えない)
+      var key=it.feature_id||it.iid;
+      if(it.status==='ok')_okSet[key]=1; else if(it.status==='ng')_ngSet[key]=1;
+    });
   });
-  h+='<div class="gacho-total">調査中の判定合計　👁'+_tV+' ／ <span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span> ／ 計'+_tAll+'<span style="color:#8b949e;font-weight:400"> （表示中の候補レイヤーのみ）</span></div>';
+  _tOk=Object.keys(_okSet).length+_bOk; _tNg=Object.keys(_ngSet).length;
+  h+='<div class="gacho-total">あなたが確定した判定　<span style="color:#3fb950">OK'+_tOk+'</span>・<span style="color:#f85149">NG'+_tNg+'</span><span style="color:#8b949e;font-weight:400"> （確定した実数・自動OK/未確認は除く・重複なし）</span></div>';
   // ★検索: 打つとその画層だけを地図・パネルに絞る(見えすぎ/だらだら解消)。空で解除。
   h+='<div class="gacho-master" style="gap:4px"><input id="gachoSearch" placeholder="🔍 画層を検索して絞る（大台/田原/SUN…）" value="'+esc(_gFilter)+'" style="flex:1;padding:6px 9px;border-radius:6px;border:1px solid '+(_gFilter?'#f59e0b':'#30363d')+';background:#0d1117;color:#e6edf3;font-size:12px;outline:none">'+(_gFilter?'<button id="gachoSearchClr" class="gacho-btn" style="padding:2px 8px">✕</button>':'')+'</div>';
   if(_gFilter){h+='<div style="font-size:11px;color:#f0b429;margin:2px 0 4px">🔍「'+esc(_gFilter)+'」で絞り込み中＝この画層だけ地図に表示。✕で解除。</div>';}
@@ -668,6 +687,7 @@ function bindPanel(){
   var mr=q('#gachoMigRestore');if(mr)mr.onclick=function(){restoreMigrationSnapshot();};
   var rf=q('#gachoReviewFilter');if(rf)rf.onclick=function(){_reviewFilter=!_reviewFilter;if(_reviewFilter){_reviewTouched={};_reviewSeen={};toast('未確定の既OK '+_presetOkCount()+'件だけ表示中。確定した筆は緑(OK)/赤(NG)で残り、残数だけ減ります。「▶次へ」で順に回れます');}render();};
   var rn=q('#gachoReviewNext');if(rn)rn.onclick=function(){reviewNext();};
+  var cp=q('#gachoClearPreset');if(cp)cp.onclick=function(){clearPresetOk();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
