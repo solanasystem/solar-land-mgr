@@ -823,7 +823,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260823a 手動ピック重複非表示</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260823b 合筆提案72件のみ表示</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -7282,8 +7282,17 @@ window.ghDelete=async function(fid,lat,lng){
     if(typeof map!=='undefined'&&map) map.closePopup();
   }catch(e){ alert('削除失敗: '+((e&&e.message)||e)); }
 };
+function _ghDistM(la1,lo1,la2,lo2){var R=6371000,p=Math.PI/180,dLa=(la2-la1)*p,dLo=(lo2-lo1)*p,a=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.cos(la1*p)*Math.cos(la2*p)*Math.sin(dLo/2)*Math.sin(dLo/2);return 2*R*Math.asin(Math.min(1,Math.sqrt(a)));}
+function _ghIsDupOf337_108(la,lo){
+  try{
+    if(window.CYAN&&window.CYAN.items){ for(var i=0;i<window.CYAN.items.length;i++){var x=window.CYAN.items[i]; if(x.la!=null&&_ghDistM(la,lo,x.la,x.ln)<=30)return true;} }
+    if(window.DELIVERY2&&window.DELIVERY2.items){ for(var j=0;j<window.DELIVERY2.items.length;j++){var y=window.DELIVERY2.items[j]; if(y.lat!=null&&_ghDistM(la,lo,y.lat,y.lng)<=30)return true;} }
+  }catch(_){}
+  return false;
+}
 (function waitGH(){
-  if (typeof map !== 'undefined' && map && typeof L !== 'undefined' && window.GAPPITSU_HOLD && typeof db!=='undefined' && db) {
+  // ドクター2026-08-23: 合筆提案137件のうち337/108と重複する65件は書き換え済みなので非表示。重複しない72件だけ表示(ファイル/DBは無変更)。
+  if (typeof map !== 'undefined' && map && typeof L !== 'undefined' && window.GAPPITSU_HOLD && typeof db!=='undefined' && db && window.CYAN && window.DELIVERY2) {
     (async function(){
       try{
         var ng={};
@@ -7293,6 +7302,7 @@ window.ghDelete=async function(fid,lat,lng){
         var lyr=L.layerGroup([]); var shown=0;
         (window.GAPPITSU_HOLD.items||[]).forEach(function(c){
           if(c.lat==null||c.lng==null||ng[c.fid]) return;
+          if(_ghIsDupOf337_108(c.lat,c.lng)) return; // 337/108と重複=書き換え済みなので表示しない
           var col=DVC[c.deliver]||'#a855f7';
           var m=L.circleMarker([c.lat,c.lng],{pane:'ghPane',radius:7,fillColor:col,color:'#ffffff',weight:1.6,fillOpacity:0.92});
           // v20260820k(ドクター): 紫フラグにも①ホバー最新衛星②最新スコアカード。ポップアップは遅延生成(151個の事前生成回避)。
