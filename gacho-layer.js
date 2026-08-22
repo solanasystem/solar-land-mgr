@@ -1257,7 +1257,7 @@ function _restyleMark(fid,st){var mk=_reviewMarks[fid];if(!mk)return;
 }
 window.__gacho={
   // v20260822(ドクター): 既存のバラバラ画層を「論理削除で非表示」(可逆)。データは消さずvisibleを一括OFF/ON。
-  hideAllOld:function(hide){ try{ state.layers.forEach(function(l){ l.visible=hide?false:true; }); saveState(); render(); }catch(_){ } },
+  hideAllOld:function(hide){ try{ state.layers.forEach(function(l){ if(hide&&/手動ピック|手作業ピック/.test(l.name||''))return; l.visible=hide?false:true; }); saveState(); render(); }catch(_){ } },
   layerCount:function(){ try{ return state.layers.filter(function(l){return !l.archived;}).length; }catch(_){ return 0; } },
   // v20260820g: 外部(分析ページ本体)のマーカーにも最新衛星ホバーを付けられる公開API。
   //   例) window.__gacho.hoverBind(mk, lat, lng)。農地ナビフラグ/過去AI候補に付けて手作業調査の武器にする。
