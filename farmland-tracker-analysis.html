@@ -823,7 +823,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822m 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822n 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8530,6 +8530,7 @@ if(typeof map!=='undefined'&&map&&map.on){
     marks=[]; built=false; idx=-1; try{LAY.clearLayers();}catch(_){}
     if(_ref.list)_ref.list.innerHTML=buildRegList();
     if(_ref.cntBadge)_ref.cntBadge.textContent=order.length;
+    if(_ref.panelN)_ref.panelN.textContent=order.length;
     updCounter();
   }
   // 最新の統一モーダル(8項目スコアカード＋衛星画像＋OK/NG＋削除)をそのまま埋め込む。fid=farmland_snapshotsのfid＝判定/削除が学習(正例/負例)に直結。
@@ -8558,8 +8559,8 @@ if(typeof map!=='undefined'&&map&&map.on){
     order.forEach(function(it,i){ var mk=L.circleMarker([it.la,it.ln],{renderer:rnd,radius:7,color:'#00e5ff',weight:2,fillColor:'#00e5ff',fillOpacity:0.55}); mk.bindPopup(function(){return cyanPopup(it,i);},{minWidth:250,maxWidth:340,maxHeight:480,autoPan:true,keepInView:true}); LAY.addLayer(mk); marks[i]=mk; });
   }
   function updCounter(){ if(counterEl){ if(idx<0){counterEl.textContent='0 / '+order.length;} else {var it=order[idx];counterEl.textContent=(idx+1)+' / '+order.length+'  '+(it.c||'');} } }
-  function turnOn(){ on=true; build(); LAY.addTo(map); ['prev','cnt','next','regBtn','sep'].forEach(function(k){ if(_ref[k])_ref[k].style.display='inline-block'; }); if(_ref.cli)_ref.cli.style.display='inline-flex'; if(_ref.sw){_ref.sw.textContent='ON';_ref.sw.style.color='#00e5ff';} }
-  function turnOff(){ on=false; map.removeLayer(LAY); ['prev','cnt','next','regBtn','sep','cli','list'].forEach(function(k){ if(_ref[k])_ref[k].style.display='none'; }); if(_ref.sw){_ref.sw.textContent='OFF';_ref.sw.style.color='#6e7681';} }
+  function turnOn(){ on=true; build(); LAY.addTo(map); showPanel(); if(_ref.sw){_ref.sw.textContent='ON';_ref.sw.style.color='#00e5ff';} }
+  function turnOff(){ on=false; map.removeLayer(LAY); if(_ref.sw){_ref.sw.textContent='OFF';_ref.sw.style.color='#6e7681';} }
   function goTo(i){
     if(!order.length)return; if(!on)turnOn();
     if(i<0)i=0; if(i>=order.length)i=order.length-1;
@@ -8608,11 +8609,11 @@ if(typeof map!=='undefined'&&map&&map.on){
   async function runFilter(){
     if(running)return; running=true;
     if(_ref.run){_ref.run.disabled=true;_ref.run.textContent='計算中…';}
-    if(funnelEl){funnelEl.style.display='block';funnelEl.innerHTML='<div style="color:#22d3ee">実行中…</div>';}
-    var setStep=function(m){ if(funnelEl)funnelEl.innerHTML='<div style="color:#22d3ee">'+m+'</div>'; };
+    showPanel(); if(_ref.funnel)_ref.funnel.innerHTML='<div style="color:#22d3ee">実行中…</div>';
+    var setStep=function(m){ if(_ref.funnel)_ref.funnel.innerHTML='<div style="color:#22d3ee">'+m+'</div>'; };
     try{
       var res=await computeCyanLive(setStep); computed=true; rebuildFromItems(res.items); var s=res.steps;
-      if(funnelEl)funnelEl.innerHTML=
+      if(_ref.funnel)_ref.funnel.innerHTML=
         '<div style="font-weight:800;color:#00e5ff;margin-bottom:3px">適地フィルター 過程（外部データからライブ計算）</div>'
         +'<div>母集団 ゲート①②③④⑥通過: <b>'+s.gate+'</b></div>'
         +'<div>→ ⑤⑦モデル(reject&lt;0.5/未採点): <b>'+s.model+'</b></div>'
@@ -8620,48 +8621,49 @@ if(typeof map!=='undefined'&&map&&map.on){
         +'<div>→ 調査済み(OK/NG)除外: <b>−'+s.investRemoved+'</b></div>'
         +'<div style="color:#00e5ff;font-weight:800;margin-top:3px">＝ 適地候補: '+s.result+' 件</div>'
         +(s.gate===0?'<div style="color:#f87171;margin-top:4px">※ データ0件＝オーナーログインが必要（未ログインだとDBが読めません）</div>':'');
-      turnOn();
-    }catch(e){ if(funnelEl)funnelEl.innerHTML='<div style="color:#f87171">失敗: '+((e&&e.message)||e)+'</div>'; }
-    if(_ref.run){_ref.run.disabled=false;_ref.run.textContent='🔬 適地フィルター実行';}
+      turnOn(); if(order.length)goTo(0);
+    }catch(e){ if(_ref.funnel)_ref.funnel.innerHTML='<div style="color:#f87171">失敗: '+((e&&e.message)||e)+'</div>'; }
+    if(_ref.run){_ref.run.disabled=false;_ref.run.textContent=(computed?'🔬 再実行':'🔬 適地フィルター実行');}
     running=false;
   }
+  function showPanel(){ var p=_ref.panel; if(!p)return; var h=document.getElementById('cyanDock'); try{p.style.top=(h.getBoundingClientRect().bottom+6)+'px';}catch(_){p.style.top='92px';} p.style.left='8px'; p.style.display='block'; }
   function mountDock(){
     var host=document.getElementById('cyanDock');
     if(!host){ return setTimeout(mountDock,300); }
     host.style.display='inline-flex'; host.innerHTML='';
     var mini='padding:5px 9px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;';
     var run=document.createElement('button'); run.textContent='🔬 適地フィルター実行';
-    run.style.cssText='background:#0b1220;border:1px solid #00e5ff;border-radius:7px;padding:6px 11px;cursor:pointer;color:#e6edf3;font-weight:800;font-size:12px';
-    var cntBadge=document.createElement('span'); cntBadge.style.cssText='color:#00e5ff;font-size:12px;font-weight:800;min-width:24px;text-align:center'; cntBadge.textContent='—';
+    run.style.cssText='background:#0b1220;border:1px solid #00e5ff;border-radius:7px;padding:6px 12px;cursor:pointer;color:#e6edf3;font-weight:800;font-size:12px';
+    var cntBadge=document.createElement('span'); cntBadge.style.cssText='color:#00e5ff;font-size:12px;font-weight:800;min-width:20px;text-align:center'; cntBadge.textContent='—';
     var toggle=document.createElement('button'); toggle.style.cssText=mini+'border:1px solid #334155;background:#111827;color:#e6edf3'; toggle.innerHTML='表示 <span id="cyanSw" style="color:#6e7681">OFF</span>';
-    var prev=document.createElement('button'); prev.textContent='◀前'; prev.style.cssText=mini+'display:none;border:1px solid #334155;background:#111827;color:#e6edf3';
-    var cnt=document.createElement('span'); cnt.style.cssText='display:none;color:#00e5ff;font-size:11px;min-width:96px;text-align:center'; cnt.textContent='0 / 0'; counterEl=cnt;
-    var next=document.createElement('button'); next.textContent='次▶'; next.style.cssText=mini+'display:none;border:1px solid #00e5ff;background:rgba(0,229,255,.18);color:#e6edf3';
-    var regBtn=document.createElement('button'); regBtn.textContent='📍市町村▾'; regBtn.style.cssText=mini+'display:none;border:1px solid #334155;background:#111827;color:#e6edf3';
-    var sep=document.createElement('span'); sep.style.cssText='display:none;width:1px;height:20px;background:#12325a';
-    var cli=document.createElement('span'); cli.style.cssText='display:none;align-items:center;gap:5px';
-    cli.innerHTML='<span style="color:#22d3ee;font-size:11px">📦客</span>'
-      +'<select id="cyanClientSel" style="padding:4px;background:#111827;color:#e6edf3;border:1px solid #334155;border-radius:5px;font-size:11px"><option value="">— クライアント —</option></select>'
-      +'<select id="cyanDeliverySel" style="padding:4px;background:#111827;color:#e6edf3;border:1px solid #334155;border-radius:5px;font-size:11px"><option value="">— ロット —</option></select>'
-      +'<a href="nouhin-promote.html" target="_blank" rel="noopener" style="padding:5px 9px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">🏭 仮→本 昇格</a>';
-    var list=document.createElement('div');
-    list.style.cssText='display:none;position:absolute;top:100%;left:14px;z-index:1200;margin-top:2px;max-height:320px;overflow:auto;background:#0b1220;border:1px solid #00e5ff;border-radius:8px;padding:4px;width:230px';
-    list.innerHTML=buildRegList();
-    var funnel=document.createElement('div');
-    funnel.style.cssText='display:none;position:absolute;top:100%;left:14px;z-index:1201;margin-top:2px;background:#0b1220;border:1px solid #00e5ff;border-radius:8px;padding:9px 12px;font-size:11px;line-height:1.75;color:#e6edf3;width:340px;box-shadow:0 4px 14px rgba(0,0,0,.5)';
-    funnelEl=funnel;
-    host.appendChild(run); host.appendChild(cntBadge); host.appendChild(toggle); host.appendChild(prev); host.appendChild(cnt); host.appendChild(next); host.appendChild(regBtn); host.appendChild(sep); host.appendChild(cli); host.appendChild(list); host.appendChild(funnel);
-    _ref={run:run,cntBadge:cntBadge,sw:toggle.querySelector('#cyanSw'),prev:prev,cnt:cnt,next:next,regBtn:regBtn,sep:sep,cli:cli,list:list};
-    var cs=cli.querySelector('#cyanClientSel'), ds=cli.querySelector('#cyanDeliverySel');
+    host.appendChild(run); host.appendChild(cntBadge); host.appendChild(toggle);
+    // ===== 固定パネル: スクロール無しで 過程/前次/客ロット/市町村 を全部見せる =====
+    var panel=document.createElement('div');
+    panel.style.cssText='display:none;position:fixed;top:92px;left:8px;z-index:3000;width:334px;background:rgba(11,18,32,.96);border:1px solid #00e5ff;border-radius:10px;padding:10px 12px;color:#e6edf3;font-family:sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.55)';
+    panel.innerHTML=''
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="color:#00e5ff;font-weight:800;font-size:13px">🟦 適地候補 <span id="cyPanelN">0</span> 件</span><span id="cyClose" style="cursor:pointer;color:#94a3b8;font-weight:800;font-size:16px;padding:0 4px">×</span></div>'
+      +'<div id="cyFunnel" style="font-size:11.5px;line-height:1.7;border:1px solid #12325a;border-radius:8px;padding:7px 9px;background:#0a1020;margin-bottom:7px">まだ実行していません（🔬で計算）</div>'
+      +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:7px"><button id="cyPrev" style="'+mini+'border:1px solid #334155;background:#111827;color:#e6edf3">◀前</button><span id="cyCnt" style="flex:1;text-align:center;color:#00e5ff;font-size:11px">0 / 0</span><button id="cyNext" style="'+mini+'border:1px solid #00e5ff;background:rgba(0,229,255,.18);color:#e6edf3">次▶</button></div>'
+      +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:6px"><span style="color:#22d3ee;font-size:11px;white-space:nowrap">📦客</span><select id="cyanClientSel" style="flex:1;padding:4px;background:#111827;color:#e6edf3;border:1px solid #334155;border-radius:5px;font-size:11px"><option value="">— クライアント —</option></select></div>'
+      +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:7px"><select id="cyanDeliverySel" style="flex:1;padding:4px;background:#111827;color:#e6edf3;border:1px solid #334155;border-radius:5px;font-size:11px"><option value="">— 納品ロット —</option></select><a href="nouhin-promote.html" target="_blank" rel="noopener" style="padding:5px 8px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap">🏭 昇格</a></div>'
+      +'<button id="cyRegToggle" style="width:100%;'+mini+'border:1px solid #334155;background:#111827;color:#e6edf3;text-align:left">📍 市町村で移動 ▾</button>'
+      +'<div id="cyRegList" style="display:none;max-height:30vh;overflow:auto;margin-top:5px;border:1px solid #12325a;border-radius:8px"></div>';
+    document.body.appendChild(panel);
+    counterEl=panel.querySelector('#cyCnt');
+    _ref={run:run,cntBadge:cntBadge,sw:toggle.querySelector('#cyanSw'),panel:panel,funnel:panel.querySelector('#cyFunnel'),panelN:panel.querySelector('#cyPanelN'),list:panel.querySelector('#cyRegList')};
+    panel.querySelector('#cyRegList').innerHTML=buildRegList();
+    var cs=panel.querySelector('#cyanClientSel'), ds=panel.querySelector('#cyanDeliverySel');
     cs.onchange=function(){_cyanClientId=this.value||null;_cyanClientName=this.value?this.options[this.selectedIndex].textContent:'';_cyanDeliveryId=null;try{localStorage.setItem('cyanClientId',_cyanClientId||'');}catch(_){}if(_cyanClientId)loadDeliveries(_cyanClientId);};
     ds.onchange=async function(){ if(this.value==='__new'){var p=prompt('新規納品ロットの period（例 2026-08）:','');if(!p){this.value='';return;}try{var rr=await db.from('client_deliveries').insert({client_id:_cyanClientId,period:p,status:'draft',format:'Excel'}).select().single();if(rr&&rr.data){_cyanDeliveryId=rr.data.id;loadDeliveries(_cyanClientId);}}catch(e){alert('ロット作成失敗: '+((e&&e.message)||e));}return;} _cyanDeliveryId=this.value||null;try{localStorage.setItem('cyanDeliveryId',_cyanDeliveryId||'');}catch(_){} };
     try{loadClients();}catch(_){}
     run.onclick=function(){ runFilter(); };
-    toggle.onclick=function(){ if(!computed){ runFilter(); return; } if(on)turnOff(); else turnOn(); };
-    next.onclick=function(){ goTo(idx+1); };
-    prev.onclick=function(){ goTo(idx-1); };
-    regBtn.onclick=function(){ list.style.display=(list.style.display==='none'?'block':'none'); };
-    list.addEventListener('click',function(e){ var row=e.target.closest?e.target.closest('.cyanReg'):null; if(!row)return; var c=row.getAttribute('data-city'); if(cityFirst[c]!=null){ goTo(cityFirst[c]); list.style.display='none'; } });
+    toggle.onclick=function(){ if(!computed){ runFilter(); return; } if(on){ turnOff(); panel.style.display='none'; } else { turnOn(); } };
+    panel.querySelector('#cyClose').onclick=function(){ panel.style.display='none'; turnOff(); };
+    panel.querySelector('#cyPrev').onclick=function(){ goTo(idx-1); };
+    panel.querySelector('#cyNext').onclick=function(){ goTo(idx+1); };
+    var regToggle=panel.querySelector('#cyRegToggle'), regList=panel.querySelector('#cyRegList');
+    regToggle.onclick=function(){ regList.style.display=(regList.style.display==='none'?'block':'none'); };
+    regList.addEventListener('click',function(e){ var row=e.target.closest?e.target.closest('.cyanReg'):null; if(!row)return; var c=row.getAttribute('data-city'); if(cityFirst[c]!=null){ goTo(cityFirst[c]); } });
   }
   mountDock();
 })();
