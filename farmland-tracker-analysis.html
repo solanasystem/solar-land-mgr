@@ -823,7 +823,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822zg 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822zh 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8484,7 +8484,7 @@ if(typeof map!=='undefined'&&map&&map.on){
 <script src="gmap-config.js?v=20260819c"></script>
 <script src="delivered-300.js?v=20260822c"></script>
 <script src="delivery2-candidates.js?v=20260822c"></script>
-<script src="gacho-layer.js?v=20260822d"></script>
+<script src="gacho-layer.js?v=20260822e"></script>
 <script src="ai_kuwana_inabe.js?v=20260816b"></script>
 <script>
 (function waitAIKI(){
@@ -8841,6 +8841,94 @@ if(typeof map!=='undefined'&&map&&map.on){
     for(var bi=0;bi<baseBtns.length;bi++){ (function(b){ b.onclick=function(){ try{ if(typeof switchGIS==='function')switchGIS(b.getAttribute('data-m')); }catch(_){} for(var j=0;j<baseBtns.length;j++){baseBtns[j].style.background='#161b22';baseBtns[j].style.borderColor='#30363d';} b.style.background='rgba(0,229,255,.18)'; b.style.borderColor='#00e5ff'; }; })(baseBtns[bi]); }
   }
   mountDock();
+})();
+</script>
+<!-- 納品フラグ3色トグル(ドクター2026-08-22): 青=初回納品300 / オレンジ=第2回予定337 / ピンク=手作業追加(第2回控え)。既存のバラバラ画層は論理非表示。各トグルで表示切替。 -->
+<script>
+(function nouhinFlagsInit(){
+  if(typeof map==='undefined'||!map||typeof L==='undefined'){return setTimeout(nouhinFlagsInit,300);}
+  var C_BLUE='#2563eb', C_ORANGE='#f97316', C_PINK='#ff1493';
+  var rnd=L.canvas({padding:0.5});
+  var LAY300=L.layerGroup(), LAY337=L.layerGroup(), LAYPINK=L.layerGroup();
+  var loaded={b:false,o:false,p:false};
+  var _clientId=null;
+  async function ensureClient(){ if(_clientId)return _clientId; try{ var r=await db.from('clients').select('id,name').ilike('name','%SUN%'); if(r&&r.data&&r.data[0]){_clientId=r.data[0].id;} }catch(_){ } return _clientId; }
+  async function pgAll(tbl,sel,extra){ var out=[],f=0; try{ while(true){ var q=db.from(tbl).select(sel); if(extra)q=extra(q); var r=await q.range(f,f+999); var b=(r&&r.data)||[]; out=out.concat(b); if(b.length<1000)break; f+=1000; if(f>40000)break; } }catch(e){} return out; }
+  // 青: 初回納品300 (DB confirmed)
+  async function load300(){ if(loaded.b)return; loaded.b=true;
+    var rows=await pgAll('client_delivery_items','lat,lng,city,pref',function(q){return q.eq('status','confirmed');});
+    rows.forEach(function(x){ if(x.lat==null||x.lng==null)return; L.circleMarker([x.lat,x.lng],{renderer:rnd,radius:6,color:'#fff',weight:1,fillColor:C_BLUE,fillOpacity:0.9}).bindTooltip('初回納品済 '+((x.pref||'')+(x.city||''))).addTo(LAY300); });
+    _setCount('n300',rows.length);
+  }
+  // オレンジ: 第2回予定337 (delivery2-candidates.js)
+  function load337(){ if(loaded.o)return; loaded.o=true;
+    var D=window.DELIVERY2; if(!D||!D.items){ setTimeout(function(){loaded.o=false;load337();},400); return; }
+    var n=0;
+    D.items.forEach(function(it){ if(it.lat==null||it.lng==null)return; n++;
+      if(it.k==='b'&&it.latlngs&&it.latlngs.length){ try{ L.polygon(it.latlngs,{renderer:rnd,color:C_ORANGE,weight:2,fillColor:C_ORANGE,fillOpacity:0.25}).addTo(LAY337); }catch(_){} }
+      L.circleMarker([it.lat,it.lng],{renderer:rnd,radius:6,color:'#fff',weight:1,fillColor:C_ORANGE,fillOpacity:0.9}).bindTooltip('第2回予定 '+((it.pref||'')+(it.city||''))).addTo(LAY337);
+    });
+    _setCount('n337',n);
+  }
+  // ピンク: 手作業追加(第2回控え) = client_delivery_items source=manual_2nd status=reserve_2nd
+  async function loadPink(){ if(loaded.p)return; loaded.p=true;
+    var rows=await pgAll('client_delivery_items','lat,lng,city,pref,status,source',function(q){return q.eq('source','manual_2nd');});
+    var m=0; rows.forEach(function(x){ if(x.lat==null||x.lng==null)return; if(['removed','void','deleted'].indexOf(String(x.status||''))>=0)return; m++; _pinkMarker(x.lat,x.lng,(x.pref||'')+(x.city||'')); });
+    _setCount('npink',m);
+  }
+  function _pinkMarker(la,ln,label){ L.circleMarker([la,ln],{renderer:rnd,radius:7,color:'#fff',weight:2,fillColor:C_PINK,fillOpacity:0.9}).bindTooltip('第2回控え(手作業) '+(label||'')).addTo(LAYPINK); }
+  var _counts={};
+  function _setCount(k,v){ _counts[k]=v; var e=document.getElementById(k); if(e)e.textContent=v; }
+  // ピンク追加モード
+  var _pinkAdd=false;
+  function togglePinkAdd(){ _pinkAdd=!_pinkAdd; var b=document.getElementById('nfPinkAdd'); if(b){b.style.background=_pinkAdd?C_PINK:'#2a0e22';b.textContent=_pinkAdd?'📍 ピンク追加中…（地図クリック / もう一度で終了）':'📍 ピンク追加（第2回控え）';}
+    map.getContainer().style.cursor=_pinkAdd?'crosshair':''; if(_pinkAdd)map.on('click',_pinkClick); else map.off('click',_pinkClick);
+  }
+  async function _pinkClick(e){ var la=e.latlng.lat, ln=e.latlng.lng;
+    _pinkMarker(la,ln,''); // 即フラグ(記録成否に依存させない)
+    _setCount('npink',(_counts.npink||0)+1);
+    try{ var cid=await ensureClient(); var addr='';
+      try{ var g=await (await fetch('https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress?lat='+la+'&lon='+ln)).json(); addr=(g&&g.results&&g.results.lv01Nm)||''; }catch(_){}
+      await db.from('client_delivery_items').insert({client_id:cid,lat:la,lng:ln,city:addr,source:'manual_2nd',status:'reserve_2nd',ai_note:'第2回控え(手作業ピンク) '+new Date().toISOString().slice(0,10)});
+      if(typeof showToast==='function')showToast('🩷 第2回控えに追加: '+(addr||(la.toFixed(5)+','+ln.toFixed(5))),'success');
+    }catch(err){ if(typeof showToast==='function')showToast('ピンク保存失敗: '+((err&&err.message)||err),'error'); }
+  }
+  // トグル
+  function _tog(lay,on,btnId,col){ if(on){lay.addTo(map);}else{map.removeLayer(lay);} var b=document.getElementById(btnId); if(b){b.style.opacity=on?'1':'0.45';} }
+  var vis={b:true,o:true,p:true};
+  function toggle(which){ if(which==='b'){vis.b=!vis.b; if(vis.b)load300(); _tog(LAY300,vis.b,'nfBlue');}
+    if(which==='o'){vis.o=!vis.o; if(vis.o)load337(); _tog(LAY337,vis.o,'nfOrange');}
+    if(which==='p'){vis.p=!vis.p; if(vis.p)loadPink(); _tog(LAYPINK,vis.p,'nfPink');}
+  }
+  // 古いバラバラ画層の論理非表示(可逆)
+  var _oldHidden=true;
+  function toggleOld(){ _oldHidden=!_oldHidden; try{ if(window.__gacho&&window.__gacho.hideAllOld)window.__gacho.hideAllOld(_oldHidden); }catch(_){}
+    var b=document.getElementById('nfOld'); if(b){b.textContent=_oldHidden?'🙈 古い画層: 非表示':'👁 古い画層: 表示';b.style.color=_oldHidden?'#8b949e':'#e6edf3';}
+  }
+  function panel(){
+    var box=document.createElement('div');
+    box.id='nouhinFlagPanel';
+    box.style.cssText='position:fixed;top:96px;right:12px;z-index:1400;background:rgba(13,17,23,.97);border:1px solid #30363d;border-radius:10px;padding:9px 11px;font-size:12px;color:#e6edf3;box-shadow:0 6px 24px rgba(0,0,0,.5);min-width:210px';
+    box.innerHTML=''
+      +'<div style="font-weight:800;margin-bottom:6px;color:#58a6ff">🚩 納品フラグ表示</div>'
+      +'<button id="nfBlue" style="display:block;width:100%;text-align:left;margin-bottom:4px;padding:6px 8px;border:1px solid '+C_BLUE+';background:#0b1830;color:#dbeafe;border-radius:6px;cursor:pointer;font-weight:700">🔵 初回納品済 <b id="n300">…</b> 件</button>'
+      +'<button id="nfOrange" style="display:block;width:100%;text-align:left;margin-bottom:4px;padding:6px 8px;border:1px solid '+C_ORANGE+';background:#2a1608;color:#fed7aa;border-radius:6px;cursor:pointer;font-weight:700">🟠 第2回納品予定 <b id="n337">…</b> 件</button>'
+      +'<button id="nfPink" style="display:block;width:100%;text-align:left;margin-bottom:6px;padding:6px 8px;border:1px solid '+C_PINK+';background:#2a0e22;color:#fbcfe8;border-radius:6px;cursor:pointer;font-weight:700">🩷 第2回控え(手作業) <b id="npink">…</b> 件</button>'
+      +'<button id="nfPinkAdd" style="display:block;width:100%;margin-bottom:6px;padding:6px 8px;border:1px solid '+C_PINK+';background:#2a0e22;color:#fbcfe8;border-radius:6px;cursor:pointer;font-weight:800">📍 ピンク追加（第2回控え）</button>'
+      +'<button id="nfOld" style="display:block;width:100%;padding:5px 8px;border:1px solid #30363d;background:#161b22;color:#8b949e;border-radius:6px;cursor:pointer;font-size:11px">🙈 古い画層: 非表示</button>';
+    document.body.appendChild(box);
+    document.getElementById('nfBlue').onclick=function(){toggle('b');};
+    document.getElementById('nfOrange').onclick=function(){toggle('o');};
+    document.getElementById('nfPink').onclick=function(){toggle('p');};
+    document.getElementById('nfPinkAdd').onclick=togglePinkAdd;
+    document.getElementById('nfOld').onclick=toggleOld;
+  }
+  panel();
+  // 初期表示: 3色ON・古い画層は論理非表示
+  load300().then(function(){LAY300.addTo(map);});
+  load337(); LAY337.addTo(map);
+  loadPink().then(function(){LAYPINK.addTo(map);});
+  setTimeout(function(){ try{ if(window.__gacho&&window.__gacho.hideAllOld)window.__gacho.hideAllOld(true); }catch(_){}} ,1500);
 })();
 </script>
 <!-- SUNトラスト確定300のうちAIが削除した72件=突合外。専用レイヤーで栗本さんが確認。他案件と混ぜない。 -->
