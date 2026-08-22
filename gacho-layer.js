@@ -507,7 +507,7 @@ function _d2ManualAssign(it){
 function _d2ManualDest(pref,city){
   var name='手作業｜'+pref+'｜'+city;
   var l=state.layers.filter(function(x){return x.name===name;})[0];
-  if(!l){l={id:uid(),name:name,color:'#ff1493',visible:true,active:false,items:[],meta:{client:'第2回納品候補',period:pref,region:city,pref:pref,city:city,manual:true}};state.layers.push(l);}
+  if(!l){l={id:uid(),name:name,color:'#f97316',visible:true,active:false,items:[],meta:{client:'第2回納品候補',period:pref,region:city,pref:pref,city:city,manual:true}};state.layers.push(l);}
   return l;
 }
 function migrateManualPicks(){
@@ -1552,6 +1552,7 @@ async function _sweepDeletedFlags(){
 window.__gachoSweepDeleted=_sweepDeletedFlags;
 function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_reArchiveFromSnapOnce();
   try{if(!localStorage.getItem('gacho_hidebase_z33')){state.base0Visible=false;saveState();localStorage.setItem('gacho_hidebase_z33','1');}}catch(_){} // v20260821z33(ドクター): ゴミ(素の候補フラグ)を一度だけ非表示に。👁0画層で戻せる
+  try{if(!localStorage.getItem('gacho_recolor_manual_orange_1')){var _rc=0;state.layers.forEach(function(l){if(/^手作業｜/.test(l.name||'')&&l.color==='#ff1493'){l.color='#f97316';_rc++;}});if(_rc)saveState();localStorage.setItem('gacho_recolor_manual_orange_1','1');}}catch(_){} // v20260822zr(ドクター): 手動ピック(判定)とピンクが同色で見分かない不具合を是正=既存「手作業｜県｜市町村」だけオレンジへ一度限り
   injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments().then(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}});setTimeout(loadDbJudgments,2500);setTimeout(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}},4200);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
   try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
   // 削除した筆を復活させない: 起動時＋遅延描画に追随して掃引
