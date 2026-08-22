@@ -823,7 +823,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822n 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822o 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8558,7 +8558,7 @@ if(typeof map!=='undefined'&&map&&map.on){
   function build(){ if(built)return; built=true;
     order.forEach(function(it,i){ var mk=L.circleMarker([it.la,it.ln],{renderer:rnd,radius:7,color:'#00e5ff',weight:2,fillColor:'#00e5ff',fillOpacity:0.55}); mk.bindPopup(function(){return cyanPopup(it,i);},{minWidth:250,maxWidth:340,maxHeight:480,autoPan:true,keepInView:true}); LAY.addLayer(mk); marks[i]=mk; });
   }
-  function updCounter(){ if(counterEl){ if(idx<0){counterEl.textContent='0 / '+order.length;} else {var it=order[idx];counterEl.textContent=(idx+1)+' / '+order.length+'  '+(it.c||'');} } }
+  function updCounter(){ if(counterEl){ if(idx<0){counterEl.textContent='0 / '+order.length;} else {var it=order[idx];counterEl.textContent=(idx+1)+' / '+order.length+'  '+(it.c||'');} } try{updRowHL();}catch(_){} }
   function turnOn(){ on=true; build(); LAY.addTo(map); showPanel(); if(_ref.sw){_ref.sw.textContent='ON';_ref.sw.style.color='#00e5ff';} }
   function turnOff(){ on=false; map.removeLayer(LAY); if(_ref.sw){_ref.sw.textContent='OFF';_ref.sw.style.color='#6e7681';} }
   function goTo(i){
@@ -8602,10 +8602,16 @@ if(typeof map!=='undefined'&&map&&map.on){
     }catch(e){ var m='納品登録失敗: '+((e&&e.message)||e); if(typeof showToast==='function')showToast(m,'error'); else alert(m); }
   };
   function buildRegList(){
-    var html='<div style="color:#00e5ff;font-size:10px;padding:3px 5px">市町村（クリックで開始）右=確定/計</div>';
-    cityNames.forEach(function(c){ html+='<div class="cyanReg" data-city="'+c.replace(/"/g,'')+'" style="padding:4px 6px;border-top:1px solid #1e293b;cursor:pointer;color:#e6edf3;display:flex;justify-content:space-between;gap:6px"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:135px">'+c+'</span><span style="color:#00e5ff;white-space:nowrap">'+cityKeep(c)+'/'+byCity[c].length+'</span></div>'; });
+    if(!order.length)return '<div style="padding:9px;color:#8b949e;font-size:11px">まだ候補がありません（🔬で計算）</div>';
+    var html=''; var last=null;
+    order.forEach(function(it,i){
+      if(it.c!==last){ last=it.c; html+='<div style="position:sticky;top:0;background:#0d1117;color:#00e5ff;font-size:10px;font-weight:700;padding:3px 8px;border-top:1px solid #30363d;z-index:1">'+(it.c||'(不明)')+' <span style="color:#8b949e">'+cityKeep(it.c)+'/'+byCity[it.c].length+'</span></div>'; }
+      var b=(it.r!=null&&it.r<0.5)?'<span style="color:#3fb950;font-size:10px">確定</span>':(it.r==null?'<span style="color:#94a3b8;font-size:10px">未採点</span>':'');
+      html+='<div class="cyanRow" data-idx="'+i+'" style="display:flex;justify-content:space-between;gap:6px;padding:4px 8px;border-top:1px solid #161b22;cursor:pointer;font-size:11px"><span>'+(i+1)+'. '+(it.a||'—')+'㎡</span>'+b+'</div>';
+    });
     return html;
   }
+  function updRowHL(){ try{ var l=_ref.list; if(!l)return; var rows=l.querySelectorAll('.cyanRow'); for(var i=0;i<rows.length;i++){ var on=(parseInt(rows[i].getAttribute('data-idx'),10)===idx); rows[i].style.background=on?'rgba(0,229,255,.18)':''; if(on)rows[i].scrollIntoView({block:'nearest'}); } }catch(_){} }
   async function runFilter(){
     if(running)return; running=true;
     if(_ref.run){_ref.run.disabled=true;_ref.run.textContent='計算中…';}
@@ -8639,15 +8645,19 @@ if(typeof map!=='undefined'&&map&&map.on){
     host.appendChild(run); host.appendChild(cntBadge); host.appendChild(toggle);
     // ===== 固定パネル: スクロール無しで 過程/前次/客ロット/市町村 を全部見せる =====
     var panel=document.createElement('div');
-    panel.style.cssText='display:none;position:fixed;top:92px;left:8px;z-index:3000;width:334px;background:rgba(11,18,32,.96);border:1px solid #00e5ff;border-radius:10px;padding:10px 12px;color:#e6edf3;font-family:sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.55)';
+    panel.style.cssText='display:none;position:fixed;top:92px;left:10px;z-index:1250;width:342px;background:rgba(13,17,23,.97);border:1px solid #30363d;border-radius:10px;padding:0;color:#e6edf3;font-family:sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.5)';
     panel.innerHTML=''
-      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="color:#00e5ff;font-weight:800;font-size:13px">🟦 適地候補 <span id="cyPanelN">0</span> 件</span><span id="cyClose" style="cursor:pointer;color:#94a3b8;font-weight:800;font-size:16px;padding:0 4px">×</span></div>'
-      +'<div id="cyFunnel" style="font-size:11.5px;line-height:1.7;border:1px solid #12325a;border-radius:8px;padding:7px 9px;background:#0a1020;margin-bottom:7px">まだ実行していません（🔬で計算）</div>'
-      +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:7px"><button id="cyPrev" style="'+mini+'border:1px solid #334155;background:#111827;color:#e6edf3">◀前</button><span id="cyCnt" style="flex:1;text-align:center;color:#00e5ff;font-size:11px">0 / 0</span><button id="cyNext" style="'+mini+'border:1px solid #00e5ff;background:rgba(0,229,255,.18);color:#e6edf3">次▶</button></div>'
-      +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:6px"><span style="color:#22d3ee;font-size:11px;white-space:nowrap">📦客</span><select id="cyanClientSel" style="flex:1;padding:4px;background:#111827;color:#e6edf3;border:1px solid #334155;border-radius:5px;font-size:11px"><option value="">— クライアント —</option></select></div>'
-      +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:7px"><select id="cyanDeliverySel" style="flex:1;padding:4px;background:#111827;color:#e6edf3;border:1px solid #334155;border-radius:5px;font-size:11px"><option value="">— 納品ロット —</option></select><a href="nouhin-promote.html" target="_blank" rel="noopener" style="padding:5px 8px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap">🏭 昇格</a></div>'
-      +'<button id="cyRegToggle" style="width:100%;'+mini+'border:1px solid #334155;background:#111827;color:#e6edf3;text-align:left">📍 市町村で移動 ▾</button>'
-      +'<div id="cyRegList" style="display:none;max-height:30vh;overflow:auto;margin-top:5px;border:1px solid #12325a;border-radius:8px"></div>';
+      +'<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-bottom:1px solid #30363d;background:#0d1117;border-radius:10px 10px 0 0"><span style="color:#00e5ff;font-weight:800;font-size:13px">🟦 適地候補 <span id="cyPanelN">0</span> 件</span><span><button id="cyRerun" style="border:1px solid #00e5ff;background:rgba(0,229,255,.15);color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;padding:3px 8px;cursor:pointer">🔬再実行</button> <span id="cyClose" style="cursor:pointer;color:#94a3b8;font-weight:800;font-size:16px;padding:0 4px">×</span></span></div>'
+      +'<div style="padding:10px 12px">'
+      +'<div style="color:#8b949e;font-size:10px;margin-bottom:3px">分析の過程（外部データからライブ計算・AIは焼かない）</div>'
+      +'<div id="cyFunnel" style="font-size:11.5px;line-height:1.65;border:1px solid #30363d;border-radius:8px;padding:7px 9px;background:#0a0e14;margin-bottom:9px">まだ実行していません（🔬 で計算）</div>'
+      +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:9px"><button id="cyPrev" style="border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:12px;font-weight:700;padding:6px 10px;cursor:pointer">◀ 前</button><span id="cyCnt" style="flex:1;text-align:center;color:#00e5ff;font-size:12px;font-weight:700">0 / 0</span><button id="cyNext" style="border:1px solid #00e5ff;background:rgba(0,229,255,.18);color:#e6edf3;border-radius:6px;font-size:12px;font-weight:800;padding:6px 12px;cursor:pointer">次 ▶</button></div>'
+      +'<div style="color:#8b949e;font-size:10px;margin-bottom:3px">納品（仮納品）</div>'
+      +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:6px"><span style="color:#22d3ee;font-size:11px;white-space:nowrap">客</span><select id="cyanClientSel" style="flex:1;padding:5px;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:6px;font-size:11px"><option value="">— クライアント —</option></select></div>'
+      +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:9px"><select id="cyanDeliverySel" style="flex:1;padding:5px;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:6px;font-size:11px"><option value="">— 納品ロット —</option></select><a href="nouhin-promote.html" target="_blank" rel="noopener" style="padding:5px 9px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap">🏭 昇格</a></div>'
+      +'<div style="color:#8b949e;font-size:10px;margin-bottom:3px">候補一覧（クリックで移動・確定=モデルも合格）</div>'
+      +'<div id="cyRegList" style="max-height:32vh;overflow:auto;border:1px solid #30363d;border-radius:8px"></div>'
+      +'</div>';
     document.body.appendChild(panel);
     counterEl=panel.querySelector('#cyCnt');
     _ref={run:run,cntBadge:cntBadge,sw:toggle.querySelector('#cyanSw'),panel:panel,funnel:panel.querySelector('#cyFunnel'),panelN:panel.querySelector('#cyPanelN'),list:panel.querySelector('#cyRegList')};
@@ -8661,9 +8671,9 @@ if(typeof map!=='undefined'&&map&&map.on){
     panel.querySelector('#cyClose').onclick=function(){ panel.style.display='none'; turnOff(); };
     panel.querySelector('#cyPrev').onclick=function(){ goTo(idx-1); };
     panel.querySelector('#cyNext').onclick=function(){ goTo(idx+1); };
-    var regToggle=panel.querySelector('#cyRegToggle'), regList=panel.querySelector('#cyRegList');
-    regToggle.onclick=function(){ regList.style.display=(regList.style.display==='none'?'block':'none'); };
-    regList.addEventListener('click',function(e){ var row=e.target.closest?e.target.closest('.cyanReg'):null; if(!row)return; var c=row.getAttribute('data-city'); if(cityFirst[c]!=null){ goTo(cityFirst[c]); } });
+    var rerun=panel.querySelector('#cyRerun'); if(rerun)rerun.onclick=function(){ runFilter(); };
+    var regList=panel.querySelector('#cyRegList');
+    regList.addEventListener('click',function(e){ var row=e.target.closest?e.target.closest('.cyanRow'):null; if(!row)return; var di=parseInt(row.getAttribute('data-idx'),10); if(!isNaN(di))goTo(di); });
   }
   mountDock();
 })();
