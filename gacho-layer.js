@@ -1159,9 +1159,11 @@ async function rebuildManualPicksFromDb(silent){
     // ドクター2026-08-23: 300/337/108と30m以内で重複する手動ピックを、既存分も含めて全画層から表示だけ除外(DB=case_candidatesは無変更)。
     var dupRemoved=0;
     state.layers.forEach(function(l){
-      if(!(l.meta&&l.meta.manual)&&!/手動ピック/.test(l.name||''))return;
+      if(l.archived)return;
+      // v20260823(ドクター): 手動ピック系レイヤーだけでなく、flagScoreCardが作るjudgeOnlyレイヤー(適地候補判定/合筆・保留判定 等)も対象。
+      //   境界(手描き線)も含め、300/337/108と重複していれば表示だけ除外する。337側に既に同じ形が入っているので線が二重に残らない。
+      if(!(l.meta&&l.meta.manual)&&!l.judgeOnly&&!/手動ピック/.test(l.name||''))return;
       var keep=[]; (l.items||[]).forEach(function(it){
-        // v20260823(ドクター): 境界(手描き線)も300/337/108と重複していれば非表示にする。337側に既に同じ形が入っているので線が二重に残らない。
         if(_isNearKnown300_337_108(it.lat,it.ln!=null?it.ln:it.lng,dupGrid)){dupRemoved++;return;}
         keep.push(it);
       }); l.items=keep;
