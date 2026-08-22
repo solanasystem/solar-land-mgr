@@ -1161,7 +1161,8 @@ async function rebuildManualPicksFromDb(silent){
     state.layers.forEach(function(l){
       if(!(l.meta&&l.meta.manual)&&!/手動ピック/.test(l.name||''))return;
       var keep=[]; (l.items||[]).forEach(function(it){
-        if(it.type!=='boundary'&&_isNearKnown300_337_108(it.lat,it.ln!=null?it.ln:it.lng,dupGrid)){dupRemoved++;return;}
+        // v20260823(ドクター): 境界(手描き線)も300/337/108と重複していれば非表示にする。337側に既に同じ形が入っているので線が二重に残らない。
+        if(_isNearKnown300_337_108(it.lat,it.ln!=null?it.ln:it.lng,dupGrid)){dupRemoved++;return;}
         keep.push(it);
       }); l.items=keep;
     });
