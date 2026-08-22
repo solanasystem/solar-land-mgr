@@ -823,7 +823,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822t 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822u 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8578,7 +8578,7 @@ if(typeof map!=='undefined'&&map&&map.on){
     return '<div style="min-width:200px">'+head+'<div style="font-size:12px;line-height:1.8">面積 <b>'+(it.a||'—')+'㎡</b><br>①青地外 ②ハザ外 ③接道 ④連系 ✓<br>⑤日照・⑦現況(モデル): '+rej+'</div><div style="font-size:10px;color:#94a3b8;margin-top:4px">スコアカード初期化待ち…再クリックで表示</div></div>';
   }
   function build(){ if(built)return; built=true;
-    order.forEach(function(it,i){ var mk=L.circleMarker([it.la,it.ln],{renderer:rnd,radius:7,color:'#00e5ff',weight:2,fillColor:'#00e5ff',fillOpacity:0.55}); mk.bindPopup(function(){return cyanPopup(it,i);},{minWidth:250,maxWidth:340,maxHeight:480,autoPan:true,keepInView:true}); LAY.addLayer(mk); marks[i]=mk; });
+    order.forEach(function(it,i){ var mk=L.circleMarker([it.la,it.ln],{renderer:rnd,radius:7,color:'#00e5ff',weight:2,fillColor:'#00e5ff',fillOpacity:0.55}); mk.bindPopup(function(){return cyanPopup(it,i);},{minWidth:250,maxWidth:340,maxHeight:480,autoPan:true,keepInView:true,closeOnClick:false}); LAY.addLayer(mk); marks[i]=mk; });
   }
   function updCounter(){ if(counterEl){ if(idx<0){counterEl.textContent='0 / '+order.length;} else {var it=order[idx];counterEl.textContent=(idx+1)+' / '+order.length+'  '+(it.c||'');} } try{updRowHL();}catch(_){} }
   function turnOn(){ on=true; build(); LAY.addTo(map); showPanel(); if(_ref.sw){_ref.sw.textContent='ON';_ref.sw.style.color='#00e5ff';} }
@@ -8669,13 +8669,19 @@ if(typeof map!=='undefined'&&map&&map.on){
     }catch(e){}
   }
   // モーダル(スコアカード)を見出しドラッグで移動可能にする(中央で邪魔にならない・ドクター)。
+  var _leader=null, _leadPop=null;
+  function ensureLeader(){ if(_leader)return _leader; var NS='http://www.w3.org/2000/svg'; var s=document.createElementNS(NS,'svg'); s.style.cssText='position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:3999;display:none'; var ln=document.createElementNS(NS,'line'); ln.setAttribute('stroke','#00e5ff'); ln.setAttribute('stroke-width','2.5'); ln.setAttribute('stroke-dasharray','6,4'); var dot=document.createElementNS(NS,'circle'); dot.setAttribute('r','6'); dot.setAttribute('fill','rgba(0,229,255,.25)'); dot.setAttribute('stroke','#00e5ff'); dot.setAttribute('stroke-width','2'); s.appendChild(ln); s.appendChild(dot); document.body.appendChild(s); _leader={svg:s,line:ln,dot:dot}; return _leader; }
+  function updateLeader(){ if(!_leadPop||idx<0||!order[idx]){ return; } try{ var it=order[idx]; var L=ensureLeader(); var pt=map.latLngToContainerPoint([it.la,it.ln]); var mc=map.getContainer().getBoundingClientRect(); var px=mc.left+pt.x, py=mc.top+pt.y; var r=_leadPop.getBoundingClientRect(); var qx=r.left+r.width/2, qy=r.bottom-6; L.line.setAttribute('x1',px);L.line.setAttribute('y1',py);L.line.setAttribute('x2',qx);L.line.setAttribute('y2',qy); L.dot.setAttribute('cx',px);L.dot.setAttribute('cy',py); L.svg.style.display='block'; }catch(_){ } }
+  function hideLeader(){ _leadPop=null; if(_leader)_leader.svg.style.display='none'; }
   function makePopupDraggable(pop,handle){
     handle.style.cursor='move'; var sx,sy,ox,oy,drag=false;
-    function mv(e){ if(!drag)return; pop.style.left=(ox+e.clientX-sx)+'px'; pop.style.top=(oy+e.clientY-sy)+'px'; }
+    function mv(e){ if(!drag)return; pop.style.left=(ox+e.clientX-sx)+'px'; pop.style.top=(oy+e.clientY-sy)+'px'; _leadPop=pop; updateLeader(); }
     function up(){ drag=false; document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); }
-    handle.addEventListener('mousedown',function(e){ var r=pop.getBoundingClientRect(); pop.style.position='fixed'; pop.style.left=r.left+'px'; pop.style.top=r.top+'px'; pop.style.margin='0'; pop.style.transform='none'; pop.style.transition='none'; pop.style.zIndex=4000; sx=e.clientX; sy=e.clientY; ox=r.left; oy=r.top; drag=true; e.preventDefault(); document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up); });
+    handle.addEventListener('mousedown',function(e){ var r=pop.getBoundingClientRect(); pop.style.position='fixed'; pop.style.left=r.left+'px'; pop.style.top=r.top+'px'; pop.style.margin='0'; pop.style.transform='none'; pop.style.transition='none'; pop.style.zIndex=4000; sx=e.clientX; sy=e.clientY; ox=r.left; oy=r.top; drag=true; _leadPop=pop; e.preventDefault(); e.stopPropagation(); document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up); updateLeader(); });
   }
   try{ map.on('popupopen', function(e){ try{ var pop=(e.popup&&e.popup._container)||null; if(!pop)return; var handle=pop.querySelector('.cyDragHandle'); if(handle&&!handle._dg){ handle._dg=1; makePopupDraggable(pop,handle); } }catch(_){ } }); }catch(_){}
+  try{ map.on('move zoom moveend zoomend', function(){ if(_leadPop)updateLeader(); }); }catch(_){}
+  try{ map.on('popupclose', function(){ hideLeader(); }); }catch(_){}
   // 既得地(納品済・仮納品・ピック済・OK/境界済)を地図に重ねて二重取りを防ぐ(ドクター)。探索中に"もう取った土地"が見える。
   var TAKENLAY=L.layerGroup(); var _takenOn=false; var _takenLoaded=false; var trnd=L.canvas({padding:0.5});
   async function loadTakenLand(){
