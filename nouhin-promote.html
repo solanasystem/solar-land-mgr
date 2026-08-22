@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<!-- BUILD: nouhin-promote v20260822a / 仮納品(tentative)→本納品(confirmed)への昇格を4チェック付きで行う内部ツール。①筆ID重複なし②地番/地目/住所充足③8ゲート再確認④手動最終OK→status更新で昇格(削除保護DBに準拠)。 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>仮納品 → 本納品 昇格（4チェック）// GRID LAND MGR</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  body{background:#0a1020;color:#e8eefc;font-family:'Segoe UI','Meiryo',sans-serif;margin:0;padding:20px;}
+  h1{font-size:19px;margin:0 0 4px;} .sub{color:#8fa0c4;font-size:13px;margin:4px 0 14px;}
+  select,button{padding:8px 12px;border-radius:8px;font-size:14px;font-weight:700;}
+  select{background:#111827;color:#e8eefc;border:1px solid #334155;}
+  .go{border:2px solid #22d3ee;background:rgba(34,211,238,.18);color:#e8eefc;cursor:pointer;}
+  .go:disabled{opacity:.4;cursor:not-allowed;border-color:#334155;background:#111827;}
+  .stat{margin:12px 0;font-family:monospace;font-size:13px;color:#7ef0b6;}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px;}
+  th,td{border-bottom:1px solid #26375c;padding:6px 8px;text-align:left;vertical-align:top;}
+  th{color:#8fa0c4;position:sticky;top:0;background:#0d1730;}
+  .ok{color:#7ef0b6;font-weight:700;} .bad{color:#f87171;font-weight:700;} .warn{color:#fbbf24;font-weight:700;}
+  .pill{display:inline-block;padding:1px 6px;border-radius:6px;font-size:11px;border:1px solid #334155;}
+  #wrap{max-height:70vh;overflow:auto;border:1px solid #26375c;border-radius:8px;margin-top:10px;}
+  .pbtn{padding:6px 10px;border-radius:7px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;font-weight:800;cursor:pointer;}
+  .pbtn:disabled{opacity:.4;cursor:not-allowed;border-color:#334155;background:#111827;color:#8fa0c4;}
+</style>
+</head>
+<body>
+<h1>🏭 仮納品 → 本納品 昇格</h1>
+<div class="sub">仮納品(tentative)を4チェックして本納品(confirmed)へ昇格します。①筆ID重複なし ②地番・地目・住所が充足 ③8ゲート再確認 ④手動の最終OK。昇格は status 更新（削除はしない）。</div>
+<div>
+  クライアント：<select id="clientSel"><option value="">読込中…</option></select>
+  <button class="go" id="reload">↻ 仮納品を再読込</button>
+</div>
+<div class="stat" id="stat">—</div>
+<div id="wrap"><table><thead><tr>
+  <th>No</th><th>所在</th><th>面積㎡</th><th>地目</th><th>筆ID</th>
+  <th>①重複</th><th>②情報</th><th>③ゲート</th><th>④最終OK</th><th>昇格</th>
+</tr></thead><tbody id="tb"></tbody></table></div>
+
+<script>
+var SB_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
+var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+var db=supabase.createClient(SB_URL,SB_KEY);
+function fidOf(n){ var m=/fid:([^\s|]+)/.exec(n||''); return m?m[1]:''; }
+function distM(a,b,c,d){ var R=6371000,dl=(c-a)*Math.PI/180,dn=(d-b)*Math.PI/180,la=(a+c)/2*Math.PI/180; var x=dn*Math.cos(la),y=dl; return Math.sqrt(x*x+y*y)*R; }
+
+async function loadClients(){
+  var r=await db.from('clients').select('id,name').order('name',{ascending:true});
+  var sel=document.getElementById('clientSel'); sel.innerHTML='';
+  (r.data||[]).forEach(function(c){ var o=document.createElement('option'); o.value=c.id; o.textContent=c.name; sel.appendChild(o); });
+  if((r.data||[]).length) load();
+}
+async function fetchAll(sel){ var out=[],frm=0; while(true){ var r=await db.from('client_delivery_items').select(sel).range(frm,frm+999); var d=(r&&r.data)||[]; out=out.concat(d); if(d.length<1000)break; frm+=1000; } return out; }
+
+async function load(){
+  var cid=document.getElementById('clientSel').value; if(!cid)return;
+  var tb=document.getElementById('tb'); tb.innerHTML=''; document.getElementById('stat').textContent='読込中…';
+  // 確定(本納品)の筆ID・座標(重複チェック用)
+  var confs=(await fetchAll('id,client_id,status,lat,lng,ai_note')).filter(function(x){return x.client_id===cid&&x.status==='confirmed';});
+  var confFids={}; confs.forEach(function(x){ var f=fidOf(x.ai_note); if(f)confFids[f]=1; });
+  // 仮納品
+  var tents=(await fetchAll('id,client_id,status,pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng,ai_note')).filter(function(x){return x.client_id===cid&&x.status==='tentative';});
+  document.getElementById('stat').textContent='仮納品 '+tents.length+' 件（本納品 '+confs.length+' 件と重複照合）';
+  for(var i=0;i<tents.length;i++){ await renderRow(tents[i],i+1,confFids,confs); }
+  if(!tents.length){ tb.innerHTML='<tr><td colspan="10" style="color:#8fa0c4;padding:14px">仮納品はありません。</td></tr>'; }
+}
+
+async function renderRow(it,no,confFids,confs){
+  var fid=fidOf(it.ai_note);
+  // ① 筆ID重複: 同fidが本納品にある or 30m以内に本納品
+  var dupFid = fid && confFids[fid];
+  var dupNear = confs.some(function(c){ return c.lat&&it.lat&&distM(Number(c.lat),Number(c.lng),Number(it.lat),Number(it.lng))<30; });
+  var c1ok = !dupFid && !dupNear;
+  var c1 = c1ok? '<span class="ok">重複なし</span>' : ('<span class="bad">'+(dupFid?'筆ID重複':'30m内に既納品')+'</span>');
+  // ② 地番・地目・住所 充足
+  var miss=[]; if(!it.chiban)miss.push('地番'); if(!it.chimoku)miss.push('地目'); if(!it.address)miss.push('住所');
+  var c2ok = miss.length===0;
+  var c2 = c2ok? '<span class="ok">充足</span>' : ('<span class="bad">欠:'+miss.join('・')+'</span>');
+  // ③ 8ゲート(farmland_snapshots)再確認
+  var c3ok=false, c3='<span class="warn">要確認</span>';
+  if(fid){ try{ var r=await db.from('farmland_snapshots').select('noshin_status,hazard_status,infra_status,grid_status,area_sqm').eq('feature_id',fid).limit(1); var s=(r.data&&r.data[0]); if(s){ var pass=(s.noshin_status==='CLEAR'&&s.hazard_status==='CLEAR'&&s.infra_status==='PASS'&&s.grid_status==='pass'&&(Number(s.area_sqm)||0)>=800); c3ok=pass; c3=pass?'<span class="ok">①②③④⑥PASS</span>':'<span class="bad">ゲート不成立</span>'; } }catch(e){} }
+  var tr=document.createElement('tr');
+  var okId='ok_'+it.id, btnId='bt_'+it.id;
+  tr.innerHTML='<td>'+no+'</td>'
+    +'<td>'+((it.pref||'')+(it.city||'')+(it.town||'')+(it.chiban||''))+'</td>'
+    +'<td>'+(it.area_m2||'—')+'</td><td>'+(it.chimoku||'—')+'</td>'
+    +'<td style="font-family:monospace;font-size:11px">'+(fid||'—')+'</td>'
+    +'<td>'+c1+'</td><td>'+c2+'</td><td>'+c3+'</td>'
+    +'<td><input type="checkbox" id="'+okId+'"></td>'
+    +'<td><button class="pbtn" id="'+btnId+'" disabled>本納品へ昇格</button></td>';
+  document.getElementById('tb').appendChild(tr);
+  var cb=document.getElementById(okId), bt=document.getElementById(btnId);
+  function upd(){ bt.disabled=!(c1ok&&c2ok&&c3ok&&cb.checked); }
+  cb.onchange=upd; upd();
+  bt.onclick=async function(){
+    if(!confirm('この筆を本納品(confirmed)へ昇格します。よろしいですか？\n'+(it.pref||'')+(it.city||'')+(it.chiban||'')))return;
+    bt.disabled=true; bt.textContent='昇格中…';
+    try{
+      var r=await db.from('client_delivery_items').update({status:'confirmed',locked_at:new Date().toISOString(),ai_note:(it.ai_note||'')+' | 本納品昇格(4チェック済)'}).eq('id',it.id).select();
+      if(r&&r.error)throw new Error(r.error.message||r.error);
+      bt.textContent='✓ 本納品済'; bt.style.borderColor='#22d3ee'; bt.style.color='#22d3ee';
+    }catch(e){ alert('昇格失敗: '+((e&&e.message)||e)); bt.disabled=false; bt.textContent='本納品へ昇格'; }
+  };
+}
+document.getElementById('reload').onclick=load;
+document.getElementById('clientSel').onchange=load;
+loadClients();
+</script>
+</body>
+</html>
