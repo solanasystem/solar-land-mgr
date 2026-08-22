@@ -1043,14 +1043,17 @@ async function loadBoundariesFromDb(){
     // v20260821z11: 同一iidが複数行(下書きpending＋確定ok)になり得る→iidごとに ok>ng>pending の最良を採用。
     var best={},rank={ok:3,ng:2,pending:1};
     rows.forEach(function(x){try{var m=JSON.parse(x.memo||'{}'); if(!m.iid||!m.latlngs||m.latlngs.length<3)return; var st=(m.status==='ng'?'ng':(m.status==='ok'?'ok':'pending')); var rk=rank[st]||1; if(!best[m.iid]||rk>best[m.iid].rk){best[m.iid]={m:m,st:st,rk:rk};}}catch(_){}});
+    var dupGrid=await _buildDupGrid(); var dupSkipped=0; // v20260823(ドクター): ここが別ロードなので毎回復活していた本当の原因。300/337/108重複はここでも除外。
     Object.keys(best).forEach(function(iid){ if(have[iid])return; var b=best[iid],m=b.m;
+      var mla=(m.lat!=null?m.lat:(m.latlngs[0]?m.latlngs[0][0]:null)), mln=(m.lng!=null?m.lng:(m.latlngs[0]?m.latlngs[0][1]:null));
+      if(_isNearKnown300_337_108(mla,mln,dupGrid)){dupSkipped++;return;}
       if(!l){ l=state.layers.filter(function(y){return y.name==='敷地境界（実測）';})[0]; if(!l){l={id:uid(),name:'敷地境界（実測）',color:'#f59e0b',visible:true,active:false,items:[]};state.layers.push(l);} }
       l.archived=false; l.visible=true;
       var _st=(b.st==='pending'?null:b.st); // 未確定(pending)はstatus無し=OKに数えない
-      l.items.push({iid:m.iid,type:'boundary',latlngs:m.latlngs,area:m.area,lat:(m.lat!=null?m.lat:(m.latlngs[0]?m.latlngs[0][0]:null)),lng:(m.lng!=null?m.lng:(m.latlngs[0]?m.latlngs[0][1]:null)),address:m.address||'敷地境界',status:_st,userJudged:(_st==='ok'||_st==='ng'),src:'handdraw'});
+      l.items.push({iid:m.iid,type:'boundary',latlngs:m.latlngs,area:m.area,lat:mla,lng:mln,address:m.address||'敷地境界',status:_st,userJudged:(_st==='ok'||_st==='ng'),src:'handdraw'});
       have[m.iid]=1; added++;
     });
-    if(added){saveState();render();try{console.log('[DB復元] 手描き境界 '+added+'件');}catch(_){}}
+    if(added||dupSkipped){saveState();render();try{console.log('[DB復元] 手描き境界 '+added+'件(重複'+dupSkipped+'件は300/337/108と重なるため非表示)');}catch(_){}}
   }catch(e){}
 }
 function _applyDbStatusToItems(){
