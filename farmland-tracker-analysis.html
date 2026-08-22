@@ -823,7 +823,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822r 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822s 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8674,6 +8674,20 @@ if(typeof map!=='undefined'&&map&&map.on){
     handle.addEventListener('mousedown',function(e){ var r=pop.getBoundingClientRect(); pop.style.position='fixed'; pop.style.left=r.left+'px'; pop.style.top=r.top+'px'; pop.style.margin='0'; pop.style.transform='none'; pop.style.transition='none'; pop.style.zIndex=4000; sx=e.clientX; sy=e.clientY; ox=r.left; oy=r.top; drag=true; e.preventDefault(); document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up); });
   }
   try{ map.on('popupopen', function(e){ try{ var pop=(e.popup&&e.popup._container)||null; if(!pop)return; var handle=pop.querySelector('.cyDragHandle'); if(handle&&!handle._dg){ handle._dg=1; makePopupDraggable(pop,handle); } }catch(_){ } }); }catch(_){}
+  // 既得地(納品済・仮納品・ピック済・OK/境界済)を地図に重ねて二重取りを防ぐ(ドクター)。探索中に"もう取った土地"が見える。
+  var TAKENLAY=L.layerGroup(); var _takenOn=false; var _takenLoaded=false; var trnd=L.canvas({padding:0.5});
+  async function loadTakenLand(){
+    if(_takenLoaded)return; _takenLoaded=true;
+    async function pg(tbl,sel){ var out=[],f=0; while(true){ var r=await db.from(tbl).select(sel).range(f,f+999); var b=(r&&r.data)||[]; out=out.concat(b); if(b.length<1000)break; f+=1000; } return out; }
+    try{ (await pg('client_delivery_items','lat,lng,status')).forEach(function(x){ if(x.lat!=null&&x.lng!=null){ var conf=(x.status==='confirmed'); var col=conf?'#ef4444':'#ec4899'; L.circleMarker([x.lat,x.lng],{renderer:trnd,radius:5,color:col,weight:1,fillColor:col,fillOpacity:0.75}).bindTooltip(conf?'納品済':'仮納品').addTo(TAKENLAY); } }); }catch(e){}
+    try{ (await pg('case_candidates','latitude,longitude')).forEach(function(x){ if(x.latitude!=null&&x.longitude!=null){ L.circleMarker([x.latitude,x.longitude],{renderer:trnd,radius:4,color:'#ec4899',weight:1,fillColor:'#ec4899',fillOpacity:0.55}).bindTooltip('ピック済').addTo(TAKENLAY); } }); }catch(e){}
+    try{ (await pg('ai_ok_labels','lat,lng')).forEach(function(x){ if(x.lat!=null&&x.lng!=null){ L.circleMarker([x.lat,x.lng],{renderer:trnd,radius:4,color:'#f472b6',weight:1,fillColor:'#f472b6',fillOpacity:0.45}).bindTooltip('OK/境界済').addTo(TAKENLAY); } }); }catch(e){}
+  }
+  function toggleTaken(){
+    _takenOn=!_takenOn;
+    if(_takenOn){ loadTakenLand().then(function(){ TAKENLAY.addTo(map); }); TAKENLAY.addTo(map); if(_ref.takenSw){_ref.takenSw.textContent='ON';_ref.takenSw.style.color='#ef4444';} }
+    else { try{map.removeLayer(TAKENLAY);}catch(_){} if(_ref.takenSw){_ref.takenSw.textContent='OFF';_ref.takenSw.style.color='#8b949e';} }
+  }
   function mountDock(){
     var host=document.getElementById('cyanDock');
     if(!host){ return setTimeout(mountDock,300); }
@@ -8695,7 +8709,8 @@ if(typeof map!=='undefined'&&map&&map.on){
       +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:9px"><button id="cyPrev" style="border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:12px;font-weight:700;padding:6px 10px;cursor:pointer">◀ 前</button><span id="cyCnt" style="flex:1;text-align:center;color:#00e5ff;font-size:12px;font-weight:700">0 / 0</span><button id="cyNext" style="border:1px solid #00e5ff;background:rgba(0,229,255,.18);color:#e6edf3;border-radius:6px;font-size:12px;font-weight:800;padding:6px 12px;cursor:pointer">次 ▶</button></div>'
       +'<div style="color:#8b949e;font-size:10px;margin-bottom:3px">地図切替（接道確認は地図が見やすい）</div>'
       +'<div style="display:flex;gap:5px;margin-bottom:6px"><button class="cyBase" data-m="map" style="flex:1;border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;padding:5px;cursor:pointer">🗺 地図</button><button class="cyBase" data-m="satellite" style="flex:1;border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;padding:5px;cursor:pointer">🛰 GSI衛星</button><button class="cyBase" data-m="esri" style="flex:1;border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;padding:5px;cursor:pointer">🆕 最新衛星</button></div>'
-      +'<button id="cyRoad" style="width:100%;border:1px solid #f0b429;background:#2a2206;color:#fcd34d;border-radius:6px;font-size:11px;font-weight:800;padding:6px;cursor:pointer;margin-bottom:9px">🛣 道路を衛星に重ねる：<span id="cyRoadSw" style="color:#8b949e">OFF</span></button>'
+      +'<button id="cyRoad" style="width:100%;border:1px solid #f0b429;background:#2a2206;color:#fcd34d;border-radius:6px;font-size:11px;font-weight:800;padding:6px;cursor:pointer;margin-bottom:6px">🛣 道路を衛星に重ねる：<span id="cyRoadSw" style="color:#8b949e">OFF</span></button>'
+      +'<button id="cyTaken" style="width:100%;border:1px solid #ef4444;background:#2a0e0e;color:#fca5a5;border-radius:6px;font-size:11px;font-weight:800;padding:6px;cursor:pointer;margin-bottom:9px">🚩 既得地を表示（🔴納品済 / 🩷ピック・OK済）：<span id="cyTakenSw" style="color:#8b949e">OFF</span></button>'
       +'<div style="color:#8b949e;font-size:10px;margin-bottom:3px">納品（仮納品）</div>'
       +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:6px"><span style="color:#22d3ee;font-size:11px;white-space:nowrap">客</span><select id="cyanClientSel" style="flex:1;padding:5px;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:6px;font-size:11px"><option value="">— クライアント —</option></select></div>'
       +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:9px"><select id="cyanDeliverySel" style="flex:1;padding:5px;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:6px;font-size:11px"><option value="">— 納品ロット —</option></select><a href="nouhin-promote.html" target="_blank" rel="noopener" style="padding:5px 9px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap">🏭 昇格</a></div>'
@@ -8720,6 +8735,8 @@ if(typeof map!=='undefined'&&map&&map.on){
     regList.addEventListener('click',function(e){ var row=e.target.closest?e.target.closest('.cyanRow'):null; if(!row)return; var di=parseInt(row.getAttribute('data-idx'),10); if(!isNaN(di))goTo(di); });
     _ref.roadSw=panel.querySelector('#cyRoadSw');
     var roadBtn=panel.querySelector('#cyRoad'); if(roadBtn)roadBtn.onclick=function(){ toggleRoad(); };
+    _ref.takenSw=panel.querySelector('#cyTakenSw');
+    var takenBtn=panel.querySelector('#cyTaken'); if(takenBtn)takenBtn.onclick=function(){ toggleTaken(); };
     var baseBtns=panel.querySelectorAll('.cyBase');
     for(var bi=0;bi<baseBtns.length;bi++){ (function(b){ b.onclick=function(){ try{ if(typeof switchGIS==='function')switchGIS(b.getAttribute('data-m')); }catch(_){} for(var j=0;j<baseBtns.length;j++){baseBtns[j].style.background='#161b22';baseBtns[j].style.borderColor='#30363d';} b.style.background='rgba(0,229,255,.18)'; b.style.borderColor='#00e5ff'; }; })(baseBtns[bi]); }
   }
