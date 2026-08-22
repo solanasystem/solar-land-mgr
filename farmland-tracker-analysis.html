@@ -823,7 +823,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822u 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822v 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8553,7 +8553,7 @@ if(typeof map!=='undefined'&&map&&map.on){
     if(_ref.list)_ref.list.innerHTML=buildRegList();
     if(_ref.cntBadge)_ref.cntBadge.textContent=order.length;
     if(_ref.panelN)_ref.panelN.textContent=order.length;
-    updCounter();
+    updCounter(); try{loadClientCounts();}catch(_){}
   }
   // 最新の統一モーダル(8項目スコアカード＋衛星画像＋OK/NG＋削除)をそのまま埋め込む。fid=farmland_snapshotsのfid＝判定/削除が学習(正例/負例)に直結。
   function cyanPopup(it,i){
@@ -8600,6 +8600,7 @@ if(typeof map!=='undefined'&&map&&map.on){
       var sel=document.getElementById('cyanClientSel'); if(!sel||!r||!r.data)return;
       r.data.forEach(function(c){var o=document.createElement('option');o.value=c.id;o.textContent=c.name;if(c.id===_cyanClientId){o.selected=true;_cyanClientName=c.name;}sel.appendChild(o);});
       if(_cyanClientId)loadDeliveries(_cyanClientId);
+      try{loadClientCounts();}catch(_){}
     },function(){});
   }
   function loadDeliveries(cid){
@@ -8623,8 +8624,24 @@ if(typeof map!=='undefined'&&map&&map.on){
       try{map.closePopup();}catch(_){}
       try{ var _lp=document.querySelectorAll('.leaflet-popup'); for(var _i=0;_i<_lp.length;_i++){ if(_lp[_i].parentNode)_lp[_i].parentNode.removeChild(_lp[_i]); } }catch(_){}
       try{ if(_ref.list){var rr=_ref.list.querySelector('.cyanRow[data-idx="'+idx+'"]'); if(rr)rr.style.opacity='0.4'; } }catch(_){}
+      try{loadClientCounts();}catch(_){}
     }catch(e){ var m='納品登録失敗: '+((e&&e.message)||e); if(typeof showToast==='function')showToast(m,'error'); else alert(m); }
   };
+  function summaryHtml(N,T,C){
+    var known=(typeof T==='number'&&typeof C==='number');
+    var sum=(N||0)+(known?T+C:0);
+    return '<div style="color:#facc15;font-weight:800;margin-bottom:2px">実質の納品候補地 '+(known?sum:'—')+' 件</div>'
+      +'適地候補(未登録) <b style="color:#00e5ff">'+(N||0)+'</b> ＋ 仮納品 <b style="color:#ec4899">'+(known?T:'—')+'</b> ＋ 本納品 <b style="color:#ef4444">'+(known?C:'—')+'</b>';
+  }
+  async function loadClientCounts(){
+    if(!_ref.summary)return;
+    if(typeof db==='undefined'||!db||!_cyanClientId){ _ref.summary.innerHTML=summaryHtml(order.length,null,null); return; }
+    try{
+      var t=await db.from('client_delivery_items').select('id',{count:'exact',head:true}).eq('client_id',_cyanClientId).eq('status','tentative');
+      var c=await db.from('client_delivery_items').select('id',{count:'exact',head:true}).eq('client_id',_cyanClientId).eq('status','confirmed');
+      _ref.summary.innerHTML=summaryHtml(order.length,(t&&typeof t.count==='number')?t.count:0,(c&&typeof c.count==='number')?c.count:0);
+    }catch(e){ _ref.summary.innerHTML=summaryHtml(order.length,null,null); }
+  }
   function buildRegList(){
     if(!order.length)return '<div style="padding:9px;color:#8b949e;font-size:11px">まだ候補がありません（🔬で計算）</div>';
     var html=''; var last=null;
@@ -8713,7 +8730,8 @@ if(typeof map!=='undefined'&&map&&map.on){
       +'<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-bottom:1px solid #30363d;background:#0d1117;border-radius:10px 10px 0 0"><span style="color:#00e5ff;font-weight:800;font-size:13px">🟦 適地候補 <span id="cyPanelN">0</span> 件</span><span><button id="cyRerun" style="border:1px solid #00e5ff;background:rgba(0,229,255,.15);color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;padding:3px 8px;cursor:pointer">🔬再実行</button> <span id="cyClose" style="cursor:pointer;color:#94a3b8;font-weight:800;font-size:16px;padding:0 4px">×</span></span></div>'
       +'<div style="padding:10px 12px">'
       +'<div style="color:#8b949e;font-size:10px;margin-bottom:3px">分析の過程（外部データからライブ計算・AIは焼かない）</div>'
-      +'<div id="cyFunnel" style="font-size:11.5px;line-height:1.65;border:1px solid #30363d;border-radius:8px;padding:7px 9px;background:#0a0e14;margin-bottom:9px">まだ実行していません（🔬 で計算）</div>'
+      +'<div id="cyFunnel" style="font-size:11.5px;line-height:1.65;border:1px solid #30363d;border-radius:8px;padding:7px 9px;background:#0a0e14;margin-bottom:7px">まだ実行していません（🔬 で計算）</div>'
+      +'<div id="cySummary" style="font-size:11px;line-height:1.6;border:1px solid #facc15;border-radius:8px;padding:6px 9px;background:#1a1606;margin-bottom:9px;color:#e6edf3">実質の納品候補地：クライアントを選ぶと集計</div>'
       +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:9px"><button id="cyPrev" style="border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:12px;font-weight:700;padding:6px 10px;cursor:pointer">◀ 前</button><span id="cyCnt" style="flex:1;text-align:center;color:#00e5ff;font-size:12px;font-weight:700">0 / 0</span><button id="cyNext" style="border:1px solid #00e5ff;background:rgba(0,229,255,.18);color:#e6edf3;border-radius:6px;font-size:12px;font-weight:800;padding:6px 12px;cursor:pointer">次 ▶</button></div>'
       +'<div style="color:#8b949e;font-size:10px;margin-bottom:3px">地図切替（接道確認は地図が見やすい）</div>'
       +'<div style="display:flex;gap:5px;margin-bottom:6px"><button class="cyBase" data-m="map" style="flex:1;border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;padding:5px;cursor:pointer">🗺 地図</button><button class="cyBase" data-m="satellite" style="flex:1;border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;padding:5px;cursor:pointer">🛰 GSI衛星</button><button class="cyBase" data-m="esri" style="flex:1;border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;padding:5px;cursor:pointer">🆕 最新衛星</button></div>'
@@ -8727,10 +8745,10 @@ if(typeof map!=='undefined'&&map&&map.on){
       +'</div>';
     document.body.appendChild(panel);
     counterEl=panel.querySelector('#cyCnt');
-    _ref={run:run,cntBadge:cntBadge,sw:toggle.querySelector('#cyanSw'),panel:panel,funnel:panel.querySelector('#cyFunnel'),panelN:panel.querySelector('#cyPanelN'),list:panel.querySelector('#cyRegList')};
+    _ref={run:run,cntBadge:cntBadge,sw:toggle.querySelector('#cyanSw'),panel:panel,funnel:panel.querySelector('#cyFunnel'),panelN:panel.querySelector('#cyPanelN'),list:panel.querySelector('#cyRegList'),summary:panel.querySelector('#cySummary')};
     panel.querySelector('#cyRegList').innerHTML=buildRegList();
     var cs=panel.querySelector('#cyanClientSel'), ds=panel.querySelector('#cyanDeliverySel');
-    cs.onchange=function(){_cyanClientId=this.value||null;_cyanClientName=this.value?this.options[this.selectedIndex].textContent:'';_cyanDeliveryId=null;try{localStorage.setItem('cyanClientId',_cyanClientId||'');}catch(_){}if(_cyanClientId)loadDeliveries(_cyanClientId);};
+    cs.onchange=function(){_cyanClientId=this.value||null;_cyanClientName=this.value?this.options[this.selectedIndex].textContent:'';_cyanDeliveryId=null;try{localStorage.setItem('cyanClientId',_cyanClientId||'');}catch(_){}if(_cyanClientId)loadDeliveries(_cyanClientId);try{loadClientCounts();}catch(_){}};
     ds.onchange=async function(){ if(this.value==='__new'){var p=prompt('新規納品ロットの period（例 2026-08）:','');if(!p){this.value='';return;}try{var rr=await db.from('client_deliveries').insert({client_id:_cyanClientId,period:p,status:'draft',format:'Excel'}).select().single();if(rr&&rr.data){_cyanDeliveryId=rr.data.id;loadDeliveries(_cyanClientId);}}catch(e){alert('ロット作成失敗: '+((e&&e.message)||e));}return;} _cyanDeliveryId=this.value||null;try{localStorage.setItem('cyanDeliveryId',_cyanDeliveryId||'');}catch(_){} };
     try{loadClients();}catch(_){}
     run.onclick=function(){ runFilter(); };
