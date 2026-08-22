@@ -1282,6 +1282,7 @@ window.__gacho={
     try{if(fid){_restyleMark(fid,'ng');delete _reviewMarks[fid];}}catch(_){}
     try{if(typeof window.__gachoRemoveFeatureMarker==='function')window.__gachoRemoveFeatureMarker(fid,(it.lat!=null?Number(it.lat):null),(it.lng!=null?Number(it.lng):null));}catch(_){} // マップ横断でfid/座標一致マーカーを地図から除去
     if(m)m.closePopup();saveState();render();
+    try{if(fid)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:fid,status:'ng'}}));}catch(_){}
     try{var _c=_liveCounts();toast('🗑 削除 → 今の確定OK '+_c.ok+' ・ NG '+_c.ng);}catch(_){toast('🗑 削除しました');}
   },
   /* v20260818c: 手動ピック等の画層から、判定関数isMatchに合致する項目(=納品済)を別画層dstNameへ移して退避(archived)。
@@ -1309,6 +1310,7 @@ window.__gacho={
     it.viewed=true;
     if(it.type==='boundary'){ try{_saveBoundaryToDb(it);}catch(_){} } // v20260821z11: 境界のOK/NG確定をDBへ(消えない・アウトボックス)
     else { _persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed'); }
+    try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}
   }});saveState();setTimeout(function(){render();},0);},
   setCrit:function(lid,iid,ck,val,btn){var l=byId(lid);if(!l)return;var itr=null;l.items.forEach(function(it){if(it.iid===iid){itr=it;var s=_score(it);s[ck]=val;it.viewed=true;if(ck==='c7'&&val!=='x')it.ngsub=[];}});saveState();
     try{var row=btn.parentNode;row.querySelectorAll('.gsc-b').forEach(function(bb){bb.style.background='';bb.style.color='';bb.style.fontWeight='';});var col=(val==='o'?'#3fb950':(val==='x'?'#f85149':'#eab308'));btn.style.background=col;btn.style.color='#0d1117';btn.style.fontWeight='700';
@@ -1318,7 +1320,7 @@ window.__gacho={
     if(itr&&itr.feature_id&&itr.status!=='ok'&&itr.status!=='ng')_restyleMark(itr.feature_id,'viewed'); // v20260820m: 触った時点で「閲覧済み」表示(確定前でも一度見た印)
   },
   setSub:function(lid,iid,t,btn){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){it.ngsub=it.ngsub||[];var i=it.ngsub.indexOf(t);if(i>=0)it.ngsub.splice(i,1);else it.ngsub.push(t);}});saveState();try{btn.classList.toggle('on');}catch(_){}},
-  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;it.userJudged=true;if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1;_persistJudgmentScored(it,s);_restyleMark(it.feature_id,it.status);}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
+  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;it.userJudged=true;if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1;_persistJudgmentScored(it,s);_restyleMark(it.feature_id,it.status);try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   /* v20260821z12(ドクター): ピンの下の農水省筆ポリゴン(実測の形)を取得→そのまま敷地境界に=勘で描かない。
      無ければ既知面積から下敷き(正方形)を配置(ドクター発想:面積が出る=情報が在る)。どちらも面積確認モーダル→✓OKで確定。 */

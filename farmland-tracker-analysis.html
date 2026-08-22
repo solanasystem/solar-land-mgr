@@ -823,7 +823,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822y 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822z 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8484,7 +8484,7 @@ if(typeof map!=='undefined'&&map&&map.on){
 <script src="gmap-config.js?v=20260819c"></script>
 <script src="delivered-300.js?v=20260822c"></script>
 <script src="delivery2-candidates.js?v=20260822c"></script>
-<script src="gacho-layer.js?v=20260822c"></script>
+<script src="gacho-layer.js?v=20260822d"></script>
 <script src="ai_kuwana_inabe.js?v=20260816b"></script>
 <script>
 (function waitAIKI(){
@@ -8641,11 +8641,17 @@ if(typeof map!=='undefined'&&map&&map.on){
   window.__cyanDeliver=async function(fid,la,ln,area,city,pref,ev){
     if(typeof db==='undefined'||!db){alert('DB未接続で登録できません');return;}
     if(!_cyanClientId){alert('先に右上で「納品先クライアント」を選んでください');return;}
-    if(!_cyanDeliveryId){alert('先に右上で「納品ロット」を選んでください（＋新規ロット作成も可）');return;}
     if(!confirm('「'+_cyanClientName+'」の"仮納品"へ登録します。\n'+(pref||'')+(city||'')+'　'+(area||'—')+'㎡\n※これは仮納品情報です（本納品への昇格時に再チェック）。よろしいですか？'))return;
+    // 納品ロット未選択なら自動で作る(ドクターに束を選ばせない)。
+    if(!_cyanDeliveryId){
+      try{ var _per=new Date().toISOString().slice(0,10); var cr=await db.from('client_deliveries').insert({client_id:_cyanClientId,period:_per,status:'draft',notes:'cyan自動ロット'}).select();
+        if(cr&&cr.data&&cr.data[0]){ _cyanDeliveryId=cr.data[0].id; try{localStorage.setItem('cyanDeliveryId',_cyanDeliveryId);}catch(_){} try{loadDeliveries(_cyanClientId);}catch(_){} } }catch(e){}
+      if(!_cyanDeliveryId){ if(typeof showToast==='function')showToast('納品ロットの自動作成に失敗。右上でロットを選んでください','error'); else alert('納品ロットの自動作成に失敗。右上でロットを選んでください'); return; }
+    }
     // 先にモーダルを閉じる（登録の成否・RLS読み戻しに依存させない＝二度と"残る"を起こさない）。
     _cyanCloseAllPopups(ev);
-    try{ if(_ref.list){var rr=_ref.list.querySelector('.cyanRow[data-idx="'+idx+'"]'); if(rr)rr.style.opacity='0.4'; } }catch(_){}
+    // ★登録したら即、候補リストからこの筆を外して件数を更新(再実行不要・ドクター)。次の候補へ進む。
+    try{ window.__cyanRemove(fid); }catch(_){}
     try{
       // .select()の読み戻しはRLSで失敗し得るので付けない（挿入自体は成立する）。
       var r=await db.from('client_delivery_items').insert({client_id:_cyanClientId,delivery_id:_cyanDeliveryId,pref:pref||'',city:city||'',area_m2:(area||null),lat:la,lng:ln,source:'cyan_tracker',status:'tentative',ai_note:'fid:'+fid+' | cyan適地(ゲート①②③④⑥+rejectモデル) | 仮納品'});
@@ -8655,6 +8661,16 @@ if(typeof map!=='undefined'&&map&&map.on){
       try{loadClientCounts();}catch(_){}
     }catch(e){ var m='納品登録失敗: '+((e&&e.message)||e); if(typeof showToast==='function')showToast(m,'error'); else alert(m); }
   };
+  // 候補を1件その場で外し、件数(バッジ/パネル/実質数/リスト)を即更新。判定・削除・登録から呼ぶ。
+  window.__cyanRemove=function(fid){
+    if(fid==null)return; var before=items.length;
+    var ni=items.filter(function(x){return String(x.f)!==String(fid);});
+    if(ni.length===before)return; var pos=idx;
+    rebuildFromItems(ni);
+    if(on){ try{build();}catch(_){} if(order.length){ try{goTo(Math.max(0,Math.min(pos,order.length-1)));}catch(_){} } else { try{map.closePopup();}catch(_){} } }
+  };
+  // gacho(スコアカード)でOK/NG/削除/確定したら、その筆を候補から外す=モーダル判定で数字が動く(ドクター)。
+  try{ document.addEventListener('gachoJudged',function(e){ var f=e&&e.detail&&e.detail.fid; if(f&&window.__cyanRemove)window.__cyanRemove(f); }); }catch(_){}
   function summaryHtml(N,T){
     var known=(typeof T==='number');
     var sum=(N||0)+(known?T:0);
