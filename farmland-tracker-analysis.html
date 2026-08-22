@@ -823,7 +823,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822za 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822zb 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8521,7 +8521,14 @@ if(typeof map!=='undefined'&&map&&map.on){
     var steps={gate:0,model:0,aochiRemoved:0,afterAochi:0,investRemoved:0,result:0};
     if(typeof db==='undefined'||!db){ steps.err='DB未接続'; return {items:[],steps:steps}; }
     setStep&&setStep('モデル出力(reject_scores)を読込中…');
-    var scores={}; try{ scores=await (await fetch('data/reject_scores.json?cb='+Date.now())).json(); }catch(e){}
+    // ★reject_scoresは必須。読込失敗を握り潰すと全部"未採点"で素通り＝件数が爆発する(6395事故)。
+    // 3回まで再試行し、それでも空なら数字を出さずエラーを返す。
+    var scores={};
+    for(var _try=0; _try<3 && !Object.keys(scores).length; _try++){
+      try{ var _rr=await fetch('data/reject_scores.json?cb='+Date.now()); if(_rr&&_rr.ok){ var _j=await _rr.json(); if(_j&&typeof _j==='object')scores=_j; } }catch(e){}
+      if(!Object.keys(scores).length){ await new Promise(function(rz){setTimeout(rz,700);}); }
+    }
+    if(!Object.keys(scores).length){ steps.err='reject_scores読込失敗'; steps.scoreFail=true; return {items:[],steps:steps}; }
     setStep&&setStep('ゲート①②③④⑥をDB照会中…');
     var rows=[],frm=0;
     while(true){ var r=await db.from('farmland_snapshots').select('feature_id,lat,lng,area_sqm,city').gte('area_sqm',800).eq('noshin_status','CLEAR').eq('hazard_status','CLEAR').eq('infra_status','PASS').eq('grid_status','pass').range(frm,frm+999); var b=(r&&r.data)||[]; rows=rows.concat(b); if(b.length<1000)break; frm+=1000; if(frm>30000)break; }
@@ -8702,7 +8709,12 @@ if(typeof map!=='undefined'&&map&&map.on){
     showPanel(); if(_ref.funnel)_ref.funnel.innerHTML='<div style="color:#22d3ee">実行中…</div>';
     var setStep=function(m){ if(_ref.funnel)_ref.funnel.innerHTML='<div style="color:#22d3ee">'+m+'</div>'; };
     try{
-      var res=await computeCyanLive(setStep); computed=true; rebuildFromItems(res.items); var s=res.steps;
+      var res=await computeCyanLive(setStep); var s=res.steps;
+      if(s&&s.scoreFail){ // モデルが読めない時は数字を出さない(6395のような素通りを防ぐ)。
+        if(_ref.funnel)_ref.funnel.innerHTML='<div style="color:#f87171;font-weight:700">⚠ モデル(reject_scores)を読み込めませんでした。<br>数字は出しません（未採点素通りで件数が爆発するため）。<br>もう一度「🔬再実行」を押してください。</div>';
+        if(_ref.run){_ref.run.disabled=false;_ref.run.textContent='🔬 再実行';} running=false; return;
+      }
+      computed=true; rebuildFromItems(res.items);
       if(_ref.funnel)_ref.funnel.innerHTML=
         '<details style="font-size:11px"><summary style="cursor:pointer;color:#8b949e;font-size:11px;outline:none">🔍 絞り込みの過程（クリックで展開）</summary>'
         +'<div style="margin-top:4px">'
