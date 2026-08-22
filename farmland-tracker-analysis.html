@@ -823,7 +823,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822x 分析</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260822y 分析</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8541,14 +8541,18 @@ if(typeof map!=='undefined'&&map&&map.on){
       try{ var ok=await db.from('ai_ok_labels').select('member_fids').overlaps('member_fids',chunk); ((ok&&ok.data)||[]).forEach(function(x){(x.member_fids||[]).forEach(function(f){inv[f]=1;});}); }catch(e){}
     }
     var before=cand.length; cand=cand.filter(function(x){return !inv[x.f];}); steps.investRemoved=before-cand.length;
-    // ★既納品/仮納品(client_delivery_items)と30m以内で重なる候補を除外(二重取り防止・ドクター)。
-    setStep&&setStep('既納品・仮納品との重なり(30m)を除外中…');
+    // ★既得地(納品/仮納品/OK済/手動ピック)と30m以内で重なる候補を除外(二重取り防止・ドクター)。
+    // feature_id一致だけだとID表記ズレ(240383566 vs emaffMie_240383566)ですり抜けるので、座標30mで確実に落とす。
+    setStep&&setStep('既得地(納品/OK/ピック)との重なり(30m)を除外中…');
     var _M=function(a1,o1,a2,o2){var la=(a1+a2)/2*Math.PI/180;var mx=111320*Math.cos(la),my=110540;return Math.hypot((o1-o2)*mx,(a1-a2)*my);};
-    var deliv=[]; try{ var df=0; while(true){ var dr=await db.from('client_delivery_items').select('lat,lng,status').range(df,df+999); var db2=(dr&&dr.data)||[]; deliv=deliv.concat(db2); if(db2.length<1000)break; df+=1000; if(df>20000)break; } }catch(e){}
-    deliv=deliv.filter(function(d){return d.lat!=null&&d.lng!=null&&['removed','void','deleted'].indexOf(String(d.status||''))<0;});
+    async function pgAll(tbl,sel){ var out=[],df=0; try{ while(true){ var dr=await db.from(tbl).select(sel).range(df,df+999); var b=(dr&&dr.data)||[]; out=out.concat(b); if(b.length<1000)break; df+=1000; if(df>40000)break; } }catch(e){} return out; }
+    var taken=[];
+    (await pgAll('client_delivery_items','lat,lng,status')).forEach(function(d){ if(d.lat!=null&&d.lng!=null&&['removed','void','deleted'].indexOf(String(d.status||''))<0)taken.push([+d.lat,+d.lng]); });
+    (await pgAll('ai_ok_labels','lat,lng')).forEach(function(d){ if(d.lat!=null&&d.lng!=null)taken.push([+d.lat,+d.lng]); });
+    (await pgAll('case_candidates','latitude,longitude')).forEach(function(d){ if(d.latitude!=null&&d.longitude!=null)taken.push([+d.latitude,+d.longitude]); });
     // 空間グリッド(約33m格子)で近接判定を高速化
     var CELL=0.0003; function gk(la,ln){return Math.round(la/CELL)+'_'+Math.round(ln/CELL);}
-    var dGrid={}; deliv.forEach(function(d){var la=+d.lat,ln=+d.lng,k=gk(la,ln);(dGrid[k]=dGrid[k]||[]).push([la,ln]);});
+    var dGrid={}; taken.forEach(function(p){var k=gk(p[0],p[1]);(dGrid[k]=dGrid[k]||[]).push(p);});
     function nearAny(la,ln,grid){var ci=Math.round(la/CELL),cj=Math.round(ln/CELL);for(var di=-1;di<=1;di++)for(var dj=-1;dj<=1;dj++){var arr=grid[(ci+di)+'_'+(cj+dj)];if(arr)for(var q=0;q<arr.length;q++){if(_M(la,ln,arr[q][0],arr[q][1])<30)return true;}}return false;}
     var b2=cand.length; cand=cand.filter(function(x){return !nearAny(x.la,x.ln,dGrid);}); steps.deliveredRemoved=b2-cand.length;
     // ★候補どうしの30m近接(同一圃場の隣接筆)を1カ所へ統合。rejectが低い(=良い)/面積が大きい方を残す。
@@ -8689,7 +8693,7 @@ if(typeof map!=='undefined'&&map&&map.on){
         +'<div>→ ⑤⑦モデル(reject&lt;0.5/未採点): <b>'+s.model+'</b></div>'
         +'<div>→ ①青地(農振農用地ポリゴン内)除外: <b>−'+s.aochiRemoved+'</b> → '+s.afterAochi+'</div>'
         +'<div>→ 調査済み(OK/NG)除外: <b>−'+s.investRemoved+'</b></div>'
-        +'<div>→ 既納品・仮納品と重複(30m)除外: <b>−'+(s.deliveredRemoved||0)+'</b></div>'
+        +'<div>→ 既得地(納品/OK/ピック)と重複(30m)除外: <b>−'+(s.deliveredRemoved||0)+'</b></div>'
         +'<div>→ 隣接筆を30mで1カ所に統合: <b>−'+(s.mergeRemoved||0)+'</b></div>'
         +'<div style="color:#00e5ff;font-weight:800;margin-top:3px">＝ 適地候補: '+s.result+' 件</div>'
         +(s.gate===0?'<div style="color:#f87171;margin-top:4px">※ データ0件＝オーナーログインが必要（未ログインだとDBが読めません）</div>':'');
@@ -8729,9 +8733,9 @@ if(typeof map!=='undefined'&&map&&map.on){
   async function loadTakenLand(){
     if(_takenLoaded)return; _takenLoaded=true;
     async function pg(tbl,sel){ var out=[],f=0; while(true){ var r=await db.from(tbl).select(sel).range(f,f+999); var b=(r&&r.data)||[]; out=out.concat(b); if(b.length<1000)break; f+=1000; } return out; }
-    try{ (await pg('client_delivery_items','lat,lng,status')).forEach(function(x){ if(x.lat!=null&&x.lng!=null){ var conf=(x.status==='confirmed'); var col=conf?'#ef4444':'#ec4899'; L.circleMarker([x.lat,x.lng],{renderer:trnd,radius:5,color:col,weight:1,fillColor:col,fillOpacity:0.75}).bindTooltip(conf?'納品済':'仮納品').addTo(TAKENLAY); } }); }catch(e){}
-    try{ (await pg('case_candidates','latitude,longitude')).forEach(function(x){ if(x.latitude!=null&&x.longitude!=null){ L.circleMarker([x.latitude,x.longitude],{renderer:trnd,radius:4,color:'#ec4899',weight:1,fillColor:'#ec4899',fillOpacity:0.55}).bindTooltip('ピック済').addTo(TAKENLAY); } }); }catch(e){}
-    try{ (await pg('ai_ok_labels','lat,lng')).forEach(function(x){ if(x.lat!=null&&x.lng!=null){ L.circleMarker([x.lat,x.lng],{renderer:trnd,radius:4,color:'#f472b6',weight:1,fillColor:'#f472b6',fillOpacity:0.45}).bindTooltip('OK/境界済').addTo(TAKENLAY); } }); }catch(e){}
+    try{ (await pg('client_delivery_items','lat,lng,status')).forEach(function(x){ if(x.lat!=null&&x.lng!=null){ var conf=(x.status==='confirmed'); var col=conf?'#ef4444':'#ec4899'; L.circleMarker([x.lat,x.lng],{renderer:trnd,radius:9,color:'#ffffff',weight:2,fillColor:col,fillOpacity:0.85}).bindTooltip(conf?'納品済':'仮納品').addTo(TAKENLAY); } }); }catch(e){}
+    try{ (await pg('case_candidates','latitude,longitude')).forEach(function(x){ if(x.latitude!=null&&x.longitude!=null){ L.circleMarker([x.latitude,x.longitude],{renderer:trnd,radius:8,color:'#ffffff',weight:2,fillColor:'#ec4899',fillOpacity:0.8}).bindTooltip('ピック済').addTo(TAKENLAY); } }); }catch(e){}
+    try{ (await pg('ai_ok_labels','lat,lng')).forEach(function(x){ if(x.lat!=null&&x.lng!=null){ L.circleMarker([x.lat,x.lng],{renderer:trnd,radius:8,color:'#ffffff',weight:2,fillColor:'#f472b6',fillOpacity:0.75}).bindTooltip('OK/境界済').addTo(TAKENLAY); } }); }catch(e){}
   }
   function toggleTaken(){
     _takenOn=!_takenOn;
