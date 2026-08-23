@@ -747,10 +747,14 @@ function renderDelivered(){
   if(_deliveredLayer){try{m.removeLayer(_deliveredLayer);}catch(_){}_deliveredLayer=null;}
   if(!state.showDelivered||!window.DELIVERED300||!window.DELIVERED300.pts)return;
   if(!m.getPane('gachoDelivPane')){var p=m.createPane('gachoDelivPane');p.style.zIndex=445;}
+  // v20260823(ドクター): 「⊗既得地を表示」(TAKENLAY)は撤去・こちらを300表示の唯一の正とする。
+  // 0画層でgachoDelivPaneが一緒に消えるのを防ぐため、表示ONにするこの瞬間だけ明示的にdisplayを戻す
+  // (takenPaneと同じ理由・同じ対処。恒久ホワイトリスト化はしない=0画層は本当に全部隠す)。
+  try{ m.getPane('gachoDelivPane').style.display=''; }catch(_){}
   var g=L.layerGroup([]);
   window.DELIVERED300.pts.forEach(function(pt){
-    var mk=L.circleMarker([pt[0],pt[1]],{pane:'gachoDelivPane',radius:6,color:'#334155',weight:1,fillColor:'#94a3b8',fillOpacity:0.9,interactive:true});
-    mk.bindTooltip('納品済（初回）',{direction:'top'});
+    var mk=L.circleMarker([pt[0],pt[1]],{pane:'gachoDelivPane',radius:7,color:'#ffffff',weight:2,fillColor:'#ef4444',fillOpacity:0.85,interactive:true});
+    mk.bindTooltip('第1回納品済(300)',{direction:'top'});
     g.addLayer(mk);
   });
   g.addTo(m); _deliveredLayer=g;
@@ -828,7 +832,7 @@ function renderPanel(){
   // v20260821z(ドクター): 「未確認のみ表示」撤去(断捨離)。面積ラベルは残す。
   // v20260821z11(ドクター): 「㎡ 面積ラベル」撤去(面積はポップアップ/描画後表示で確認)。
   // v20260821z4(ドクター): 初回納品済を一律グレーで表示=二度出し防止。新規開拓(緑)と一目で区別。
-  if(window.DELIVERED300)h+='<div class="gacho-master"><button id="gachoShowDeliv" class="gacho-btn'+(state.showDelivered?' on':'')+'" style="'+(state.showDelivered?'background:rgba(148,163,184,.30);border-color:#94a3b8':'')+'" title="初回納品済'+(window.DELIVERED300.count||300)+'をグレーで地図に表示=同じ場所を二度出さないため。新規開拓(緑)と一目で区別">'+(state.showDelivered?'🏁 納品済を表示中（グレー）':'🏁 納品済を地図に表示')+'</button></div>';
+  if(window.DELIVERED300)h+='<div class="gacho-master"><button id="gachoShowDeliv" class="gacho-btn'+(state.showDelivered?' on':'')+'" style="'+(state.showDelivered?'background:rgba(239,68,68,.30);border-color:#ef4444':'')+'" title="第1回納品済'+(window.DELIVERED300.count||300)+'を赤で地図に表示=同じ場所を二度出さないため。新規開拓(緑)と一目で区別">'+(state.showDelivered?'🔴 第1回納品(300)を表示中':'🔴 第1回納品(300)を地図に表示')+'</button></div>';
   // v20260821z2(ドクター): 「見た分をOKに一括」「除外は非表示」撤去(断捨離)。NGは既定(showNg=false)で地図から隠れたまま=機能は維持。
   // v20260820i(ドクター): 納品300を座標突合して画層から完全削除(先にSW退避=DB無変更・完全復元可)
   // v20260821z9(ドクター): 断捨離。↩納品を戻す/📸移行前スナップショット/↩スナップに戻す/📂スナップJSONから復元 を撤去(移行完了・仰々しい)。🔄第2回一致とその↩だけ残す。復元は自動DLしたJSON＋git履歴が担保。
