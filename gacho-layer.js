@@ -1044,6 +1044,19 @@ async function loadBoundariesFromDb(){
     var best={},rank={ok:3,ng:2,pending:1};
     rows.forEach(function(x){try{var m=JSON.parse(x.memo||'{}'); if(!m.iid||!m.latlngs||m.latlngs.length<3)return; var st=(m.status==='ng'?'ng':(m.status==='ok'?'ok':'pending')); var rk=rank[st]||1; if(!best[m.iid]||rk>best[m.iid].rk){best[m.iid]={m:m,st:st,rk:rk};}}catch(_){}});
     var dupGrid=await _buildDupGrid(); var dupSkipped=0; // v20260823(ドクター): ここが別ロードなので毎回復活していた本当の原因。300/337/108重複はここでも除外。
+    // v20260823(ドクター「ハードリロードしたら出て来た」): 上のhave[]チェックは新規挿入を防ぐだけで、
+    // 既にstateへ保存済み(=337へ後から追加された等で今は重複になった)アイテムは削除されず残り続けていた。
+    // 「敷地境界（実測）」層に限り、既存アイテムも遡って300/337/108重複チェックし表示から外す(DBは無変更)。
+    (function(){
+      var existLayer=state.layers.filter(function(y){return y.name==='敷地境界（実測）';})[0];
+      if(!existLayer)return;
+      var keepEx=[];
+      existLayer.items.forEach(function(it){
+        if(_isNearKnown300_337_108(it.lat,it.lng,dupGrid)){dupSkipped++; if(it.iid)delete have[it.iid]; return;}
+        keepEx.push(it);
+      });
+      existLayer.items=keepEx;
+    })();
     Object.keys(best).forEach(function(iid){ if(have[iid])return; var b=best[iid],m=b.m;
       var mla=(m.lat!=null?m.lat:(m.latlngs[0]?m.latlngs[0][0]:null)), mln=(m.lng!=null?m.lng:(m.latlngs[0]?m.latlngs[0][1]:null));
       if(_isNearKnown300_337_108(mla,mln,dupGrid)){dupSkipped++;return;}
