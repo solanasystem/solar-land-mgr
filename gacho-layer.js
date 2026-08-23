@@ -873,8 +873,11 @@ function renderPanel(){
   if(window.DELIVERY2){
     // v20260823(ドクター「毎回これと同じ事を行う運用だから」): 「全て表示」だと精査中の作業台まで一緒に出てしまい、
     // 0画層の設定も崩れる。362(第2回納品候補)の全レイヤーだけを1クリックでON/OFFする専用ボタン。
-    h+='<div class="gacho-master"><button id="gachoD2Show" class="gacho-btn'+(state.showD2?' on':'')+'" style="'+(state.showD2?'background:rgba(34,197,94,.28);border-color:#22c55e':'')+'" title="第2回納品候補('+(window.DELIVERY2.totalItems||362)+')の全レイヤーだけをON/OFF。他の作業台レイヤーには触らない">'+(state.showD2?'🟢 第2回納品候補('+(window.DELIVERY2.totalItems||362)+')を表示中':'🟢 第2回納品候補('+(window.DELIVERY2.totalItems||362)+')を地図に表示')+'</button></div>';
-    h+='<div class="gacho-master"><button id="gachoD2Rebuild" class="gacho-btn" style="background:rgba(8,145,178,.28);border-color:#22d3ee;font-weight:700" title="第2回納品候補の階層を確定データ('+(window.DELIVERY2.totalItems||512)+')に完全一致。移動/補完/外れNGの除外を一括・可逆・推奨">🔄 第2回を確定データに一致（'+(window.DELIVERY2.totalItems||512)+'）</button></div>';
+    // v20260823(ドクター): 「||512」等の固定フォールバックはJSの0=falsyで「本当に0件」の時も古い数字を表示してしまう
+    // 欠陥だった(round2_poolのRLSで実際に0件返ってきた時に512と誤表示した事故の真因)。生の値だけを表示する。
+    var _d2n=window.DELIVERY2.totalItems;
+    h+='<div class="gacho-master"><button id="gachoD2Show" class="gacho-btn'+(state.showD2?' on':'')+'" style="'+(state.showD2?'background:rgba(34,197,94,.28);border-color:#22c55e':'')+'" title="第2回納品候補('+_d2n+')の全レイヤーだけをON/OFF。他の作業台レイヤーには触らない">'+(state.showD2?'🟢 第2回納品候補('+_d2n+')を表示中':'🟢 第2回納品候補('+_d2n+')を地図に表示')+'</button></div>';
+    h+='<div class="gacho-master"><button id="gachoD2Rebuild" class="gacho-btn" style="background:rgba(8,145,178,.28);border-color:#22d3ee;font-weight:700" title="第2回納品候補の階層を確定データ('+_d2n+')に完全一致。移動/補完/外れNGの除外を一括・可逆・推奨">🔄 第2回を確定データに一致（'+_d2n+'）</button></div>';
     // v20260821z3(ドクター): 🗂整理・➕補完は🔄に完全統合されたため撤去(断捨離)。今後OKを増やしたら🔄で再反映。
     h+='<div class="gacho-master"><button id="gachoD2Manual" class="gacho-btn" style="background:rgba(255,20,147,.16);border-color:#ff1493" title="手作業ピック(ピンク)を『手作業｜県｜市町村』へ整理して階層表示。ピックの中身は不変・入れ物だけ整理・可逆">🖐 手作業ピックも県→市町村へ</button></div>';
     h+='<div class="gacho-master"><button id="gachoTidy" class="gacho-btn" style="background:rgba(210,153,34,.2);border-color:#d29922" title="旧レイヤー(保留/対象外/AI候補/適当/検討/要確認 等)をSWへ退避し作業台から外す=県→市町村＋手作業＋手動ピックだけの綺麗な作業台に。可逆(退避↩で戻せる)">🧹 旧レイヤーを退避で片付け（県→市町村だけに）</button></div>';
