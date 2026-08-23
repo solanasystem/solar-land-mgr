@@ -741,14 +741,15 @@ function renderLayerGroups(){
       var vd=!!it.viewed;
       var under=(it.area!=null&&it.area<800);
       var areaTxt=(it.area!=null)?('面積 <b style="font-size:14px;color:'+(under?'#f85149':'#3fb950')+'">'+Math.round(it.area).toLocaleString()+' ㎡</b>'+(under?'<br><span style="color:#f85149">⚠ 800㎡未満：隣接を含め敷地境界を手描きで作成</span>':'')):'<span style="color:#8b949e">面積 不明</span>';
-      var acts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.useFudeAsBoundary(\''+l.id+'\',\''+(it.iid||'')+'\')" style="background:rgba(34,197,94,.2);border:1px solid #22c55e;color:#e6edf3;border-radius:4px;padding:3px 7px" title="ピンの下の筆(農水省筆ポリゴン)を実測の形で敷地境界に。無ければ既知面積の下敷き">📐 筆を敷地境界に(実測)</button> <button onclick="window.__gacho.drawOn(\''+l.id+'\')">✏️ 手描き</button> <button onclick="window.__gacho.deleteFlag(\''+l.id+'\',\''+(it.iid||'')+'\')" style="background:rgba(248,81,73,.2);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px" title="この筆を削除しOK記録も外す＝カウントから消える">🗑 削除</button></div>';
       var seen='<span style="color:#9aa4ae">'+(vd?'✓ 見た':'')+'</span>';
       var stat=it.status==='ok'?' <b style="color:#3fb950">✓OK</b>':(it.status==='ng'?' <b style="color:#f85149">🚫NG(除外)</b>':'');
       var gmap='<div style="margin-top:6px"><a href="https://www.google.com/maps/search/?api=1&query='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🌐 Googleマップ</a> ｜ <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🚶 ストリートビュー</a></div>';
       if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
-        var bacts='<div style="margin-top:8px"><button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ok\')" style="background:rgba(63,185,80,.25);border:1px solid #3fb950;color:#e6edf3;border-radius:4px;padding:3px 7px">✓ OK</button> <button onclick="window.__gacho.setStatus(\''+l.id+'\',\''+(it.iid||'')+'\',\'ng\')" style="background:rgba(248,81,73,.25);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🚫 NG(除外)</button></div><div style="margin-top:4px"><button onclick="window.__gacho.redraw(\''+l.id+'\',\''+(it.iid||'')+'\')">🗑 描き直す</button> <button onclick="window.__gacho.deleteFlag(\''+l.id+'\',\''+(it.iid||'')+'\')" style="background:rgba(248,81,73,.2);border:1px solid #f85149;color:#e6edf3;border-radius:4px;padding:3px 7px">🗑 削除</button></div>';
+        // v20260823(ドクター「各フラグのモーダルを必ず統一してくれ」): 境界も同じスコアカードに統一。
+        // 「描き直す」は境界固有の操作なのでスコアカードの後ろに残す。
+        var bredraw='<button class="gsc-draw" onclick="window.__gacho.redraw(\''+l.id+'\',\''+(it.iid||'')+'\')" title="この境界を消して描き直す">🗑 描き直す</button>';
         var pg=L.polygon(it.latlngs,it.status==='ng'?{pane:'gachoPane',color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.1,dashArray:'4,4'}:(it.status==='ok'?{pane:'gachoPane',color:'#22c55e',weight:3,fillColor:'#22c55e',fillOpacity:0.30}:{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null})); // v20260821g(ドクター): 手描き=OK=緑の枠+緑の塗り(ピンクにしない)
-        pg.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>敷地境界<br>'+areaTxt+gmap+bacts+'</div>');
+        pg.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>敷地境界<br>'+areaTxt+gmap+_whyHtml(it)+_scoreCardHtml(l,it)+bredraw+'</div>');
         pg.bindTooltip(Math.round(it.area||0).toLocaleString()+'㎡',{permanent:true,direction:'center',className:'gacho-area-lbl',pane:'gachoPane'});
         pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;saveState();}}); // v20260821h(ドクター): クリックで色を変えない
         g.addLayer(pg);
@@ -759,7 +760,8 @@ function renderLayerGroups(){
         var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
         if(_reviewFilter&&it.iid)_reviewMarkerByIid[it.iid]=mk; // v20260820t: 送り機能でopenPopup
         if(it.status!=='ng') _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(NG済は除外=課金しない・キー無ければno-op)
-        mk.bindPopup('<div style="font-size:12px;min-width:250px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+(it.src==='aiKI'?(_whyHtml(it)+_scoreCardHtml(l,it)):acts)+'</div>');
+        // v20260823(ドクター「各フラグのモーダルを必ず統一してくれ」): src==='aiKI'限定をやめ、全ての点フラグでスコアカード(8項目・NG理由記録)に統一。
+        mk.bindPopup('<div style="font-size:12px;min-width:250px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+_whyHtml(it)+_scoreCardHtml(l,it)+'</div>');
         mk.on('popupopen',function(){if(!it.viewed){it.viewed=true;saveState();}}); // v20260821h(ドクター): クリックで色を変えない
         g.addLayer(mk);
       }
@@ -1419,7 +1421,10 @@ window.__gacho={
     if(itr&&itr.feature_id&&itr.status!=='ok'&&itr.status!=='ng')_restyleMark(itr.feature_id,'viewed'); // v20260820m: 触った時点で「閲覧済み」表示(確定前でも一度見た印)
   },
   setSub:function(lid,iid,t,btn){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){it.ngsub=it.ngsub||[];var i=it.ngsub.indexOf(t);if(i>=0)it.ngsub.splice(i,1);else it.ngsub.push(t);}});saveState();try{btn.classList.toggle('on');}catch(_){}},
-  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;it.userJudged=true;if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1;_persistJudgmentScored(it,s);_restyleMark(it.feature_id,it.status);try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
+  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;it.userJudged=true;if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1;
+    if(it.type==='boundary'){ try{_saveBoundaryToDb(it);}catch(_){} } // v20260823(ドクター「モーダルを統一」): 境界も同じスコアカードを使うため、境界のDB保存も忘れず呼ぶ
+    else { _persistJudgmentScored(it,s); }
+    _restyleMark(it.feature_id,it.status);try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   /* v20260821z12(ドクター): ピンの下の農水省筆ポリゴン(実測の形)を取得→そのまま敷地境界に=勘で描かない。
      無ければ既知面積から下敷き(正方形)を配置(ドクター発想:面積が出る=情報が在る)。どちらも面積確認モーダル→✓OKで確定。 */
