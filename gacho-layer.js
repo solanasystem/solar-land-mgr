@@ -838,6 +838,9 @@ function renderPanel(){
   // v20260821z9(ドクター): 断捨離。↩納品を戻す/📸移行前スナップショット/↩スナップに戻す/📂スナップJSONから復元 を撤去(移行完了・仰々しい)。🔄第2回一致とその↩だけ残す。復元は自動DLしたJSON＋git履歴が担保。
   // 第2回納品候補 県→市町村 移行（慎重運用: 移動だけでは消えない・削除は別・総数変化で自動中断復元）
   if(window.DELIVERY2){
+    // v20260823(ドクター「毎回これと同じ事を行う運用だから」): 「全て表示」だと精査中の作業台まで一緒に出てしまい、
+    // 0画層の設定も崩れる。362(第2回納品候補)の全レイヤーだけを1クリックでON/OFFする専用ボタン。
+    h+='<div class="gacho-master"><button id="gachoD2Show" class="gacho-btn'+(state.showD2?' on':'')+'" style="'+(state.showD2?'background:rgba(34,197,94,.28);border-color:#22c55e':'')+'" title="第2回納品候補('+(window.DELIVERY2.totalItems||362)+')の全レイヤーだけをON/OFF。他の作業台レイヤーには触らない">'+(state.showD2?'🟢 第2回納品候補('+(window.DELIVERY2.totalItems||362)+')を表示中':'🟢 第2回納品候補('+(window.DELIVERY2.totalItems||362)+')を地図に表示')+'</button></div>';
     h+='<div class="gacho-master"><button id="gachoD2Rebuild" class="gacho-btn" style="background:rgba(8,145,178,.28);border-color:#22d3ee;font-weight:700" title="第2回納品候補の階層を確定データ('+(window.DELIVERY2.totalItems||512)+')に完全一致。移動/補完/外れNGの除外を一括・可逆・推奨">🔄 第2回を確定データに一致（'+(window.DELIVERY2.totalItems||512)+'）</button></div>';
     // v20260821z3(ドクター): 🗂整理・➕補完は🔄に完全統合されたため撤去(断捨離)。今後OKを増やしたら🔄で再反映。
     h+='<div class="gacho-master"><button id="gachoD2Manual" class="gacho-btn" style="background:rgba(255,20,147,.16);border-color:#ff1493" title="手作業ピック(ピンク)を『手作業｜県｜市町村』へ整理して階層表示。ピックの中身は不変・入れ物だけ整理・可逆">🖐 手作業ピックも県→市町村へ</button></div>';
@@ -940,6 +943,11 @@ function bindPanel(){
   var sa=q('#gachoShowAll');if(sa)sa.onclick=showAll;
   var ha=q('#gachoHideAll');if(ha)ha.onclick=hideAll;
   var shd=q('#gachoShowDeliv');if(shd)shd.onclick=function(){state.showDelivered=!state.showDelivered;saveState();try{renderDelivered();}catch(_){}renderPanel();};
+  var d2s=q('#gachoD2Show');if(d2s)d2s.onclick=function(){
+    state.showD2=!state.showD2;
+    state.layers.forEach(function(l){ if(l.meta&&l.meta.client==='第2回納品候補')l.visible=state.showD2; });
+    saveState();render();
+  };
   var d2d=q('#gachoD2Del');if(d2d)d2d.onclick=function(){deleteEmptiedD2();};
   var d2u=q('#gachoD2Undo');if(d2u)d2u.onclick=function(){undoDelivery2();};
   var d2r=q('#gachoD2Rebuild');if(d2r)d2r.onclick=function(){rebuildDelivery2();};
