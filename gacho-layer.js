@@ -850,14 +850,18 @@ function renderDelivered(){
 
 /* ===== 画層の分類(①クライアント②納品時期③行政区域) — レイヤー構造を明確化 ===== */
 function layerMeta(l){
-  if(l.meta && l.meta.client) return l.meta;
+  // v20260823(ドクター「常にアドホックな考え方はなくさなければならない」): 明示的に割り当てられたmeta(_d2Dest等が
+  // 実データの配置に基づいて設定したclient/pref/city)はキャッシュして良いが、ここで名前パターンから「推測」した
+  // metaは_autoの印を付け、毎回作り直す。分類ルール(下の正規表現)を後から直しても、既に推測済みの画層が
+  // 永遠に古い分類のまま固定される(色の不具合と同じ根)のを構造的に防ぐ。
+  if(l.meta && l.meta.client && !l.meta._auto) return l.meta;
   var n=String(l.name||'');
   var client=/SUN|サントラスト|奈良|御所|三重|松阪|桑名|いなべ|玉城|多気/i.test(n)?'SUNトラスト':'共通・自社';
   var region=/奈良|御所/.test(n)?'奈良県':(/三重|松阪|桑名|いなべ|玉城|多気/.test(n)?'三重県':'（区域横断）');
   var delivered=/納品|合筆提案|敷地境界|実測/.test(n) && !/AI候補|要確認|精査/.test(n);
   l.meta={client:client, region:region,
     period:delivered?'第1回納品（〜2026-08-06 確定）':'精査中（作業台）',
-    phase:delivered?'納品済':'精査中'};
+    phase:delivered?'納品済':'精査中', _auto:true};
   return l.meta;
 }
 function _grpDefOpen(k){ if(k==='ARCH')return false; if(k.indexOf('|R:')>=0)return true; if(k.indexOf('|P:')>=0)return /精査/.test(k); return true; }
@@ -1729,6 +1733,25 @@ function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(
   try{if(!localStorage.getItem('gacho_recolor_manual_orange_1')){var _rc=0;state.layers.forEach(function(l){if(/^手作業｜/.test(l.name||'')&&l.color==='#ff1493'){l.color='#f97316';_rc++;}});if(_rc)saveState();localStorage.setItem('gacho_recolor_manual_orange_1','1');}}catch(_){} // v20260822zr(ドクター): 手動ピック(判定)とピンクが同色で見分かない不具合を是正=既存「手作業｜県｜市町村」だけオレンジへ一度限り
   try{if(!localStorage.getItem('gacho_archive_orphan_flag_1')){var _oc=0;state.layers.forEach(function(l){if(l.name==='手作業ピック'&&!l.archived){l.archived=true;l.visible=false;if(state.solo===l.id)state.solo=null;_oc++;}});if(_oc)saveState();localStorage.setItem('gacho_archive_orphan_flag_1','1');}}catch(_){} // v20260822zs(ドクター): 撤去済み旧フラグ機能がブラウザに残した孤立画層「手作業ピック」(現行コードに作成箇所なし)だけを名指しで退避・一度限り・可逆
   try{if(!localStorage.getItem('gacho_autotidy_1')){var _old=state.layers.filter(function(l){ if(l.archived||!(l.items&&l.items.length))return false; if(_isD2Layer(l)||_d2IsPink(l))return false; if(/手動ピック|敷地境界/.test(l.name||''))return false; if(l.items.some(function(it){return it.type==='boundary';}))return false; return true; }); if(_old.length){ try{ if(typeof evacuateLayers==='function'){evacuateLayers(_old,'旧作業台整理(自動)','退避_'+_stamp());} else {_old.forEach(function(l){l.archived=true;l.visible=false;if(state.solo===l.id)state.solo=null;});saveState();} }catch(_){ _old.forEach(function(l){l.archived=true;l.visible=false;});saveState(); } } localStorage.setItem('gacho_autotidy_1','1');}}catch(_){} // v20260822zw(ドクター): 手作業探索を始める前に地図上の旧AI候補(愛知田原・三重大台大紀・御所218等)を退避=既存「🧹旧レイヤーを退避で片付け」と同一ロジックを確認無しで一度だけ自動実行・可逆(退避欄↩で戻せる)・第2回/手作業/手動ピック/境界は対象外
+  // v20260823(ドクター「決めたことが動いていない、色以外にも同じ不具合の可能性がある」): 一度限りの移行(above)は
+  // その場しのぎで、新しい決定のたびに個別対応が要る弱点があった。既知のシステム画層は毎回起動時に正しい色を
+  // 強制的に当て直す(ブラウザに残った古い状態が、コード側の決定と永遠にズレたままになるのを構造的に防ぐ)。
+  try{
+    var CANON_COLORS=[
+      {test:function(n){return n==='敷地境界（実測）';}, color:'#f59e0b'},
+      {test:function(n){return n==='手動ピック（判定）';}, color:'#ff1493'},
+      {test:function(n){return /^手作業｜/.test(n);}, color:'#f97316'},
+      {test:function(n){return /^第2回納品候補｜/.test(n);}, color:'#0891b2'}
+    ];
+    var _cc=0;
+    state.layers.forEach(function(l){
+      var n=l.name||'';
+      for(var i=0;i<CANON_COLORS.length;i++){
+        if(CANON_COLORS[i].test(n)&&l.color!==CANON_COLORS[i].color){ l.color=CANON_COLORS[i].color; _cc++; break; }
+      }
+    });
+    if(_cc){ saveState(); try{console.log('[画層] 色の不一致を'+_cc+'件、起動時に正規化しました');}catch(_){} }
+  }catch(_){}
   injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments().then(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}});setTimeout(loadDbJudgments,2500);setTimeout(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}},4200);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
   try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
   try{loadDelivery2FromDb();setTimeout(loadDelivery2FromDb,2600);}catch(_){} // v20260823: 362はround2_poolからライブ取得(静的ファイル依存を撤去)
