@@ -640,9 +640,14 @@ async function promotePinkToRound2(){
   var pink=[];
   state.layers.forEach(function(l){
     if(l.archived)return;
-    if(!_d2IsPink(l))return;
+    // v20260823(ドクター「松阪の境界が緑ボタンで漏れる」実機確認): 「敷地境界（実測）」は画層名がピンク判定の
+    // 正規表現に一致せず、OKにしても昇格対象から漏れていた。境界(type=boundary)はOKなら画層名を問わず対象に含め、
+    // 県市町村は下で(画層metaに無ければ)座標から解決する。
+    var isBoundaryLayer=(l.name==='敷地境界（実測）');
+    if(!_d2IsPink(l)&&!isBoundaryLayer)return;
     l.items.forEach(function(it){
       if(it.status!=='ok')return;
+      if(isBoundaryLayer&&it.type!=='boundary')return;
       pink.push({it:it,layer:l});
     });
   });
@@ -656,16 +661,21 @@ async function promotePinkToRound2(){
   }catch(e){ toast('⚠ 既存確認に失敗＝中断: '+(e&&e.message||e)); return; }
 
   var rows=[],skippedUnknown=0,skippedDup=0;
-  pink.forEach(function(p){
+  for(var _pi=0;_pi<pink.length;_pi++){
+    var p=pink[_pi];
     var it=p.it,l=p.layer;
     var kind=(it.type==='boundary')?'boundary':'feature';
     var sourceIid=(kind==='boundary')?it.iid:(it.feature_id||it.iid);
-    if(!sourceIid)return;
-    if(existing[sourceIid]){skippedDup++;return;}
+    if(!sourceIid)continue;
+    if(existing[sourceIid]){skippedDup++;continue;}
     var pref=(l.meta&&l.meta.pref)||null, city=(l.meta&&l.meta.city)||null;
-    if(!pref||!city||pref==='区域不明'||city==='区域不明'){skippedUnknown++;return;}
+    // 画層に県市町村が無い(=「敷地境界（実測）」等)場合は、座標から解決(キャッシュ→静的対応表→GSI逆ジオ)。
+    if((!pref||!city)&&it.lat!=null&&it.lng!=null){
+      try{ var g=await _resolveManualGeo(Number(it.lat),Number(it.lng)); if(g){pref=g.pref;city=g.city;} }catch(_){}
+    }
+    if(!pref||!city||pref==='区域不明'||city==='区域不明'){skippedUnknown++;continue;}
     rows.push({kind:kind,source_iid:sourceIid,lat:it.lat,lng:it.lng,area_m2:(it.area!=null?it.area:null),latlngs:(it.latlngs||null),pref:pref,city:city,status:'reserve',round:2});
-  });
+  }
 
   if(!rows.length){toast('昇格対象0件(区域不明'+skippedUnknown+'件・昇格済み'+skippedDup+'件はスキップ)');return;}
 
