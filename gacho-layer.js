@@ -1290,8 +1290,12 @@ async function rebuildManualPicksFromDb(silent){
         keep.push(it);
       }); l.items=keep;
     });
+    // v20260823(ドクター「区域不明が直らない」): 一度「区域不明」バケットに入ると existing[fid] が真になり、
+    // DB側のaddressを後から直しても二度と再判定されなかった。区域不明バケットの中身は「未整理」扱いに戻し、
+    // 毎回このDB由来のaddressで再判定させる(解決していれば正しい市町村へ、まだなら区域不明のまま=自己修復)。
+    state.layers.forEach(function(l){ if(l.meta&&l.meta.manual&&(l.meta.pref==='区域不明'||l.meta.city==='区域不明')){ l.items=[]; } });
     var existing={};
-    state.layers.forEach(function(l){ if(l.meta&&l.meta.manual){ (l.items||[]).forEach(function(it){ if(it.feature_id)existing[it.feature_id]=l; }); } });
+    state.layers.forEach(function(l){ if(l.meta&&l.meta.manual&&l.meta.pref!=='区域不明'&&l.meta.city!=='区域不明'){ (l.items||[]).forEach(function(it){ if(it.feature_id)existing[it.feature_id]=l; }); } });
     var added=0,unknown=0;
     for(var pi=0;pi<picks.length;pi++){ var p=picks[pi];
       var fid='cc'+p.id; var st=_gDbOk[fid]?'ok':(_gDbNg[fid]?'ng':null);
