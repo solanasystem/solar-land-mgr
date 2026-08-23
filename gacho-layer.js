@@ -633,6 +633,59 @@ async function loadDelivery2FromDb(){
   try{ render(); }catch(_){}
 }
 window.__gachoReloadD2=loadDelivery2FromDb;
+/* v20260823(ドクター「決まった作業はシステムへプログラムで動く、AIから外出し」「ピンク→緑への昇格をボタン1つで」):
+   OK判定済みの手動ピック(ピンク/オレンジ「手作業｜県｜市町村」/生ピンク「手動ピック（判定）」)を一括でround2_pool(緑・予備軍)へ昇格。
+   区域不明(pref/city未解決)の分は昇格せず件数を報告する(勝手に区域不明のまま昇格させない)。 */
+async function promotePinkToRound2(){
+  var d=_gDb(); if(!d){toast('DB未接続＝中断');return;}
+  var pink=[];
+  state.layers.forEach(function(l){
+    if(l.archived)return;
+    if(!_d2IsPink(l))return;
+    l.items.forEach(function(it){
+      if(it.status!=='ok')return;
+      pink.push({it:it,layer:l});
+    });
+  });
+  if(!pink.length){toast('OK判定済みの手動ピックがありません');return;}
+  if(!confirm('OK判定済みの手動ピック '+pink.length+'件を、予備軍(round2_pool・緑)へ昇格します。\n・区域不明(県市町村未解決)は対象外にします\n・既に昇格済みの物は二重登録しません\n実行しますか？'))return;
+
+  var existing={};
+  try{
+    var frm=0;
+    while(true){ var r=await d.from('round2_pool').select('source_iid').range(frm,frm+999); var rows=(r&&r.data)||[]; rows.forEach(function(x){existing[x.source_iid]=1;}); if(rows.length<1000)break; frm+=1000; }
+  }catch(e){ toast('⚠ 既存確認に失敗＝中断: '+(e&&e.message||e)); return; }
+
+  var rows=[],skippedUnknown=0,skippedDup=0;
+  pink.forEach(function(p){
+    var it=p.it,l=p.layer;
+    var kind=(it.type==='boundary')?'boundary':'feature';
+    var sourceIid=(kind==='boundary')?it.iid:(it.feature_id||it.iid);
+    if(!sourceIid)return;
+    if(existing[sourceIid]){skippedDup++;return;}
+    var pref=(l.meta&&l.meta.pref)||null, city=(l.meta&&l.meta.city)||null;
+    if(!pref||!city||pref==='区域不明'||city==='区域不明'){skippedUnknown++;return;}
+    rows.push({kind:kind,source_iid:sourceIid,lat:it.lat,lng:it.lng,area_m2:(it.area!=null?it.area:null),latlngs:(it.latlngs||null),pref:pref,city:city,status:'reserve',round:2});
+  });
+
+  if(!rows.length){toast('昇格対象0件(区域不明'+skippedUnknown+'件・昇格済み'+skippedDup+'件はスキップ)');return;}
+
+  var inserted=0,errs=[];
+  var BATCH=100;
+  for(var i=0;i<rows.length;i+=BATCH){
+    var chunk=rows.slice(i,i+BATCH);
+    try{
+      var res=await d.from('round2_pool').insert(chunk).select('id');
+      if(res&&res.error)throw new Error(res.error.message);
+      inserted+=((res&&res.data)||[]).length;
+    }catch(e){ errs.push(e&&e.message||e); }
+  }
+  await loadDelivery2FromDb();
+  var msg='⬆ 昇格 '+inserted+'件（区域不明でスキップ'+skippedUnknown+'件・昇格済みでスキップ'+skippedDup+'件'+(errs.length?'・エラー'+errs.length+'件':'')+'）';
+  try{alert(msg);}catch(_){}
+  toast(msg);
+}
+window.__gachoPromoteToRound2=promotePinkToRound2;
 /* v20260821m(ドクター復旧): ダウンロード済みスナップJSONファイルを選んで直接復元(ブラウザ内が壊れていても、確認済みの09:13ファイルから手描き境界を戻す)。 */
 function restoreFromFile(){
   try{
@@ -882,6 +935,8 @@ function renderPanel(){
     h+='<div class="gacho-master"><button id="gachoD2Rebuild" class="gacho-btn" style="background:rgba(8,145,178,.28);border-color:#22d3ee;font-weight:700" title="第2回納品候補の階層を確定データ('+_d2n+')に完全一致。移動/補完/外れNGの除外を一括・可逆・推奨">🔄 第2回を確定データに一致（'+_d2n+'）</button></div>';
     // v20260821z3(ドクター): 🗂整理・➕補完は🔄に完全統合されたため撤去(断捨離)。今後OKを増やしたら🔄で再反映。
     h+='<div class="gacho-master"><button id="gachoD2Manual" class="gacho-btn" style="background:rgba(255,20,147,.16);border-color:#ff1493" title="手作業ピック(ピンク)を『手作業｜県｜市町村』へ整理して階層表示。ピックの中身は不変・入れ物だけ整理・可逆">🖐 手作業ピックも県→市町村へ</button></div>';
+    // v20260823(ドクター「ピンク→緑への昇格をボタン1つで、AI外だし」): OK判定済みの手動ピックをround2_pool(緑・予備軍)へ一括昇格。
+    h+='<div class="gacho-master"><button id="gachoPromoteD2" class="gacho-btn" style="background:rgba(34,197,94,.2);border-color:#22c55e;font-weight:700" title="OK判定済みの手動ピック(ピンク/手作業)をround2_pool(第2回納品候補・緑)へ一括昇格。区域不明・昇格済みは対象外">⬆ OK済みピックを予備軍(緑)へ昇格</button></div>';
     h+='<div class="gacho-master"><button id="gachoTidy" class="gacho-btn" style="background:rgba(210,153,34,.2);border-color:#d29922" title="旧レイヤー(保留/対象外/AI候補/適当/検討/要確認 等)をSWへ退避し作業台から外す=県→市町村＋手作業＋手動ピックだけの綺麗な作業台に。可逆(退避↩で戻せる)">🧹 旧レイヤーを退避で片付け（県→市町村だけに）</button></div>';
     if(_d2Emptied.length||_hasD2Snap()){
       h+='<div class="gacho-master">'+(_d2Emptied.length?'<button id="gachoD2Del" class="gacho-btn on" title="移動で空になった元レイヤーを削除(0件のみ・総数不変を再確認)">🗑 空レイヤー削除（'+_d2Emptied.length+'）</button>':'')+(_hasD2Snap()?'<button id="gachoD2Undo" class="gacho-btn on" title="第2回移行を移行前に戻す">↩ 移行を元に戻す</button>':'')+'</div>';
@@ -986,6 +1041,7 @@ function bindPanel(){
     state.layers.forEach(function(l){ if(l.meta&&l.meta.client==='第2回納品候補')l.visible=state.showD2; });
     saveState();render();
   };
+  var pd2=q('#gachoPromoteD2');if(pd2)pd2.onclick=function(){promotePinkToRound2();};
   var d2d=q('#gachoD2Del');if(d2d)d2d.onclick=function(){deleteEmptiedD2();};
   var d2u=q('#gachoD2Undo');if(d2u)d2u.onclick=function(){undoDelivery2();};
   var d2r=q('#gachoD2Rebuild');if(d2r)d2r.onclick=function(){rebuildDelivery2();};
@@ -1332,7 +1388,9 @@ function _scoreCardHtml(l,it){
   var vd='<div class="gsc-vd" id="gscvd_'+iid+'">'+(_hasX(s)?'<b style="color:#f85149">✖あり → 除外(NG)</b>':'<b style="color:#3fb950">✖なし → OK可</b>')+'</div>';
   var drawBtn='<button class="gsc-draw" style="background:#062b12;border-color:#22c55e;color:#86efac" onclick="window.__gacho.useFudeAsBoundary(\''+l.id+'\',\''+iid+'\')" title="ピンの下の筆(農水省筆ポリゴン)を実測の形で敷地境界に。無ければ既知面積の下敷き">📐 この筆を敷地境界にする（実測）</button>'
     +'<button class="gsc-draw" onclick="window.__gacho.drawArea(\''+l.id+'\',\''+iid+'\')" title="実測が無い/形を変えたい時: 隣接を含め手描き→面積を再計算(⑥面積に反映)">✏️ 手描きで敷地境界（面積を増やす）</button>';
-  return _gmImgHtml(it)+'<div class="gsc">'+rows+vd+drawBtn+'<button class="gsc-fix" onclick="window.__gacho.applyScore(\''+l.id+'\',\''+iid+'\')">この判定を確定</button>'
+  // v20260823(ドクター「グーグルアースも全てに入れておいてくれ」): スコアカード側に1回だけ入れる=呼び出し元(108/御所218/AIKI/gappitsu_hold等)全部に自動で効く。
+  var earthLink=(it.lat!=null&&it.lng!=null)?('<div style="margin:4px 0 6px"><a href="https://earth.google.com/web/@'+it.lat+','+it.lng+',0a,1000d,35y,0h,0t,0r" target="_blank" rel="noopener" style="color:#58a6ff">🌍 Googleアース</a></div>'):'';
+  return _gmImgHtml(it)+earthLink+'<div class="gsc">'+rows+vd+drawBtn+'<button class="gsc-fix" onclick="window.__gacho.applyScore(\''+l.id+'\',\''+iid+'\')">この判定を確定</button>'
     +'<button class="gsc-fix" style="background:#7f1d1d;border-color:#f85149;margin-top:5px" onclick="window.__gacho.deleteFlag(\''+l.id+'\',\''+iid+'\')">🗑 この筆を削除（OKから外す）</button></div>';
 }
 /* ===== v20260820m(ドクター): 判定済み(OK/NG/閲覧)フラグの見た目を変える=一度見たか一目で判る =====
