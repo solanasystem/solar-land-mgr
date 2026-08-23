@@ -16,6 +16,7 @@ var _drawMode=false,_drawPts=[],_drawTemp=null,_drawMarkers=[];
 var _pickMode=false;
 var _drawTarget=null; // v20260820h(ドクター): 手描き敷地境界→対象フラグの面積を更新(小さい土地を800㎡以上へ)。{lid,iid}
 var _addMode=false;
+var _addModeResume=false; // v20260823(ドクター): 手描きに入る時だけ📍を一時停止し、終わったら自動再開＝📍は連続作業用、押し直すのは終了時だけでよい
 
 function loadState(){
   var s=null;try{s=JSON.parse(localStorage.getItem(LS_KEY));}catch(_){}
@@ -121,13 +122,11 @@ function toggleAdd(){
 function addClick(e){
   var la=e.latlng.lat,ln=e.latlng.lng;
   // ★まず「必ず」フラグを立てる(記録の成否・モーダルに依存しない。栗本さん:手動ピックのフラグが出ない の根治)。
-  // 取込先が無ければ「手動ピック（判定）」画層を自動で用意して可視化。
-  var l=activeLayer();
-  if(!l){
-    l=state.layers.filter(function(x){return x.name==='手動ピック（判定）'&&!x.archived;})[0];
-    if(!l){l={id:uid(),name:'手動ピック（判定）',color:'#ff1493',visible:true,active:true,items:[]};state.layers.push(l);}
-    state.layers.forEach(function(x){x.active=(x.id===l.id);});
-  }
+  // v20260823(ドクター「オレンジになる」): 📍は常に「手動ピック（判定）」(ピンク)専用。以前はactiveLayer()を見ていたため、
+  // ✏️手描きで取込先が「敷地境界（実測）」(オレンジ系)に切り替わった直後に📍を押すと、新規ピンまでそこに紛れ込みオレンジになっていた。
+  var l=state.layers.filter(function(x){return x.name==='手動ピック（判定）'&&!x.archived;})[0];
+  if(!l){l={id:uid(),name:'手動ピック（判定）',color:'#ff1493',visible:true,active:true,items:[]};state.layers.push(l);}
+  state.layers.forEach(function(x){x.active=(x.id===l.id);});
   if(l.archived)l.archived=false; l.visible=true;
   l.items.push({iid:iid(),lat:la,lng:ln,address:'手動ピック '+la.toFixed(5)+', '+ln.toFixed(5),src:'manualpick',status:null});
   saveState();render();
@@ -158,7 +157,7 @@ function toggleDraw(){
   var m=getMap();if(!m)return;
   if(!activeLayer()){toast('先に取込先の画層を選ぶ/作ってください');return;}
   _drawMode=!_drawMode;
-  if(_drawMode){if(_rectMode)cleanupRect();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();m.closePopup();_drawPanesOff();try{m.doubleClickZoom.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('click',drawClick);m.on('dblclick',drawFinish);toast('頂点をクリックで追加→ダブルクリックで確定（ESCで取消）');}
+  if(_drawMode){if(_rectMode)cleanupRect();if(_pickMode)cleanupPick();if(_addMode){_addModeResume=true;cleanupAdd();}m.closePopup();_drawPanesOff();try{m.doubleClickZoom.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('click',drawClick);m.on('dblclick',drawFinish);toast('頂点をクリックで追加→ダブルクリックで確定（ESCで取消）');}
   else{cancelDraw();}
   renderPanel();
 }
@@ -195,7 +194,7 @@ function _showAreaConfirm(area,tgt){
     try{ if(_lastDrawnBoundary){var bl=byId(_lastDrawnBoundary.lid);if(bl)bl.items=bl.items.filter(function(x){return x.iid!==_lastDrawnBoundary.iid;});saveState();} if(_lastDrawTarget)_drawTarget=_lastDrawTarget; render(); if(!_drawMode)toggleDraw(); toast('描き直し: クリックで頂点→ダブルクリックで確定'); }catch(_){}
   };
 }
-function cancelDraw(){var m=getMap();_drawMarkers.forEach(function(mk){try{if(m)m.removeLayer(mk);}catch(_){}});_drawMarkers=[];if(_drawTemp){try{if(m)m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}_drawPts=[];_drawPanesOn();if(m){m.off('click',drawClick);m.off('dblclick',drawFinish);try{m.doubleClickZoom.enable();}catch(_){}m.getContainer().style.cursor='';}_drawMode=false;renderPanel();}
+function cancelDraw(){var m=getMap();_drawMarkers.forEach(function(mk){try{if(m)m.removeLayer(mk);}catch(_){}});_drawMarkers=[];if(_drawTemp){try{if(m)m.removeLayer(_drawTemp);}catch(_){}_drawTemp=null;}_drawPts=[];_drawPanesOn();if(m){m.off('click',drawClick);m.off('dblclick',drawFinish);try{m.doubleClickZoom.enable();}catch(_){}m.getContainer().style.cursor='';}_drawMode=false;if(_addModeResume){_addModeResume=false;toggleAdd();}renderPanel();}
 
 function toggleRect(){var m=getMap();if(!m)return;_rectMode=!_rectMode;if(_rectMode){if(_drawMode)cancelDraw();if(_pickMode)cleanupPick();if(_addMode)cleanupAdd();try{m.dragging.disable();}catch(_){}m.getContainer().style.cursor='crosshair';m.on('mousedown',rectDown);toast('地図上をドラッグで囲むと、その範囲の筆・フラグを取り込みます（ESCで終了）');}else{cleanupRect();}renderPanel();}
 function rectDown(e){_rectStart=e.latlng;var m=getMap();m.on('mousemove',rectMove);m.on('mouseup',rectUp);}
@@ -920,6 +919,9 @@ function renderPanel(){
   var box=document.getElementById('gachoPanel');if(!box)return;var al=activeLayer();var h='';
   h+='<div class="gacho-head"><span>🗂 画層</span><button class="gacho-min" id="gachoMin" title="開閉">—</button></div>';
   h+='<div class="gacho-body" id="gachoBody">';
+  // v20260823(ドクター「ボタンが一番下でスクロールに隠れる」): 📍手動ピックは最頻出操作のため、常時・パネル最上部に固定表示。
+  //   活性画層(al)が無くても押せる(押した時に「手動ピック（判定）」画層を自動作成=addClickの既存挙動)。
+  h+='<div class="gacho-master"><button id="gachoAddPt" class="gacho-btn wide'+(_addMode?' on':'')+'" style="background:rgba(255,20,147,.16);border-color:#ff1493;font-weight:700">📍 地図クリックで手動ピック記録（案件候補）'+(_addMode?'（クリック→確認→保存／ESCで終了）':'')+'</button></div>';
   h+='<div class="gacho-master"><button id="gachoShowAll" class="gacho-btn">👁 全て表示</button><button id="gachoHideAll" class="gacho-btn">🚫 全て隠す</button></div>';
   // v20260821z(ドクター): 「未確認のみ表示」撤去(断捨離)。面積ラベルは残す。
   // v20260821z11(ドクター): 「㎡ 面積ラベル」撤去(面積はポップアップ/描画後表示で確認)。
@@ -1019,7 +1021,7 @@ function renderPanel(){
   if(al){
     h+='<div class="gacho-active-note">取込先: <b style="color:'+al.color+'">'+esc(al.name)+'</b></div>';
     // v20260821z10(ドクター): 「🖱 クリックで1件ずつ取込」撤去(未使用)。手動ピックは📍で。
-    h+='<button id="gachoAddPt" class="gacho-btn wide'+(_addMode?' on':'')+'" style="background:rgba(255,20,147,.16);border-color:#ff1493">📍 地図クリックで手動ピック記録（案件候補）'+(_addMode?'（クリック→確認→保存／ESCで終了）':'')+'</button>';
+    // v20260823: 📍ボタンはパネル最上部へ移動(このブロックの外・活性画層に依存せず常時表示)。ここでの重複描画は撤去。
     h+='<button id="gachoCapView" class="gacho-btn wide">＋ 表示中の範囲を取り込む（全部）</button>';
     h+='<div class="gacho-cond">面積 ≥ <input id="gachoMinArea" type="number" min="0" step="50" value="'+(state.lastMinArea!=null?state.lastMinArea:800)+'"> ㎡ <button id="gachoCapCond" class="gacho-btn">条件で取込</button></div>';
     // v20260821z7(ドクター): 「範囲ドラッグで取り込む」「敷地境界を描く」撤去。手描きは各フラグのポップアップ内✏️から。描画中の↩/✓は下に出る。
