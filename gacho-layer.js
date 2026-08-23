@@ -600,6 +600,39 @@ function rebuildDelivery2(){
   try{alert('✓ 第2回納品候補を確定データに一致させました\n\n配置 '+placed+' 件\n第2回の実数 = '+tot+'（目標'+D.totalItems+'）\n\n違和感があれば「↩ 移行を元に戻す」。');}catch(_){}
   toast('✓ 第2回 再構築 実数'+tot+'（目標'+D.totalItems+'）');
 }
+/* v20260823(ドクター「静的ファイルへの依存自体をやめる」): window.DELIVERY2を、静的ファイル(delivery2-candidates.js)
+   ではなくDBテーブル round2_pool(round=2) から毎回ライブで組み立てる。既存の全機能(_d2Dest/rebuildDelivery2/
+   completeDelivery2FromDb/362表示ボタン/重複チェック_buildDupGrid等)はwindow.DELIVERY2.items等の形さえ同じなら
+   そのまま動く=中身の出所だけ差し替える。起動時に読み、以後は昇格ボタン等でDBが変わるたびに呼び直す想定。 */
+async function loadDelivery2FromDb(){
+  var d=_gDb(); if(!d)return;
+  var rows=[],frm=0;
+  try{
+    while(true){
+      var r=await d.from('round2_pool').select('kind,source_iid,lat,lng,area_m2,latlngs,pref,city,status,round').eq('round',2).range(frm,frm+999);
+      if(r&&r.error)throw new Error(r.error.message);
+      var b=(r&&r.data)||[]; rows=rows.concat(b);
+      if(b.length<1000)break; frm+=1000;
+    }
+  }catch(e){ try{console.warn('[round2_pool] 取得失敗:',e&&e.message||e);}catch(_){} return; }
+  var items=[],byFeature={},byBoundary={},locCount={},order={},prefOrder=[];
+  rows.forEach(function(r){
+    if(r.kind==='boundary'){
+      items.push({k:'b',id:r.source_iid,lat:r.lat,lng:r.lng,area:r.area_m2,latlngs:r.latlngs,pref:r.pref,city:r.city});
+      byBoundary[r.source_iid]={pref:r.pref,city:r.city};
+    }else{
+      items.push({k:'f',id:r.source_iid,lat:r.lat,lng:r.lng,pref:r.pref,city:r.city});
+      byFeature[r.source_iid]={pref:r.pref,city:r.city};
+    }
+    locCount[r.pref]=locCount[r.pref]||{}; locCount[r.pref][r.city]=(locCount[r.pref][r.city]||0)+1;
+    order[r.pref]=order[r.pref]||[]; if(order[r.pref].indexOf(r.city)<0)order[r.pref].push(r.city);
+    if(prefOrder.indexOf(r.pref)<0)prefOrder.push(r.pref);
+  });
+  window.DELIVERY2={gen:'live(round2_pool)',totalItems:items.length,totalLocations:items.length,items:items,byFeature:byFeature,byBoundary:byBoundary,locCount:locCount,order:order,prefOrder:prefOrder,manualGeoByCoord:{}};
+  try{ _dupGridCache=null; }catch(_){}
+  try{ render(); }catch(_){}
+}
+window.__gachoReloadD2=loadDelivery2FromDb;
 /* v20260821m(ドクター復旧): ダウンロード済みスナップJSONファイルを選んで直接復元(ブラウザ内が壊れていても、確認済みの09:13ファイルから手描き境界を戻す)。 */
 function restoreFromFile(){
   try{
@@ -1620,6 +1653,7 @@ function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(
   try{if(!localStorage.getItem('gacho_autotidy_1')){var _old=state.layers.filter(function(l){ if(l.archived||!(l.items&&l.items.length))return false; if(_isD2Layer(l)||_d2IsPink(l))return false; if(/手動ピック|敷地境界/.test(l.name||''))return false; if(l.items.some(function(it){return it.type==='boundary';}))return false; return true; }); if(_old.length){ try{ if(typeof evacuateLayers==='function'){evacuateLayers(_old,'旧作業台整理(自動)','退避_'+_stamp());} else {_old.forEach(function(l){l.archived=true;l.visible=false;if(state.solo===l.id)state.solo=null;});saveState();} }catch(_){ _old.forEach(function(l){l.archived=true;l.visible=false;});saveState(); } } localStorage.setItem('gacho_autotidy_1','1');}}catch(_){} // v20260822zw(ドクター): 手作業探索を始める前に地図上の旧AI候補(愛知田原・三重大台大紀・御所218等)を退避=既存「🧹旧レイヤーを退避で片付け」と同一ロジックを確認無しで一度だけ自動実行・可逆(退避欄↩で戻せる)・第2回/手作業/手動ピック/境界は対象外
   injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments().then(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}});setTimeout(loadDbJudgments,2500);setTimeout(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}},4200);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
   try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
+  try{loadDelivery2FromDb();setTimeout(loadDelivery2FromDb,2600);}catch(_){} // v20260823: 362はround2_poolからライブ取得(静的ファイル依存を撤去)
   // 削除した筆を復活させない: 起動時＋遅延描画に追随して掃引
   try{ _sweepDeletedFlags(); setTimeout(_sweepDeletedFlags,1800); setTimeout(_sweepDeletedFlags,4500); setTimeout(_sweepDeletedFlags,9000); setInterval(_sweepDeletedFlags,20000); m.on('moveend zoomend',function(){_sweepDeletedFlags();}); }catch(_){}
   // 絶対に消えない: 起動時に未保存をDBへ再送→15秒毎に再試行→オンライン復帰で即再送。HUDで未保存件数を常時表示。
