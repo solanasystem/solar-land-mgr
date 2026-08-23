@@ -1091,9 +1091,17 @@ function _obGet(){try{return JSON.parse(localStorage.getItem(_OUTBOX_KEY)||'[]')
 function _obSet(a){try{localStorage.setItem(_OUTBOX_KEY,JSON.stringify(a));}catch(_){}}
 function _obAdd(e){try{e.id=uid();e.ts=_stamp();var a=_obGet();a.push(e);_obSet(a);_updateSaveHud();_flushOutbox();}catch(_){}}
 var _obFlushing=false;
+// v20260823(ドクター「重複要件はカウントと分析を全てぶち壊す元凶だ」): boundary/okは今までplain insertで、
+// 「この判定を確定」を複数回押すたびai_ok_labelsに行が増え続けていた(読込時のok>ng>pending選別で表示だけ誤魔化されていた)。
+// ai_ok_labelsにはiid専用の一意制約が無いため、deleteFlag等で既に使っている「同じsource+member_fidsの既存行を
+// 先に削除してから追加」パターンで実質upsert化する。ngは元々upsert(onConflict:feature_id)なので変更不要。
 function _obExec(d,e){
-  if(e.kind==='boundary')return d.from('ai_ok_labels').insert({source:'handdraw_boundary',member_fids:[e.iid],lat:e.lat,lng:e.lng,memo:e.memo});
-  if(e.kind==='ok')return d.from('ai_ok_labels').insert({source:'gacho_ok',member_fids:[e.fid],lat:e.lat,lng:e.lng,memo:e.memo||'gacho手動OK'});
+  if(e.kind==='boundary')return d.from('ai_ok_labels').delete().eq('source','handdraw_boundary').contains('member_fids',[e.iid]).then(function(){
+    return d.from('ai_ok_labels').insert({source:'handdraw_boundary',member_fids:[e.iid],lat:e.lat,lng:e.lng,memo:e.memo});
+  });
+  if(e.kind==='ok')return d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[e.fid]).then(function(){
+    return d.from('ai_ok_labels').insert({source:'gacho_ok',member_fids:[e.fid],lat:e.lat,lng:e.lng,memo:e.memo||'gacho手動OK'});
+  });
   if(e.kind==='ng')return d.from('farmland_ng_list').upsert({feature_id:e.fid,lat:e.lat,lng:e.lng,ng_reason:e.reason||'gacho_ng'},{onConflict:'feature_id'});
   return null;
 }
