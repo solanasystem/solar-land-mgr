@@ -652,13 +652,24 @@ async function promotePinkToRound2(){
     });
   });
   if(!pink.length){toast('OK判定済みの手動ピックがありません');return;}
-  if(!confirm('OK判定済みの手動ピック '+pink.length+'件を、予備軍(round2_pool・緑)へ昇格します。\n・区域不明(県市町村未解決)は対象外にします\n・既に昇格済みの物は二重登録しません\n実行しますか？'))return;
 
+  // v20260823(ドクター「あの表現はダメだ・誤解のもと」): 確認ダイアログが「pink.length件を昇格します」と表示していたが、
+  // 実際はDB照合後に既昇格分を弾くため、大半が既昇格済みの時ほど数字が実態と食い違い誤解を招いた(実例: 表示8件→実際は新規1件)。
+  // 確認前に既存チェックを済ませ、「本当に新規で入る件数」を表示する。
   var existing={};
   try{
     var frm=0;
-    while(true){ var r=await d.from('round2_pool').select('source_iid').range(frm,frm+999); var rows=(r&&r.data)||[]; rows.forEach(function(x){existing[x.source_iid]=1;}); if(rows.length<1000)break; frm+=1000; }
+    while(true){ var r=await d.from('round2_pool').select('source_iid').range(frm,frm+999); var er=(r&&r.data)||[]; er.forEach(function(x){existing[x.source_iid]=1;}); if(er.length<1000)break; frm+=1000; }
   }catch(e){ toast('⚠ 既存確認に失敗＝中断: '+(e&&e.message||e)); return; }
+
+  var newCount=0,alreadyCount=0;
+  pink.forEach(function(p){
+    var it=p.it,kind=(it.type==='boundary')?'boundary':'feature';
+    var sourceIid=(kind==='boundary')?it.iid:(it.feature_id||it.iid);
+    if(sourceIid&&existing[sourceIid])alreadyCount++;else newCount++;
+  });
+  if(!newCount){toast('新規の昇格対象はありません(該当'+pink.length+'件は全て昇格済み)');return;}
+  if(!confirm('OK判定済みのうち新規 '+newCount+'件を、予備軍(round2_pool・緑)へ昇格します。\n（既に昇格済みの'+alreadyCount+'件は対象外＝二重登録しません）\n・区域不明(県市町村未解決)は対象外にします\n実行しますか？'))return;
 
   var rows=[],skippedUnknown=0,skippedDup=0;
   for(var _pi=0;_pi<pink.length;_pi++){
