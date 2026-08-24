@@ -167,8 +167,15 @@
      社内ロール(admin/manager/viewer)＝土地探索の作業者のみ利用可。 -->
 <script>
 (function(){
+  // v20260824(ドクター「黒木さんのフラグが出ない」実機報告で発覚): このガードが2026-08-11に追加された際、
+  // 同じ日に書かれた「黒木さん(九州)個別許可」(下のスクリプト,203行目付近)を除外し忘れていた。
+  // partnerロールの黒木さんは常にこのガードに先に捕まりmode-select.htmlへ強制送還され、
+  // 個別許可コードへ到達すら出来ていなかった(=フラグが永久に表示されない根本原因)。
+  var KUROGI_EMAIL='yumi.kurogi117@gmail.com';
   function guard(){
     if(!(window.__auth && typeof window.__auth.isPartner==='function')){ setTimeout(guard,50); return; }
+    var em=((window.__auth.profile&&window.__auth.profile.email)||'').trim().toLowerCase();
+    if(em===KUROGI_EMAIL) return; // 黒木さん(九州)は個別許可対象=このページに留まらせる
     // 社外(client)ロールはこの分析ページに入れない。全社内機能が露出するため。
     if(window.__auth.isPartner() || window.__auth.isExternal()){
       try{ document.documentElement.style.display='none'; }catch(e){}
@@ -188,9 +195,14 @@
    開拓候補/用途別(太陽光1筆・合筆・低圧蓄電池)/公式放棄地の入口を非表示にし、トグル関数も無効化。
    ※契約で対象エリア確定後、その範囲内のみ公開する形へ移行する。 */
 (function(){
+  // v20260824(ドクター報告で発覚): このブロックも黒木さん(九州)を除外しておらず、
+  // トグル関数(toggleCandidates等)を無効化したまま下の個別許可(203行目付近)では復元されないため、
+  // ガードを通過できても候補フラグのボタンが機能しない状態になっていた。
   function apply(){
     if(!(window.__auth && typeof window.__auth.isPartner==='function')){ setTimeout(apply,50); return; }
     if(!window.__auth.isPartner()) return;
+    var em=((window.__auth.profile&&window.__auth.profile.email)||'').trim().toLowerCase();
+    if(em==='yumi.kurogi117@gmail.com') return; // 黒木さん(九州)は個別許可対象=遮断しない
     ['hzCandidates','candLegend','useLayerGroup','hzYukyu','hzGappitsu'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
     var link=document.querySelector('a[href="farmland-candidates.html"]'); if(link) link.style.display='none';
     // トグル関数も無効化(ボタンが残存・URL/コンソール経由でも発火させない)
