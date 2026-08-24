@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <!-- BUILD: client-delivery-map v20260824a / クライアント用「納品案件マップ」。client_delivery_items を client_id(ログイン中の客)＋status='confirmed' でのみ取得し地図表示。他クライアントは構造的にクエリしない=完全分離。共有ページ(field-survey)には非依存。★確認用の重ね合わせレイヤー(農振農用地[奈良/三重・同一オリジン]＋ハザード5種[GSI公開タイル])を搭載し、各フラグを規制情報と照合できるようにした。300=confirmedを唯一の正とし再計算しない。
-     v20260824a: 案件マスターの「No」からのディープリンク(?lat=&lng=&highlight=1)対応。該当ピンへズーム+点滅表示+ポップアップ自動オープン。ポップアップにGoogleアースリンクを追加(Googleマップは既存)。 -->
+     v20260824a: 案件マスターの「No」からのディープリンク(?lat=&lng=&highlight=1)対応。該当ピンへズーム+点滅表示+ポップアップ自動オープン。ポップアップにGoogleアースリンクを追加(Googleマップは既存)。
+     v20260824e: SUNトラスト要望「マップ上でその場でジャッジ」。ポップアップに✓OK/✕NGボタンを追加、押すと即座にフラグ色が変わる
+     (OK=緑・NG=グレー・未判定=橙)。裏側はclient-cases.html(納品案件・ステータス管理)と同じcase_proposalsテーブルを共有=
+     どちらで判定しても両方の画面に反映される。 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -8,7 +11,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>納品案件マップ // GRID LAND MGR</title>
 <script>
-(function(){var BUILD='20260824d';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
+(function(){var BUILD='20260824e';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
   if(!t||t===BUILD){return;}
   var key='_cbtry_client_'+t,n=0;try{n=parseInt(sessionStorage.getItem(key)||'0',10)||0;}catch(_){}
   if(n>=2){return;}
@@ -72,7 +75,7 @@
 <div class="top">
   <div class="brand">GRID LAND <b>MGR</b> // 納品案件マップ</div>
   <div style="display:flex;gap:12px;align-items:center;">
-    <span class="verbadge">BUILD 20260824d</span>
+    <span class="verbadge">BUILD 20260824e</span>
     <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
     <a class="back" href="client-portal.html">◀ ポータル</a>
     <a class="back" href="client-select.html">⇄ 切替</a>
@@ -206,6 +209,28 @@ function copyNavi(id){
     open();
   }
 }
+// v20260824(ドクター指示・SUNトラスト要望): マップ上でその場でOK/NG判定→フラグ色を即変更。
+//   「納品案件・ステータス管理」(client-cases.html)と同じcase_proposalsテーブルを共有=どちらで判定しても両方に反映。
+var STMAP={};   // case_id(=client_delivery_items.id) -> status('OK'/'NG'/その他)
+var MARKERS={}; // popup id('p0'等) -> {m:marker, row:row}
+function markerStyleFor(status){
+  if(status==='OK') return {radius:6,color:'#166534',weight:1,fillColor:'#22c55e',fillOpacity:0.95};
+  if(status==='NG') return {radius:6,color:'#4b5563',weight:1,fillColor:'#9ca3af',fillOpacity:0.85};
+  return {radius:6,color:'#7a4a00',weight:1,fillColor:'#f59e0b',fillOpacity:0.95};
+}
+async function setJudgment(popupId,status){
+  var entry=MARKERS[popupId]; if(!entry)return;
+  var caseId=entry.row.id;
+  try{
+    var ex=await db.from('case_proposals').select('id').eq('case_id',caseId).eq('client_id',CID).limit(1);
+    if(ex&&ex.data&&ex.data.length){ await db.from('case_proposals').update({status:status,decided_at:new Date().toISOString()}).eq('id',ex.data[0].id); }
+    else{ await db.from('case_proposals').insert({case_id:caseId,client_id:CID,status:status}); }
+    STMAP[caseId]=status;
+    entry.m.setStyle(markerStyleFor(status));
+    entry.m.setPopupContent(popupHtml(entry.row,popupId));
+    toast((status==='OK'?'✓ OK':'✕ NG')+'として保存しました');
+  }catch(e){ toast('保存失敗: '+((e&&e.message)||e)); }
+}
 function popupHtml(r,id){
   var loc=[esc(r.pref),esc(r.city),esc(r.town)].filter(Boolean).join('');
   var lines='';
@@ -214,9 +239,15 @@ function popupHtml(r,id){
   if(r.chimoku) lines+='<div class="pp-r">地目: <b>'+esc(r.chimoku)+'</b></div>';
   if(r.zone) lines+='<div class="pp-r">区域: <b>'+esc(r.zone)+'</b></div>';
   if(r.address) lines+='<div class="pp-r">所在: <b>'+esc(r.address)+'</b></div>';
+  var cur=STMAP[r.id]||'';
+  lines+='<div class="pp-r" style="margin-top:6px">判定: <b style="color:'+(cur==='OK'?'#22c55e':cur==='NG'?'#9ca3af':'#8698bd')+'">'+(cur||'未判定')+'</b></div>';
   var naviAddr=esc(r.address)|| (loc+esc(r.chiban));
   window.__naviAddr[id]=naviAddr;
   var btns='';
+  btns+='<div style="display:flex;gap:8px;margin-bottom:2px">'+
+    '<button style="flex:1;padding:8px;border-radius:6px;border:1px solid #22c55e;background:'+(cur==='OK'?'rgba(34,197,94,.28)':'rgba(34,197,94,.08)')+';color:#7ef0b6;font-weight:800;cursor:pointer;font-family:var(--jp)" onclick="setJudgment(\''+id+'\',\'OK\')">✓ OK</button>'+
+    '<button style="flex:1;padding:8px;border-radius:6px;border:1px solid #9ca3af;background:'+(cur==='NG'?'rgba(156,163,175,.28)':'rgba(156,163,175,.08)')+';color:#d1d5db;font-weight:800;cursor:pointer;font-family:var(--jp)" onclick="setJudgment(\''+id+'\',\'NG\')">✕ NG</button>'+
+    '</div>';
   if(naviAddr) btns+='<a class="pp-g" style="border-color:#34d399;color:#7ef0b6" href="javascript:void(0)" onclick="copyNavi(\''+id+'\');return false;">🌾 所在をコピーして農地ナビで確認 ▸</a>';
   if(r.lat!=null&&r.lng!=null){
     btns+='<a class="pp-g" target="_blank" rel="noopener" href="https://www.google.com/maps?q='+r.lat+','+r.lng+'">Googleマップ ▸</a>';
@@ -230,10 +261,14 @@ async function init(){
     var c=await db.from('clients').select('id,name').ilike('name','%'+CLIENT_NAME.replace('株式会社','')+'%').limit(1);
     if(c&&c.data&&c.data.length)CID=c.data[0].id;
   }catch(e){}
+  try{
+    var sr=await db.from('case_proposals').select('case_id,status').eq('client_id',CID);
+    if(sr&&sr.data)sr.data.forEach(function(x){STMAP[x.case_id]=x.status;});
+  }catch(e){}
   var rows=[];
   try{
     var q=db.from('client_delivery_items')
-      .select('pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng')
+      .select('id,pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng')
       .eq('status','confirmed').order('pref',{ascending:true});
     if(CID)q=q.eq('client_id',CID);
     var r=await q;
@@ -243,11 +278,13 @@ async function init(){
   var pts=[], noGeo=0, markers=[];
   rows.forEach(function(row,idx){
     if(row.lat==null||row.lng==null){noGeo++;return;}
-    var m=L.circleMarker([row.lat,row.lng],{radius:6,color:'#7a4a00',weight:1,fillColor:'#f59e0b',fillOpacity:0.95});
-    m.bindPopup(popupHtml(row,'p'+idx),{maxWidth:300});
+    var pid='p'+idx;
+    var m=L.circleMarker([row.lat,row.lng],markerStyleFor(STMAP[row.id]));
+    m.bindPopup(popupHtml(row,pid),{maxWidth:300});
     m.addTo(markersLayer);
     pts.push([row.lat,row.lng]);
     markers.push({m:m,lat:row.lat,lng:row.lng});
+    MARKERS[pid]={m:m,row:row};
   });
 
   document.getElementById('loading').style.display='none';
