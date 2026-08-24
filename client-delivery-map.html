@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<!-- BUILD: client-delivery-map v20260817b / クライアント用「納品案件マップ」。client_delivery_items を client_id(ログイン中の客)＋status='confirmed' でのみ取得し地図表示。他クライアントは構造的にクエリしない=完全分離。共有ページ(field-survey)には非依存。★確認用の重ね合わせレイヤー(農振農用地[奈良/三重・同一オリジン]＋ハザード5種[GSI公開タイル])を搭載し、各フラグを規制情報と照合できるようにした。300=confirmedを唯一の正とし再計算しない。 -->
+<!-- BUILD: client-delivery-map v20260824a / クライアント用「納品案件マップ」。client_delivery_items を client_id(ログイン中の客)＋status='confirmed' でのみ取得し地図表示。他クライアントは構造的にクエリしない=完全分離。共有ページ(field-survey)には非依存。★確認用の重ね合わせレイヤー(農振農用地[奈良/三重・同一オリジン]＋ハザード5種[GSI公開タイル])を搭載し、各フラグを規制情報と照合できるようにした。300=confirmedを唯一の正とし再計算しない。
+     v20260824a: 案件マスターの「No」からのディープリンク(?lat=&lng=&highlight=1)対応。該当ピンへズーム+点滅表示+ポップアップ自動オープン。ポップアップにGoogleアースリンクを追加(Googleマップは既存)。 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -51,6 +52,10 @@
   .pp-r b{color:var(--text);font-weight:700;}
   .pp-g{display:inline-block;margin-top:8px;color:var(--plasma);text-decoration:none;font-size:12px;border:1px solid var(--line);padding:5px 9px;border-radius:5px;}
   .loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;z-index:500;pointer-events:none;}
+  /* v20260824: 案件マスターの「No」からのディープリンク着地点を点滅表示(field-survey.htmlのlat/lng/highlightパターンを踏襲) */
+  .hl-pulse{position:absolute;left:50%;top:50%;width:44px;height:44px;margin-left:-22px;margin-top:-22px;border-radius:50%;background:rgba(245,158,11,0.45);animation:hlPulse 1.4s infinite ease-out;pointer-events:none;}
+  .hl-dot{position:absolute;left:50%;top:50%;width:14px;height:14px;margin-left:-7px;margin-top:-7px;border-radius:50%;background:#f59e0b;border:3px solid #fff;box-shadow:0 0 10px rgba(245,158,11,0.9);pointer-events:none;}
+  @keyframes hlPulse{0%{transform:scale(0.5);opacity:1}100%{transform:scale(2.4);opacity:0}}
 </style>
 </head>
 <body>
@@ -202,7 +207,10 @@ function popupHtml(r,id){
   window.__naviAddr[id]=naviAddr;
   var btns='';
   if(naviAddr) btns+='<a class="pp-g" style="border-color:#34d399;color:#7ef0b6" href="javascript:void(0)" onclick="copyNavi(\''+id+'\');return false;">🌾 所在をコピーして農地ナビで確認 ▸</a>';
-  if(r.lat!=null&&r.lng!=null) btns+='<a class="pp-g" target="_blank" rel="noopener" href="https://www.google.com/maps?q='+r.lat+','+r.lng+'">Googleマップ ▸</a>';
+  if(r.lat!=null&&r.lng!=null){
+    btns+='<a class="pp-g" target="_blank" rel="noopener" href="https://www.google.com/maps?q='+r.lat+','+r.lng+'">Googleマップ ▸</a>';
+    btns+='<a class="pp-g" target="_blank" rel="noopener" href="https://earth.google.com/web/@'+r.lat+','+r.lng+',0a,1000d,35y,0h,0t,0r">🌍 Googleアース ▸</a>';
+  }
   return '<div class="pp-t">'+(loc||'確定納品')+'</div>'+lines+'<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">'+btns+'</div>';
 }
 
@@ -221,20 +229,41 @@ async function init(){
     rows=(r&&r.data)||[];
   }catch(e){rows=[];}
 
-  var pts=[], noGeo=0;
+  var pts=[], noGeo=0, markers=[];
   rows.forEach(function(row,idx){
     if(row.lat==null||row.lng==null){noGeo++;return;}
     var m=L.circleMarker([row.lat,row.lng],{radius:6,color:'#7a4a00',weight:1,fillColor:'#f59e0b',fillOpacity:0.95});
     m.bindPopup(popupHtml(row,'p'+idx),{maxWidth:300});
     m.addTo(markersLayer);
     pts.push([row.lat,row.lng]);
+    markers.push({m:m,lat:row.lat,lng:row.lng});
   });
 
   document.getElementById('loading').style.display='none';
   var cntEl=document.getElementById('cnt');
   cntEl.textContent='確定納品 '+rows.length+'件'+(noGeo?('（うち座標なし '+noGeo+'件は地図非表示）'):'')+' を表示中';
-  if(pts.length){ map.fitBounds(L.latLngBounds(pts).pad(0.08)); }
-  else{ cntEl.textContent='表示できる確定納品がありません。'; }
+
+  // v20260824(ドクター指示): 案件マスターの「No」から?lat=&lng=&highlight=1 で来た時、該当ピンへズーム+点滅+ポップアップ自動表示
+  var params=new URLSearchParams(window.location.search);
+  var qlat=parseFloat(params.get('lat')), qlng=parseFloat(params.get('lng'));
+  var jumped=false;
+  if(!isNaN(qlat)&&!isNaN(qlng)&&markers.length){
+    var best=null,bestD=Infinity;
+    markers.forEach(function(x){var d=Math.hypot(x.lat-qlat,x.lng-qlng);if(d<bestD){bestD=d;best=x;}});
+    if(best&&bestD<0.01){ // ≈1km以内なら同一案件とみなす
+      jumped=true;
+      map.setView([best.lat,best.lng],17);
+      if(params.get('highlight')==='1'){
+        var hlIcon=L.divIcon({className:'',html:'<div class="hl-pulse"></div><div class="hl-dot"></div>',iconSize:[0,0]});
+        L.marker([best.lat,best.lng],{icon:hlIcon,interactive:false,zIndexOffset:900}).addTo(map);
+      }
+      setTimeout(function(){ best.m.openPopup(); },500);
+    }
+  }
+  if(!jumped){
+    if(pts.length){ map.fitBounds(L.latLngBounds(pts).pad(0.08)); }
+    else{ cntEl.textContent='表示できる確定納品がありません。'; }
+  }
 }
 init();
 </script>
