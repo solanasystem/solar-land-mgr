@@ -377,7 +377,7 @@
   </details>
 </div>
 <div id="stickyZone">
-  <div id="powerCompanyBar" class="power-company-bar"></div>
+  <div id="powerCompanyBar" class="power-company-bar">読込中…</div>
   <div id="mobileFilterBar" class="mobile-filter-bar">
     <select id="mobilePcSelect" class="mobile-filter-select" onchange="setPowerCompany(this.value)">
       <option value="北海道電力">北海道電力</option>
@@ -1512,11 +1512,25 @@ async function _fetchAllCases(){
   }
   return {data:all,error:null};
 }
+// v20260824(アドホック横断監査): 汎用ページング取得。landowner_info/land_info/realestate_info等、
+//   cases以外にも1000件上限で切れていた箇所があったため、共通ヘルパーで一括是正。
+async function _fetchAllPaged(table, selectStr, queryFn){
+  var all=[], from=0, size=1000;
+  while(true){
+    var q=db.from(table).select(selectStr);
+    if(queryFn) q=queryFn(q);
+    var res=await q.range(from,from+size-1);
+    if(res.error)return {data:all,error:res.error};
+    var rows=res.data||[]; all=all.concat(rows);
+    if(rows.length<size)break; from+=size;
+  }
+  return {data:all,error:null};
+}
 async function loadCases(){
   try{
     const[casesRes,losRes,chibanMap]=await Promise.all([
       _fetchAllCases(),
-      db.from('landowner_info').select('case_id,name'),
+      _fetchAllPaged('landowner_info','case_id,name'),
       _fetchChibanMap()
     ]);
     if(casesRes.error){showToast('データ読み込みエラー: '+casesRes.error.message,'error');document.getElementById('casesList').innerHTML='<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">'+casesRes.error.message+'</div></div>';return;}
@@ -2420,7 +2434,7 @@ function switchNav(btn,section){
 
 let allLandowners=[];
 async function loadLandownersMaster(){
-  const{data}=await db.from('landowner_info').select('*,cases(id,case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no,last_letter_sent_at)').order('case_id');
+  const{data}=await _fetchAllPaged('landowner_info','*,cases(id,case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no,last_letter_sent_at)',q=>q.order('case_id'));
   allLandowners=(data||[]).sort((a,b)=>{
     const pa=a.cases?.parent_case_no||a.cases?.case_no||'';
     const pb=b.cases?.parent_case_no||b.cases?.case_no||'';
@@ -2535,8 +2549,8 @@ function renderLandowners(los){
 let allLands=[];
 async function loadLandMaster(){
   const[ldRes,loRes]=await Promise.all([
-    db.from('land_info').select('*,cases(id,case_no,display_case_no,status,area_name,price,parent_case_no,branch_no,city_planning_zone)'),
-    db.from('landowner_info').select('case_id,name')
+    _fetchAllPaged('land_info','*,cases(id,case_no,display_case_no,status,area_name,price,parent_case_no,branch_no,city_planning_zone)'),
+    _fetchAllPaged('landowner_info','case_id,name')
   ]);
   const loMap={};
   (loRes.data||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
@@ -3413,10 +3427,10 @@ function _bulkMatchFile(parsed,pdfTextParsed,candidates){
 // マッチング候補を全件取得（非NG案件 × land_infoあり）
 async function _bulkLoadCandidates(){
   // 1. 全案件を取得（NG含む）
-  const{data:cs,error:e1}=await db.from('cases').select('id,case_no,display_case_no,status,area_name,parent_case_no,branch_no');
+  const{data:cs,error:e1}=await _fetchAllPaged('cases','id,case_no,display_case_no,status,area_name,parent_case_no,branch_no');
   if(e1)throw e1;
   // 2. land_info を全件取得（v20260516z8: 複数筆対応 - id順で取得して1筆目を代表とする + 筆数を集計）
-  const{data:lis,error:e2}=await db.from('land_info').select('case_id,location,id').not('location','is',null).order('id');
+  const{data:lis,error:e2}=await _fetchAllPaged('land_info','case_id,location,id',q=>q.not('location','is',null).order('id'));
   if(e2)throw e2;
   const liMap={};
   const liCountMap={};
@@ -4385,10 +4399,10 @@ function openCaseEditModal(caseId){
   document.getElementById('editCaseModal').classList.add('open');
 }
 async function refreshAll(){
-  const{data}=await db.from('cases').select('*').order('created_at',{ascending:false});
-  const{data:loData}=await db.from('landowner_info').select('*,cases(id,case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no,last_letter_sent_at)').order('case_id');
-  const{data:ldData}=await db.from('land_info').select('*,cases(id,case_no,display_case_no,status,area_name,price,parent_case_no,branch_no)');
-  const{data:reData}=await db.from('realestate_info').select('*,cases(id,case_no,display_case_no,area_name,parent_case_no,branch_no)');
+  const{data}=await _fetchAllPaged('cases','*',q=>q.order('created_at',{ascending:false}));
+  const{data:loData}=await _fetchAllPaged('landowner_info','*,cases(id,case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no,last_letter_sent_at)',q=>q.order('case_id'));
+  const{data:ldData}=await _fetchAllPaged('land_info','*,cases(id,case_no,display_case_no,status,area_name,price,parent_case_no,branch_no)');
+  const{data:reData}=await _fetchAllPaged('realestate_info','*,cases(id,case_no,display_case_no,area_name,parent_case_no,branch_no)');
   const loMap={};
   (loData||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
   allCases=sortCasesByParentChild((data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''})));

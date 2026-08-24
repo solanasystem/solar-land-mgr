@@ -1398,7 +1398,7 @@ function toggleForest5jou(){
   if(legend)legend.classList.add('show');
   showToast('\u68ee\u6797\u8a08\u753b\u5bfe\u8c61\u68ee\u6797 \u8868\u793a\u4e2d\uff08\u30ba\u30fc\u30e012\u4ee5\u4e0a\u3067\u30af\u30ea\u30c3\u30af\u3057\u3066\u9762\u7a4d\u8868\u793a\uff09','success');
 }
-function toggleHazard(type){var btnId='hz'+type.charAt(0).toUpperCase()+type.slice(1);var btn=document.getElementById(btnId);if(hazardLayers[type]){map.removeLayer(hazardLayers[type]);delete hazardLayers[type];btn.classList.remove('active');}else{var layer=L.tileLayer(HAZARD_URLS[type],{opacity:0.7,maxZoom:22,maxNativeZoom:17,attribution:'\u56fd\u571f\u4ea4\u901a\u7701'});layer.addTo(map);layer.bringToFront();hazardLayers[type]=layer;btn.classList.add('active');if(markersLayer)markersLayer.bringToFront();}}
+function toggleHazard(type){var btnId='hz'+type.charAt(0).toUpperCase()+type.slice(1);var btn=document.getElementById(btnId);if(hazardLayers[type]){map.removeLayer(hazardLayers[type]);delete hazardLayers[type];if(btn)btn.classList.remove('active');}else{var layer=L.tileLayer(HAZARD_URLS[type],{opacity:0.7,maxZoom:22,maxNativeZoom:17,attribution:'\u56fd\u571f\u4ea4\u901a\u7701'});layer.addTo(map);layer.bringToFront();hazardLayers[type]=layer;if(btn)btn.classList.add('active');if(markersLayer)markersLayer.bringToFront();}}
 // ========== 土砂災害警戒区域: 国土地理院公式タイル方式 (v20260702m) ==========
 // 「重ねるハザードマップ」と100%同一のタイル配信を利用。
 // Supabase A33ポリゴン方式(row_limit=300で欠落)を廃止。
@@ -2807,7 +2807,8 @@ async function loadFarmlandStatuses(){
   farmlandStatuses={};
   caseAddressSet={};
   try{
-    var casesRes=await db.from('cases').select('id');
+    // v20260824(アドホック横断監査): 未ページングでcases 1000件上限に切れ、登録済み案件の除外漏れが起きる恐れがあった。
+    var casesRes=await _fetchAllPaged(function(){return db.from('cases').select('id');});
     if(casesRes.error){console.warn('cases load error:',casesRes.error);return;}
     var caseIds=(casesRes.data||[]).map(function(c){return c.id;});
     if(!caseIds.length)return;
@@ -4569,7 +4570,8 @@ async function _loadUseCounts(){
     }
     function cnt(rows){ return (rows||[]).filter(function(s){return s.lat!=null&&s.lng!=null&&!ngSet[s.feature_id]&&!_isNearNg(s.lat,s.lng);}).length; }
     // ① 太陽光(1筆) = 母集団 + 手動記録。★手動⇔機械の二重計上を除去(手動と18m以内の機械は数えない)。
-    var _mc1=[]; var ccN=0; try{ var cc=await db.from('case_candidates').select('latitude,longitude,memo,status');
+    // v20260824(アドホック横断監査): case_candidatesが未ページングで1000件上限の恐れがあったためページング化
+    var _mc1=[]; var ccN=0; try{ var cc=await _fetchAllPaged(function(){return db.from('case_candidates').select('latitude,longitude,memo,status');});
       (((cc&&cc.data))||[]).forEach(function(r){ var la=Number(r.latitude),lo=Number(r.longitude); if(isNaN(la)||isNaN(lo))return;
         if((r.status||'').toLowerCase()==='ng')return; if(/滋賀|高島/.test(r.memo||''))return; if(_isNearNg(la,lo))return; _mc1.push([la,lo]); ccN++; }); }catch(_c){}
     _buildManGrid(_mc1);
@@ -4622,7 +4624,8 @@ async function _loadUse(n){
         if(_s1ok&&_s1ok.data)_s1ok.data.forEach(function(x){(x.member_fids||[]).forEach(function(f){window.SOLAR1_OK[f]=1;});}); }catch(_s1e){}
       await _loadSuntrustSet();   // サントラスト納品リストの既登録を反映
       try{
-        var ccRes=await db.from('case_candidates').select('id,latitude,longitude,memo,status');
+        // v20260824(アドホック横断監査): case_candidatesが未ページングで1000件上限の恐れがあったためページング化
+        var ccRes=await _fetchAllPaged(function(){return db.from('case_candidates').select('id,latitude,longitude,memo,status');});
         var ccRows=(ccRes&&ccRes.data)||[];
         var _manRecs=[], _manCoords=[];
         ccRows.forEach(function(r){

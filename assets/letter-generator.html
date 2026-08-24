@@ -465,11 +465,24 @@ document.addEventListener('DOMContentLoaded',async()=>{
   await loadData();
 });
 
+// v20260824(アドホック横断監査): 未ページングで1000件上限に切れる恐れがあったため追加。
+async function _fetchAllPaged(table,selectStr,queryFn){
+  var all=[],from=0,size=1000;
+  while(true){
+    var q=db.from(table).select(selectStr);
+    if(queryFn)q=queryFn(q);
+    var res=await q.range(from,from+size-1);
+    if(res.error)return{data:all,error:res.error};
+    var rows=res.data||[];all=all.concat(rows);
+    if(rows.length<size)break;from+=size;
+  }
+  return{data:all,error:null};
+}
 async function loadData(){
   document.getElementById('loadStatus').textContent='読込中...';
   const[loRes,ldRes]=await Promise.all([
-    db.from('landowner_info').select('*,cases(case_no,status,area_name,kubun,price)').order('case_id'),
-    db.from('land_info').select('case_id,location,area_sqm,chiban')
+    _fetchAllPaged('landowner_info','*,cases(case_no,status,area_name,kubun,price)',q=>q.order('case_id')),
+    _fetchAllPaged('land_info','case_id,location,area_sqm,chiban')
   ]);
   if(loRes.error){showToast('読込エラー: '+loRes.error.message,'error');return;}
   allLandowners=(loRes.data||[]).sort((a,b)=>(a.cases?.case_no||'').localeCompare(b.cases?.case_no||'','ja'));
@@ -546,9 +559,10 @@ function updateCount(){
 function switchTab(t){
   activeTab=t;
   document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
-  document.getElementById('tab'+(t==='letter'?'Letter':'Label')).classList.add('active');
+  // v20260824(アドホック横断監査): 動的id計算が手入力idと不一致だとnullで無言停止する既知バグ型のためnullガード追加
+  var _tb=document.getElementById('tab'+(t==='letter'?'Letter':'Label')); if(_tb)_tb.classList.add('active');
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
-  document.getElementById('content-'+t).classList.add('active');
+  var _tc=document.getElementById('content-'+t); if(_tc)_tc.classList.add('active');
   updatePreview();
 }
 

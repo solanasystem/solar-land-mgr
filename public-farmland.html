@@ -333,9 +333,15 @@ async function loadAllData(){
     if(srcRes.error)throw new Error('sources: '+srcRes.error.message);
     allSources=srcRes.data||[];
 
-    var listRes=await db.from('public_farmland_listings').select('*').limit(20000);
-    if(listRes.error)throw new Error('listings: '+listRes.error.message);
-    allListings=listRes.data||[];
+    // v20260824(アドホック横断監査): .limit(20000)はSupabaseの1000件上限を突破しないためページング化
+    var _lAll=[],_lFrom=0,_lSize=1000;
+    while(true){
+      var _lPage=await db.from('public_farmland_listings').select('*').range(_lFrom,_lFrom+_lSize-1);
+      if(_lPage.error)throw new Error('listings: '+_lPage.error.message);
+      var _lRows=_lPage.data||[]; _lAll=_lAll.concat(_lRows);
+      if(_lRows.length<_lSize)break; _lFrom+=_lSize;
+    }
+    allListings=_lAll;
 
     buildHierarchy();
     renderSummary();

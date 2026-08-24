@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>納品データ掃き出し // GRID LAND MGR</title>
 <script>
-(function(){var BUILD='20260824e';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
+(function(){var BUILD='20260824f';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
   if(!t||t===BUILD){return;}
   var key='_cbtry_client_'+t,n=0;try{n=parseInt(sessionStorage.getItem(key)||'0',10)||0;}catch(_){}
   if(n>=2){return;}
@@ -60,7 +60,7 @@
 <div class="top">
   <div class="brand">GRID LAND <b>MGR</b> // 納品データ掃き出し</div>
   <div style="display:flex;gap:12px;align-items:center;">
-    <span class="verbadge">BUILD 20260824e</span>
+    <span class="verbadge">BUILD 20260824f</span>
     <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
     <a class="back" href="client-portal.html">◀ ポータル</a>
     <a class="back" href="client-select.html">⇄ 切替</a>
@@ -79,7 +79,7 @@
 
   <div class="card">
     <h2>2. プレビュー（<span id="rowcnt" class="cnt">—</span>）</h2>
-    <div class="tblwrap"><table id="preview"></table></div>
+    <div class="tblwrap"><table id="preview"><tbody><tr><td>読込中…</td></tr></tbody></table></div>
     <div class="btnrow">
       <button class="btn" id="expBtn" onclick="doExport()">📊 Excelで掃き出し（選択項目）</button>
       <span class="muted" id="expNote"></span>
@@ -191,11 +191,18 @@ async function init(){
     if(c&&c.data&&c.data.length)CID=c.data[0].id;
   }catch(e){}
   // 確定納品を取得
+  // v20260824(アドホック横断監査): 未ページングで1000件上限の恐れがあったためページング化。
   try{
-    var q=db.from('client_delivery_items').select('pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng,source,ai_note,status').eq('status','confirmed').order('pref',{ascending:true});
-    if(CID)q=q.eq('client_id',CID);
-    var r=await q;
-    ROWS=(r&&r.data)||[];
+    var _from=0,_size=1000,_rows=[];
+    while(true){
+      var q=db.from('client_delivery_items').select('pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng,source,ai_note,status').eq('status','confirmed').order('pref',{ascending:true});
+      if(CID)q=q.eq('client_id',CID);
+      var r=await q.range(_from,_from+_size-1);
+      var _page=(r&&r.data)||[];
+      _rows=_rows.concat(_page);
+      if(_page.length<_size)break; _from+=_size;
+    }
+    ROWS=_rows;
   }catch(e){ROWS=[];}
   renderPreview();
   loadHist();

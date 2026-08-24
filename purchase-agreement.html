@@ -266,12 +266,25 @@ function getPowerCompanyFromArea(a){
 
 document.addEventListener('DOMContentLoaded',async()=>{await loadData();});
 
+// v20260824(アドホック横断監査): 未ページングで1000件上限に切れる恐れがあったため追加。
+async function _fetchAllPaged(table,selectStr,queryFn){
+  var all=[],from=0,size=1000;
+  while(true){
+    var q=db.from(table).select(selectStr);
+    if(queryFn)q=queryFn(q);
+    var res=await q.range(from,from+size-1);
+    if(res.error)return{data:all,error:res.error};
+    var rows=res.data||[];all=all.concat(rows);
+    if(rows.length<size)break;from+=size;
+  }
+  return{data:all,error:null};
+}
 async function loadData(){
   document.getElementById('loadStatus').textContent='読込中...';
   const[caseRes,loRes,ldRes]=await Promise.all([
-    db.from('cases').select('id,case_no,display_case_no,area_name,status,kubun,price').order('case_no'),
-    db.from('landowner_info').select('case_id,name,address,tel,postal_code,price,memo,created_at').order('created_at'),
-    db.from('land_info').select('case_id,location,chiban,chimoku,area_sqm')
+    _fetchAllPaged('cases','id,case_no,display_case_no,area_name,status,kubun,price',q=>q.order('case_no')),
+    _fetchAllPaged('landowner_info','case_id,name,address,tel,postal_code,price,memo,created_at',q=>q.order('created_at')),
+    _fetchAllPaged('land_info','case_id,location,chiban,chimoku,area_sqm')
   ]);
   if(caseRes.error){showToast('案件読込エラー:'+caseRes.error.message,'error');return;}
   if(loRes.error){showToast('地権者読込エラー:'+loRes.error.message,'error');return;}

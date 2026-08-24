@@ -15,7 +15,7 @@
 /* v20260824e(ドクター指示・SUNトラスト報告事故を受けて): metaタグのCache-Controlは実ブラウザで効かない場合がある事が
    実機検証で判明したため、社内分析ページと同じ「ver_client.txtと埋込BUILDが違えば自動で最新へリロード」方式を導入。
    クライアント向け全ページ共通のバージョン(ver_client.txt)。無限ループ防止=sessionStorageで同一版は最大2回まで。 */
-(function(){var BUILD='20260824e';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
+(function(){var BUILD='20260824f';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
   if(!t||t===BUILD){return;}
   var key='_cbtry_client_'+t,n=0;try{n=parseInt(sessionStorage.getItem(key)||'0',10)||0;}catch(_){}
   if(n>=2){return;}
@@ -81,7 +81,7 @@
 <div class="top">
   <div class="brand">GRID LAND <b>MGR</b> // 案件マスター（地権者情報）</div>
   <div style="display:flex;gap:12px;align-items:center;">
-    <span class="verbadge">BUILD 20260824e</span>
+    <span class="verbadge">BUILD 20260824f</span>
     <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
     <a class="back" href="client-portal.html">◀ ポータル</a>
     <a class="back" href="client-select.html">⇄ 切替</a>
@@ -244,10 +244,25 @@ async function finishUnlock(){
 function relock(){ DEK=null; NOTES={}; location.reload(); }
 
 /* ===== データ ===== */
+// v20260824(アドホック横断監査): client_delivery_itemsが未ページングだった。件数増加(第2回納品候補等)で
+//   1000件上限に達すると表示が黙って欠ける恐れがあったため、他の内部ツールと同じページング方式に統一。
+async function _fetchAllPaged(buildQuery){
+  var all=[],from=0,size=1000;
+  while(true){
+    var res=await buildQuery().range(from,from+size-1);
+    if(res.error)return{data:all,error:res.error};
+    var rows=res.data||[];all=all.concat(rows);
+    if(rows.length<size)break;from+=size;
+  }
+  return{data:all,error:null};
+}
 async function loadItems(){
-  var q=db.from('client_delivery_items').select('delivery_id:id,pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng').eq('status','confirmed').order('pref',{ascending:true});
-  if(CID)q=q.eq('client_id',CID);
-  var r=await q; ITEMS=(r&&r.data)||[];
+  var r=await _fetchAllPaged(function(){
+    var q=db.from('client_delivery_items').select('delivery_id:id,pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng').eq('status','confirmed').order('pref',{ascending:true});
+    if(CID)q=q.eq('client_id',CID);
+    return q;
+  });
+  ITEMS=(r&&r.data)||[];
 }
 async function loadNotesAndRender(){
   NOTES={}; var fail=0, ok=0;

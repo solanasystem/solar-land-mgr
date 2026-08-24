@@ -11,7 +11,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>納品案件マップ // GRID LAND MGR</title>
 <script>
-(function(){var BUILD='20260824e';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
+(function(){var BUILD='20260824f';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
   if(!t||t===BUILD){return;}
   var key='_cbtry_client_'+t,n=0;try{n=parseInt(sessionStorage.getItem(key)||'0',10)||0;}catch(_){}
   if(n>=2){return;}
@@ -75,7 +75,7 @@
 <div class="top">
   <div class="brand">GRID LAND <b>MGR</b> // 納品案件マップ</div>
   <div style="display:flex;gap:12px;align-items:center;">
-    <span class="verbadge">BUILD 20260824e</span>
+    <span class="verbadge">BUILD 20260824f</span>
     <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
     <a class="back" href="client-portal.html">◀ ポータル</a>
     <a class="back" href="client-select.html">⇄ 切替</a>
@@ -267,12 +267,18 @@ async function init(){
   }catch(e){}
   var rows=[];
   try{
-    var q=db.from('client_delivery_items')
-      .select('id,pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng')
-      .eq('status','confirmed').order('pref',{ascending:true});
-    if(CID)q=q.eq('client_id',CID);
-    var r=await q;
-    rows=(r&&r.data)||[];
+    // v20260824(アドホック横断監査): 未ページングで1000件上限の恐れがあったためページング化。
+    var from=0,size=1000;
+    while(true){
+      var q=db.from('client_delivery_items')
+        .select('id,pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng')
+        .eq('status','confirmed').order('pref',{ascending:true});
+      if(CID)q=q.eq('client_id',CID);
+      var r=await q.range(from,from+size-1);
+      var page=(r&&r.data)||[];
+      rows=rows.concat(page);
+      if(page.length<size)break; from+=size;
+    }
   }catch(e){rows=[];}
 
   var pts=[], noGeo=0, markers=[];

@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>手紙・ラベル（差し込み） // GRID LAND MGR</title>
 <script>
-(function(){var BUILD='20260824e';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
+(function(){var BUILD='20260824f';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
   if(!t||t===BUILD){return;}
   var key='_cbtry_client_'+t,n=0;try{n=parseInt(sessionStorage.getItem(key)||'0',10)||0;}catch(_){}
   if(n>=2){return;}
@@ -62,7 +62,7 @@
 <div class="top">
   <div class="brand">GRID LAND <b>MGR</b> // 手紙・ラベル</div>
   <div style="display:flex;gap:12px;align-items:center;">
-    <span class="verbadge">BUILD 20260824e</span>
+    <span class="verbadge">BUILD 20260824f</span>
     <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
     <a class="back" href="client-portal.html">◀ ポータル</a>
     <a class="back" href="client-select.html">⇄ 切替</a>
@@ -158,7 +158,19 @@ async function boot(){
   document.getElementById('caseSel').addEventListener('change',render);
   try{var c=await db.from('clients').select('id,name').ilike('name','%'+CLIENT_NAME.replace('株式会社','')+'%').limit(1);if(c&&c.data&&c.data.length)CID=c.data[0].id;}catch(e){}
   // 確定納品（平文）
-  try{var q=db.from('client_delivery_items').select('id,pref,city,town,chiban,area_m2,chimoku,zone,address').eq('status','confirmed').order('pref',{ascending:true});if(CID)q=q.eq('client_id',CID);var r=await q;ITEMS=(r&&r.data)||[];}catch(e){ITEMS=[];}
+  // v20260824(アドホック横断監査): 未ページングで1000件上限の恐れがあったためページング化。
+  try{
+    var _from=0,_size=1000,_items=[];
+    while(true){
+      var q=db.from('client_delivery_items').select('id,pref,city,town,chiban,area_m2,chimoku,zone,address').eq('status','confirmed').order('pref',{ascending:true});
+      if(CID)q=q.eq('client_id',CID);
+      var r=await q.range(_from,_from+_size-1);
+      var _page=(r&&r.data)||[];
+      _items=_items.concat(_page);
+      if(_page.length<_size)break; _from+=_size;
+    }
+    ITEMS=_items;
+  }catch(e){ITEMS=[];}
   // 金庫の有無を確認
   var cr; try{ cr=await db.from('client_crypto').select('*').eq('client_id',CID).limit(1); }catch(e){ cr={error:e}; }
   if(cr.error){ document.getElementById('ovCard').innerHTML='<h2>準備中</h2><p>暗号保管がまだ準備できていません。先に「案件マスター」を開いて金庫を作成してください。</p><p><a class="back" href="client-case-master.html">📇 案件マスターへ</a></p>'; return; }

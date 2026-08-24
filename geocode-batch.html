@@ -180,9 +180,23 @@ function escapeHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// v20260824(アドホック横断監査): landowner_infoが未ページングで1000件上限に切れ、表示件数(登録済/未登録)が
+//   実数より少なく出る恐れがあったため追加。
+async function _fetchAllPaged(table, selectStr, queryFn) {
+  var all = [], from = 0, size = 1000;
+  while (true) {
+    var q = db.from(table).select(selectStr);
+    if (queryFn) q = queryFn(q);
+    var res = await q.range(from, from + size - 1);
+    if (res.error) return { data: all, error: res.error };
+    var rows = res.data || []; all = all.concat(rows);
+    if (rows.length < size) break; from += size;
+  }
+  return { data: all, error: null };
+}
 async function loadStats() {
   // 全件 / 登録済み / 未登録 をカウント
-  const { data: all } = await db.from('landowner_info').select('id,lat,lng');
+  const { data: all } = await _fetchAllPaged('landowner_info', 'id,lat,lng');
   const total = all?.length || 0;
   const registered = (all || []).filter(d => d.lat != null && d.lng != null).length;
   const pending = total - registered;
@@ -193,10 +207,9 @@ async function loadStats() {
 async function loadPending() {
   await loadStats();
   // 対象リスト取得：lat/lng が NULL かつ address がある
-  const { data, error } = await db.from('landowner_info')
-    .select('id,case_id,name,address,lat,lng')
-    .or('lat.is.null,lng.is.null')
-    .order('id', { ascending: true });
+  const { data, error } = await _fetchAllPaged('landowner_info',
+    'id,case_id,name,address,lat,lng',
+    q => q.or('lat.is.null,lng.is.null').order('id', { ascending: true }));
   if (error) { showToast('読込エラー: ' + error.message, 'error'); return; }
   pendingList = (data || []).filter(d => d.address && d.address.trim());
   // case_no を取得して付与

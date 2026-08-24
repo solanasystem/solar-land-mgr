@@ -27,6 +27,10 @@
   function reveal(){ var e=document.getElementById('ccGuardHide'); if(e&&e.parentNode)e.parentNode.removeChild(e); }
   function guard(){
     if(window.__auth && typeof window.__auth.isPartner==='function'){
+      // v20260824(アドホック横断監査): 黒木さん(九州)はfarmland-tracker(-analysis).html側で
+      // このページへのリンクを個別に表示しているのに、ここで問答無用に弾いていて到達不能だった。
+      var em=((window.__auth.profile&&window.__auth.profile.email)||'').trim().toLowerCase();
+      if(em==='yumi.kurogi117@gmail.com'){ reveal(); return; }
       if(window.__auth.isPartner()){ location.replace('main.html'); return; }  // partnerは非表示のままリダイレクト
       reveal(); return;                                                        // 非partnerのみ表示
     }
@@ -338,11 +342,13 @@ async function loadData(){
       // v20260515d: 永続系（pubH_ / emaffN_）は日付問わず全件取得（取込日が異なっても拾える）。v20260820c: 30ページ上限撤廃(ゴミ除去済のため全件安定表示=真値)
       _fetchAllPaged(function(){return db.from('farmland_snapshots').select('*').or('feature_id.ilike.pubH\\_%,feature_id.ilike.emaffN\\_%,feature_id.ilike.trackB\\_%');},1000),
       _fetchAllPaged(function(){return db.from('farmland_ng_list').select('*');},1000),
-      db.from('farmland_status').select('feature_id,status').limit(10000),
-      db.from('farmland_comments').select('feature_id,comment').limit(10000),
-      db.from('farmland_promoted').select('feature_id').limit(10000),
-      db.from('cases').select('id,area_name').limit(10000),
-      db.from('land_info').select('case_id,lat,lng').not('lat','is',null).limit(10000)
+      // v20260824(アドホック横断監査): .limit(10000)はSupabase側の1000件上限を突破しない誤った対策だったため、
+      //   正しいページング取得(_fetchAllPaged)に置換。
+      _fetchAllPaged(function(){return db.from('farmland_status').select('feature_id,status');},1000),
+      _fetchAllPaged(function(){return db.from('farmland_comments').select('feature_id,comment');},1000),
+      _fetchAllPaged(function(){return db.from('farmland_promoted').select('feature_id');},1000),
+      _fetchAllPaged(function(){return db.from('cases').select('id,area_name');},1000),
+      _fetchAllPaged(function(){return db.from('land_info').select('case_id,lat,lng').not('lat','is',null);},1000)
     ]);
     // v20260515d: PBF系 + 永続系をマージ。feature_id 重複時は最新 snapshot_date を優先。
     var combinedSnaps=((results[0].data||[]).concat(results[1].data||[]));
