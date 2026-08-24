@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<!-- BUILD: client-case-master v20260817a / 方式F(運用者ブラインド)案件マスター。確定納品300(平文)を一覧し、各案件の地権者情報をクライアントのブラウザ内でE2E暗号化して保存(client_secure_notes)。鍵はパスワード由来でサーバに送らない=運用者(service_role)は復号不可。金庫の初期化はクライアント自身(パスフレーズ設定→復旧コード)。共有ページには非依存。 -->
+<!-- BUILD: client-case-master v20260824a / 方式F(運用者ブラインド)案件マスター。確定納品300(平文)を一覧し、各案件の地権者情報をクライアントのブラウザ内でE2E暗号化して保存(client_secure_notes)。鍵はパスワード由来でサーバに送らない=運用者(service_role)は復号不可。金庫の初期化はクライアント自身(パスフレーズ設定→復旧コード)。共有ページには非依存。
+     v20260824a: 「操作」ボタン→詳細モーダル(🧑地権者情報／🏔土地情報／📄書類の3タブ・社内main.htmlの案件詳細と同じ構成)に統合。📄書類タブで「＋書類アップロード」→一覧の各書類に「AI転記」ボタン(Cloudflare Worker経由・当社Anthropicキー・月次300件上限)。抽出結果は地権者情報(同じ暗号)へ反映。 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -8,6 +9,7 @@
 <title>案件マスター（地権者情報・暗号） // GRID LAND MGR</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="client-functions.js?v=20260824a"></script>
 <script src="client-crypto.js?v=20260817a"></script>
 <style>
@@ -51,6 +53,11 @@
   .modal-form textarea{min-height:80px;resize:vertical;}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0d2a1a;border:1px solid var(--mint);color:#a7f3d0;padding:12px 20px;border-radius:8px;font-weight:700;display:none;z-index:200;}
+  .dtab{background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);font-family:var(--jp);font-size:13px;font-weight:700;padding:9px 6px;cursor:pointer;}
+  .dtab.on{color:var(--gold);border-bottom-color:var(--gold);}
+  .docrow{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:13px;}
+  .conf{font-family:var(--mono);font-size:11px;padding:1px 7px;border-radius:10px;margin-left:6px;}
+  .conf.hi{color:var(--mint);border:1px solid var(--mint);} .conf.lo{color:var(--rose);border:1px solid var(--rose);}
 </style>
 </head>
 <body>
@@ -73,28 +80,61 @@
   </div>
   <div class="tblwrap"><table id="tbl"><thead><tr>
     <th>No</th><th>所在</th><th>地番</th><th>面積(㎡)</th><th>地目</th><th>区域</th>
-    <th>🔒地権者</th><th>🔒連絡先</th><th>🔒状況</th><th></th>
-  </tr></thead><tbody id="tbody"><tr><td colspan="10" class="secempty">解錠して読み込みます…</td></tr></tbody></table></div>
+    <th>🔒地権者</th><th>🔒連絡先</th><th>🔒状況</th><th>登記簿</th><th></th>
+  </tr></thead><tbody id="tbody"><tr><td colspan="11" class="secempty">解錠して読み込みます…</td></tr></tbody></table></div>
 </main>
 
 <!-- 解錠/初期化オーバーレイ -->
 <div class="ov" id="ov"><div class="card" id="ovCard">読込中…</div></div>
-<!-- 編集モーダル -->
-<div class="ov" id="editOv" style="display:none"><div class="card">
-  <h2 id="editTitle">地権者情報</h2>
-  <p id="editLoc" style="color:var(--gold)"></p>
-  <div class="modal-form">
+
+<!-- 詳細モーダル: 🧑地権者情報／🏔土地情報／📄書類 の3タブ(社内main.htmlの案件詳細と同じ構成) -->
+<div class="ov" id="detOv" style="display:none"><div class="card" style="max-width:640px">
+  <p id="detLoc" style="color:var(--gold);font-weight:700"></p>
+  <div style="display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:14px">
+    <button class="dtab on" id="dtabLandowner" onclick="switchDetailTab('landowner')">🧑 地権者情報</button>
+    <button class="dtab" id="dtabLand" onclick="switchDetailTab('land')">🏔 土地情報</button>
+    <button class="dtab" id="dtabDocs" onclick="switchDetailTab('documents')">📄 書類</button>
+  </div>
+
+  <div id="tab-landowner" class="modal-form">
     <div class="row2"><div><label>地権者氏名</label><input id="f_name"></div><div><label>連絡先（電話/メール）</label><input id="f_tel"></div></div>
     <label>地権者住所</label><input id="f_addr">
     <label>交渉状況</label>
     <select id="f_status"><option value="">—</option><option>未着手</option><option>調査中</option><option>接触済</option><option>交渉中</option><option>合意</option><option>見送り</option></select>
     <label>メモ（自由記述）</label><textarea id="f_memo"></textarea>
+    <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
+      <button class="btn gold" onclick="saveEdit()">🔒 暗号化して保存</button>
+    </div>
   </div>
+
+  <div id="tab-land" class="modal-form" style="display:none;font-size:13.5px;line-height:2">
+    <div id="landInfoBox"></div>
+  </div>
+
+  <div id="tab-documents" style="display:none">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <label class="btn gold" style="display:inline-block">＋ 書類アップロード<input type="file" id="docFile" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" onchange="uploadDoc()"></label>
+    </div>
+    <div id="docStatus" style="font-size:13px;color:var(--muted);min-height:18px;margin-bottom:8px"></div>
+    <div id="docList"></div>
+  </div>
+
   <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
-    <button class="btn" onclick="closeEdit()">閉じる</button>
-    <button class="btn gold" onclick="saveEdit()">🔒 暗号化して保存</button>
+    <button class="btn" onclick="closeDetail()">閉じる</button>
   </div>
 </div></div>
+
+<!-- AI転記: レビュー/確定モーダル -->
+<div class="ov" id="revOv" style="display:none"><div class="card" style="max-width:640px">
+  <h2>🔎 AI転記結果の確認</h2>
+  <p id="revLoc" style="color:var(--gold)"></p>
+  <div id="revBody"></div>
+  <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
+    <button class="btn" onclick="closeReview()">キャンセル(保存しない)</button>
+    <button class="btn gold big" onclick="confirmReview()">🔒 この内容で暗号化して確定</button>
+  </div>
+</div></div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -209,41 +249,216 @@ function renderTable(){
   var body=document.getElementById('tbody'), rows=ITEMS;
   if(q){rows=rows.filter(function(r){return ((r.address||'')+(r.chiban||'')+(r.city||'')+(r.town||'')).indexOf(q)!==-1;});}
   document.getElementById('cnt').textContent='確定納品 '+ITEMS.length+'件（表示 '+rows.length+'）';
-  if(!rows.length){body.innerHTML='<tr><td colspan="10" class="secempty">該当なし</td></tr>';return;}
+  if(!rows.length){body.innerHTML='<tr><td colspan="11" class="secempty">該当なし</td></tr>';return;}
   body.innerHTML=rows.map(function(r,i){
     var loc=[r.pref,r.city,r.town].filter(Boolean).join('');
     var n=NOTES[r.delivery_id]||{};
-    var sec=DEK?'':'🔒';
+    var docs=n._registryDocs||[];
     return '<tr>'+
       '<td>'+(i+1)+'</td><td>'+esc(loc)+'</td><td>'+esc(r.chiban)+'</td><td>'+(r.area_m2!=null?Math.round(r.area_m2).toLocaleString():'')+'</td><td>'+esc(r.chimoku)+'</td><td>'+esc(r.zone)+'</td>'+
       (DEK? ('<td class="'+(n.name?'sec':'secempty')+'">'+(n.name?esc(n.name):'—')+'</td>'+
              '<td class="'+(n.tel?'sec':'secempty')+'">'+(n.tel?esc(n.tel):'—')+'</td>'+
              '<td class="'+(n.status?'sec':'secempty')+'">'+(n.status?esc(n.status):'—')+'</td>'+
-             '<td><button class="btn" onclick="openEdit(\''+r.delivery_id+'\')">編集</button></td>')
-          : '<td class="secempty">🔒</td><td class="secempty">🔒</td><td class="secempty">🔒</td><td class="secempty">解錠が必要</td>')+
+             '<td class="'+(docs.length?'sec':'secempty')+'">'+(docs.length?(docs.length+'件取込済'):'未取込')+'</td>'+
+             '<td><button class="btn" onclick="openDetail(\''+r.delivery_id+'\')">操作</button></td>')
+          : '<td class="secempty">🔒</td><td class="secempty">🔒</td><td class="secempty">🔒</td><td class="secempty">🔒</td><td class="secempty">解錠が必要</td>')+
       '</tr>';
   }).join('');
 }
 
-var _editId=null;
-function openEdit(id){
+/* ===== 詳細モーダル(🧑地権者情報／🏔土地情報／📄書類の3タブ・main.htmlの案件詳細と同じ構成) ===== */
+var _detId=null;
+function openDetail(id){
   if(!DEK){toast('解錠してください');return;}
-  _editId=id; var it=ITEMS.filter(function(x){return x.delivery_id===id;})[0]||{}; var n=NOTES[id]||{};
-  document.getElementById('editLoc').textContent=[it.pref,it.city,it.town].filter(Boolean).join('')+' '+(it.chiban||'');
+  _detId=id; var it=ITEMS.filter(function(x){return x.delivery_id===id;})[0]||{}; var n=NOTES[id]||{};
+  document.getElementById('detLoc').textContent=[it.pref,it.city,it.town].filter(Boolean).join('')+' '+(it.chiban||'');
   document.getElementById('f_name').value=n.name||''; document.getElementById('f_tel').value=n.tel||'';
   document.getElementById('f_addr').value=n.addr||''; document.getElementById('f_status').value=n.status||''; document.getElementById('f_memo').value=n.memo||'';
-  document.getElementById('editOv').style.display='flex';
+  document.getElementById('landInfoBox').innerHTML=
+    '所在: '+esc([it.pref,it.city,it.town,it.address].filter(Boolean).join(''))+'<br>'+
+    '地番: '+esc(it.chiban)+'<br>'+
+    '地目: '+esc(it.chimoku)+'<br>'+
+    '地積: '+(it.area_m2!=null?Math.round(it.area_m2).toLocaleString()+'㎡':'—')+'<br>'+
+    '区域: '+esc(it.zone)+
+    '<div style="color:var(--muted);font-size:11.5px;margin-top:10px">※確定納品データ（御社への提供情報）。編集はできません。</div>';
+  document.getElementById('docStatus').textContent='';
+  renderDocList();
+  switchDetailTab('landowner');
+  document.getElementById('detOv').style.display='flex';
 }
-function closeEdit(){document.getElementById('editOv').style.display='none';_editId=null;}
+function closeDetail(){document.getElementById('detOv').style.display='none';_detId=null;}
+function switchDetailTab(name){
+  ['landowner','land','documents'].forEach(function(t){
+    document.getElementById('tab-'+t).style.display=(t===name?'':'none');
+    document.getElementById('dtab'+t.charAt(0).toUpperCase()+t.slice(1)).className='dtab'+(t===name?' on':'');
+  });
+}
 async function saveEdit(){
-  if(!DEK||!_editId)return;
-  var obj={name:document.getElementById('f_name').value.trim(),tel:document.getElementById('f_tel').value.trim(),addr:document.getElementById('f_addr').value.trim(),status:document.getElementById('f_status').value,memo:document.getElementById('f_memo').value.trim()};
+  if(!DEK||!_detId)return;
+  var prev=NOTES[_detId]||{};
+  var obj={name:document.getElementById('f_name').value.trim(),tel:document.getElementById('f_tel').value.trim(),addr:document.getElementById('f_addr').value.trim(),status:document.getElementById('f_status').value,memo:document.getElementById('f_memo').value.trim(),_registryDocs:prev._registryDocs||[]};
   try{
     var e=await ClientCrypto.encryptNote(DEK,JSON.stringify(obj));
-    var payload={client_id:CID,delivery_id:_editId,ciphertext:e.ciphertext,iv:e.iv,updated_at:new Date().toISOString(),updated_by:(localStorage.getItem('glm_user')||'client')};
+    var payload={client_id:CID,delivery_id:_detId,ciphertext:e.ciphertext,iv:e.iv,updated_at:new Date().toISOString(),updated_by:(localStorage.getItem('glm_user')||'client')};
     var up=await db.from('client_secure_notes').upsert(payload,{onConflict:'client_id,delivery_id'});
     if(up.error){toast('保存失敗: '+up.error.message);return;}
-    NOTES[_editId]=obj; toast('暗号化して保存しました（当社には暗号文のみ）'); closeEdit(); renderTable();
+    NOTES[_detId]=obj; toast('暗号化して保存しました（当社には暗号文のみ）'); renderTable();
+  }catch(e){toast('保存失敗: '+(e&&e.message||e));}
+}
+
+/* ===== AI転記(登記簿アップロード): 案件マスターの「📄書類」タブに統合。案件マスターと同じ金庫(DEK)・同じclient_secure_notesへ書込む ===== */
+// 設定: Cloudflare Worker(当社Anthropicキーを保持・費用は当社負担・月次300件上限)。デプロイ後にURLを差し替える。
+var WORKER_URL='https://REPLACE-WITH-DEPLOYED-WORKER.workers.dev';
+var CLIENT_TOKEN='REPLACE-WITH-SAME-RANDOM-TOKEN-AS-WORKER';
+
+function renderDocList(){
+  var n=NOTES[_detId]||{}; var docs=n._registryDocs||[];
+  var el=document.getElementById('docList');
+  if(!docs.length){ el.innerHTML='<div style="color:var(--muted);font-size:13px">まだ書類がアップロードされていません。</div>'; return; }
+  el.innerHTML=docs.map(function(d,i){
+    return '<div class="docrow"><span>📄 '+esc(d.name||'書類')+' <span style="color:var(--muted);font-size:11px">('+esc((d.uploadedAt||'').slice(0,10))+(d.transcribed?' ・ 転記済':'')+')</span></span>'+
+      '<button class="btn gold" onclick="runTranscribe('+i+')">'+(d.transcribed?'再度AI転記':'AI転記')+'</button></div>';
+  }).join('');
+}
+
+async function uploadDoc(){
+  var inp=document.getElementById('docFile'); var f=inp.files[0];
+  if(!f)return;
+  var statusEl=document.getElementById('docStatus');
+  statusEl.textContent='登記簿を保管しています…';
+  try{
+    var stamp=Date.now();
+    var safeName=(f.name||'doc').replace(/[^0-9A-Za-z._-]+/g,'_');
+    var path='client/'+CID+'/'+_detId+'/'+stamp+'_'+safeName;
+    var up=await db.storage.from('registry-docs').upload(path,f,{contentType:f.type||'application/octet-stream'});
+    if(up.error) throw new Error('保管失敗: '+up.error.message);
+    var prev=NOTES[_detId]||{};
+    var docs=(prev._registryDocs||[]).slice();
+    docs.push({path:path,name:f.name,contentType:f.type||'',uploadedAt:new Date().toISOString(),transcribed:false});
+    var obj={name:prev.name||'',tel:prev.tel||'',addr:prev.addr||'',status:prev.status||'',memo:prev.memo||'',_registryDocs:docs};
+    var e=await ClientCrypto.encryptNote(DEK,JSON.stringify(obj));
+    var payload={client_id:CID,delivery_id:_detId,ciphertext:e.ciphertext,iv:e.iv,updated_at:new Date().toISOString(),updated_by:(localStorage.getItem('glm_user')||'client')};
+    var upn=await db.from('client_secure_notes').upsert(payload,{onConflict:'client_id,delivery_id'});
+    if(upn.error) throw new Error('保存失敗: '+upn.error.message);
+    NOTES[_detId]=obj; statusEl.textContent='✓ アップロード完了'; renderDocList(); renderTable(); inp.value='';
+  }catch(e){ statusEl.textContent='✗ '+(e&&e.message||e); }
+}
+
+async function blobToImages(blob){
+  var type=(blob.type||'').toLowerCase();
+  if(type==='image/jpeg'||type==='image/png'||type==='image/webp'){
+    var dataUrl=await new Promise(function(resolve,reject){
+      var r=new FileReader(); r.onload=function(){resolve(r.result);}; r.onerror=function(){reject(r.error||new Error('画像読込失敗'));}; r.readAsDataURL(blob);
+    });
+    return [dataUrl];
+  }
+  if(type==='application/pdf'){
+    if(!window.pdfjsLib) throw new Error('PDF.jsが読み込まれていません');
+    if(!pdfjsLib.GlobalWorkerOptions.workerSrc){ pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }
+    var buf=await blob.arrayBuffer();
+    var pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    var images=[];
+    for(var p=1;p<=pdf.numPages;p++){
+      var page=await pdf.getPage(p);
+      var viewport=page.getViewport({scale:2.0});
+      var canvas=document.createElement('canvas'); canvas.width=viewport.width; canvas.height=viewport.height;
+      await page.render({canvasContext:canvas.getContext('2d'),viewport:viewport}).promise;
+      images.push(canvas.toDataURL('image/jpeg',0.85));
+    }
+    return images;
+  }
+  throw new Error('対応形式はPDF/JPG/PNG/WebPです（HEICは非対応）');
+}
+
+var _txDocIndex=null;
+async function runTranscribe(docIndex){
+  var n=NOTES[_detId]||{}; var docs=n._registryDocs||[]; var d=docs[docIndex];
+  if(!d)return;
+  var statusEl=document.getElementById('docStatus');
+  _txDocIndex=docIndex;
+  try{
+    statusEl.textContent='登記簿を取得しています…';
+    var su=await db.storage.from('registry-docs').createSignedUrl(d.path,600);
+    if(su.error||!su.data) throw new Error('取得失敗: '+(su.error&&su.error.message||'unknown'));
+    var res0=await fetch(su.data.signedUrl); if(!res0.ok) throw new Error('取得失敗: HTTP '+res0.status);
+    var blob=await res0.blob();
+
+    statusEl.textContent='画像に変換しています…';
+    var images=await blobToImages(blob);
+
+    statusEl.textContent='AIが登記簿を読み取っています…（数十秒かかることがあります）';
+    var res=await fetch(WORKER_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Client-Token':CLIENT_TOKEN},
+      body:JSON.stringify({images:images})
+    });
+    var j=await res.json();
+    if(!res.ok||!j.ok){
+      if(res.status===429){ throw new Error('今月の利用上限('+(j.limit||300)+'件)に達しました。来月まで自動でリセットされます。'); }
+      throw new Error('AI転記に失敗しました: '+(j.error||res.status));
+    }
+    var textOut=(((j.result||{}).content||[])[0]||{}).text||'';
+    var m=/\{[\s\S]*\}/.exec(textOut);
+    if(!m) throw new Error('AIの出力からJSONを取り出せませんでした');
+    _upExtracted=JSON.parse(m[0]);
+    statusEl.textContent='✓ 読み取り完了';
+    openReview();
+  }catch(e){
+    statusEl.textContent='✗ '+(e&&e.message||e);
+  }
+}
+
+function confBadge(c){ if(c==null)return ''; var hi=c>=0.7; return '<span class="conf '+(hi?'hi':'lo')+'">確信度 '+Math.round(c*100)+'%</span>'; }
+function openReview(){
+  var ex=_upExtracted||{}; var h=ex.hyodaibu||{}; var k=ex.kouku||{}; var owners=k.owners||[]; var o=ex.otsuku||{};
+  var it=ITEMS.filter(function(x){return x.delivery_id===_detId;})[0]||{};
+  document.getElementById('revLoc').textContent=[it.pref,it.city,it.town].filter(Boolean).join('')+' '+(it.chiban||'');
+  var body='<div class="modal-form"><p style="margin:0 0 10px"><b>表題部</b>（参考・確定納品データは変更しません）<br>'+
+    '<span style="font-size:12.5px;color:var(--muted)">所在: '+esc(h.shozai)+' '+confBadge(h.confidence)+'<br>地番: '+esc(h.chiban)+' ／ 地目: '+esc(h.chimoku)+' ／ 地積: '+(h.chiseki_sqm!=null?h.chiseki_sqm+'㎡':'—')+'</span></p>';
+  if(!owners.length) owners=[{name:'',address:'',mochibun:null,confidence:null}];
+  owners.forEach(function(ow,i){
+    body+='<p style="margin:10px 0 2px"><b>所有者 '+(i+1)+'</b> '+confBadge(ow.confidence)+'</p>'+
+      '<label>氏名</label><input class="ow_name" value="'+esc(ow.name||'')+'">'+
+      '<label>住所</label><input class="ow_addr" value="'+esc(ow.address||'')+'">'+
+      '<label>持分</label><input class="ow_mochi" value="'+esc(ow.mochibun||'')+'">';
+  });
+  var rightsTxt='';
+  if(o.empty){ rightsTxt='該当事項なし（乙区に設定中の権利なし）'; }
+  else if(o.rights&&o.rights.length){ rightsTxt=o.rights.map(function(r){return '・'+(r.type||'')+': '+(r.details||'');}).join('\n'); }
+  body+='<label>乙区（抵当権等）</label><textarea id="rev_otsuku">'+esc(rightsTxt)+'</textarea></div>';
+  document.getElementById('revBody').innerHTML=body;
+  document.getElementById('revOv').style.display='flex';
+}
+function closeReview(){document.getElementById('revOv').style.display='none';_upExtracted=null;_txDocIndex=null;}
+async function confirmReview(){
+  if(!DEK||!_detId||!_upExtracted)return;
+  var names=[],addrs=[],mochis=[];
+  document.querySelectorAll('#revBody .ow_name').forEach(function(el){names.push(el.value.trim());});
+  document.querySelectorAll('#revBody .ow_addr').forEach(function(el){addrs.push(el.value.trim());});
+  document.querySelectorAll('#revBody .ow_mochi').forEach(function(el){mochis.push(el.value.trim());});
+  var otsukuTxt=(document.getElementById('rev_otsuku').value||'').trim();
+  var prev=NOTES[_detId]||{};
+  var memoLines=[];
+  if(prev.memo) memoLines.push(prev.memo);
+  names.forEach(function(n,i){ if(n||addrs[i]) memoLines.push('['+(i+1)+'] '+n+(mochis[i]?'（持分'+mochis[i]+'）':'')+(addrs[i]?' '+addrs[i]:'')); });
+  if(otsukuTxt) memoLines.push('【乙区】'+otsukuTxt);
+  var docs=(prev._registryDocs||[]).slice();
+  if(_txDocIndex!=null&&docs[_txDocIndex]) docs[_txDocIndex]=Object.assign({},docs[_txDocIndex],{transcribed:true,transcribedAt:new Date().toISOString()});
+  var obj={
+    name:names.filter(Boolean).join('／')||prev.name||'',
+    addr:addrs.filter(Boolean).join('／')||prev.addr||'',
+    tel:prev.tel||'', status:prev.status||'',
+    memo:memoLines.join('\n'),
+    _registryDocs:docs
+  };
+  try{
+    var e=await ClientCrypto.encryptNote(DEK,JSON.stringify(obj));
+    var payload={client_id:CID,delivery_id:_detId,ciphertext:e.ciphertext,iv:e.iv,updated_at:new Date().toISOString(),updated_by:(localStorage.getItem('glm_user')||'client')};
+    var up=await db.from('client_secure_notes').upsert(payload,{onConflict:'client_id,delivery_id'});
+    if(up.error){toast('保存失敗: '+up.error.message);return;}
+    NOTES[_detId]=obj; toast('暗号化して保存しました（当社には暗号文のみ）');
+    document.getElementById('f_name').value=obj.name; document.getElementById('f_addr').value=obj.addr; document.getElementById('f_memo').value=obj.memo;
+    closeReview(); renderDocList(); renderTable();
   }catch(e){toast('保存失敗: '+(e&&e.message||e));}
 }
 
