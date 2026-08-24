@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>納品データ掃き出し // GRID LAND MGR</title>
 <script>
-(function(){var BUILD='20260824f';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
+(function(){var BUILD='20260825a';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
   if(!t||t===BUILD){return;}
   var key='_cbtry_client_'+t,n=0;try{n=parseInt(sessionStorage.getItem(key)||'0',10)||0;}catch(_){}
   if(n>=2){return;}
@@ -19,6 +19,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="client-functions.js?v=20260824a"></script>
+<script src="client-shared-fetch.js?v=20260825a"></script>
 <style>
   :root{--void:#050b1a;--panel:#0d1730;--panel2:#12203f;--line:#26375c;--plasma:#00d4ff;--gold:#f59e0b;--mint:#34d399;--text:#eaf0ff;--muted:#8698bd;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
   *{margin:0;padding:0;box-sizing:border-box;}
@@ -60,7 +61,7 @@
 <div class="top">
   <div class="brand">GRID LAND <b>MGR</b> // 納品データ掃き出し</div>
   <div style="display:flex;gap:12px;align-items:center;">
-    <span class="verbadge">BUILD 20260824f</span>
+    <span class="verbadge">BUILD 20260825a</span>
     <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
     <a class="back" href="client-portal.html">◀ ポータル</a>
     <a class="back" href="client-select.html">⇄ 切替</a>
@@ -191,18 +192,14 @@ async function init(){
     if(c&&c.data&&c.data.length)CID=c.data[0].id;
   }catch(e){}
   // 確定納品を取得
-  // v20260824(アドホック横断監査): 未ページングで1000件上限の恐れがあったためページング化。
+  // v20260825(重複ファイル台帳グループ4共通化): ページングは client-shared-fetch.js の _fetchAllPaged へ統一。
   try{
-    var _from=0,_size=1000,_rows=[];
-    while(true){
+    var r=await _fetchAllPaged(function(){
       var q=db.from('client_delivery_items').select('pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng,source,ai_note,status').eq('status','confirmed').order('pref',{ascending:true});
       if(CID)q=q.eq('client_id',CID);
-      var r=await q.range(_from,_from+_size-1);
-      var _page=(r&&r.data)||[];
-      _rows=_rows.concat(_page);
-      if(_page.length<_size)break; _from+=_size;
-    }
-    ROWS=_rows;
+      return q;
+    });
+    ROWS=(r&&r.data)||[];
   }catch(e){ROWS=[];}
   renderPreview();
   loadHist();

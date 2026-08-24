@@ -11,7 +11,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>納品案件マップ // GRID LAND MGR</title>
 <script>
-(function(){var BUILD='20260824f';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
+(function(){var BUILD='20260825a';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
   if(!t||t===BUILD){return;}
   var key='_cbtry_client_'+t,n=0;try{n=parseInt(sessionStorage.getItem(key)||'0',10)||0;}catch(_){}
   if(n>=2){return;}
@@ -24,6 +24,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="client-functions.js?v=20260824a"></script>
+<script src="client-shared-fetch.js?v=20260825a"></script>
 <style>
   :root{--void:#050b1a;--panel:#0d1730;--panel2:#12203f;--line:#26375c;--plasma:#00d4ff;--gold:#f59e0b;--mint:#34d399;--text:#eaf0ff;--muted:#8698bd;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
   *{margin:0;padding:0;box-sizing:border-box;}
@@ -75,7 +76,7 @@
 <div class="top">
   <div class="brand">GRID LAND <b>MGR</b> // 納品案件マップ</div>
   <div style="display:flex;gap:12px;align-items:center;">
-    <span class="verbadge">BUILD 20260824f</span>
+    <span class="verbadge">BUILD 20260825a</span>
     <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
     <a class="back" href="client-portal.html">◀ ポータル</a>
     <a class="back" href="client-select.html">⇄ 切替</a>
@@ -267,18 +268,15 @@ async function init(){
   }catch(e){}
   var rows=[];
   try{
-    // v20260824(アドホック横断監査): 未ページングで1000件上限の恐れがあったためページング化。
-    var from=0,size=1000;
-    while(true){
+    // v20260825(重複ファイル台帳グループ4共通化): ページングは client-shared-fetch.js の _fetchAllPaged へ統一。
+    var r=await _fetchAllPaged(function(){
       var q=db.from('client_delivery_items')
         .select('id,pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng')
         .eq('status','confirmed').order('pref',{ascending:true});
       if(CID)q=q.eq('client_id',CID);
-      var r=await q.range(from,from+size-1);
-      var page=(r&&r.data)||[];
-      rows=rows.concat(page);
-      if(page.length<size)break; from+=size;
-    }
+      return q;
+    });
+    rows=(r&&r.data)||[];
   }catch(e){rows=[];}
 
   var pts=[], noGeo=0, markers=[];

@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>手紙・ラベル（差し込み） // GRID LAND MGR</title>
 <script>
-(function(){var BUILD='20260824f';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
+(function(){var BUILD='20260825a';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
   if(!t||t===BUILD){return;}
   var key='_cbtry_client_'+t,n=0;try{n=parseInt(sessionStorage.getItem(key)||'0',10)||0;}catch(_){}
   if(n>=2){return;}
@@ -18,6 +18,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="client-functions.js?v=20260824a"></script>
+<script src="client-shared-fetch.js?v=20260825a"></script>
 <script src="client-crypto.js?v=20260817a"></script>
 <style>
   :root{--void:#050b1a;--panel:#0d1730;--panel2:#12203f;--line:#26375c;--plasma:#00d4ff;--gold:#f59e0b;--mint:#34d399;--rose:#f472b6;--text:#eaf0ff;--muted:#8698bd;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
@@ -62,7 +63,7 @@
 <div class="top">
   <div class="brand">GRID LAND <b>MGR</b> // 手紙・ラベル</div>
   <div style="display:flex;gap:12px;align-items:center;">
-    <span class="verbadge">BUILD 20260824f</span>
+    <span class="verbadge">BUILD 20260825a</span>
     <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
     <a class="back" href="client-portal.html">◀ ポータル</a>
     <a class="back" href="client-select.html">⇄ 切替</a>
@@ -158,18 +159,14 @@ async function boot(){
   document.getElementById('caseSel').addEventListener('change',render);
   try{var c=await db.from('clients').select('id,name').ilike('name','%'+CLIENT_NAME.replace('株式会社','')+'%').limit(1);if(c&&c.data&&c.data.length)CID=c.data[0].id;}catch(e){}
   // 確定納品（平文）
-  // v20260824(アドホック横断監査): 未ページングで1000件上限の恐れがあったためページング化。
+  // v20260825(重複ファイル台帳グループ4共通化): ページングは client-shared-fetch.js の _fetchAllPaged へ統一。
   try{
-    var _from=0,_size=1000,_items=[];
-    while(true){
+    var r=await _fetchAllPaged(function(){
       var q=db.from('client_delivery_items').select('id,pref,city,town,chiban,area_m2,chimoku,zone,address').eq('status','confirmed').order('pref',{ascending:true});
       if(CID)q=q.eq('client_id',CID);
-      var r=await q.range(_from,_from+_size-1);
-      var _page=(r&&r.data)||[];
-      _items=_items.concat(_page);
-      if(_page.length<_size)break; _from+=_size;
-    }
-    ITEMS=_items;
+      return q;
+    });
+    ITEMS=(r&&r.data)||[];
   }catch(e){ITEMS=[];}
   // 金庫の有無を確認
   var cr; try{ cr=await db.from('client_crypto').select('*').eq('client_id',CID).limit(1); }catch(e){ cr={error:e}; }
