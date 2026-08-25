@@ -42,3 +42,24 @@ window.CLIENT_FUNCTIONS.fetchEnabled = async function(db, clientName, slug){
   }catch(e){}
   return (this.clients && this.clients[slug]) || [];
 };
+
+// ============================================================================
+// ★②(2026-08-25 ドクター指示 / SUNトラスト報告): 全クライアント画面の左上に共通「戻る」ボタン。
+//   各ページに個別ボタンを足すと管理不能になるため、ここ1箇所で共通化する（今後増える画面にも自動で付く）。
+//   動作: 直前に見ていた画面へ戻る(履歴)。履歴が無い時はポータルへ。
+// ============================================================================
+(function injectClientBack(){
+  function place(){
+    try{
+      var top=document.querySelector('.top'); if(!top) return;
+      if(document.getElementById('cBackBtn')) return;
+      var a=document.createElement('a');
+      a.id='cBackBtn'; a.href='javascript:void(0)'; a.textContent='◀ 戻る';
+      a.style.cssText='color:#00d4ff;text-decoration:none;font-size:13px;border:1px solid #26375c;padding:6px 12px;border-radius:5px;margin-right:14px;flex-shrink:0;white-space:nowrap';
+      a.onclick=function(){ if(document.referrer && history.length>1){ history.back(); } else { location.href='client-portal.html'; } };
+      top.insertBefore(a, top.firstChild);
+    }catch(e){}
+  }
+  if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded',place); }
+  else { place(); }
+})();

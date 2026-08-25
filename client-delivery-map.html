@@ -11,7 +11,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>納品案件マップ // GRID LAND MGR</title>
 <script>
-(function(){var BUILD='20260825a';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
+(function(){var BUILD='20260825b';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
   if(!t||t===BUILD){return;}
   var key='_cbtry_client_'+t,n=0;try{n=parseInt(sessionStorage.getItem(key)||'0',10)||0;}catch(_){}
   if(n>=2){return;}
@@ -23,8 +23,9 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="client-functions.js?v=20260824a"></script>
-<script src="client-shared-fetch.js?v=20260825a"></script>
+<script src="client-functions.js?v=20260825b"></script>
+<script src="client-shared-fetch.js?v=20260825b"></script>
+<script src="client-judge.js?v=20260825b"></script>
 <style>
   :root{--void:#050b1a;--panel:#0d1730;--panel2:#12203f;--line:#26375c;--plasma:#00d4ff;--gold:#f59e0b;--mint:#34d399;--text:#eaf0ff;--muted:#8698bd;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
   *{margin:0;padding:0;box-sizing:border-box;}
@@ -76,7 +77,7 @@
 <div class="top">
   <div class="brand">GRID LAND <b>MGR</b> // 納品案件マップ</div>
   <div style="display:flex;gap:12px;align-items:center;">
-    <span class="verbadge">BUILD 20260825a</span>
+    <span class="verbadge">BUILD 20260825b</span>
     <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
     <a class="back" href="client-portal.html">◀ ポータル</a>
     <a class="back" href="client-select.html">⇄ 切替</a>
@@ -222,15 +223,15 @@ function markerStyleFor(status){
 async function setJudgment(popupId,status){
   var entry=MARKERS[popupId]; if(!entry)return;
   var caseId=entry.row.id;
-  try{
-    var ex=await db.from('case_proposals').select('id').eq('case_id',caseId).eq('client_id',CID).limit(1);
-    if(ex&&ex.data&&ex.data.length){ await db.from('case_proposals').update({status:status,decided_at:new Date().toISOString()}).eq('id',ex.data[0].id); }
-    else{ await db.from('case_proposals').insert({case_id:caseId,client_id:CID,status:status}); }
-    STMAP[caseId]=status;
-    entry.m.setStyle(markerStyleFor(status));
-    entry.m.setPopupContent(popupHtml(entry.row,popupId));
-    toast((status==='OK'?'✓ OK':'✕ NG')+'として保存しました');
-  }catch(e){ toast('保存失敗: '+((e&&e.message)||e)); }
+  // ★①(2026-08-25 ドクター指示): OK/NGを押した瞬間に発火＝先にフラグ色と表示を変える。
+  //   従来はDB保存の成功後にsetStyleしていたため、保存が遅い/権限で弾かれるとフラグ色が変わらなかった。
+  //   保存は裏で実行し、失敗しても表示は戻さず「保存未完了」だけ知らせる（判定はcase_proposals.judgmentへ）。
+  STMAP[caseId]=status;
+  entry.m.setStyle(markerStyleFor(status));
+  entry.m.setPopupContent(popupHtml(entry.row,popupId));
+  toast(status==='OK'?'✓ OK':'✕ NG');
+  try{ await ClientJudge.save(db,CID,caseId,status); }
+  catch(e){ toast('表示は変更しました（サーバ保存は未完了: '+((e&&e.message)||e)+'）'); }
 }
 function popupHtml(r,id){
   var loc=[esc(r.pref),esc(r.city),esc(r.town)].filter(Boolean).join('');
@@ -262,10 +263,8 @@ async function init(){
     var c=await db.from('clients').select('id,name').ilike('name','%'+CLIENT_NAME.replace('株式会社','')+'%').limit(1);
     if(c&&c.data&&c.data.length)CID=c.data[0].id;
   }catch(e){}
-  try{
-    var sr=await db.from('case_proposals').select('case_id,status').eq('client_id',CID);
-    if(sr&&sr.data)sr.data.forEach(function(x){STMAP[x.case_id]=x.status;});
-  }catch(e){}
+  // 判定は case_proposals.judgment（OK/NG）を唯一の置き場として読む（status=ステータス管理のカスタム値とは別軸）
+  try{ STMAP=await ClientJudge.loadMap(db,CID); }catch(e){}
   var rows=[];
   try{
     // v20260825(重複ファイル台帳グループ4共通化): ページングは client-shared-fetch.js の _fetchAllPaged へ統一。

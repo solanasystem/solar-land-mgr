@@ -52,6 +52,18 @@
     return !!email && MAINTENANCE_ALLOW_EMAILS.indexOf(String(email).trim().toLowerCase()) !== -1;
   }
 
+  // ★個別許可(partner/external遮断の例外) — 重複ファイル台帳グループ5(2026-08-25共通化)。
+  //   role=partner/external でも個別に機能を解放したい人をここに追加する。
+  //   従来は各ページ(farmland-tracker.html等)がメールアドレスを個別にハードコードしており、
+  //   新しいページを作るたびに例外の書き忘れ(=黒木さんが締め出される)が繰り返し発生していた。
+  //   このリストを見るだけで「誰が何のために例外か」が一箇所で分かるようにする。
+  var INDIVIDUAL_PARTNER_EXEMPT_EMAILS = [
+    'yumi.kurogi117@gmail.com' // 黒木さん(九州): 農地トラッカー系ページを個別許可(2026-08-11〜)
+  ];
+  function isIndividuallyExemptEmail(email) {
+    return !!email && INDIVIDUAL_PARTNER_EXEMPT_EMAILS.indexOf(String(email).trim().toLowerCase()) !== -1;
+  }
+
   // ============================================================
   // ヘルパー
   // ============================================================
@@ -112,6 +124,8 @@
     isViewer:       function() { return profile.role === 'viewer'; },
     isExternal:     function() { return profile.role === 'external'; },
     isPartner:      function() { return profile.role === 'partner'; },
+    // 個別許可(グループ5共通化): partner/external遮断ガードは、遮断する前に必ずこれを確認して除外すること。
+    isIndividuallyExempt: function() { return isIndividuallyExemptEmail(profile.email); },
     canEdit:        function() { return profile.role === 'admin' || profile.role === 'manager'; },
     canDelete:      function() { return profile.role === 'admin' || profile.role === 'manager'; },
     canManageUsers: function() { return profile.role === 'admin'; },

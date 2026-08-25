@@ -89,9 +89,16 @@ window.ClientCrypto = (function(){
     return {kdf_salt:kdf_salt, wrapped_dek_pw:wrapped_dek_pw};
   }
 
+  // ★④(2026-08-25 ドクター指示): 解錠した鍵を「タブが開いている間だけ」保持するための書き出し/読み込み。
+  //   sessionStorageに置くのはDEKのraw(base64)のみ＝パスフレーズは保存しない。タブを閉じれば消える。
+  //   DEKは生成/復元時にextractable=trueなので raw を取り出せる（サーバには一切送らない）。
+  async function exportDEK(dek){ return b64(await crypto.subtle.exportKey('raw', dek)); }
+  async function importDEK(rawB64){ return crypto.subtle.importKey('raw', unb64(rawB64), {name:'AES-GCM',length:256}, true, ['encrypt','decrypt']); }
+
   return {
     setup:setup, unlockWithPassword:unlockWithPassword, unlockWithRecovery:unlockWithRecovery,
     rewrapPassword:rewrapPassword, encryptNote:encryptNote, decryptNote:decryptNote,
-    genRecoveryCode:genRecoveryCode, _b64:b64, _unb64:unb64, PBKDF2_ITER:PBKDF2_ITER
+    genRecoveryCode:genRecoveryCode, exportDEK:exportDEK, importDEK:importDEK,
+    _b64:b64, _unb64:unb64, PBKDF2_ITER:PBKDF2_ITER
   };
 })();
