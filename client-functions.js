@@ -56,7 +56,16 @@ window.CLIENT_FUNCTIONS.fetchEnabled = async function(db, clientName, slug){
       var a=document.createElement('a');
       a.id='cBackBtn'; a.href='javascript:void(0)'; a.textContent='◀ 戻る';
       a.style.cssText='color:#00d4ff;text-decoration:none;font-size:13px;border:1px solid #26375c;padding:6px 12px;border-radius:5px;margin-right:14px;flex-shrink:0;white-space:nowrap';
-      a.onclick=function(){ if(document.referrer && history.length>1){ history.back(); } else { location.href='client-portal.html'; } };
+      // v20260826(SUNトラスト報告②): target="_blank"で開いた別タブはhistory.length===1のため
+      // history.back()が使えず必ずポータルへ落ちていた。呼び出し元がURLに?back=戻り先を
+      // 付けている場合は最優先でそこへ遷移する(タブ構成に依存しない確実な戻り先)。
+      a.onclick=function(){
+        try{
+          var back=new URLSearchParams(location.search).get('back');
+          if(back){ location.href=decodeURIComponent(back); return; }
+        }catch(e){}
+        if(document.referrer && history.length>1){ history.back(); } else { location.href='client-portal.html'; }
+      };
       top.insertBefore(a, top.firstChild);
     }catch(e){}
   }
