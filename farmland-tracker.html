@@ -153,8 +153,8 @@
   function apply(){
     if(!(window.__auth && typeof window.__auth.isPartner==='function')){ setTimeout(apply,50); return; }
     if(!window.__auth.isPartner()) return;
-    var em=((window.__auth.profile&&window.__auth.profile.email)||'').trim().toLowerCase();
-    if(em==='yumi.kurogi117@gmail.com') return; // 黒木さん(九州)は個別許可対象=遮断しない
+    // v20260826(重複ファイル台帳グループ5共通化): 個別許可の判定はcommon-auth.js側に集約(isIndividuallyExempt)。
+    if(window.__auth.isIndividuallyExempt && window.__auth.isIndividuallyExempt()) return;
     ['hzCandidates','candLegend','useLayerGroup','hzYukyu','hzGappitsu'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
     var link=document.querySelector('a[href="farmland-candidates.html"]'); if(link) link.style.display='none';
     // トグル関数も無効化(ボタンが残存・URL/コンソール経由でも発火させない)
@@ -164,12 +164,11 @@
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',apply); else apply();
 })();
-/* 黒木さん(九州)は候補系レイヤーを閲覧可(2026-08-11): トラッカーで九州フラグを表示。他ユーザー無影響 */
+/* 個別許可者(黒木さん等)は候補系レイヤーを閲覧可(2026-08-11〜)。判定はcommon-auth.jsのisIndividuallyExemptに集約(2026-08-26) */
 (function(){
   function show(){
-    if(!(window.__auth && window.__auth.profile)){ setTimeout(show,80); return; }
-    var em=((window.__auth.profile.email)||'').trim().toLowerCase();
-    if(em!=='yumi.kurogi117@gmail.com') return;
+    if(!(window.__auth && window.__auth.profile && typeof window.__auth.isIndividuallyExempt==='function')){ setTimeout(show,80); return; }
+    if(!window.__auth.isIndividuallyExempt()) return;
     ['hzCandidates','candLegend','useLayerGroup','hzYukyu','hzGappitsu'].forEach(function(id){ var el=document.getElementById(id); if(el){ el.style.removeProperty('display'); el.style.display=''; } });
     var link=document.querySelector('a[href="farmland-candidates.html"]'); if(link) link.style.display='';
   }
