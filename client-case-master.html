@@ -15,7 +15,7 @@
 /* v20260824e(ドクター指示・SUNトラスト報告事故を受けて): metaタグのCache-Controlは実ブラウザで効かない場合がある事が
    実機検証で判明したため、社内分析ページと同じ「ver_client.txtと埋込BUILDが違えば自動で最新へリロード」方式を導入。
    クライアント向け全ページ共通のバージョン(ver_client.txt)。無限ループ防止=sessionStorageで同一版は最大2回まで。 */
-(function(){var BUILD='20260826a';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
+(function(){var BUILD='20260826b';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
   if(!t||t===BUILD){return;}
   var key='_cbtry_client_'+t,n=0;try{n=parseInt(sessionStorage.getItem(key)||'0',10)||0;}catch(_){}
   if(n>=2){return;}
@@ -26,7 +26,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="client-functions.js?v=20260826a"></script>
+<script src="client-functions.js?v=20260826b"></script>
 <script src="client-shared-fetch.js?v=20260825b"></script>
 <script src="client-crypto.js?v=20260825b"></script>
 <script src="client-judge.js?v=20260825b"></script>
@@ -83,7 +83,7 @@
 <div class="top">
   <div class="brand">GRID LAND <b>MGR</b> // 案件マスター（地権者情報）</div>
   <div style="display:flex;gap:12px;align-items:center;">
-    <span class="verbadge">BUILD 20260826a</span>
+    <span class="verbadge">BUILD 20260826b</span>
     <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
     <a class="back" href="client-portal.html">◀ ポータル</a>
     <a class="back" href="client-select.html">⇄ 切替</a>
@@ -95,7 +95,7 @@
   <div class="sub">確定納品（御社への提供情報）に、御社だけが読める<b>地権者情報</b>を暗号で記録します。入力は<b>御社のブラウザ内で暗号化</b>され、運用者（当社）には暗号文しか届きません＝<b>当社は復号できません</b>。</div>
   <div class="bar">
     <span class="cnt" id="cnt">—</span>
-    <input class="search" id="search" placeholder="所在・地番で絞り込み" oninput="renderTable()">
+    <input class="search" id="search" type="text" name="glm_site_filter" autocomplete="off" autocapitalize="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')" placeholder="所在・地番で絞り込み" oninput="renderTable()">
     <button class="btn" id="lockBtn" onclick="relock()" style="display:none">🔒 施錠する</button>
   </div>
   <div class="tblwrap"><table id="tbl"><thead><tr>
@@ -171,7 +171,7 @@ function esc(v){return (v==null)?'':String(v).replace(/[&<>"]/g,function(c){retu
 
 var CID=null, DEK=null, ITEMS=[], NOTES={}; // NOTES[delivery_id]={name,addr,tel,status,memo}
 var JUDGE={}; // ③判定 delivery_id -> 'OK'/'NG'（case_proposals.judgment・平文・解錠不要）
-function _dekKey(){ return 'glm_vaultdek_'+(CID||''); } // ④タブ内だけ鍵を保持するsessionStorageキー
+function _dekKey(){ return 'glm_vaultdek_'+(CID||''); } // ④全タブ共有で鍵を保持するlocalStorageキー(7日期限・施錠/切替で消去)
 
 async function resolveClient(){
   try{var c=await db.from('clients').select('id,name').ilike('name','%'+CLIENT_NAME.replace('株式会社','')+'%').limit(1);if(c&&c.data&&c.data.length)CID=c.data[0].id;}catch(e){}
@@ -243,12 +243,13 @@ async function finishUnlock(){
   document.getElementById('ov').style.display='none';
   document.getElementById('lockBadge').className='lockbadge open'; document.getElementById('lockBadge').textContent='🔓 解錠中（この画面のみ）';
   document.getElementById('lockBtn').style.display='';
-  // ★④(2026-08-25 ドクター指示): 解錠した鍵をタブが開いている間だけ保持（マップ等と往復しても再入力不要）。
-  //   保存するのはDEKのrawのみ。タブ/ブラウザを閉じれば消える＝翌日開き直した時だけ再入力。
-  try{ if(DEK&&CID) sessionStorage.setItem(_dekKey(), await ClientCrypto.exportDEK(DEK)); }catch(e){}
+  // ★④(2026-08-26修正): 解錠鍵を「全タブ共有」で保持（localStorage・7日期限）。
+  //   sessionStorageはタブ毎に独立のため、Noから別タブで開いた地図→戻ると鍵が共有されず再入力になっていた不具合を是正。
+  //   保存はDEKのrawのみ。施錠/切替で消去。7日を過ぎたら再入力。
+  try{ if(DEK&&CID) localStorage.setItem(_dekKey(), JSON.stringify({k:await ClientCrypto.exportDEK(DEK), t:Date.now()})); }catch(e){}
   await loadNotesAndRender();
 }
-function relock(){ try{ sessionStorage.removeItem(_dekKey()); }catch(e){} DEK=null; NOTES={}; location.reload(); }
+function relock(){ try{ localStorage.removeItem(_dekKey()); }catch(e){} DEK=null; NOTES={}; location.reload(); }
 
 /* ===== データ ===== */
 // v20260824(アドホック横断監査): client_delivery_itemsが未ページングだった。件数増加(第2回納品候補等)で
@@ -290,6 +291,7 @@ async function setJudge(id,val){
 }
 function renderTable(){
   var q=(document.getElementById('search').value||'').trim();
+  if(q.indexOf('@')!==-1) q=''; // ★A: ブラウザのメール自動入力を検索値として無視(所在/地番に@は無い)
   var body=document.getElementById('tbody'), rows=ITEMS;
   if(q){rows=rows.filter(function(r){return ((r.address||'')+(r.chiban||'')+(r.city||'')+(r.town||'')).indexOf(q)!==-1;});}
   document.getElementById('cnt').textContent='確定納品 '+ITEMS.length+'件（表示 '+rows.length+'）';
@@ -511,16 +513,19 @@ async function confirmReview(){
 }
 
 async function boot(){
+  try{var _s=document.getElementById('search'); if(_s) _s.value='';}catch(e){} // ★A: ブラウザ自動入力(メール)を起動時に消す
   await resolveClient();
   if(!CID){document.getElementById('ovCard').innerHTML='<h2>クライアント未特定</h2><p>ログイン情報を確認してください。</p>';return;}
   await loadItems();
   try{ JUDGE=await ClientJudge.loadMap(db,CID); }catch(e){} // ③判定を読む
   renderTable();
-  // ★④: 同タブで既に解錠済みなら、鍵を復元して解錠モーダルを出さない
+  // ★④(2026-08-26): 全タブ共有(localStorage・7日期限)で解錠済みなら鍵を復元し、解錠モーダルを出さない
   try{
-    var saved=sessionStorage.getItem(_dekKey());
-    if(saved){ DEK=await ClientCrypto.importDEK(saved); await finishUnlock(); return; }
-  }catch(e){}
+    var saved=localStorage.getItem(_dekKey());
+    if(saved){ var o=JSON.parse(saved);
+      if(o&&o.k&&(Date.now()-(o.t||0) < 7*24*60*60*1000)){ DEK=await ClientCrypto.importDEK(o.k); await finishUnlock(); return; }
+      else { localStorage.removeItem(_dekKey()); } }
+  }catch(e){ try{localStorage.removeItem(_dekKey());}catch(_){}}
   var cr=await getCryptoRecord();
   if(cr.error){
     // テーブル未作成 or 権限

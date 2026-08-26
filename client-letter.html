@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>手紙・ラベル（差し込み） // GRID LAND MGR</title>
 <script>
-(function(){var BUILD='20260826a';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
+(function(){var BUILD='20260826b';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
   if(!t||t===BUILD){return;}
   var key='_cbtry_client_'+t,n=0;try{n=parseInt(sessionStorage.getItem(key)||'0',10)||0;}catch(_){}
   if(n>=2){return;}
@@ -17,7 +17,7 @@
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="client-functions.js?v=20260826a"></script>
+<script src="client-functions.js?v=20260826b"></script>
 <script src="client-shared-fetch.js?v=20260825b"></script>
 <script src="client-crypto.js?v=20260825b"></script>
 <style>
@@ -63,7 +63,7 @@
 <div class="top">
   <div class="brand">GRID LAND <b>MGR</b> // 手紙・ラベル</div>
   <div style="display:flex;gap:12px;align-items:center;">
-    <span class="verbadge">BUILD 20260826a</span>
+    <span class="verbadge">BUILD 20260826b</span>
     <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
     <a class="back" href="client-portal.html">◀ ポータル</a>
     <a class="back" href="client-select.html">⇄ 切替</a>
@@ -120,7 +120,7 @@ var TAGS=[['【地権者氏名】','name'],['【地権者住所】','addr'],['�
 var SAMPLE='【地権者氏名】　様\n\n拝啓　時下ますますご清祥のこととお慶び申し上げます。\n\n突然のお手紙で失礼いたします。私どもは再生可能エネルギー事業用地を探しております株式会社SUNトラストと申します。\nこのたび、貴殿所有の【所在】（地番【地番】・地積【面積】㎡）につきまして、活用のご相談をさせていただきたくご連絡差し上げました。\n\nつきましては、一度お話をお伺いできれば幸いです。ご検討のほど、よろしくお願い申し上げます。\n\n敬具\n\n　　　　　　　　　　　　　　株式会社SUNトラスト\n　　　　　　　　　　　　　　連絡先：〇〇〇-〇〇〇〇-〇〇〇〇';
 
 var CID=null, DEK=null, ITEMS=[], NOTES={};
-function _dekKey(){ return 'glm_vaultdek_'+(CID||''); } // ④案件マスターと共通: タブ内だけ鍵を保持
+function _dekKey(){ return 'glm_vaultdek_'+(CID||''); } // ④案件マスターと共通: 全タブ共有で鍵を保持(localStorage・7日期限)
 function draftKey(){return 'glm_letter_'+(localStorage.getItem('glm_client')||'suntrust');}
 function saveDraft(){try{localStorage.setItem(draftKey(),document.getElementById('ownText').value);toast('文面を保存しました（御社ブラウザ内）。');}catch(e){}}
 function loadDraft(){try{var v=localStorage.getItem(draftKey());document.getElementById('ownText').value=v||SAMPLE;render();}catch(e){}}
@@ -174,11 +174,13 @@ async function boot(){
   if(cr.error){ document.getElementById('ovCard').innerHTML='<h2>準備中</h2><p>暗号保管がまだ準備できていません。先に「案件マスター」を開いて金庫を作成してください。</p><p><a class="back" href="client-case-master.html">📇 案件マスターへ</a></p>'; return; }
   if(!cr.data||!cr.data.length){ document.getElementById('ovCard').innerHTML='<h2>金庫が未作成です</h2><p>先に「案件マスター」で金庫パスフレーズを設定してください。設定後、こちらで地権者情報を差し込めます。</p><p style="margin-top:10px"><a class="back" href="client-case-master.html">📇 案件マスターへ</a></p>'; return; }
   window.__rec=cr.data[0];
-  // ★④(2026-08-25): 同タブで案件マスター等を解錠済みなら、鍵を再利用して再入力を省く
+  // ★④(2026-08-26): 全タブ共有(localStorage・7日期限)で解錠済みなら鍵を再利用し再入力を省く
   try{
-    var saved=sessionStorage.getItem(_dekKey());
-    if(saved){ DEK=await ClientCrypto.importDEK(saved); await afterUnlock(); return; }
-  }catch(e){}
+    var saved=localStorage.getItem(_dekKey());
+    if(saved){ var o=JSON.parse(saved);
+      if(o&&o.k&&(Date.now()-(o.t||0) < 7*24*60*60*1000)){ DEK=await ClientCrypto.importDEK(o.k); await afterUnlock(); return; }
+      else { localStorage.removeItem(_dekKey()); } }
+  }catch(e){ try{localStorage.removeItem(_dekKey());}catch(_){}}
   document.getElementById('ovCard').innerHTML='<h2>🔓 解錠</h2><p>案件マスターの地権者情報を差し込むため、金庫パスフレーズを入力してください（当社には送信されません）。</p><input id="pw" type="password" placeholder="金庫パスフレーズ" onkeydown="if(event.key===\'Enter\')doUnlock()"><div style="display:flex;justify-content:flex-end"><button class="btn" onclick="doUnlock()">解錠</button></div>';
 }
 // 解錠後の共通処理（doUnlock と 鍵再利用 の両方から呼ぶ）
@@ -197,7 +199,7 @@ async function doUnlock(){
   var pw=document.getElementById('pw').value; if(!pw)return;
   try{
     DEK=await ClientCrypto.unlockWithPassword(window.__rec,pw);
-    try{ if(DEK&&CID) sessionStorage.setItem(_dekKey(), await ClientCrypto.exportDEK(DEK)); }catch(e){} // ④鍵をタブ内保持
+    try{ if(DEK&&CID) localStorage.setItem(_dekKey(), JSON.stringify({k:await ClientCrypto.exportDEK(DEK), t:Date.now()})); }catch(e){} // ④鍵を全タブ共有(localStorage・7日期限)
     await afterUnlock();
   }catch(e){ toast('パスフレーズが違います'); }
 }
