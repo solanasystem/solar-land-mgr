@@ -619,14 +619,16 @@ async function openD2TodayReviewLayer(){
     var btn=document.getElementById('gachoD2TodayReview'); if(btn){btn.textContent='🟣 今日追加93件を確認';btn.classList.remove('on');}
     toast('🟣 確認レイヤーを閉じました'); return; }
   toast('読込中…');
-  ensurePane(m); // ★他レイヤー(候補candPane=640等)に埋もれないよう最前面のgachoPane(660)へ描画
+  // ★第2回納品候補(620)の緑網掛け(実測境界ポリゴン)がgachoPaneに既に描かれており、同paneだと埋もれてクリックも
+  // 奪われる不具合があったため、確実に最前面かつクリック可能な専用paneを作る(z=700・gachoPane660より上)。
+  if(!m.getPane('d2ReviewPane')){ var _rp=m.createPane('d2ReviewPane'); _rp.style.zIndex=700; }
   var r=await d.from('round2_pool').select('id,kind,source_iid,lat,lng,pref,city').eq('round',2).eq('created_at',_D2_TODAY_TS);
   var rows=(r&&r.data)||[];
   if(!rows.length){toast('該当データが見つかりません(既に確認済み等で0件かもしれません)');return;}
   _d2TodayLayer=L.layerGroup([]).addTo(m);
   rows.forEach(function(row){
     var isDup=!!_D2_TODAY_DUP_IDS[row.id], isUnv=!!_D2_TODAY_UNVERIFIED_IDS[row.id];
-    var mk=L.circleMarker([row.lat,row.lng],{pane:'gachoPane',radius:9,color:'#ffffff',weight:2,fillColor:'#a855f7',fillOpacity:0.85}); // ★指示通り全件紫固定(色分けを勝手に追加しない)
+    var mk=L.circleMarker([row.lat,row.lng],{pane:'d2ReviewPane',radius:11,color:'#ffffff',weight:3,fillColor:'#a855f7',fillOpacity:0.95,interactive:true,bubblingMouseEvents:false}); // ★指示通り全件紫固定(色分けを勝手に追加しない)。専用pane+半径拡大でクリック確実化
     var warn='';
     if(isDup)warn+='<div style="color:#fca5a5;font-weight:800;margin:4px 0">⚠ 納品済み300件と30m以内で重複の疑い</div>';
     if(isUnv)warn+='<div style="color:#fcd34d;font-weight:800;margin:4px 0">⚠ 正式判定(case_candidates)が未確認(new)のまま</div>';
