@@ -2,13 +2,16 @@
    目的: AIの「SWルームを読む/記録する」を"人間が押す・目で確認できる"検証可能な形にする。
    ①AI学習ボタン(全ページ): 押すと ai_learn_events に記録(=AIが各作業前に読む合図) + SWルームの"正"の要点を表示。
    ②緑ポップアップ: sw_records(AIがSWへ記録した証跡6項目)を監視し、新規記録を緑で表示=口だけでないの証拠。
+   ★ページのsupabaseクライアントに依存せず、公開anonキーで直接REST fetch(確実・タイミング非依存)。
    ドクター指示 2026-08-27。正=analysis_room/text/土地判断ノウハウ_教え込みログ。 */
 (function(){
   'use strict';
   if (window.__aiLearnHook) return; window.__aiLearnHook = true;
 
-  // ---- supabaseクライアント取得(common-auth.jsが用意する想定・準備待ち) ----
-  function sb(){ return window.db || (window.__auth && window.__auth.sb) || window.sb || window.supabaseClient || null; }
+  // 公開anonキー(全クライアントページで既に公開済み=埋め込み可)。RLSはanon SELECT(sw_records)/anon INSERT(ai_learn_events)。
+  var SUPA = 'https://fygnrjjifoasozbhkxlk.supabase.co';
+  var ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+  var HDR = { 'apikey': ANON, 'Authorization': 'Bearer ' + ANON, 'Content-Type': 'application/json' };
 
   // ---- 判断基準の"正"の骨子(①〜⑦)。全文は私設リポの教え込みログ(核心IP・ここには要点のみ) ----
   var SEIKI = [
@@ -49,8 +52,10 @@
   function onLearnClick(){
     var ts = new Date();
     // 合図をDBへ記録(AIが各作業前に読む)。失敗しても表示は出す。
-    var c = sb();
-    if (c) { try { c.from('ai_learn_events').insert({ page: pageName(), note: 'AI学習ボタン押下' }).then(function(){},function(){}); } catch(_){} }
+    try {
+      fetch(SUPA + '/rest/v1/ai_learn_events', { method:'POST', headers:HDR,
+        body: JSON.stringify({ page: pageName(), note: 'AI学習ボタン押下' }) }).catch(function(){});
+    } catch(_){}
     showSeikiModal(ts);
   }
 
@@ -86,20 +91,16 @@
   function setSeen(id){ try{ localStorage.setItem(LS_KEY, String(id)); }catch(_){} }
 
   function pollRecords(){
-    var c = sb(); if(!c) return;
-    try {
-      c.from('sw_records').select('id,ts,index_section,category,item,detail,impl_page').order('id',{ascending:false}).limit(5)
-       .then(function(r){
-         var rows = (r && r.data) || []; if(!rows.length) return;
-         var seen = lastSeen();
-         // 初回(未設定)は既存を既読にして誤爆させない
-         if (seen === 0){ setSeen(rows[0].id); return; }
-         var fresh = rows.filter(function(x){ return x.id > seen; }).sort(function(a,b){return a.id-b.id;});
-         if(!fresh.length) return;
-         setSeen(fresh[fresh.length-1].id);
-         fresh.forEach(showGreenPopup);
-       }, function(){});
-    } catch(_){}
+    var url = SUPA + '/rest/v1/sw_records?select=id,ts,index_section,category,item,detail,impl_page&order=id.desc&limit=5';
+    fetch(url, { headers: HDR }).then(function(r){ return r.ok ? r.json() : []; }).then(function(rows){
+      if(!rows || !rows.length) return;
+      var seen = lastSeen();
+      if (seen === 0){ setSeen(rows[0].id); return; }  // 初回は既存を既読化(誤爆防止)
+      var fresh = rows.filter(function(x){ return x.id > seen; }).sort(function(a,b){return a.id-b.id;});
+      if(!fresh.length) return;
+      setSeen(fresh[fresh.length-1].id);
+      fresh.forEach(showGreenPopup);
+    }).catch(function(){});
   }
 
   function showGreenPopup(rec){
@@ -117,18 +118,14 @@
       row('詳細内容', rec.detail)+ row('日時', tstr)+ row('実装ページ', rec.impl_page);
     d.querySelector('button').onclick = function(){ d.remove(); };
     document.body.appendChild(d);
-    setTimeout(function(){ try{ d.remove(); }catch(_){} }, 60000); // 60秒で自動消滅(閉じるボタンでも消せる)
+    setTimeout(function(){ try{ d.remove(); }catch(_){} }, 90000); // 90秒で自動消滅(×でも消せる)
   }
 
   // ---- 起動 ----
   function boot(){
     injectButton();
-    // supabaseクライアントが用意できるまで待ってからポーリング開始
-    var tries=0;
-    (function waitSb(){
-      if (sb()){ pollRecords(); setInterval(pollRecords, 15000); }
-      else if (tries++ < 40){ setTimeout(waitSb, 500); }
-    })();
+    pollRecords();
+    setInterval(pollRecords, 10000);  // 10秒ごと
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
