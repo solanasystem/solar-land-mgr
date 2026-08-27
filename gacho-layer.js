@@ -1013,7 +1013,13 @@ function renderPanel(){
   var _arch=state.layers.filter(function(l){return l.archived && (!_gFilter||(l.name||'').toLowerCase().indexOf(_gFilter.toLowerCase())>=0);});
   var _tree={};
   _live.forEach(function(l){var mt=layerMeta(l);(_tree[mt.client]=_tree[mt.client]||{});(_tree[mt.client][mt.period]=_tree[mt.client][mt.period]||{});(_tree[mt.client][mt.period][mt.region]=_tree[mt.client][mt.period][mt.region]||[]).push(l);});
-  Object.keys(_tree).sort().forEach(function(cli){
+  // ★v20260827a(ドクター): 「クライアント選択」を1つのルートにし、その下へ各クライアントを樹形図で束ねる。折りたたみ＝クライアント選択。
+  var _clientKeys=Object.keys(_tree).sort();
+  var _rootOpen=_gopen('ROOTCLI');
+  h+='<div class="gacho-grp gacho-cliroot" data-grp="ROOTCLI" style="cursor:pointer;margin-top:8px;padding:6px 8px;background:linear-gradient(90deg,rgba(88,166,255,.20),rgba(88,166,255,.05));border:1px solid #3b82f6;border-radius:8px;font-weight:900"><span style="width:12px;display:inline-block">'+(_rootOpen?'▾':'▸')+'</span>🗂 クライアント選択<span style="float:right;font-weight:400;color:#8b949e;font-size:11px">'+_clientKeys.length+'社</span></div>';
+  if(_rootOpen){
+  h+='<div class="gacho-clibranch" style="margin-left:9px;border-left:2px dashed #3b82f6;padding-left:5px">';
+  _clientKeys.forEach(function(cli){
     var ck='C:'+cli; var co=_gopen(ck);
     var call=[];Object.keys(_tree[cli]).forEach(function(p){Object.keys(_tree[cli][p]).forEach(function(rr){call=call.concat(_tree[cli][p][rr]);});});
     h+='<div class="gacho-grp" data-grp="'+esc(ck)+'" style="cursor:pointer;margin-top:8px;padding:5px 6px;background:rgba(88,166,255,.10);border:1px solid #2a3742;border-radius:6px;font-weight:800"><span style="width:12px;display:inline-block">'+(co?'▾':'▸')+'</span>🏢 '+esc(cli)+(cli==='第2回納品候補'&&_D2?' <b style="color:#22d3ee;font-weight:700">確定OK '+_D2.totalItems+'件・'+_D2.totalLocations+'カ所</b>':'')+'<span style="float:right;font-weight:400;color:#8b949e;font-size:11px">'+_lcnt(call)+'</span></div>';
@@ -1033,6 +1039,7 @@ function renderPanel(){
       });
     });
   });
+  h+='</div>'; } // ← 「クライアント選択」ルート(_rootOpen)を閉じる
   if(_arch.length){
     var ako=_gopen('ARCH');
     h+='<div class="gacho-grp" data-grp="ARCH" style="cursor:pointer;margin-top:10px;padding:5px 6px;background:rgba(139,148,158,.08);border:1px dashed #3a4650;border-radius:6px;color:#8b949e;font-weight:700"><span style="width:12px;display:inline-block">'+(ako?'▾':'▸')+'</span>🗄 納品済（退避済 '+_arch.length+'画層）<span style="float:right;font-size:11px">'+_lcnt(_arch)+'</span></div>';
