@@ -626,8 +626,7 @@ async function openD2TodayReviewLayer(){
   _d2TodayLayer=L.layerGroup([]).addTo(m);
   rows.forEach(function(row){
     var isDup=!!_D2_TODAY_DUP_IDS[row.id], isUnv=!!_D2_TODAY_UNVERIFIED_IDS[row.id];
-    var color = isDup ? '#ef4444' : (isUnv ? '#f59e0b' : '#a855f7'); // 赤=納品済み重複疑い/橙=正式OK未確認/紫=フラグ無し
-    var mk=L.circleMarker([row.lat,row.lng],{pane:'gachoPane',radius:9,color:'#ffffff',weight:2,fillColor:color,fillOpacity:0.85});
+    var mk=L.circleMarker([row.lat,row.lng],{pane:'gachoPane',radius:9,color:'#ffffff',weight:2,fillColor:'#a855f7',fillOpacity:0.85}); // ★指示通り全件紫固定(色分けを勝手に追加しない)
     var warn='';
     if(isDup)warn+='<div style="color:#fca5a5;font-weight:800;margin:4px 0">⚠ 納品済み300件と30m以内で重複の疑い</div>';
     if(isUnv)warn+='<div style="color:#fcd34d;font-weight:800;margin:4px 0">⚠ 正式判定(case_candidates)が未確認(new)のまま</div>';
@@ -656,7 +655,7 @@ async function openD2TodayReviewLayer(){
   });
   m.fitBounds(_d2TodayLayer.getBounds(),{maxZoom:12});
   var btn=document.getElementById('gachoD2TodayReview'); if(btn){btn.textContent='🟣 確認レイヤーを閉じる（'+rows.length+'）';btn.classList.add('on');}
-  toast('🟣 '+rows.length+'件表示: 赤=納品済み重複疑い('+Object.keys(_D2_TODAY_DUP_IDS).length+') 橙=正式判定未確認('+Object.keys(_D2_TODAY_UNVERIFIED_IDS).length+') 紫=フラグ無し。クリックで確認/削除');
+  toast('🟣 '+rows.length+'件表示。クリックで各件を確認/削除(注意事項はポップアップ内に表示)');
 }
 /* v20260823(ドクター「静的ファイルへの依存自体をやめる」): window.DELIVERY2を、静的ファイル(delivery2-candidates.js)
    ではなくDBテーブル round2_pool(round=2) から毎回ライブで組み立てる。既存の全機能(_d2Dest/rebuildDelivery2/
