@@ -239,4 +239,15 @@
     window.addEventListener('load', function() { asyncVerify(); });
   }
 
+  // AI学習ボタン＋SW記録の緑ポップアップ（全ページ共通・1本を読込＝コピペ複製禁止 INDEX§0）
+  try {
+    if (!document.querySelector('script[data-ai-learn-hook]')) {
+      var _alh = document.createElement('script');
+      _alh.src = 'ai-learn-hook.js?v=20260827a';
+      _alh.setAttribute('data-ai-learn-hook', '1');
+      _alh.defer = true;
+      (document.head || document.documentElement).appendChild(_alh);
+    }
+  } catch (e) {}
+
 })();
