@@ -90,17 +90,48 @@
   function lastSeen(){ try{ return parseInt(localStorage.getItem(LS_KEY)||'0',10)||0; }catch(_){ return 0; } }
   function setSeen(id){ try{ localStorage.setItem(LS_KEY, String(id)); }catch(_){} }
 
+  // ---- 常時表示の診断バッジ(console不可のため画面だけで状態が分かるようにする・2026-08-27) ----
+  var diagEl = null;
+  function injectDiag(){
+    if (document.getElementById('aiLearnDiag')) return;
+    diagEl = document.createElement('div');
+    diagEl.id = 'aiLearnDiag';
+    diagEl.style.cssText = 'position:fixed;right:14px;bottom:52px;z-index:2147483000;'+
+      'background:#0f172a;color:#94a3b8;border:1px solid #334155;border-radius:8px;'+
+      'padding:4px 9px;font-size:10px;font-family:monospace;box-shadow:0 2px 8px rgba(0,0,0,.3);'+
+      'max-width:260px;';
+    diagEl.textContent = 'SW記録: 起動中…';
+    document.body.appendChild(diagEl);
+  }
+  function setDiag(text, ok){
+    if(!diagEl) return;
+    diagEl.textContent = 'SW記録: ' + text;
+    diagEl.style.borderColor = ok===false ? '#dc2626' : (ok===true ? '#16a34a' : '#334155');
+    diagEl.style.color = ok===false ? '#fca5a5' : (ok===true ? '#86efac' : '#94a3b8');
+  }
+
   function pollRecords(){
     var url = SUPA + '/rest/v1/sw_records?select=id,ts,index_section,category,item,detail,impl_page&order=id.desc&limit=5';
-    fetch(url, { headers: HDR }).then(function(r){ return r.ok ? r.json() : []; }).then(function(rows){
-      if(!rows || !rows.length) return;
+    fetch(url, { headers: HDR }).then(function(r){
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+    }).then(function(rows){
+      var now = new Date().toLocaleTimeString('ja-JP');
+      if(!rows || !rows.length){ setDiag('0件('+now+')', true); return; }
       var seen = lastSeen();
-      if (seen === 0){ setSeen(rows[0].id); return; }  // 初回は既存を既読化(誤爆防止)
+      if (seen === 0){
+        setSeen(rows[0].id);
+        setDiag('初回起動・id'+rows[0].id+'を既読化('+now+')。以降の新規のみポップアップ', true);
+        return;
+      }
       var fresh = rows.filter(function(x){ return x.id > seen; }).sort(function(a,b){return a.id-b.id;});
+      setDiag('最新id'+rows[0].id+' / 既読id'+seen+' / 新規'+fresh.length+'件('+now+')', true);
       if(!fresh.length) return;
       setSeen(fresh[fresh.length-1].id);
       fresh.forEach(showGreenPopup);
-    }).catch(function(){});
+    }).catch(function(e){
+      setDiag('通信失敗: '+((e&&e.message)||e)+'('+new Date().toLocaleTimeString('ja-JP')+')', false);
+    });
   }
 
   function showGreenPopup(rec){
@@ -124,6 +155,7 @@
   // ---- 起動 ----
   function boot(){
     injectButton();
+    injectDiag();
     pollRecords();
     setInterval(pollRecords, 10000);  // 10秒ごと
   }
