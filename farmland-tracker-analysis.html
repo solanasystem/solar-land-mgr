@@ -8557,6 +8557,12 @@ if(typeof map!=='undefined'&&map&&map.on){
       if(!Object.keys(scores).length){ await new Promise(function(rz){setTimeout(rz,700);}); }
     }
     if(!Object.keys(scores).length){ steps.err='reject_scores読込失敗'; steps.scoreFail=true; return {items:[],steps:steps}; }
+    // ★2026-08-27(ドクター指示): 候補掲載の除外閾値は架空の数字(旧0.5)でなく、手動NGラベルの実データから
+    //   毎晩自動算出される値(auto_retrain_reject.py→data/reject_threshold.json)を正とする。score_ai.pyの
+    //   ①適当/②検討/③不可ラベルと同じ基準に統一(以前は別々の数字で矛盾していた)。
+    var cutNg=0.65;
+    try{ var _tr=await fetch('data/reject_threshold.json?cb='+Date.now()); if(_tr&&_tr.ok){ var _tj=await _tr.json(); if(_tj&&typeof _tj.threshold==='number')cutNg=_tj.threshold; } }catch(e){}
+    steps.cutNg=cutNg;
     setStep&&setStep('ゲート①②③④⑥をDB照会中…');
     var rows=[],frm=0;
     while(true){ var r=await db.from('farmland_snapshots').select('feature_id,lat,lng,area_sqm,city').gte('area_sqm',800).eq('noshin_status','CLEAR').eq('hazard_status','CLEAR').eq('infra_status','PASS').eq('grid_status','pass').range(frm,frm+999); var b=(r&&r.data)||[]; rows=rows.concat(b); if(b.length<1000)break; frm+=1000; if(frm>30000)break; }
@@ -8572,7 +8578,7 @@ if(typeof map!=='undefined'&&map&&map.on){
     rows.forEach(function(s){ if(s.lat==null||s.lng==null)return; if(_seenFid[s.feature_id])return; _seenFid[s.feature_id]=1;
       if(!_inTargetRegion(+s.lat,+s.lng)){steps.regionRemoved++;return;}
       var _cty=String(s.city||''); if(_NG_CITIES.some(function(n){return _cty.indexOf(n)>=0;})){steps.regionRemoved++;return;}
-      var rej=scores[key6(s.lat,s.lng)]; if(rej!=null&&rej>=0.5)return; cand.push({f:s.feature_id,la:+s.lat,ln:+s.lng,a:Math.round(s.area_sqm||0),c:s.city||'',p:'',r:(rej!=null?+rej:null)}); });
+      var rej=scores[key6(s.lat,s.lng)]; if(rej!=null&&rej>=cutNg)return; cand.push({f:s.feature_id,la:+s.lat,ln:+s.lng,a:Math.round(s.area_sqm||0),c:s.city||'',p:'',r:(rej!=null?+rej:null)}); });
     steps.dupFid=rows.length-Object.keys(_seenFid).length;
     steps.model=cand.length;
     setStep&&setStep('農振農用地ポリゴンで青地を除外中…');
@@ -8758,7 +8764,7 @@ if(typeof map!=='undefined'&&map&&map.on){
         +'<div style="margin-top:4px">'
         +'<div>母集団 ゲート①②③④⑥通過: <b>'+s.gate+'</b>'+(s.dupFid?' <span style="color:#f59e0b">(同一筆重複−'+s.dupFid+')</span>':'')+'</div>'
         +'<div>→ 対象地域外・対象外市町村を除外('+(s.cfgSrc||'')+'参照): <b>−'+(s.regionRemoved||0)+'</b></div>'
-        +'<div>→ ⑤⑦モデル(reject&lt;0.5/未採点): <b>'+s.model+'</b></div>'
+        +'<div>→ ⑤⑦モデル(reject&lt;'+(s.cutNg!=null?s.cutNg.toFixed(3):'0.65')+'/未採点・手動NG実データから自動算出): <b>'+s.model+'</b></div>'
         +'<div>→ ①青地(農振農用地ポリゴン内)除外: <b>−'+s.aochiRemoved+'</b> → '+s.afterAochi+'</div>'
         +'<div>→ 調査済み(OK/NG)除外: <b>−'+s.investRemoved+'</b></div>'
         +'<div>→ 既得地(納品/OK/ピック)と重複(30m)除外: <b>−'+(s.deliveredRemoved||0)+'</b></div>'
