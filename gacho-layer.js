@@ -619,6 +619,7 @@ async function openD2TodayReviewLayer(){
     var btn=document.getElementById('gachoD2TodayReview'); if(btn){btn.textContent='🟣 今日追加93件を確認';btn.classList.remove('on');}
     toast('🟣 確認レイヤーを閉じました'); return; }
   toast('読込中…');
+  ensurePane(m); // ★他レイヤー(候補candPane=640等)に埋もれないよう最前面のgachoPane(660)へ描画
   var r=await d.from('round2_pool').select('id,kind,source_iid,lat,lng,pref,city').eq('round',2).eq('created_at',_D2_TODAY_TS);
   var rows=(r&&r.data)||[];
   if(!rows.length){toast('該当データが見つかりません(既に確認済み等で0件かもしれません)');return;}
@@ -626,7 +627,7 @@ async function openD2TodayReviewLayer(){
   rows.forEach(function(row){
     var isDup=!!_D2_TODAY_DUP_IDS[row.id], isUnv=!!_D2_TODAY_UNVERIFIED_IDS[row.id];
     var color = isDup ? '#ef4444' : (isUnv ? '#f59e0b' : '#a855f7'); // 赤=納品済み重複疑い/橙=正式OK未確認/紫=フラグ無し
-    var mk=L.circleMarker([row.lat,row.lng],{radius:9,color:'#ffffff',weight:2,fillColor:color,fillOpacity:0.85});
+    var mk=L.circleMarker([row.lat,row.lng],{pane:'gachoPane',radius:9,color:'#ffffff',weight:2,fillColor:color,fillOpacity:0.85});
     var warn='';
     if(isDup)warn+='<div style="color:#fca5a5;font-weight:800;margin:4px 0">⚠ 納品済み300件と30m以内で重複の疑い</div>';
     if(isUnv)warn+='<div style="color:#fcd34d;font-weight:800;margin:4px 0">⚠ 正式判定(case_candidates)が未確認(new)のまま</div>';
