@@ -646,8 +646,12 @@ async function openD2TodayReviewLayer(){
       var kb=el.querySelector('[data-keep]'); if(kb)kb.onclick=function(){ m.closePopup(); toast('✅確認済み(第2回に残します)'); };
       var db_=el.querySelector('[data-drop]'); if(db_)db_.onclick=async function(){
         try{
-          var res=await d.from('round2_pool').delete().eq('id',row.id);
+          // ★2026-08-27是正: DELETEがRLSで拒否されてもPostgRESTは0件成功として返すことがあり、
+          //   従来はres.errorだけ見て「成功」と誤表示していた。.select()で実際に消えた行を確認する。
+          var res=await d.from('round2_pool').delete().eq('id',row.id).select('id');
           if(res&&res.error)throw new Error(res.error.message);
+          var deletedCount=((res&&res.data)||[]).length;
+          if(deletedCount<1){ toast('⚠ 削除できませんでした(権限不足の可能性・DB側は変わっていません)'); return; }
           try{_d2TodayLayer.removeLayer(mk);}catch(_){}
           toast('🗑削除しました('+esc(row.city||'')+')');
         }catch(e){ toast('削除失敗: '+((e&&e.message)||e)); }
