@@ -599,6 +599,64 @@ function rebuildDelivery2(){
   try{alert('✓ 第2回納品候補を確定データに一致させました\n\n配置 '+placed+' 件\n第2回の実数 = '+tot+'（目標'+D.totalItems+'）\n\n違和感があれば「↩ 移行を元に戻す」。');}catch(_){}
   toast('✓ 第2回 再構築 実数'+tot+'（目標'+D.totalItems+'）');
 }
+// ============================================================================
+// 2026-08-27(ドクター指示): 昇格ボタンの誤爆(納品済み300件と重複75件・正式判定未確認9件を含む
+// 93件が「⬆OK済みピックを予備軍(緑)へ昇格」の意図しないクリックで混入)への対処。
+// 「この93件をレイヤーを作って(確認したら削除するレイヤーだ)、もしOKを出した場所だと確認できた
+// 場合には、第2回納品予定分とする」＝紫マーカーで1件ずつ確認し、削除ボタンでround2_poolから外す。
+// 確認済み(残す判断)は何もしない=round2_poolに残ったままで良い。使い切ったら🟣ボタンを再度押せば消せる。
+// ============================================================================
+var _D2_TODAY_TS='2026-08-27T13:32:17.606726+00:00'; // 今日追加された93件のバッチを一意に特定するcreated_at
+// 事前に検証済みの要注意フラグ(round2_pool.id)。ライブ判定を再実装して間違えるリスクを避け、
+// サーバ側で慎重に検算した結果(納品済み300件と30m以内=75件／case_candidates正式判定が'new'のまま=9件)をそのまま使う。
+var _D2_TODAY_DUP_IDS={"600c9d0e-1056-42d8-b29a-3bed6a5d9bb3":1,"4a763356-7174-4e54-8e9b-3812154ec0ce":1,"317ee6e3-e5dc-4c13-bf5f-eabcbdff5529":1,"d0a1ecc2-71b0-46fb-9c4b-7d27c8c3f8be":1,"7479a084-e397-4f3c-a5e9-652b574a11b1":1,"9ea027ea-ff5b-47e2-9fd8-00226d0f90d4":1,"98c663bb-61a8-4cb4-b513-eb90935bd6dd":1,"9e586b3e-854c-4ec9-812e-cc7102d2be58":1,"7f086c67-04c8-42fd-8974-ee7c019c7b10":1,"09b97cd6-b33d-431a-b850-d7ba86041f83":1,"f3e7f0ac-7313-4aa8-8043-6f451b8069e5":1,"058712f8-6a93-441e-af9c-295122d954e9":1,"763f6a2d-2bf8-4921-a3da-46db293bec00":1,"fe9a6e4b-9bfc-4661-9189-0440ff0c0c65":1,"b542d515-dc25-4bcd-90f9-e7ecda4c8035":1,"29a62335-97e7-42d6-bae4-97309747c577":1,"de44aac1-81bf-470c-b716-57e1167dd102":1,"d16ba519-2824-42db-8a3b-20e36b6e757e":1,"fbe0d98c-04d2-4d7d-9294-38cd531d59f9":1,"d2a2bd89-f396-48be-8251-b1f142dabbc3":1,"3a267b31-f464-445a-8900-3da2b83c3495":1,"e435b1ae-9a3c-4dad-9801-9ae00d5c9c46":1,"22ff31d0-953e-47c4-bb81-bf1a4ccfe8ba":1,"c38aac28-97d5-4b34-a0a8-cd4fa9bcd3b8":1,"a35d34ca-4a72-4535-9485-8e25b580e0fe":1,"6fd5cd1f-3b21-456d-981b-6193134e445c":1,"7c913b33-739b-47db-99cc-570cccd47085":1,"805dd45e-cd02-4abb-ac6e-f999f1025f79":1,"773028b7-3f44-4c25-b2b7-4d268d114747":1,"0caeb95e-1bda-41a8-b885-fa743d5e1ee0":1,"210472c4-6f0c-44e1-9599-bda3c20c378c":1,"e9ec0568-cbb7-4d32-ad7c-5145dc3c2545":1,"cfa742c2-b539-43f7-9001-90976a7e0675":1,"50d34424-646a-40e3-b375-0e4d2fea053a":1,"7792117b-34d5-42cb-867b-804fedd62041":1,"d1c1bba9-32fb-40b3-96bf-25ba54ac004f":1,"b0b80e94-a0ed-4b20-8ec3-7c0a9406072f":1,"f1579c3c-b5a2-499f-a848-bf3e50eef363":1,"78b3eb49-6c74-473a-8d8a-a83f4dc60ac3":1,"48c299de-fef1-42b1-960f-1d7becbf07b2":1,"5085ff42-ebe9-4b8e-9917-aeb7c6095b55":1,"ad642294-d6b4-476e-a0b6-58de9ebddfb7":1,"af7f87e9-d0b8-442f-a7fa-f06e5d3922f9":1,"4dd349a8-9d61-4014-81a4-503aac86fc85":1,"5d4d43bc-28d3-43e9-b1dc-4a04b654db20":1,"8803439e-b069-4d62-ad60-3bcb1d81bd0a":1,"4a129f3c-edf3-48e3-b360-c3b99d0f7e5d":1,"1246d2b2-8228-4f53-90b0-b4529b4614b8":1,"c0a1ecee-d0d9-47f8-92ef-e1bc787f0deb":1,"f84f682a-9500-4ffd-a5e5-90f16301807c":1,"da8227c8-2bb5-4859-8f19-cbbcd3f97842":1,"05adf056-9563-43db-99d3-b3ff7762308d":1,"18e22919-1283-4ea2-a71d-5fac068cc663":1,"6255124d-4718-47b6-bd89-66815bda900c":1,"a3295ba6-c5a9-441b-b78a-2e6a9858c5ee":1,"6ed1d1a2-70f5-4add-91a9-074943d5954d":1,"bb30b0ac-c97c-49e6-a0d9-f8cdbbb0c838":1,"b04a8b8a-454d-4a98-92ec-8bf3c863f446":1,"3a76b62e-2537-4cce-b909-643b50d7887f":1,"e8a643f9-1ea1-4e6c-83af-27f83fa3924f":1,"52ba18af-9eb5-478b-9751-d44643b7044d":1,"b644f787-ae89-4dc5-9d92-f003b8b5623c":1,"cadc2d6d-7ff1-4bf8-99b4-62807019b234":1,"938e8053-cedb-4896-aa7e-207592a8ad82":1,"85808121-4e09-4f6d-8d56-574cabab1a53":1,"eb8e75fa-02ee-421b-8b3f-013c7fcf3a1b":1,"d18df64d-270f-4ca1-b8c9-61f37bbae91c":1,"698731d1-1848-4d6d-843e-bc24ceb30815":1,"47051bf9-269d-4a9e-9e62-01b1f95ebfd4":1,"18ba1d28-5544-4906-9304-626ea4462320":1,"e47e69d2-718f-41fc-b05c-c814a0d734a1":1,"a106f474-1528-4bdd-9bb8-404c49a37c85":1,"d4cc1be3-7670-40e3-abc7-9c9400e6e35f":1,"b844ef67-3def-4117-8990-0998c59fa8d3":1,"36a43e37-88ad-4bd7-a35f-f6b6ffcc1bb9":1};
+var _D2_TODAY_UNVERIFIED_IDS={"c17b69c9-634a-4efb-b502-534bf52b2277":1,"6255124d-4718-47b6-bd89-66815bda900c":1,"3651591a-1df1-4db9-9f6f-69c7493e045b":1,"ce752693-80cb-42ee-a861-5dd3720f8a68":1,"5694f40b-5da6-4a38-a6a6-149eb859c559":1,"0f31afc5-384f-466b-b185-bddf8cccb5e5":1,"fdd519be-32d6-41b6-95d8-5522aa934350":1,"dbe5b640-e499-43a1-82e1-dcae722ad0ff":1,"36a43e37-88ad-4bd7-a35f-f6b6ffcc1bb9":1};
+var _d2TodayLayer=null;
+async function openD2TodayReviewLayer(){
+  var d=_gDb(); if(!d){toast('DB未接続');return;}
+  var m=getMap(); if(!m){toast('地図未初期化');return;}
+  if(_d2TodayLayer){ try{m.removeLayer(_d2TodayLayer);}catch(_){} _d2TodayLayer=null;
+    var btn=document.getElementById('gachoD2TodayReview'); if(btn){btn.textContent='🟣 今日追加93件を確認';btn.classList.remove('on');}
+    toast('🟣 確認レイヤーを閉じました'); return; }
+  toast('読込中…');
+  var r=await d.from('round2_pool').select('id,kind,source_iid,lat,lng,pref,city').eq('round',2).eq('created_at',_D2_TODAY_TS);
+  var rows=(r&&r.data)||[];
+  if(!rows.length){toast('該当データが見つかりません(既に確認済み等で0件かもしれません)');return;}
+  _d2TodayLayer=L.layerGroup([]).addTo(m);
+  rows.forEach(function(row){
+    var isDup=!!_D2_TODAY_DUP_IDS[row.id], isUnv=!!_D2_TODAY_UNVERIFIED_IDS[row.id];
+    var color = isDup ? '#ef4444' : (isUnv ? '#f59e0b' : '#a855f7'); // 赤=納品済み重複疑い/橙=正式OK未確認/紫=フラグ無し
+    var mk=L.circleMarker([row.lat,row.lng],{radius:9,color:'#ffffff',weight:2,fillColor:color,fillOpacity:0.85});
+    var warn='';
+    if(isDup)warn+='<div style="color:#fca5a5;font-weight:800;margin:4px 0">⚠ 納品済み300件と30m以内で重複の疑い</div>';
+    if(isUnv)warn+='<div style="color:#fcd34d;font-weight:800;margin:4px 0">⚠ 正式判定(case_candidates)が未確認(new)のまま</div>';
+    var html='<div style="min-width:220px;font-family:sans-serif">'
+      +'<div style="font-weight:800;margin-bottom:4px">🟣 '+esc(row.pref||'')+esc(row.city||'')+'</div>'
+      +'<div style="font-size:11px;color:#94a3b8">'+esc(row.kind)+' / '+esc(row.source_iid)+'</div>'
+      +warn
+      +'<div style="display:flex;gap:6px;margin-top:8px">'
+      +'<button data-keep style="flex:1;padding:6px;border:1px solid #22c55e;background:#0b2e1a;color:#86efac;border-radius:6px;cursor:pointer">✅第2回に残す</button>'
+      +'<button data-drop style="flex:1;padding:6px;border:1px solid #ef4444;background:#3a1414;color:#fca5a5;border-radius:6px;cursor:pointer">🗑削除</button>'
+      +'</div></div>';
+    mk.bindPopup(html);
+    mk.on('popupopen',function(ev){
+      var el=ev.popup.getElement(); if(!el)return;
+      var kb=el.querySelector('[data-keep]'); if(kb)kb.onclick=function(){ m.closePopup(); toast('✅確認済み(第2回に残します)'); };
+      var db_=el.querySelector('[data-drop]'); if(db_)db_.onclick=async function(){
+        try{
+          var res=await d.from('round2_pool').delete().eq('id',row.id);
+          if(res&&res.error)throw new Error(res.error.message);
+          try{_d2TodayLayer.removeLayer(mk);}catch(_){}
+          toast('🗑削除しました('+esc(row.city||'')+')');
+        }catch(e){ toast('削除失敗: '+((e&&e.message)||e)); }
+      };
+    });
+    _d2TodayLayer.addLayer(mk);
+  });
+  m.fitBounds(_d2TodayLayer.getBounds(),{maxZoom:12});
+  var btn=document.getElementById('gachoD2TodayReview'); if(btn){btn.textContent='🟣 確認レイヤーを閉じる（'+rows.length+'）';btn.classList.add('on');}
+  toast('🟣 '+rows.length+'件表示: 赤=納品済み重複疑い('+Object.keys(_D2_TODAY_DUP_IDS).length+') 橙=正式判定未確認('+Object.keys(_D2_TODAY_UNVERIFIED_IDS).length+') 紫=フラグ無し。クリックで確認/削除');
+}
 /* v20260823(ドクター「静的ファイルへの依存自体をやめる」): window.DELIVERY2を、静的ファイル(delivery2-candidates.js)
    ではなくDBテーブル round2_pool(round=2) から毎回ライブで組み立てる。既存の全機能(_d2Dest/rebuildDelivery2/
    completeDelivery2FromDb/362表示ボタン/重複チェック_buildDupGrid等)はwindow.DELIVERY2.items等の形さえ同じなら
@@ -964,6 +1022,7 @@ function renderPanel(){
     h+='<div class="gacho-master"><button id="gachoD2Manual" class="gacho-btn" style="background:rgba(255,20,147,.16);border-color:#ff1493" title="手作業ピック(ピンク)を『手作業｜県｜市町村』へ整理して階層表示。ピックの中身は不変・入れ物だけ整理・可逆">🖐 手作業ピックも県→市町村へ</button></div>';
     // v20260823(ドクター「ピンク→緑への昇格をボタン1つで、AI外だし」): OK判定済みの手動ピックをround2_pool(緑・予備軍)へ一括昇格。
     h+='<div class="gacho-master"><button id="gachoPromoteD2" class="gacho-btn" style="background:rgba(34,197,94,.2);border-color:#22c55e;font-weight:700" title="OK判定済みの手動ピック(ピンク/手作業)をround2_pool(第2回納品候補・緑)へ一括昇格。区域不明・昇格済みは対象外">⬆ OK済みピックを予備軍(緑)へ昇格</button></div>';
+    h+='<div class="gacho-master"><button id="gachoD2TodayReview" class="gacho-btn" style="background:rgba(168,85,247,.22);border-color:#a855f7;font-weight:700" title="2026-08-27に追加された93件だけを紫マーカーで表示。1件ずつ確認し「第2回に残す」か「削除」を選ぶ確認専用レイヤー(確認が終わったら消してよい)">🟣 今日追加93件を確認</button></div>';
     h+='<div class="gacho-master"><button id="gachoTidy" class="gacho-btn" style="background:rgba(210,153,34,.2);border-color:#d29922" title="旧レイヤー(保留/対象外/AI候補/適当/検討/要確認 等)をSWへ退避し作業台から外す=県→市町村＋手作業＋手動ピックだけの綺麗な作業台に。可逆(退避↩で戻せる)">🧹 旧レイヤーを退避で片付け（県→市町村だけに）</button></div>';
     if(_d2Emptied.length||_hasD2Snap()){
       h+='<div class="gacho-master">'+(_d2Emptied.length?'<button id="gachoD2Del" class="gacho-btn on" title="移動で空になった元レイヤーを削除(0件のみ・総数不変を再確認)">🗑 空レイヤー削除（'+_d2Emptied.length+'）</button>':'')+(_hasD2Snap()?'<button id="gachoD2Undo" class="gacho-btn on" title="第2回移行を移行前に戻す">↩ 移行を元に戻す</button>':'')+'</div>';
@@ -1076,6 +1135,7 @@ function bindPanel(){
     saveState();render();
   };
   var pd2=q('#gachoPromoteD2');if(pd2)pd2.onclick=function(){promotePinkToRound2();};
+  var d2tr=q('#gachoD2TodayReview');if(d2tr)d2tr.onclick=function(){openD2TodayReviewLayer();};
   var d2d=q('#gachoD2Del');if(d2d)d2d.onclick=function(){deleteEmptiedD2();};
   var d2u=q('#gachoD2Undo');if(d2u)d2u.onclick=function(){undoDelivery2();};
   var d2r=q('#gachoD2Rebuild');if(d2r)d2r.onclick=function(){rebuildDelivery2();};
