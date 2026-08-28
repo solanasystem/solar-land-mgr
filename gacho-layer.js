@@ -638,58 +638,83 @@ window.__gachoReloadD2=loadDelivery2FromDb;
    区域不明(pref/city未解決)の分は昇格せず件数を報告する(勝手に区域不明のまま昇格させない)。 */
 async function promotePinkToRound2(){
   var d=_gDb(); if(!d){toast('DB未接続＝中断');return;}
-  var pink=[];
-  state.layers.forEach(function(l){
-    if(l.archived)return;
-    // v20260823(ドクター「松阪の境界が緑ボタンで漏れる」実機確認): 「敷地境界（実測）」は画層名がピンク判定の
-    // 正規表現に一致せず、OKにしても昇格対象から漏れていた。境界(type=boundary)はOKなら画層名を問わず対象に含め、
-    // 県市町村は下で(画層metaに無ければ)座標から解決する。
-    var isBoundaryLayer=(l.name==='敷地境界（実測）');
-    // ★2026-08-28是正(ドクター実機確認): 🟦適地候補パネル(flagScoreCard)でOKにした筆は画層「適地候補 判定」に
-    // 入るが、ここが対象外だったため「昇格できる案件はない」と出ていた。ピンク・敷地境界と同様に対象へ含める。
-    var isCyanLayer=(l.name==='適地候補 判定');
-    if(!_d2IsPink(l)&&!isBoundaryLayer&&!isCyanLayer)return;
-    l.items.forEach(function(it){
-      if(it.status!=='ok')return;
-      if(isBoundaryLayer&&it.type!=='boundary')return;
-      pink.push({it:it,layer:l});
-    });
+  // ★2026-08-28是正(ドクター指摘「アドホックな対応になっていないか」): 画層名の文字列一致で対象を
+  // 決める方式(ピンク正規表現/敷地境界/適地候補...と特殊分岐が増え続ける)をやめる。判定の唯一の正である
+  // ai_ok_labels(source=gacho_ok=通常筆のOK／handdraw_boundary=手描き境界のOK)を直接見る。
+  // どの画面・どのパネルでOKにしても、ここに書かれてさえいれば自動的に対象になる＝今後パネルが増えても
+  // このコードを触る必要がない。
+  var okRows=[];
+  try{
+    var frm=0;
+    while(true){
+      var r=await d.from('ai_ok_labels').select('member_fids,lat,lng,memo,source').in('source',['gacho_ok','handdraw_boundary']).range(frm,frm+999);
+      if(r&&r.error)throw new Error(r.error.message);
+      var b=(r&&r.data)||[]; okRows=okRows.concat(b); if(b.length<1000)break; frm+=1000;
+    }
+  }catch(e){ toast('⚠ 判定データの取得に失敗＝中断: '+(e&&e.message||e)); return; }
+  if(!okRows.length){toast('OK判定済みの案件がありません');return;}
+
+  // NGへ転じたもの(_persistJudgment系はNG時にgacho_ok行を削除する設計だが、念のため二重チェック)を除外。
+  var ngSet={};
+  try{
+    var frmN=0;
+    while(true){ var rN=await d.from('farmland_ng_list').select('feature_id').range(frmN,frmN+999); var bN=(rN&&rN.data)||[]; bN.forEach(function(x){ngSet[x.feature_id]=1;}); if(bN.length<1000)break; frmN+=1000; }
+  }catch(e){}
+
+  var pink=[]; // {kind,sourceIid,lat,lng,area,latlngs}
+  okRows.forEach(function(row){
+    var fid=(row.member_fids&&row.member_fids[0])||null; if(!fid)return;
+    if(row.source==='handdraw_boundary'){
+      var m=null; try{m=row.memo?JSON.parse(row.memo):null;}catch(e){}
+      if(!m||!Array.isArray(m.latlngs)||m.latlngs.length<3)return;
+      pink.push({kind:'boundary',sourceIid:fid,lat:row.lat,lng:row.lng,area:(m.area!=null?m.area:null),latlngs:m.latlngs});
+    } else {
+      if(ngSet[fid])return;
+      pink.push({kind:'feature',sourceIid:fid,lat:row.lat,lng:row.lng,area:null,latlngs:null});
+    }
   });
-  if(!pink.length){toast('OK判定済みの手動ピックがありません');return;}
+  if(!pink.length){toast('OK判定済みの案件がありません');return;}
 
   // v20260823(ドクター「あの表現はダメだ・誤解のもと」): 確認ダイアログが「pink.length件を昇格します」と表示していたが、
   // 実際はDB照合後に既昇格分を弾くため、大半が既昇格済みの時ほど数字が実態と食い違い誤解を招いた(実例: 表示8件→実際は新規1件)。
   // 確認前に既存チェックを済ませ、「本当に新規で入る件数」を表示する。
   var existing={};
   try{
-    var frm=0;
-    while(true){ var r=await d.from('round2_pool').select('source_iid').range(frm,frm+999); var er=(r&&r.data)||[]; er.forEach(function(x){existing[x.source_iid]=1;}); if(er.length<1000)break; frm+=1000; }
+    var frm2=0;
+    while(true){ var r2=await d.from('round2_pool').select('source_iid').range(frm2,frm2+999); var er=(r2&&r2.data)||[]; er.forEach(function(x){existing[x.source_iid]=1;}); if(er.length<1000)break; frm2+=1000; }
   }catch(e){ toast('⚠ 既存確認に失敗＝中断: '+(e&&e.message||e)); return; }
 
   var newCount=0,alreadyCount=0;
   pink.forEach(function(p){
-    var it=p.it,kind=(it.type==='boundary')?'boundary':'feature';
-    var sourceIid=(kind==='boundary')?it.iid:(it.feature_id||it.iid);
-    if(sourceIid&&existing[sourceIid])alreadyCount++;else newCount++;
+    if(p.sourceIid&&existing[p.sourceIid])alreadyCount++;else newCount++;
   });
   if(!newCount){toast('新規の昇格対象はありません(該当'+pink.length+'件は全て昇格済み)');return;}
   if(!confirm('OK判定済みのうち新規 '+newCount+'件を、予備軍(round2_pool・緑)へ昇格します。\n（既に昇格済みの'+alreadyCount+'件は対象外＝二重登録しません）\n・区域不明(県市町村未解決)は対象外にします\n実行しますか？'))return;
 
+  // 面積が無いfeature項目(通常筆のgacho_ok)はfarmland_snapshotsから引く(ai_ok_labelsは面積を持たないため)。
+  var needArea=pink.filter(function(p){return p.kind==='feature'&&!existing[p.sourceIid]&&p.area==null;}).map(function(p){return p.sourceIid;});
+  var areaMap={};
+  for(var ai=0;ai<needArea.length;ai+=100){
+    var achunk=needArea.slice(ai,ai+100);
+    try{
+      var ar=await d.from('farmland_snapshots').select('feature_id,area_sqm').in('feature_id',achunk);
+      ((ar&&ar.data)||[]).forEach(function(x){areaMap[x.feature_id]=x.area_sqm;});
+    }catch(e){}
+  }
+
   var rows=[],skippedUnknown=0,skippedDup=0;
   for(var _pi=0;_pi<pink.length;_pi++){
     var p=pink[_pi];
-    var it=p.it,l=p.layer;
-    var kind=(it.type==='boundary')?'boundary':'feature';
-    var sourceIid=(kind==='boundary')?it.iid:(it.feature_id||it.iid);
+    var sourceIid=p.sourceIid;
     if(!sourceIid)continue;
     if(existing[sourceIid]){skippedDup++;continue;}
-    var pref=(l.meta&&l.meta.pref)||null, city=(l.meta&&l.meta.city)||null;
-    // 画層に県市町村が無い(=「敷地境界（実測）」等)場合は、座標から解決(キャッシュ→静的対応表→GSI逆ジオ)。
-    if((!pref||!city)&&it.lat!=null&&it.lng!=null){
-      try{ var g=await _resolveManualGeo(Number(it.lat),Number(it.lng)); if(g){pref=g.pref;city=g.city;} }catch(_){}
+    var pref=null,city=null;
+    if(p.lat!=null&&p.lng!=null){
+      try{ var g=await _resolveManualGeo(Number(p.lat),Number(p.lng)); if(g){pref=g.pref;city=g.city;} }catch(_){}
     }
     if(!pref||!city||pref==='区域不明'||city==='区域不明'){skippedUnknown++;continue;}
-    rows.push({kind:kind,source_iid:sourceIid,lat:it.lat,lng:it.lng,area_m2:(it.area!=null?it.area:null),latlngs:(it.latlngs||null),pref:pref,city:city,status:'reserve',round:2});
+    var area=(p.area!=null?p.area:areaMap[sourceIid]);
+    rows.push({kind:p.kind,source_iid:sourceIid,lat:p.lat,lng:p.lng,area_m2:(area!=null?area:null),latlngs:(p.latlngs||null),pref:pref,city:city,status:'reserve',round:2});
   }
 
   if(!rows.length){toast('昇格対象0件(区域不明'+skippedUnknown+'件・昇格済み'+skippedDup+'件はスキップ)');return;}
