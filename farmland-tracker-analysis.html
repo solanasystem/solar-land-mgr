@@ -8568,8 +8568,13 @@ if(typeof map!=='undefined'&&map&&map.on){
     steps.cutNg=cutNg;
     setStep&&setStep('ゲート①②③④⑥をDB照会中…');
     var rows=[],frm=0;
-    while(true){ var r=await db.from('farmland_snapshots').select('feature_id,lat,lng,area_sqm,city').gte('area_sqm',800).eq('noshin_status','CLEAR').eq('hazard_status','CLEAR').eq('infra_status','PASS').eq('grid_status','pass').range(frm,frm+999); var b=(r&&r.data)||[]; rows=rows.concat(b); if(b.length<1000)break; frm+=1000; if(frm>30000)break; }
+    while(true){ var r=await db.from('farmland_snapshots').select('feature_id,lat,lng,area_sqm,city,shading_status,terrain_status').gte('area_sqm',800).eq('noshin_status','CLEAR').eq('hazard_status','CLEAR').eq('infra_status','PASS').eq('grid_status','pass').range(frm,frm+999); var b=(r&&r.data)||[]; rows=rows.concat(b); if(b.length<1000)break; frm+=1000; if(frm>30000)break; }
     steps.gate=rows.length;
+    // ★2026-08-28(ドクター指示・方針A): ⑤日照⑧地形は未計算(NULL)がmie_tsuで73%と多く、
+    //   PASS必須にすると未計算を巻き込んで候補が激減する(過去の6395件事故と同型)。
+    //   実データ確認(_check_shading_terrain_by_area.py)の上で、明確にNGと判定済みのものだけ除外する
+    //   (score_ai.pyの_gate_ok()と同じ思想=確定NGだけ弾き、未計算/PENDINGは人間判定に委ねる)。
+    steps.shadeTerrainRemoved=0;
     // ★対象/NGはシステムの設定ファイル(data/suntrust_target_cities.json)を毎回参照する(AIに焼かない・ドクター)。
     //   ここに無い/NGの土地は最初から候補にしない。読めない時だけ安全側の内蔵値にフォールバック。
     var _cfg=null; try{ var _cr=await fetch('data/suntrust_target_cities.json?cb='+Date.now()); if(_cr&&_cr.ok)_cfg=await _cr.json(); }catch(e){}
@@ -8581,6 +8586,7 @@ if(typeof map!=='undefined'&&map&&map.on){
     rows.forEach(function(s){ if(s.lat==null||s.lng==null)return; if(_seenFid[s.feature_id])return; _seenFid[s.feature_id]=1;
       if(!_inTargetRegion(+s.lat,+s.lng)){steps.regionRemoved++;return;}
       var _cty=String(s.city||''); if(_NG_CITIES.some(function(n){return _cty.indexOf(n)>=0;})){steps.regionRemoved++;return;}
+      if(s.shading_status==='NG'||s.terrain_status==='NG'){steps.shadeTerrainRemoved++;return;}
       var rej=scores[key6(s.lat,s.lng)]; if(rej!=null&&rej>=cutNg)return; cand.push({f:s.feature_id,la:+s.lat,ln:+s.lng,a:Math.round(s.area_sqm||0),c:s.city||'',p:'',r:(rej!=null?+rej:null)}); });
     steps.dupFid=rows.length-Object.keys(_seenFid).length;
     steps.model=cand.length;
@@ -8808,6 +8814,7 @@ if(typeof map!=='undefined'&&map&&map.on){
         +'<div style="margin-top:4px">'
         +'<div>母集団 ゲート①②③④⑥通過: <b>'+s.gate+'</b>'+(s.dupFid?' <span style="color:#f59e0b">(同一筆重複−'+s.dupFid+')</span>':'')+'</div>'
         +'<div>→ 対象地域外・対象外市町村を除外('+(s.cfgSrc||'')+'参照): <b>−'+(s.regionRemoved||0)+'</b></div>'
+        +'<div>→ ⑤日照・⑧地形が明確にNG(未計算/PENDINGは残す): <b>−'+(s.shadeTerrainRemoved||0)+'</b></div>'
         +'<div>→ ⑤⑦モデル(reject&lt;'+(s.cutNg!=null?s.cutNg.toFixed(3):'0.65')+'/未採点・手動NG実データから自動算出): <b>'+s.model+'</b></div>'
         +'<div>→ ①青地(農振農用地ポリゴン内)除外: <b>−'+s.aochiRemoved+'</b> → '+s.afterAochi+'</div>'
         +'<div>→ 調査済み(OK/NG)除外: <b>−'+s.investRemoved+'</b></div>'
