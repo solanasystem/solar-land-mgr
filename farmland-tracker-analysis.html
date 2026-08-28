@@ -8600,15 +8600,30 @@ if(typeof map!=='undefined'&&map&&map.on){
     setStep&&setStep('既得地(納品/OK/ピック)との重なり(30m)を除外中…');
     var _M=function(a1,o1,a2,o2){var la=(a1+a2)/2*Math.PI/180;var mx=111320*Math.cos(la),my=110540;return Math.hypot((o1-o2)*mx,(a1-a2)*my);};
     async function pgAll(tbl,sel){ var out=[],df=0; try{ while(true){ var dr=await db.from(tbl).select(sel).range(df,df+999); var b=(dr&&dr.data)||[]; out=out.concat(b); if(b.length<1000)break; df+=1000; if(df>40000)break; } }catch(e){} return out; }
-    var taken=[];
+    var taken=[]; var takenPolys=[];
     (await pgAll('client_delivery_items','lat,lng,status')).forEach(function(d){ if(d.lat!=null&&d.lng!=null&&['removed','void','deleted'].indexOf(String(d.status||''))<0)taken.push([+d.lat,+d.lng]); });
-    (await pgAll('ai_ok_labels','lat,lng')).forEach(function(d){ if(d.lat!=null&&d.lng!=null)taken.push([+d.lat,+d.lng]); });
+    // ★2026-08-28是正(ドクター指摘): 手描き敷地境界(ai_ok_labels.memo.latlngs)は、実際に描かれた
+    //   ポリゴンの内側にあるかで判定する。30m等の距離だけで判定すると、連続して並ぶ隣接筆(棚田等)を
+    //   誤って同一と見なし除外してしまう(誤動作)。距離は「ポリゴンが無い単なる点記録」のみのフォールバック。
+    (await pgAll('ai_ok_labels','lat,lng,memo')).forEach(function(d){
+      var poly=null;
+      try{ var m=d.memo?JSON.parse(d.memo):null; if(m&&Array.isArray(m.latlngs)&&m.latlngs.length>=3)poly=m.latlngs; }catch(e){}
+      if(poly)takenPolys.push(poly);
+      else if(d.lat!=null&&d.lng!=null)taken.push([+d.lat,+d.lng]);
+    });
     (await pgAll('case_candidates','latitude,longitude')).forEach(function(d){ if(d.latitude!=null&&d.longitude!=null)taken.push([+d.latitude,+d.longitude]); });
-    // 空間グリッド(約33m格子)で近接判定を高速化
+    function _inPoly(la,ln,poly){ // ray-casting(緯度経度そのままで十分な精度・敷地スケール)
+      var inside=false,n=poly.length;
+      for(var i=0,j=n-1;i<n;j=i++){ var yi=poly[i][0],xi=poly[i][1],yj=poly[j][0],xj=poly[j][1];
+        if(((yi>la)!==(yj>la))&&(ln<(xj-xi)*(la-yi)/(yj-yi)+xi))inside=!inside; }
+      return inside;
+    }
+    function inAnyPoly(la,ln){ for(var i=0;i<takenPolys.length;i++){ if(_inPoly(la,ln,takenPolys[i]))return true; } return false; }
+    // 空間グリッド(約33m格子)で近接判定を高速化(ポリゴンを持たない点記録のみ)
     var CELL=0.0003; function gk(la,ln){return Math.round(la/CELL)+'_'+Math.round(ln/CELL);}
     var dGrid={}; taken.forEach(function(p){var k=gk(p[0],p[1]);(dGrid[k]=dGrid[k]||[]).push(p);});
     function nearAny(la,ln,grid){var ci=Math.round(la/CELL),cj=Math.round(ln/CELL);for(var di=-1;di<=1;di++)for(var dj=-1;dj<=1;dj++){var arr=grid[(ci+di)+'_'+(cj+dj)];if(arr)for(var q=0;q<arr.length;q++){if(_M(la,ln,arr[q][0],arr[q][1])<30)return true;}}return false;}
-    var b2=cand.length; cand=cand.filter(function(x){return !nearAny(x.la,x.ln,dGrid);}); steps.deliveredRemoved=b2-cand.length;
+    var b2=cand.length; cand=cand.filter(function(x){return !nearAny(x.la,x.ln,dGrid)&&!inAnyPoly(x.la,x.ln);}); steps.deliveredRemoved=b2-cand.length;
     // ★候補どうしの30m近接(同一圃場の隣接筆)を1カ所へ統合。rejectが低い(=良い)/面積が大きい方を残す。
     cand.sort(function(a,b){return ((a.r==null?1:a.r)-(b.r==null?1:b.r))||((b.a||0)-(a.a||0));});
     var keep=[],kGrid={},b3=cand.length;
@@ -8616,17 +8631,24 @@ if(typeof map!=='undefined'&&map&&map.on){
     steps.mergeRemoved=b3-keep.length; cand=keep; steps.result=cand.length;
     return {items:cand,steps:steps};
   }
+  // ★2026-08-28(ドクター指摘): 既にOK/NG判定済みの筆が「1件目」として再度確認対象の先頭に
+  //   出てしまう不具合。reject採点順だけでソートしており、判定済みかどうかを見ていなかったのが原因。
+  function _decided(fid){ var st=(window.__gacho&&window.__gacho.reviewState)?window.__gacho.reviewState(fid):null; return st==='ok'||st==='ng'; }
   function rebuildFromItems(newItems){
     items=newItems||[]; byCity={};
     items.forEach(function(it){var c=it.c||'(市町村不明)';(byCity[c]=byCity[c]||[]).push(it);});
     cityNames=Object.keys(byCity);
     cityNames.sort(function(a,b){return (cityKeep(b)-cityKeep(a))||(byCity[b].length-byCity[a].length);});
     order=[]; cityFirst={};
-    cityNames.forEach(function(c){var arr=byCity[c].slice(); arr.sort(function(a,b){var ak=(a.r!=null&&a.r<0.5)?0:1,bk=(b.r!=null&&b.r<0.5)?0:1; if(ak!==bk)return ak-bk; return (a.r==null?1:a.r)-(b.r==null?1:b.r);}); cityFirst[c]=order.length; arr.forEach(function(x){order.push(x);});});
+    cityNames.forEach(function(c){var arr=byCity[c].slice(); arr.sort(function(a,b){
+      var ad=_decided(a.f)?1:0, bd=_decided(b.f)?1:0; if(ad!==bd)return ad-bd; // 既判定は後回し(未確認を先に)
+      var ak=(a.r!=null&&a.r<0.5)?0:1,bk=(b.r!=null&&b.r<0.5)?0:1; if(ak!==bk)return ak-bk; return (a.r==null?1:a.r)-(b.r==null?1:b.r);
+    }); cityFirst[c]=order.length; arr.forEach(function(x){order.push(x);});});
     marks=[]; built=false; idx=-1; try{LAY.clearLayers();}catch(_){}
     if(_ref.list)_ref.list.innerHTML=buildRegList();
-    if(_ref.cntBadge)_ref.cntBadge.textContent=order.length;
-    if(_ref.panelN)_ref.panelN.textContent=order.length;
+    var undecided=order.filter(function(x){return !_decided(x.f);}).length;
+    if(_ref.cntBadge)_ref.cntBadge.textContent=undecided+'(全'+order.length+')';
+    if(_ref.panelN)_ref.panelN.textContent=undecided+'(全'+order.length+')';
     updCounter(); try{loadClientCounts();}catch(_){}
   }
   // 最新の統一モーダル(8項目スコアカード＋衛星画像＋OK/NG＋削除)をそのまま埋め込む。fid=farmland_snapshotsのfid＝判定/削除が学習(正例/負例)に直結。
