@@ -2844,19 +2844,35 @@ function generateGridCells(bbox,boundary,z){
       var west=tile2lng(tx,z),east=tile2lng(tx+1,z);
       var north=tile2lat(ty,z),south=tile2lat(ty+1,z);
       var center={lng:(west+east)/2,lat:(north+south)/2};
-      // 中心または四隅のいずれかが多角形内なら採用
+      // 中心または四隅のいずれかが多角形内なら採用（取りこぼし防止のため、市境界に接するセルも含める）
       var corners=[[center.lng,center.lat],[west,north],[east,north],[west,south],[east,south]];
-      var inside=false;
-      for(var c=0;c<corners.length&&!inside;c++){
-        for(var p=0;p<polys.length&&!inside;p++){
-          if(pointInPolygon(corners[c],polys[p]))inside=true;
+      var inside=false, centerInside=false, insideCorners=[];
+      for(var c=0;c<corners.length;c++){
+        var hit=false;
+        for(var p=0;p<polys.length&&!hit;p++){
+          if(pointInPolygon(corners[c],polys[p]))hit=true;
+        }
+        if(hit){
+          inside=true;
+          if(c===0)centerInside=true; else insideCorners.push(corners[c]);
         }
       }
       if(inside){
+        // ★2026-08-28是正(ドクター実機確認「相模原市114セルの1つが山梨県上野原市の住所を返す」):
+        //   幾何学的な中心(center)が市外(隣接自治体)に出るセルが存在する(境界に接するセルは4隅の1つだけが
+        //   市内でも採用されるため)。逆ジオコーディング(modeCCopyCenter)が常にこのcenterを使っていたので、
+        //   隣の市町村の住所が返り、農地ナビへ貼り付けても正しい場所へジャンプできなかった。
+        //   中心が市外の時だけ、実際に市内と確認できた隅の平均点(navCenter)を代わりに使う。
+        var navCenter=center;
+        if(!centerInside&&insideCorners.length){
+          var sl=0,sg=0; insideCorners.forEach(function(p){sg+=p[0];sl+=p[1];});
+          navCenter={lng:sg/insideCorners.length,lat:sl/insideCorners.length};
+        }
         cells.push({
           i:tx,j:ty,
           bounds:[south,west,north,east],
           center:center,
+          navCenter:navCenter,
           done:false,
           features:[]
         });
@@ -2926,7 +2942,10 @@ function modeCSelectCell(idx){
 // セル中心の住所を逆ジオコーディング取得→クリップボードコピー
 async function modeCCopyCenter(){
   if(modeC.activeCellIdx<0)return;
-  var c=modeC.cells[modeC.activeCellIdx].center;
+  // ★2026-08-28是正: 幾何学的な中心(center)は市境界に接するセルだと市外に出ることがある。
+  //   実際に市内と確認できた点(navCenter)があればそちらを使う(旧データ・境界セル以外はcenterのまま)。
+  var cell=modeC.cells[modeC.activeCellIdx];
+  var c=cell.navCenter||cell.center;
   var btn=document.getElementById('modeCBtnCopy');
   var origLabel=btn.textContent;
   btn.disabled=true;
@@ -3473,7 +3492,10 @@ function modeDSelectCell(idx){
 // セル中心の住所を逆ジオコーディング取得→クリップボードコピー
 async function modeDCopyCenter(){
   if(modeD.activeCellIdx<0)return;
-  var c=modeD.cells[modeD.activeCellIdx].center;
+  // ★2026-08-28是正(modeCと同じ根治): 幾何学的な中心が市境界に接するセルで市外に出ることがあるため、
+  //   実際に市内と確認できた点(navCenter)があればそちらを使う。
+  var cellD=modeD.cells[modeD.activeCellIdx];
+  var c=cellD.navCenter||cellD.center;
   var btn=document.getElementById('modeDBtnCopy');
   var origLabel=btn.textContent;
   btn.disabled=true;
