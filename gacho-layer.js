@@ -645,7 +645,10 @@ async function promotePinkToRound2(){
     // 正規表現に一致せず、OKにしても昇格対象から漏れていた。境界(type=boundary)はOKなら画層名を問わず対象に含め、
     // 県市町村は下で(画層metaに無ければ)座標から解決する。
     var isBoundaryLayer=(l.name==='敷地境界（実測）');
-    if(!_d2IsPink(l)&&!isBoundaryLayer)return;
+    // ★2026-08-28是正(ドクター実機確認): 🟦適地候補パネル(flagScoreCard)でOKにした筆は画層「適地候補 判定」に
+    // 入るが、ここが対象外だったため「昇格できる案件はない」と出ていた。ピンク・敷地境界と同様に対象へ含める。
+    var isCyanLayer=(l.name==='適地候補 判定');
+    if(!_d2IsPink(l)&&!isBoundaryLayer&&!isCyanLayer)return;
     l.items.forEach(function(it){
       if(it.status!=='ok')return;
       if(isBoundaryLayer&&it.type!=='boundary')return;
