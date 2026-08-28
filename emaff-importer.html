@@ -1063,6 +1063,7 @@ body{
             <div id="modeCProgressBar" style="height:100%;width:0%;background:#a855f7;transition:width 0.3s;"></div>
           </div>
           <button id="modeCBtnReset" style="padding:6px 12px;background:rgba(248,81,73,0.15);color:#f85149;border:1px solid rgba(248,81,73,0.4);border-radius:5px;font-size:11px;cursor:pointer;">⟲ 進捗リセット</button>
+          <button id="modeCBtnBatchAddr" onclick="modeCBatchResolveAddresses()" style="padding:6px 12px;background:rgba(103,232,249,0.15);color:#67e8f9;border:1px solid rgba(103,232,249,0.4);border-radius:5px;font-size:11px;cursor:pointer;">📋 全セルの住所を一括取得</button>
         </div>
         <div id="modeCMap" style="height:380px;border:1px solid var(--border);border-radius:8px;background:#1a1f26;margin-bottom:12px;"></div>
         <div id="modeCCellList" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--surface2);padding:6px;"></div>
@@ -2915,13 +2916,26 @@ function modeCRenderMap(){
 // セル一覧描画
 function modeCRenderCellList(){
   var html='';
+  // ★2026-08-28(ドクター指示): 同じ大字(住所文字列)になるセルは、住所ジャンプが1回で済むグループ。
+  //   一覧上で何番目に初めて出た住所かを覚え、2回目以降は「(既出・ジャンプ不要)」の案内に変える。
+  var seenAddr={};
   modeC.cells.forEach(function(cell,idx){
     var bg=cell.done?'rgba(34,197,94,0.10)':(idx===modeC.activeCellIdx?'rgba(240,180,41,0.10)':'transparent');
     var border=cell.done?'rgba(34,197,94,0.4)':(idx===modeC.activeCellIdx?'rgba(240,180,41,0.4)':'var(--border)');
     var icon=cell.done?'✅':'⬜';
+    var addrHtml='';
+    if(cell.addr){
+      var dup=Object.prototype.hasOwnProperty.call(seenAddr,cell.addr);
+      if(!dup)seenAddr[cell.addr]=idx;
+      addrHtml=dup
+        ? '<span style="color:#94a3b8;">／ 📍セル'+(seenAddr[cell.addr]+1)+'と同じ区域(ジャンプ不要・地図移動でOK)</span>'
+        : '<span style="color:#67e8f9;">／ 📍'+cell.addr+(cell.addrFallback?'(座標)':'')+'</span>';
+    }else{
+      addrHtml='<span style="color:var(--text-muted);">／ 住所未取得</span>';
+    }
     html+='<div onclick="modeCSelectCell('+idx+')" style="padding:6px 10px;margin-bottom:3px;background:'+bg+';border:1px solid '+border+';border-radius:5px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px;">'+
       '<span style="width:24px;text-align:center;">'+icon+'</span>'+
-      '<span style="flex:1;">セル '+(idx+1)+'/'+modeC.cells.length+' （'+cell.center.lat.toFixed(4)+', '+cell.center.lng.toFixed(4)+'）'+(cell.done?' / '+cell.features.length+'件':'')+'</span>'+
+      '<span style="flex:1;">セル '+(idx+1)+'/'+modeC.cells.length+' （'+cell.center.lat.toFixed(4)+', '+cell.center.lng.toFixed(4)+'）'+(cell.done?' / '+cell.features.length+'件':'')+' '+addrHtml+'</span>'+
     '</div>';
   });
   document.getElementById('modeCCellList').innerHTML=html||'<div style="padding:20px;text-align:center;color:var(--text-muted);">セルなし</div>';
@@ -2939,6 +2953,56 @@ function modeCSelectCell(idx){
   modeCRenderCellList();
 }
 
+// ★2026-08-28新設(ドクター指示): 1セルずつクリックしないと住所が分からない状態をやめ、
+//   座標→住所の変換ロジックを共通関数化(一括事前解決と個別コピーの両方から使う)。
+async function resolveAddrForPoint(c){
+  var url='https://nominatim-proxy.takumi-kurimoto.workers.dev/nominatim/reverse?lat='+c.lat.toFixed(6)+'&lon='+c.lng.toFixed(6)+'&format=json&accept-language=ja&zoom=18';
+  var res=await fetch(url);
+  var data=await res.json();
+  var addr=null;
+  if(data&&data.address){
+    // 住所組み立て：県＋市区町村＋大字＋字＋丁目（番地は信頼性低いため除外）
+    var a=data.address;
+    var parts=[];
+    if(a.province)parts.push(a.province);
+    else if(a.state)parts.push(a.state);
+    if(a.city)parts.push(a.city);
+    else if(a.town)parts.push(a.town);
+    else if(a.county)parts.push(a.county);
+    if(a.suburb)parts.push(a.suburb);
+    else if(a.village)parts.push(a.village);
+    else if(a.hamlet)parts.push(a.hamlet);
+    else if(a.neighbourhood)parts.push(a.neighbourhood);
+    else if(a.quarter)parts.push(a.quarter);
+    addr=parts.join('');
+    if(!addr&&data.display_name){
+      addr=data.display_name.split(',').slice(0,3).reverse().join('').replace(/\s+/g,'');
+    }
+  }
+  if(!addr)return {addr:c.lat.toFixed(6)+', '+c.lng.toFixed(6),fallback:true};
+  return {addr:addr,fallback:false};
+}
+function _sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
+// ★セル一覧の緯度経度の横に住所を並記するため、生成直後に全セルをまとめて解決する。
+//   同じ大字なら同じ文字列になる＝どのセルが「住所ジャンプ1回で済むグループ」か一覧で見て分かる。
+//   Nominatim(プロキシ)の負荷配慮で1件ずつ間隔を空けて順次実行。
+async function modeCBatchResolveAddresses(){
+  var btn=document.getElementById('modeCBtnBatchAddr');
+  if(btn){btn.disabled=true;}
+  for(var i=0;i<modeC.cells.length;i++){
+    var cell=modeC.cells[i];
+    if(cell.addr)continue; // 既に解決済みはスキップ(再生成やり直し時も無駄打ちしない)
+    try{
+      var r=await resolveAddrForPoint(cell.navCenter||cell.center);
+      cell.addr=r.addr; cell.addrFallback=r.fallback;
+    }catch(e){ cell.addr=null; }
+    if(btn)btn.textContent='⏳ 住所を取得中… ('+(i+1)+'/'+modeC.cells.length+')';
+    modeCRenderCellList();
+    await _sleep(1100); // Nominatim利用規約(1req/秒目安)への配慮
+  }
+  if(btn){btn.disabled=false; btn.textContent='📋 全セルの住所を一括取得';}
+  showToast('✅ 全'+modeC.cells.length+'セルの住所取得が完了しました','success');
+}
 // セル中心の住所を逆ジオコーディング取得→クリップボードコピー
 async function modeCCopyCenter(){
   if(modeC.activeCellIdx<0)return;
@@ -2951,35 +3015,12 @@ async function modeCCopyCenter(){
   btn.disabled=true;
   btn.textContent='⏳ 住所取得中...';
   try{
-    // Nominatim Reverse Geocoding（Cloudflare Worker プロキシ経由）
-    var url='https://nominatim-proxy.takumi-kurimoto.workers.dev/nominatim/reverse?lat='+c.lat.toFixed(6)+'&lon='+c.lng.toFixed(6)+'&format=json&accept-language=ja&zoom=18';
-    var res=await fetch(url);
-    var data=await res.json();
-    var addr=null;
-    if(data&&data.address){
-      // 住所組み立て：県＋市区町村＋大字＋字＋丁目（番地は信頼性低いため除外）
-      var a=data.address;
-      var parts=[];
-      if(a.province)parts.push(a.province);
-      else if(a.state)parts.push(a.state);
-      if(a.city)parts.push(a.city);
-      else if(a.town)parts.push(a.town);
-      else if(a.county)parts.push(a.county);
-      if(a.suburb)parts.push(a.suburb);
-      else if(a.village)parts.push(a.village);
-      else if(a.hamlet)parts.push(a.hamlet);
-      else if(a.neighbourhood)parts.push(a.neighbourhood);
-      else if(a.quarter)parts.push(a.quarter);
-      addr=parts.join('');
-      // フォールバック：display_name の先頭部分
-      if(!addr&&data.display_name){
-        addr=data.display_name.split(',').slice(0,3).reverse().join('').replace(/\s+/g,'');
-      }
-    }
-    if(!addr){
-      // フォールバック：座標
-      addr=c.lat.toFixed(6)+', '+c.lng.toFixed(6);
-      var fallbackMsg=' （住所取得失敗のため座標）';
+    var addr, fallbackMsg;
+    if(cell.addr){ addr=cell.addr; if(cell.addrFallback)fallbackMsg=' （住所取得失敗のため座標）'; }
+    else{
+      var r=await resolveAddrForPoint(c);
+      addr=r.addr; cell.addr=addr; cell.addrFallback=r.fallback;
+      if(r.fallback)fallbackMsg=' （住所取得失敗のため座標）';
     }
     // クリップボードコピー
     try{
@@ -2996,6 +3037,7 @@ async function modeCCopyCenter(){
   }finally{
     btn.disabled=false;
     btn.textContent=origLabel;
+    try{modeCRenderCellList();}catch(_){}
   }
 }
 
