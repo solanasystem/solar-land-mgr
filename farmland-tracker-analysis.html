@@ -8666,7 +8666,7 @@ if(typeof map!=='undefined'&&map&&map.on){
         var sc=window.__gacho.flagScoreCard(it.f,{lat:it.la,lng:it.ln,area:it.a,city:it.c||'',src:'cyan',layerName:'適地候補 判定',color:'#00e5ff'});
         var promo=(typeof _promoteBtns==='function')?_promoteBtns(it.la,it.ln,'低圧太陽光',it.c||''):'';
         var dq=function(x){return String(x||'').replace(/["'\\]/g,'');};
-        var deliverBtn='<button onclick="window.__cyanDeliver(&quot;'+dq(it.f)+'&quot;,'+it.la+','+it.ln+','+(it.a||0)+',&quot;'+dq(it.c)+'&quot;,&quot;'+dq(it.p)+'&quot;,event)" style="width:100%;margin-top:7px;padding:9px;border:1px solid #22d3ee;background:rgba(34,211,238,.20);color:#e6edf3;border-radius:7px;font-weight:800;cursor:pointer">📦 クライアント納品へ登録（仮納品）</button>';
+        var deliverBtn='<button onclick="window.__cyanDeliver(&quot;'+dq(it.f)+'&quot;,'+it.la+','+it.ln+','+(it.a||0)+',&quot;'+dq(it.c)+'&quot;,&quot;'+dq(it.p)+'&quot;,event)" style="width:100%;margin-top:7px;padding:9px;border:1px solid #22d3ee;background:rgba(34,211,238,.20);color:#e6edf3;border-radius:7px;font-weight:800;cursor:pointer">⬆ 予備軍(round2_pool)へ追加</button>';
         return '<div class="popup-body" style="min-width:250px">'+head+mapBtns+sc+promo+deliverBtn+'</div>';
       }catch(e){}
     }
@@ -8682,6 +8682,8 @@ if(typeof map!=='undefined'&&map&&map.on){
   function goTo(i){
     if(!order.length)return; if(!on)turnOn();
     if(i<0)i=0; if(i>=order.length)i=order.length-1;
+    // ★候補切替時、ドラッグでbody直下に移動済みの古いポップアップが残ると引き出し線が古い位置を指したままになる不具合の是正。切替の都度必ず一掃してから開く。
+    try{_cyanCloseAllPopups();}catch(_){}
     if(idx>=0&&marks[idx])marks[idx].setStyle({radius:7,weight:2,color:'#00e5ff'});
     idx=i; var it=order[idx]; curFid=it.f; map.flyTo([it.la,it.ln],18);
     var mk=marks[idx]; if(mk){ mk.setStyle({radius:11,weight:3,color:'#ffffff'}); setTimeout(function(){try{mk.openPopup();}catch(_){}},450); }
@@ -8714,28 +8716,29 @@ if(typeof map!=='undefined'&&map&&map.on){
     try{ var _lp=document.querySelectorAll('.leaflet-popup'); for(var _i=0;_i<_lp.length;_i++){ if(_lp[_i].parentNode)_lp[_i].parentNode.removeChild(_lp[_i]); } }catch(_){}
     try{ _leadPop=null; if(_leader)_leader.svg.style.display='none'; }catch(_){}
   }
+  // ★2026-08-28是正(ドクター指示): この関数は以前、client_delivery_itemsへ直接"仮納品"登録していた。
+  // これがround2_pool(⑥予備軍)を経由しない別経路となり、"仮納品13件"という一元管理されていない数字を
+  // 生んでいた(round2_poolの544件と重複していたのは13件中1件だけ)。パイプラインは⑤人間判定→⑥round2_pool
+  // (予備軍)→⑦extractPoolToClient()でクライアント納品、の一本道が唯一の正。この関数はもう
+  // client_delivery_itemsへは絶対に書き込まず、⑤(ai_ok_labels=OK)と⑥(round2_pool追加)だけを行う。
+  // クライアントへの実納品化は必ずextractPoolToClient()(window.__gachoExtractPoolToClient)を人間が
+  // 別途実行して行う＝ここでコードとして縛る。
   window.__cyanDeliver=async function(fid,la,ln,area,city,pref,ev){
     if(typeof db==='undefined'||!db){alert('DB未接続で登録できません');return;}
-    if(!_cyanClientId){alert('先に右上で「納品先クライアント」を選んでください');return;}
-    if(!confirm('「'+_cyanClientName+'」の"仮納品"へ登録します。\n'+(pref||'')+(city||'')+'　'+(area||'—')+'㎡\n※これは仮納品情報です（本納品への昇格時に再チェック）。よろしいですか？'))return;
-    // 納品ロット未選択なら自動で作る(ドクターに束を選ばせない)。
-    if(!_cyanDeliveryId){
-      try{ var _per=new Date().toISOString().slice(0,10); var cr=await db.from('client_deliveries').insert({client_id:_cyanClientId,period:_per,status:'draft',notes:'cyan自動ロット'}).select();
-        if(cr&&cr.data&&cr.data[0]){ _cyanDeliveryId=cr.data[0].id; try{localStorage.setItem('cyanDeliveryId',_cyanDeliveryId);}catch(_){} try{loadDeliveries(_cyanClientId);}catch(_){} } }catch(e){}
-      if(!_cyanDeliveryId){ if(typeof showToast==='function')showToast('納品ロットの自動作成に失敗。右上でロットを選んでください','error'); else alert('納品ロットの自動作成に失敗。右上でロットを選んでください'); return; }
-    }
+    if(!confirm('この筆を"予備軍(round2_pool)"へ追加します。\n'+(pref||'')+(city||'')+'　'+(area||'—')+'㎡\n※クライアントへの納品登録は別途「予備軍→クライアント抽出」で行います。よろしいですか？'))return;
     // 先にモーダルを閉じる（登録の成否・RLS読み戻しに依存させない＝二度と"残る"を起こさない）。
     _cyanCloseAllPopups(ev);
     // ★登録したら即、候補リストからこの筆を外して件数を更新(再実行不要・ドクター)。次の候補へ進む。
     try{ window.__cyanRemove(fid); }catch(_){}
     try{
-      // .select()の読み戻しはRLSで失敗し得るので付けない（挿入自体は成立する）。
-      var r=await db.from('client_delivery_items').insert({client_id:_cyanClientId,delivery_id:_cyanDeliveryId,pref:pref||'',city:city||'',area_m2:(area||null),lat:la,lng:ln,source:'cyan_tracker',status:'tentative',ai_note:'fid:'+fid+' | cyan適地(ゲート①②③④⑥+rejectモデル) | 仮納品'});
+      var dup=await db.from('round2_pool').select('id').eq('source_iid',fid).limit(1);
+      if(dup&&dup.data&&dup.data.length){ if(typeof showToast==='function')showToast('既に予備軍(round2_pool)に登録済みです','info'); else alert('既に予備軍(round2_pool)に登録済みです'); return; }
+      var r=await db.from('round2_pool').insert({kind:'feature',source_iid:fid,lat:la,lng:ln,area_m2:(area||null),latlngs:null,pref:pref||'',city:city||'',status:'reserve',round:2});
       if(r&&r.error)throw new Error(r.error.message||r.error);
-      try{ db.from('ai_ok_labels').insert({source:'gacho_ok',member_fids:[fid],lat:la,lng:ln,memo:'仮納品登録('+_cyanClientName+')'}).then(function(){},function(){}); }catch(_){}
-      if(typeof showToast==='function')showToast('📦 '+_cyanClientName+' へ仮納品登録しました','success');
+      try{ db.from('ai_ok_labels').insert({source:'gacho_ok',member_fids:[fid],lat:la,lng:ln,memo:'cyan適地→予備軍追加('+(_cyanClientName||'')+')'}).then(function(){},function(){}); }catch(_){}
+      if(typeof showToast==='function')showToast('⬆ 予備軍(round2_pool)へ追加しました','success');
       try{loadClientCounts();}catch(_){}
-    }catch(e){ var m='納品登録失敗: '+((e&&e.message)||e); if(typeof showToast==='function')showToast(m,'error'); else alert(m); }
+    }catch(e){ var m='予備軍への追加に失敗: '+((e&&e.message)||e); if(typeof showToast==='function')showToast(m,'error'); else alert(m); }
   };
   // 候補を1件その場で外し、件数(バッジ/パネル/実質数/リスト)を即更新。判定・削除・登録から呼ぶ。
   window.__cyanRemove=function(fid){
@@ -8763,15 +8766,17 @@ if(typeof map!=='undefined'&&map&&map.on){
   try{ document.addEventListener('gachoJudged',function(e){ var f=e&&e.detail&&e.detail.fid; if(f&&window.__cyanRemove)window.__cyanRemove(f); }); }catch(_){}
   function summaryHtml(N,T){
     // ★足し算しない(35+11=46がOKに見えるのを廃止)。性質の違う数を別々に、意味が分かる表記で。
+    // ★2026-08-28是正: 以前はclient_delivery_items(status=tentative)を数えていたが、__cyanDeliverは
+    // もうそこへ書かないためround2_pool(⑥予備軍)の総数を表示する。「一元管理された唯一の予備軍数」。
     var known=(typeof T==='number');
     return '<div style="color:#00e5ff;font-weight:800;margin-bottom:2px">これから確認する適地候補 <b>'+(N||0)+'</b> 件</div>'
-      +'<div style="font-size:11px;color:#ec4899">仮納品（登録済・未確定） '+(known?T:'—')+' 件</div>';
+      +'<div style="font-size:11px;color:#ec4899">予備軍(round2_pool)累計 '+(known?T:'—')+' 件</div>';
   }
   async function loadClientCounts(){
     if(!_ref.summary)return;
-    if(typeof db==='undefined'||!db||!_cyanClientId){ _ref.summary.innerHTML=summaryHtml(order.length,null); return; }
+    if(typeof db==='undefined'||!db){ _ref.summary.innerHTML=summaryHtml(order.length,null); return; }
     try{
-      var t=await db.from('client_delivery_items').select('id',{count:'exact',head:true}).eq('client_id',_cyanClientId).eq('status','tentative');
+      var t=await db.from('round2_pool').select('id',{count:'exact',head:true}).eq('status','reserve');
       _ref.summary.innerHTML=summaryHtml(order.length,(t&&typeof t.count==='number')?t.count:0);
     }catch(e){ _ref.summary.innerHTML=summaryHtml(order.length,null); }
   }
@@ -8831,7 +8836,10 @@ if(typeof map!=='undefined'&&map&&map.on){
   // モーダル(スコアカード)を見出しドラッグで移動可能にする(中央で邪魔にならない・ドクター)。
   var _leader=null, _leadPop=null;
   function ensureLeader(){ if(_leader)return _leader; var NS='http://www.w3.org/2000/svg'; var s=document.createElementNS(NS,'svg'); s.style.cssText='position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:3999;display:none'; var ln=document.createElementNS(NS,'line'); ln.setAttribute('stroke','#00e5ff'); ln.setAttribute('stroke-width','2.5'); ln.setAttribute('stroke-dasharray','6,4'); var dot=document.createElementNS(NS,'circle'); dot.setAttribute('r','6'); dot.setAttribute('fill','rgba(0,229,255,.25)'); dot.setAttribute('stroke','#00e5ff'); dot.setAttribute('stroke-width','2'); s.appendChild(ln); s.appendChild(dot); document.body.appendChild(s); _leader={svg:s,line:ln,dot:dot}; return _leader; }
-  function updateLeader(){ if(!_leadPop||idx<0||!order[idx]){ return; } try{ var it=order[idx]; var L=ensureLeader(); var pt=map.latLngToContainerPoint([it.la,it.ln]); var mc=map.getContainer().getBoundingClientRect(); var px=mc.left+pt.x, py=mc.top+pt.y; var r=_leadPop.getBoundingClientRect(); var qx=r.left+r.width/2, qy=r.bottom-6; L.line.setAttribute('x1',px);L.line.setAttribute('y1',py);L.line.setAttribute('x2',qx);L.line.setAttribute('y2',qy); L.dot.setAttribute('cx',px);L.dot.setAttribute('cy',py); L.svg.style.display='block'; }catch(_){ } }
+  function updateLeader(){ if(!_leadPop||idx<0||!order[idx]){ return; } if(!document.body.contains(_leadPop)){ hideLeader(); return; } try{ var it=order[idx]; var L=ensureLeader();
+      // ★leafletがmove/zoom時にこのポップアップ要素へ独自transformを再設定し、fixed位置とズレて線の着地点が飛ぶ不具合の是正。毎回強制的にtransformを打ち消す。
+      if(_leadPop.style.transform&&_leadPop.style.transform!=='none')_leadPop.style.transform='none';
+      var pt=map.latLngToContainerPoint([it.la,it.ln]); var mc=map.getContainer().getBoundingClientRect(); var px=mc.left+pt.x, py=mc.top+pt.y; var r=_leadPop.getBoundingClientRect(); var qx=r.left+r.width/2, qy=r.bottom-6; L.line.setAttribute('x1',px);L.line.setAttribute('y1',py);L.line.setAttribute('x2',qx);L.line.setAttribute('y2',qy); L.dot.setAttribute('cx',px);L.dot.setAttribute('cy',py); L.svg.style.display='block'; }catch(_){ } }
   function hideLeader(){ _leadPop=null; if(_leader)_leader.svg.style.display='none'; }
   function makePopupDraggable(pop,handle){
     handle.style.cursor='move'; var sx,sy,ox,oy,drag=false;
