@@ -8531,7 +8531,7 @@ if(typeof map!=='undefined'&&map&&map.on){
   if(typeof map==='undefined'||!map||typeof L==='undefined'){return setTimeout(cyanToggleInit,300);}
   var LAY=L.layerGroup(); var on=false; var built=false; var computed=false; var running=false; var rnd=L.canvas({padding:0.5});
   var items=[], byCity={}, cityNames=[], order=[], cityFirst={};
-  var marks=[]; var idx=-1; var counterEl=null; var funnelEl=null; var _ref={};
+  var marks=[]; var idx=-1; var curFid=null; var counterEl=null; var funnelEl=null; var _ref={};
   var CITY_PREF=(window.CITY_PREF||{});
   function cityKeep(c){var k=0;(byCity[c]||[]).forEach(function(x){if(x.r!=null&&x.r<0.5)k++;});return k;}
   // ===== 適地フィルター: 決定ロジックはコード、外部の権威データ(DB＋農振ポリゴン＋モデル出力)からその場でライブ計算 =====
@@ -8683,7 +8683,7 @@ if(typeof map!=='undefined'&&map&&map.on){
     if(!order.length)return; if(!on)turnOn();
     if(i<0)i=0; if(i>=order.length)i=order.length-1;
     if(idx>=0&&marks[idx])marks[idx].setStyle({radius:7,weight:2,color:'#00e5ff'});
-    idx=i; var it=order[idx]; map.flyTo([it.la,it.ln],18);
+    idx=i; var it=order[idx]; curFid=it.f; map.flyTo([it.la,it.ln],18);
     var mk=marks[idx]; if(mk){ mk.setStyle({radius:11,weight:3,color:'#ffffff'}); setTimeout(function(){try{mk.openPopup();}catch(_){}},450); }
     updCounter();
   }
@@ -8741,9 +8741,23 @@ if(typeof map!=='undefined'&&map&&map.on){
   window.__cyanRemove=function(fid){
     if(fid==null)return; var before=items.length;
     var ni=items.filter(function(x){return String(x.f)!==String(fid);});
-    if(ni.length===before)return; var pos=idx;
+    if(ni.length===before)return;
+    // ★2026-08-28是正(ドクター実機確認「◀前を押しても戻れない」): rebuildFromItemsは判定のたびに
+    // 一覧を並び替える(未確認を先に)。旧実装は「番号(位置)」だけを覚えて復元していたため、並び替えで
+    // 番号の意味が変わり、全く別の土地に飛んでいた。位置でなく「見ていた筆そのもの(curFid)」を覚え、
+    // 並び替え後もその筆を探して戻す。今見ていた筆自身が消えた(=それを判定した)時だけ、旧位置に近い所へ。
+    var wasCur=(curFid!=null&&String(curFid)===String(fid));
+    var oldPos=idx;
     rebuildFromItems(ni);
-    if(on){ try{build();}catch(_){} if(order.length){ try{goTo(Math.max(0,Math.min(pos,order.length-1)));}catch(_){} } else { try{map.closePopup();}catch(_){} } }
+    if(on){
+      try{build();}catch(_){}
+      if(order.length){
+        var newIdx=-1;
+        if(!wasCur&&curFid!=null){ for(var i=0;i<order.length;i++){ if(String(order[i].f)===String(curFid)){newIdx=i;break;} } }
+        if(newIdx<0)newIdx=Math.max(0,Math.min(oldPos,order.length-1));
+        try{goTo(newIdx);}catch(_){}
+      } else { try{map.closePopup();}catch(_){} }
+    }
   };
   // gacho(スコアカード)でOK/NG/削除/確定したら、その筆を候補から外す=モーダル判定で数字が動く(ドクター)。
   try{ document.addEventListener('gachoJudged',function(e){ var f=e&&e.detail&&e.detail.fid; if(f&&window.__cyanRemove)window.__cyanRemove(f); }); }catch(_){}
