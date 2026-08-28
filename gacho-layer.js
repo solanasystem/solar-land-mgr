@@ -689,7 +689,11 @@ async function promotePinkToRound2(){
     if(p.sourceIid&&existing[p.sourceIid])alreadyCount++;else newCount++;
   });
   if(!newCount){toast('新規の昇格対象はありません(該当'+pink.length+'件は全て昇格済み)');return;}
-  if(!confirm('OK判定済みのうち新規 '+newCount+'件を、予備軍(round2_pool・緑)へ昇格します。\n（既に昇格済みの'+alreadyCount+'件は対象外＝二重登録しません）\n・区域不明(県市町村未解決)は対象外にします\n実行しますか？'))return;
+  // ★2026-08-28(ドクター指示・⑦クライアント別抽出の起点): round2_poolにclient_id列を新設したので、
+  // 昇格時に必ず書き込む。現状の唯一の稼働クライアントをデフォルトにし、確認ダイアログで明示する
+  // (画層名からの推測はしない＝アドホック根絶)。
+  var CLIENT_SUNTRUST='ddb6c757-d0fd-47d7-99fb-14f34550a946', CLIENT_NAME='株式会社SUNトラスト';
+  if(!confirm('OK判定済みのうち新規 '+newCount+'件を、「'+CLIENT_NAME+'」向けの予備軍(round2_pool・緑)へ昇格します。\n（既に昇格済みの'+alreadyCount+'件は対象外＝二重登録しません）\n・区域不明(県市町村未解決)は対象外にします\n実行しますか？'))return;
 
   // 面積が無いfeature項目(通常筆のgacho_ok)はfarmland_snapshotsから引く(ai_ok_labelsは面積を持たないため)。
   var needArea=pink.filter(function(p){return p.kind==='feature'&&!existing[p.sourceIid]&&p.area==null;}).map(function(p){return p.sourceIid;});
@@ -714,7 +718,7 @@ async function promotePinkToRound2(){
     }
     if(!pref||!city||pref==='区域不明'||city==='区域不明'){skippedUnknown++;continue;}
     var area=(p.area!=null?p.area:areaMap[sourceIid]);
-    rows.push({kind:p.kind,source_iid:sourceIid,lat:p.lat,lng:p.lng,area_m2:(area!=null?area:null),latlngs:(p.latlngs||null),pref:pref,city:city,status:'reserve',round:2});
+    rows.push({kind:p.kind,source_iid:sourceIid,lat:p.lat,lng:p.lng,area_m2:(area!=null?area:null),latlngs:(p.latlngs||null),pref:pref,city:city,status:'reserve',round:2,client_id:CLIENT_SUNTRUST});
   }
 
   if(!rows.length){toast('昇格対象0件(区域不明'+skippedUnknown+'件・昇格済み'+skippedDup+'件はスキップ)');return;}
