@@ -738,6 +738,63 @@ async function promotePinkToRound2(){
   toast(msg);
 }
 window.__gachoPromoteToRound2=promotePinkToRound2;
+/* ===== ⑥→⑦(ドクター指示・2026-08-28): 予備軍(round2_pool・クライアント未定の共有プール)から
+   特定クライアントへ抽出し、client_delivery_items(仮納品)へ登録する。ここで初めてID(client_id)の
+   紐付けが発生する。⑤→⑥(promotePinkToRound2)とは明確に別の操作。 ===== */
+async function extractPoolToClient(){
+  var d=_gDb(); if(!d){toast('DB未接続＝中断');return;}
+  var clients=[];
+  try{
+    var cr=await d.from('clients').select('id,name').eq('status','active').order('name');
+    if(cr&&cr.error)throw new Error(cr.error.message);
+    clients=(cr&&cr.data)||[];
+  }catch(e){ toast('⚠ クライアント一覧の取得に失敗＝中断: '+(e&&e.message||e)); return; }
+  if(!clients.length){toast('稼働中のクライアントがありません(clientsテーブルを確認してください)');return;}
+
+  var unassigned=[];
+  try{
+    var frm=0;
+    while(true){
+      var r=await d.from('round2_pool').select('id,kind,source_iid,lat,lng,area_m2,latlngs,pref,city,status').is('client_id',null).eq('round',2).range(frm,frm+999);
+      if(r&&r.error)throw new Error(r.error.message);
+      var b=(r&&r.data)||[]; unassigned=unassigned.concat(b); if(b.length<1000)break; frm+=1000;
+    }
+  }catch(e){ toast('⚠ 予備軍の取得に失敗＝中断: '+(e&&e.message||e)); return; }
+  if(!unassigned.length){toast('クライアント未割当の予備軍がありません');return;}
+
+  var msg='抽出先クライアントの番号を入力:\n'+clients.map(function(c,i){return (i+1)+': '+c.name;}).join('\n');
+  var s=prompt(msg,'1'); if(s==null)return;
+  var idx=parseInt(s,10)-1;
+  if(isNaN(idx)||idx<0||idx>=clients.length){toast('番号が不正です');return;}
+  var client=clients[idx];
+
+  if(!confirm('予備軍のうちクライアント未割当 '+unassigned.length+'件を、「'+client.name+'」へ抽出し仮納品登録します。\n・この操作でround2_poolの各行にclient_idが確定します(ここで初めてID紐付け)\n実行しますか？'))return;
+
+  var deliveryId=null;
+  try{
+    var per=new Date().toISOString().slice(0,10);
+    var dr=await d.from('client_deliveries').insert({client_id:client.id,period:per,status:'draft',notes:'予備軍からの抽出'}).select();
+    if(dr&&dr.data&&dr.data[0])deliveryId=dr.data[0].id;
+  }catch(e){}
+  if(!deliveryId){toast('⚠ 納品ロットの作成に失敗＝中断');return;}
+
+  var inserted=0,errs=0;
+  for(var i=0;i<unassigned.length;i++){
+    var p=unassigned[i];
+    try{
+      var ir=await d.from('client_delivery_items').insert({client_id:client.id,delivery_id:deliveryId,pref:p.pref,city:p.city,area_m2:p.area_m2,lat:p.lat,lng:p.lng,source:'round2_pool',status:'tentative',ai_note:'round2_pool id:'+p.id+' kind:'+p.kind+' source_iid:'+p.source_iid});
+      if(ir&&ir.error)throw new Error(ir.error.message);
+      var ur=await d.from('round2_pool').update({client_id:client.id}).eq('id',p.id);
+      if(ur&&ur.error)throw new Error(ur.error.message);
+      inserted++;
+    }catch(e){ errs++; }
+  }
+  var m='📤 '+client.name+'へ抽出: '+inserted+'件'+(errs?'・エラー'+errs+'件':'');
+  try{alert(m);}catch(_){}
+  toast(m);
+  try{await loadDelivery2FromDb();}catch(_){}
+}
+window.__gachoExtractPoolToClient=extractPoolToClient;
 /* v20260821m(ドクター復旧): ダウンロード済みスナップJSONファイルを選んで直接復元(ブラウザ内が壊れていても、確認済みの09:13ファイルから手描き境界を戻す)。 */
 function restoreFromFile(){
   try{
@@ -1000,6 +1057,9 @@ function renderPanel(){
     h+='<div class="gacho-master"><button id="gachoD2Manual" class="gacho-btn" style="background:rgba(255,20,147,.16);border-color:#ff1493" title="手作業ピック(ピンク)を『手作業｜県｜市町村』へ整理して階層表示。ピックの中身は不変・入れ物だけ整理・可逆">🖐 手作業ピックも県→市町村へ</button></div>';
     // v20260823(ドクター「ピンク→緑への昇格をボタン1つで、AI外だし」): OK判定済みの手動ピックをround2_pool(緑・予備軍)へ一括昇格。
     h+='<div class="gacho-master"><button id="gachoPromoteD2" class="gacho-btn" style="background:rgba(34,197,94,.2);border-color:#22c55e;font-weight:700" title="OK判定済みの手動ピック(ピンク/手作業)をround2_pool(第2回納品候補・緑)へ一括昇格。区域不明・昇格済みは対象外">⬆ OK済みピックを予備軍(緑)へ昇格</button></div>';
+    // ★2026-08-28(ドクター指示・⑥→⑦): 予備軍(round2_pool・クライアント未定)から特定クライアントへ抽出し
+    // 納品(client_delivery_items・仮納品)へ登録する。⑤→⑥昇格とは別の、独立した操作。
+    h+='<div class="gacho-master"><button id="gachoExtractClient" class="gacho-btn" style="background:rgba(168,85,247,.2);border-color:#a855f7;font-weight:700" title="予備軍(round2_pool)のうちクライアント未割当の案件を、選んだクライアントへ抽出して仮納品登録する">📤 予備軍をクライアントへ抽出</button></div>';
     h+='<div class="gacho-master"><button id="gachoTidy" class="gacho-btn" style="background:rgba(210,153,34,.2);border-color:#d29922" title="旧レイヤー(保留/対象外/AI候補/適当/検討/要確認 等)をSWへ退避し作業台から外す=県→市町村＋手作業＋手動ピックだけの綺麗な作業台に。可逆(退避↩で戻せる)">🧹 旧レイヤーを退避で片付け（県→市町村だけに）</button></div>';
     if(_d2Emptied.length||_hasD2Snap()){
       h+='<div class="gacho-master">'+(_d2Emptied.length?'<button id="gachoD2Del" class="gacho-btn on" title="移動で空になった元レイヤーを削除(0件のみ・総数不変を再確認)">🗑 空レイヤー削除（'+_d2Emptied.length+'）</button>':'')+(_hasD2Snap()?'<button id="gachoD2Undo" class="gacho-btn on" title="第2回移行を移行前に戻す">↩ 移行を元に戻す</button>':'')+'</div>';
@@ -1112,6 +1172,7 @@ function bindPanel(){
     saveState();render();
   };
   var pd2=q('#gachoPromoteD2');if(pd2)pd2.onclick=function(){promotePinkToRound2();};
+  var exc=q('#gachoExtractClient');if(exc)exc.onclick=function(){extractPoolToClient();};
   var d2d=q('#gachoD2Del');if(d2d)d2d.onclick=function(){deleteEmptiedD2();};
   var d2u=q('#gachoD2Undo');if(d2u)d2u.onclick=function(){undoDelivery2();};
   var d2r=q('#gachoD2Rebuild');if(d2r)d2r.onclick=function(){rebuildDelivery2();};
