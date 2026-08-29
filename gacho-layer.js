@@ -1340,14 +1340,26 @@ var _obFlushing=false;
 // 「この判定を確定」を複数回押すたびai_ok_labelsに行が増え続けていた(読込時のok>ng>pending選別で表示だけ誤魔化されていた)。
 // ai_ok_labelsにはiid専用の一意制約が無いため、deleteFlag等で既に使っている「同じsource+member_fidsの既存行を
 // 先に削除してから追加」パターンで実質upsert化する。ngは元々upsert(onConflict:feature_id)なので変更不要。
+// ★2026-08-29是正(ドクター発見「OK/NG両方の記録が同時に残っている筆が197件あった」): NG確定時に
+// 対応するOK記録を消す(逆も同様)処理が、これまで_persistJudgment/_persistJudgmentScored内の
+// 「投げっぱなし」呼び出し(d.from(...).delete()...then(function(){},function(){}))で行われており、
+// 失敗しても再試行されず、矛盾した記録が残り続けていた。この削除をアウトボックス本体(_obExec)に
+// 組み込み、NG本体の書込と同じ「成功するまで再試行」の対象にする。
 function _obExec(d,e){
   if(e.kind==='boundary')return d.from('ai_ok_labels').delete().eq('source','handdraw_boundary').contains('member_fids',[e.iid]).then(function(){
     return d.from('ai_ok_labels').insert({source:'handdraw_boundary',member_fids:[e.iid],lat:e.lat,lng:e.lng,memo:e.memo});
   });
   if(e.kind==='ok')return d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[e.fid]).then(function(){
     return d.from('ai_ok_labels').insert({source:'gacho_ok',member_fids:[e.fid],lat:e.lat,lng:e.lng,memo:e.memo||'gacho手動OK'});
+  }).then(function(){
+    return d.from('farmland_ng_list').delete().eq('feature_id',e.fid).like('ng_reason','gacho_ng%');
   });
-  if(e.kind==='ng')return d.from('farmland_ng_list').upsert({feature_id:e.fid,lat:e.lat,lng:e.lng,ng_reason:e.reason||'gacho_ng'},{onConflict:'feature_id'});
+  if(e.kind==='ng')return d.from('farmland_ng_list').upsert({feature_id:e.fid,lat:e.lat,lng:e.lng,ng_reason:e.reason||'gacho_ng'},{onConflict:'feature_id'}).then(function(){
+    return d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[e.fid]);
+  });
+  if(e.kind==='clear')return d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[e.fid]).then(function(){
+    return d.from('farmland_ng_list').delete().eq('feature_id',e.fid).like('ng_reason','gacho_ng%');
+  });
   return null;
 }
 function _flushOutbox(){
@@ -1603,15 +1615,14 @@ window.__gachoRebuildManual=rebuildManualPicksFromDb;
 function _persistJudgment(fid,lat,lng,status){
   var d=_gDb(); if(!d||!fid)return;
   try{
+    // ★2026-08-29是正: 反対側レコードの削除は_obExec内で本体書込と同じ再試行対象になったため、
+    // ここでの「投げっぱなし」直接delete呼び出しは撤去(失敗しても再試行されず矛盾が残る不具合の温床だった)。
     if(status==='ok'){ _gDbOk[fid]=1; delete _gDbNg[fid];
       _obAdd({kind:'ok',fid:fid,lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),memo:'gacho手動OK'});
-      d.from('farmland_ng_list').delete().eq('feature_id',fid).like('ng_reason','gacho_ng%').then(function(){},function(){});
     } else if(status==='ng'){ _gDbNg[fid]=1; delete _gDbOk[fid];
       _obAdd({kind:'ng',fid:fid,lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),reason:'gacho_ng'});
-      d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
     } else { delete _gDbOk[fid]; delete _gDbNg[fid];
-      d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
-      d.from('farmland_ng_list').delete().eq('feature_id',fid).like('ng_reason','gacho_ng%').then(function(){},function(){});
+      _obAdd({kind:'clear',fid:fid});
     }
   }catch(e){}
 }
@@ -1652,12 +1663,12 @@ function _okPattern(s){return GCRIT.map(function(c){return c.k+':'+(s[c.k]||'t')
 function _persistJudgmentScored(it,s){
   var d=_gDb();if(!d||!it||!it.feature_id)return;var fid=it.feature_id,lat=it.lat,lng=it.lng;var ng=_hasX(s);
   try{
+    // ★2026-08-29是正: 反対側レコードの削除は_obExec内に統合済み(再試行対象)。ここでの投げっぱなし
+    // 直接delete呼び出しは撤去。
     if(ng){ _gDbNg[fid]=1; delete _gDbOk[fid];
       _obAdd({kind:'ng',fid:fid,lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),reason:('gacho_ng|'+_scoreCodes(it,s))});
-      d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
     } else { _gDbOk[fid]=1; delete _gDbNg[fid];
       _obAdd({kind:'ok',fid:fid,lat:(lat!=null?Number(lat):null),lng:(lng!=null?Number(lng):null),memo:('gacho手動OK|'+_okPattern(s))});
-      d.from('farmland_ng_list').delete().eq('feature_id',fid).like('ng_reason','gacho_ng%').then(function(){},function(){});
     }
   }catch(e){}
 }
