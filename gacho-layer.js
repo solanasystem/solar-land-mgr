@@ -1846,9 +1846,17 @@ window.__gacho={
       it={iid:iid(),feature_id:fid,noMap:true,src:meta.src||'flag',
           lat:(meta.lat!=null?Number(meta.lat):null),lng:(meta.lng!=null?Number(meta.lng):null),
           area:(meta.area!=null?Number(meta.area):null),address:meta.address||'',city:meta.city||'',
-          toshi:meta.toshi||'',level:meta.level||'',reject:(meta.reject!=null?meta.reject:null)};
+          toshi:meta.toshi||'',level:meta.level||'',reject:(meta.reject!=null?meta.reject:null),
+          // ★2026-08-29是正: 呼び出し元がDBクエリで既に検証済みの農振/ハザード実データ(meta.noshin/meta.haz)を
+          // 渡してきた場合はここへ引き継ぐ。渡さなければ_defScoreの既定通り△(要確認)のまま=安全側。
+          noshin:(meta.noshin!=null?meta.noshin:null),haz:(meta.haz!=null?meta.haz:null)};
       fl.items.push(it);created=true;saveState();
     }
+    // ★2026-08-29是正: 既にキャッシュ済み(以前に一度開いたことがある)の項目は、上のnoshin/haz付与を通らず
+    // 素通りしていた。meta側に実データが来ていて、item側がまだ持っていなければここで補完する(既に人が
+    // 手で判定した値は上書きしない)。
+    if(it.noshin==null&&meta.noshin!=null)it.noshin=meta.noshin;
+    if(it.haz==null&&meta.haz!=null)it.haz=meta.haz;
     var s=_score(it);
     if(created&&meta.seed){for(var k in meta.seed){if(meta.seed[k])s[k]=meta.seed[k];}saveState();} // 実ゲート状態を初期反映(接道PENDING→△等)。再開時は手動編集を保持
     return _whyHtml(it)+_scoreCardHtml(fl,it);
@@ -1934,12 +1942,26 @@ window.__gacho={
       if(c.lat==null||c.lng==null)return;
       var fid=pfx+c.no;
       if(ex[fid])return;
-      var newIt={iid:iid(),feature_id:fid,lat:Number(c.lat),lng:Number(c.lng),address:(c.addr||c.city||''),area:(c.area!=null?Number(c.area):null),chiban:c.chiban,src:'aiKI',status:null,level:c.level,toshi:c.toshi,reject:c.reject};
+      // ★2026-08-29是正(ドクター「アドホックにするな」): 呼び出し元(score_ai.py等)が既に検証済みの
+      // 農振/ハザード実データ(c.noshin/c.haz)を持っていれば、ここで必ず引き継ぐ。loadNeutral()はAI候補
+      // 全レイヤー(①適当/②検討/桑名いなべ/松阪72等8箇所以上)が通る唯一の共通経路なので、ここ1箇所を
+      // 直せば呼び出し元が実データを渡す限り全レイヤーに効く。
+      var newIt={iid:iid(),feature_id:fid,lat:Number(c.lat),lng:Number(c.lng),address:(c.addr||c.city||''),area:(c.area!=null?Number(c.area):null),chiban:c.chiban,src:'aiKI',status:null,level:c.level,toshi:c.toshi,reject:c.reject,noshin:(c.noshin!=null?c.noshin:null),haz:(c.haz!=null?c.haz:null)};
       if(_gDbOk[fid])newIt.status='ok'; else if(_gDbNg[fid])newIt.status='ng';
       pending.push(newIt); ex[fid]=1;
     });
     // ★v20260818k: DB保存済みの判定(OK/NG)を、この画層の既存筆に復元適用(消えたOKを二度と消さない)。
     l.items.forEach(function(it){ if(it.feature_id){ if(_gDbOk[it.feature_id])it.status='ok'; else if(_gDbNg[it.feature_id])it.status='ng'; } });
+    // ★2026-08-29是正: 以前に読み込み済み(=noshin/hazが未設定のままキャッシュされた)既存筆にも、
+    // 今回のitemsに同じfidの実データがあれば遡って補完する。
+    (function(){
+      var srcByFid={}; items.forEach(function(c){ if(c.lat!=null&&c.lng!=null)srcByFid[pfx+c.no]=c; });
+      l.items.forEach(function(it){
+        var c=it.feature_id&&srcByFid[it.feature_id]; if(!c)return;
+        if(it.noshin==null&&c.noshin!=null)it.noshin=c.noshin;
+        if(it.haz==null&&c.haz!=null)it.haz=c.haz;
+      });
+    })();
     // ★2026-08-29(ドクター報告「NGにしたら別の黄色候補として同じ場所が出てきた」「その都度処理しろ」):
     // ①適当/②検討等のAI候補パイプラインは互いに独立しており、cyan/round2_pool/OK/NG判定と一切
     // 重複チェックしていなかった。既に他パイプラインで座標が判定・記録済みなら、この画層へは

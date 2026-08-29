@@ -8512,7 +8512,7 @@ if(typeof map!=='undefined'&&map&&map.on){
      window.DELIVERY2はgacho-layer.jsのloadDelivery2FromDb()がround2_poolテーブルから毎回ライブで組み立てる。
      ファイル自体は移行直前の最終スナップショットとして残す(参照はしない)。 -->
 <script src="cyan-candidates.js?v=20260822a"></script><!-- ドクター2026-08-22: 手作業探索の目印(既得地/青)で使用。保存値108は古いスナップショット(build_cyan_candidates.py生成)=最新の🔬適地フィルター実行とは別物 -->
-<script src="gacho-layer.js?v=20260829j"></script>
+<script src="gacho-layer.js?v=20260829k"></script>
 <!-- 2026-08-28 ドクター指示「桑名、いなべは不要だ」で表示停止。③接道④連系が未検証(生成元kuwana_inabe_pipeline.pyは①②のみ)のまま画層に出ていた件の是正。
      ai_kuwana_inabe.js自体・output/kuwana_inabe_*.geojsonは残置(後で戻せる)。再開する場合は横断監査20260828参照。
 <script src="ai_kuwana_inabe.js?v=20260816b"></script>
@@ -8587,7 +8587,12 @@ if(typeof map!=='undefined'&&map&&map.on){
       if(!_inTargetRegion(+s.lat,+s.lng)){steps.regionRemoved++;return;}
       var _cty=String(s.city||''); if(_NG_CITIES.some(function(n){return _cty.indexOf(n)>=0;})){steps.regionRemoved++;return;}
       if(s.shading_status==='NG'||s.terrain_status==='NG'){steps.shadeTerrainRemoved++;return;}
-      var rej=scores[key6(s.lat,s.lng)]; if(rej!=null&&rej>=cutNg)return; cand.push({f:s.feature_id,la:+s.lat,ln:+s.lng,a:Math.round(s.area_sqm||0),c:s.city||'',p:'',r:(rej!=null?+rej:null)}); });
+      var rej=scores[key6(s.lat,s.lng)]; if(rej!=null&&rej>=cutNg)return;
+      // ★2026-08-29是正: 上のDBクエリで既にnoshin_status='CLEAR'・hazard_status='CLEAR'だけに絞っている
+      // (8571行目)のに、この候補オブジェクトにその結果を渡していなかった。gacho-layer.js側の判定カードが
+      // 「実データが無い項目は△(要確認)」として扱うため、ここで渡し忘れると実際は検証済みのゲートまで
+      // 未確認扱いになってしまう(ドクター報告「農振/ハザードが常に△になっている」の実因)。
+      cand.push({f:s.feature_id,la:+s.lat,ln:+s.lng,a:Math.round(s.area_sqm||0),c:s.city||'',p:'',r:(rej!=null?+rej:null),noshin:'CLEAR',haz:'CLEAR'}); });
     steps.dupFid=rows.length-Object.keys(_seenFid).length;
     steps.model=cand.length;
     setStep&&setStep('農振農用地ポリゴンで青地を除外中…');
@@ -8669,7 +8674,10 @@ if(typeof map!=='undefined'&&map&&map.on){
       +'<a href="'+_e3+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:6px 6px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">🌍 Earth</a></div>';
     if(window.__gacho&&window.__gacho.flagScoreCard&&it.f){
       try{
-        var sc=window.__gacho.flagScoreCard(it.f,{lat:it.la,lng:it.ln,area:it.a,city:it.c||'',src:'cyan',layerName:'適地候補 判定',color:'#00e5ff'});
+        // ★2026-08-29是正(ドクター報告「農振/ハザードが常に△になっている」): computeCyanLiveのDBクエリで
+        // 既にnoshin_status='CLEAR'・hazard_status='CLEAR'だけに絞っているので、その実データをここで
+        // 判定カードへ渡す。渡し忘れると実際は検証済みなのに未確認(△)扱いになってしまっていた。
+        var sc=window.__gacho.flagScoreCard(it.f,{lat:it.la,lng:it.ln,area:it.a,city:it.c||'',src:'cyan',layerName:'適地候補 判定',color:'#00e5ff',noshin:it.noshin||'CLEAR',haz:it.haz||'CLEAR'});
         var promo=(typeof _promoteBtns==='function')?_promoteBtns(it.la,it.ln,'低圧太陽光',it.c||''):'';
         var dq=function(x){return String(x||'').replace(/["'\\]/g,'');};
         var deliverBtn='<button onclick="window.__cyanDeliver(&quot;'+dq(it.f)+'&quot;,'+it.la+','+it.ln+','+(it.a||0)+',&quot;'+dq(it.c)+'&quot;,&quot;'+dq(it.p)+'&quot;,event)" style="width:100%;margin-top:7px;padding:9px;border:1px solid #22d3ee;background:rgba(34,211,238,.20);color:#e6edf3;border-radius:7px;font-weight:800;cursor:pointer">⬆ 予備軍(round2_pool)へ追加</button>';
@@ -8935,7 +8943,9 @@ if(typeof map!=='undefined'&&map&&map.on){
 (function waitTahara(){
   if (typeof map!=='undefined' && map && window.AICHI_TAHARA_CAND && window.AICHI_TAHARA_CAND.items && window.__gacho && window.__gacho.loadNeutral) {
     try{
-      var mp=function(arr){return arr.map(function(x){return {no:x.fid,lat:x.lat,lng:x.lng,area:x.a,city:x.city,chiban:x.tiban,level:x.level,toshi:x.toshi,reject:x.reject};});};
+      // ★2026-08-29是正(ドクター「アドホックにするな」): score_ai.pyが既に検証済みの農振/ハザード実データ
+      // (x.noshin/x.haz)をここで捨てていたため、判定カードが「未チェック」扱いになっていた。
+      var mp=function(arr){return arr.map(function(x){return {no:x.fid,lat:x.lat,lng:x.lng,area:x.a,city:x.city,chiban:x.tiban,level:x.level,toshi:x.toshi,reject:x.reject,noshin:x.noshin,haz:x.haz};});};
       var A=window.AICHI_TAHARA_CAND.items.filter(function(x){return x.level==='適当';});
       var B=window.AICHI_TAHARA_CAND.items.filter(function(x){return x.level==='検討';});
       window.__gacho.loadNeutral(mp(A), '愛知県｜田原 ①適当(太陽光本命)', '#22c55e', 'taA');
@@ -8950,7 +8960,9 @@ if(typeof map!=='undefined'&&map&&map.on){
 (function waitTsu(){
   if (typeof map!=='undefined' && map && window.MIE_TSU_CAND && window.MIE_TSU_CAND.items && window.__gacho && window.__gacho.loadNeutral) {
     try{
-      var mp=function(arr){return arr.map(function(x){return {no:x.fid,lat:x.lat,lng:x.lng,area:x.a,city:x.city,chiban:x.tiban,level:x.level,toshi:x.toshi,reject:x.reject};});};
+      // ★2026-08-29是正(ドクター「アドホックにするな」): score_ai.pyが既に検証済みの農振/ハザード実データ
+      // (x.noshin/x.haz)をここで捨てていたため、判定カードが「未チェック」扱いになっていた。
+      var mp=function(arr){return arr.map(function(x){return {no:x.fid,lat:x.lat,lng:x.lng,area:x.a,city:x.city,chiban:x.tiban,level:x.level,toshi:x.toshi,reject:x.reject,noshin:x.noshin,haz:x.haz};});};
       var A=window.MIE_TSU_CAND.items.filter(function(x){return x.level==='適当';});
       var B=window.MIE_TSU_CAND.items.filter(function(x){return x.level==='検討';});
       window.__gacho.loadNeutral(mp(A), '三重県｜津・明和・玉城・度会 ①適当(太陽光本命)', '#22c55e', 'tsuA');
@@ -8965,7 +8977,9 @@ if(typeof map!=='undefined'&&map&&map.on){
   if (typeof map!=='undefined' && map && window.MIE_OHDAI_CAND && window.MIE_OHDAI_CAND.items && window.__gacho && window.__gacho.loadNeutral) {
     try{
       // loadNeutral は c.no(fid接尾辞)/c.area/c.chiban を参照するため、大台・大紀の fid/a/tiban を命名変換して渡す(未変換だとfid衝突で1件しか入らない)
-      var mp=function(arr){return arr.map(function(x){return {no:x.fid,lat:x.lat,lng:x.lng,area:x.a,city:x.city,chiban:x.tiban,level:x.level,toshi:x.toshi,reject:x.reject};});};
+      // ★2026-08-29是正(ドクター「アドホックにするな」): score_ai.pyが既に検証済みの農振/ハザード実データ
+      // (x.noshin/x.haz)をここで捨てていたため、判定カードが「未チェック」扱いになっていた。
+      var mp=function(arr){return arr.map(function(x){return {no:x.fid,lat:x.lat,lng:x.lng,area:x.a,city:x.city,chiban:x.tiban,level:x.level,toshi:x.toshi,reject:x.reject,noshin:x.noshin,haz:x.haz};});};
       var A=window.MIE_OHDAI_CAND.items.filter(function(x){return x.level==='適当';});
       var B=window.MIE_OHDAI_CAND.items.filter(function(x){return x.level==='検討';});
       window.__gacho.loadNeutral(mp(A), '三重県｜大台・大紀 ①適当(太陽光本命)', '#22c55e', 'odA');
