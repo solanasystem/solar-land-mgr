@@ -1639,9 +1639,13 @@ function _gateFromReal(v){ if(v==null)return 't'; var s=String(v).toUpperCase();
 function _defScore(it){
   var c1=(it.noshin!=null)?_gateFromReal(it.noshin):'t'; // 農振・青地: 実データが無ければ要確認(手描き境界等)
   var c2=(it.haz!=null)?_gateFromReal(it.haz):'t';        // ハザード: 同上
-  return {c1:c1,c2:c2,c3:'o',c4:'o',c5:'o',c6:((it.area!=null&&it.area<800)?'x':'o'),c7:'t',c8:'o'};
+  return {c1:c1,c2:c2,c3:'o',c4:'o',c5:'o',c6:((it.area!=null&&it.area<800)?'x':'o'),c7:'t',c8:'o',_auto:true};
 }
-function _score(it){if(!it.score)it.score=_defScore(it);return it.score;}
+// ★2026-08-29是正: it.scoreは一度計算されると恒久キャッシュされ、_defScoreのロジックを直しても
+// 「既に開いたことがある項目」は古い(緑)の値のまま残ってしまう不具合があった(ドクター実機確認で発覚)。
+// ドクターが一度もsetCritで手を触れていない(=_auto=trueのまま)スコアは、開くたびに_defScoreを
+// 再計算して常に最新ロジックを反映する。手で触った項目(setCritが_autoを外す)はそのまま保持する。
+function _score(it){if(!it.score||it.score._auto)it.score=_defScore(it);return it.score;}
 function _hasX(s){for(var k in s){if(s[k]==='x')return true;}return false;}
 function _scoreCodes(it,s){var codes=[];for(var i=0;i<GCRIT.length;i++){if(s[GCRIT[i].k]==='x')codes.push(GCRIT[i].k);}var ex=(it.ngsub&&it.ngsub.length)?('['+it.ngsub.join('/')+']'):'';return codes.join(',')+(ex?(' '+ex):'');}
 function _okPattern(s){return GCRIT.map(function(c){return c.k+':'+(s[c.k]||'t');}).join(',');}
@@ -1776,7 +1780,7 @@ window.__gacho={
     if(it.status)try{_gachoPurgeNearbyUnjudged(it.lat,it.lng,it.iid);}catch(_){}
     try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}
   }});saveState();setTimeout(function(){render();},0);},
-  setCrit:function(lid,iid,ck,val,btn){var l=byId(lid);if(!l)return;var itr=null;l.items.forEach(function(it){if(it.iid===iid){itr=it;var s=_score(it);s[ck]=val;it.viewed=true;if(ck==='c7'&&val!=='x')it.ngsub=[];}});saveState();
+  setCrit:function(lid,iid,ck,val,btn){var l=byId(lid);if(!l)return;var itr=null;l.items.forEach(function(it){if(it.iid===iid){itr=it;var s=_score(it);s[ck]=val;delete s._auto;it.viewed=true;if(ck==='c7'&&val!=='x')it.ngsub=[];}});saveState();
     try{var row=btn.parentNode;row.querySelectorAll('.gsc-b').forEach(function(bb){bb.style.background='';bb.style.color='';bb.style.fontWeight='';});var col=(val==='o'?'#3fb950':(val==='x'?'#f85149':'#eab308'));btn.style.background=col;btn.style.color='#0d1117';btn.style.fontWeight='700';
       if(ck==='c7'){var sub=document.getElementById('gsub_'+iid);if(sub)sub.style.display=(val==='x'?'':'none');}
       if(itr){var vd=document.getElementById('gscvd_'+iid);if(vd)vd.innerHTML=(_hasX(_score(itr))?'<b style="color:#f85149">✖あり → 除外(NG)</b>':'<b style="color:#3fb950">✖なし → OK可</b>');}
