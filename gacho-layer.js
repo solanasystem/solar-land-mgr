@@ -752,11 +752,19 @@ function previewNewOkOnMap(){
     });
     l.visible=true; l.active=true; state.solo=l.id;
     saveState(); render();
+    // ★2026-08-29是正(ドクター報告「フラグが表示されない」): 候補が奈良/三重/愛知/福岡など複数県に
+    // 散らばっているとfitBoundsが日本全体レベルまでズームアウトし、7pxの丸マーカーが実質見えなくなる。
+    // 範囲が広すぎる(1.5度=概ね1県超)時は自動ズームせず、「画層を検索して絞る」欄で県ごとに追わせる。
+    var wideSpread=false;
     try{
       var pts=deduped.filter(function(p){return p.lat!=null&&p.lng!=null;}).map(function(p){return [p.lat,p.lng];});
-      if(pts.length)map.fitBounds(pts,{maxZoom:13});
+      if(pts.length){
+        var lats=pts.map(function(p){return p[0];}),lngs=pts.map(function(p){return p[1];});
+        var spread=Math.max(Math.max.apply(null,lats)-Math.min.apply(null,lats),Math.max.apply(null,lngs)-Math.min.apply(null,lngs));
+        if(spread<1.5){ map.fitBounds(pts,{maxZoom:13}); } else { wideSpread=true; }
+      }
     }catch(_){}
-    var msg='🔎 未昇格OK候補 '+deduped.length+'件をシアン色レイヤー「'+name+'」に表示しました（round2_poolへはまだ書き込んでいません）';
+    var msg='🔎 未昇格OK候補 '+deduped.length+'件をシアン色レイヤー「'+name+'」に表示しました（round2_poolへはまだ書き込んでいません）'+(wideSpread?'\n\n※候補が複数県にまたがるため自動ズームしていません。右の「画層を検索して絞る」に「未昇格」と入力して県ごとに確認してください。':'');
     try{alert(msg);}catch(_){}
     toast(msg);
   }).catch(function(e){ toast('⚠ プレビュー集計に失敗: '+(e&&e.message||e)); });
