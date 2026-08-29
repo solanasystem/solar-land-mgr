@@ -1138,11 +1138,16 @@ function _liveCounts(){
   });});
   return {ok:Object.keys(okS).length+Object.keys(bokS).length, ng:Object.keys(ngS).length};
 }
+var _gachoPanelCollapsed=false; // ★2026-08-29: 「画層」パネルの開閉状態。renderPanel()の再構築を跨いで保持する。
 function renderPanel(){
   window.__gachoMapMode=!!(_drawMode||_rectMode||_pickMode||_addMode); // v20260812j: 地番ポップアップ/手動ピック確認モーダルの抑止フラグ(描画等の邪魔をしない)
   var box=document.getElementById('gachoPanel');if(!box)return;var al=activeLayer();var h='';
   h+='<div class="gacho-head"><span>🗂 画層</span><button class="gacho-min" id="gachoMin" title="開閉">—</button></div>';
-  h+='<div class="gacho-body" id="gachoBody">';
+  // ★2026-08-29是正(ドクター報告「レイヤーをたたむと開けない」): renderPanel()は判定操作のたびに毎回
+  // パネル全体を作り直すが、開閉状態をどこにも覚えておらず常に「開」で再構築していた。閉じた直後に
+  // 何か操作すると勝手に開き直り、次に押した「－」がその開いた状態を再び閉じる、というズレが実態だった。
+  // _gachoPanelCollapsedに開閉状態を保持し、再構築のたびにそれを反映する。
+  h+='<div class="gacho-body" id="gachoBody"'+(_gachoPanelCollapsed?' style="display:none"':'')+'>';
   // v20260823(ドクター「ボタンが一番下でスクロールに隠れる」): 📍手動ピックは最頻出操作のため、常時・パネル最上部に固定表示。
   //   活性画層(al)が無くても押せる(押した時に「手動ピック（判定）」画層を自動作成=addClickの既存挙動)。
   h+='<div class="gacho-master"><button id="gachoAddPt" class="gacho-btn wide'+(_addMode?' on':'')+'" style="background:rgba(255,20,147,.16);border-color:#ff1493;font-weight:700">📍 地図クリックで手動ピック記録（案件候補）'+(_addMode?'（クリック→確認→保存／ESCで終了）':'')+'</button></div>';
@@ -1275,7 +1280,7 @@ function renderPanel(){
 
 function bindPanel(){
   var q=function(s){return document.querySelector(s);};var all=function(s){return Array.prototype.slice.call(document.querySelectorAll(s));};
-  var mn=q('#gachoMin');if(mn)mn.onclick=function(){var b=q('#gachoBody');if(b)b.style.display=(b.style.display==='none'?'':'none');};
+  var mn=q('#gachoMin');if(mn)mn.onclick=function(){var b=q('#gachoBody');if(!b)return;_gachoPanelCollapsed=(b.style.display!=='none');b.style.display=(_gachoPanelCollapsed?'none':'');};
   var sa=q('#gachoShowAll');if(sa)sa.onclick=showAll;
   var ha=q('#gachoHideAll');if(ha)ha.onclick=hideAll;
   var shd=q('#gachoShowDeliv');if(shd)shd.onclick=function(){state.showDelivered=!state.showDelivered;saveState();try{renderDelivered();}catch(_){}renderPanel();};

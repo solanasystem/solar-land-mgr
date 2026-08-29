@@ -41,7 +41,11 @@
     b.id = 'aiLearnBtn';
     b.title = 'AI学習: 押すとAIがSWルームの"正"を読む合図を記録し、要点を表示します';
     b.textContent = '🧠 AI学習';
-    b.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:2147483000;'+
+    // ★2026-08-29是正(ドクター報告「AI学習のボタンが邪魔している」): 画層パネル(gacho-panel)も
+    // 全く同じ右下の角(right:12px;bottom:12px)に固定表示されており、このボタンのz-indexが極端に
+    // 高い(2147483000)ため、画層パネルが折りたたまれて小さくなると完全に下敷きになりクリックが
+    // 届かなくなっていた。左下へ移し、右下は画層パネル専用にする。
+    b.style.cssText = 'position:fixed;left:14px;bottom:14px;z-index:2147483000;'+
       'background:linear-gradient(90deg,#6d28d9,#4f46e5);color:#fff;border:2px solid #a78bfa;'+
       'border-radius:22px;padding:9px 16px;font-size:13px;font-weight:900;cursor:pointer;'+
       'box-shadow:0 4px 14px rgba(0,0,0,.35);font-family:sans-serif;';
@@ -96,7 +100,7 @@
     if (document.getElementById('aiLearnDiag')) return;
     diagEl = document.createElement('div');
     diagEl.id = 'aiLearnDiag';
-    diagEl.style.cssText = 'position:fixed;right:14px;bottom:52px;z-index:2147483000;'+
+    diagEl.style.cssText = 'position:fixed;left:14px;bottom:52px;z-index:2147483000;'+
       'background:#0f172a;color:#94a3b8;border:1px solid #334155;border-radius:8px;'+
       'padding:4px 9px;font-size:10px;font-family:monospace;box-shadow:0 2px 8px rgba(0,0,0,.3);'+
       'max-width:260px;';

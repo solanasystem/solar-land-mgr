@@ -243,7 +243,7 @@
   try {
     if (!document.querySelector('script[data-ai-learn-hook]')) {
       var _alh = document.createElement('script');
-      _alh.src = 'ai-learn-hook.js?v=20260827b';
+      _alh.src = 'ai-learn-hook.js?v=20260829a';
       _alh.setAttribute('data-ai-learn-hook', '1');
       _alh.defer = true;
       (document.head || document.documentElement).appendChild(_alh);
