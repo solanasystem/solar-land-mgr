@@ -1011,6 +1011,9 @@ function renderLayerGroups(){
         pg.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>敷地境界<br>'+areaTxt+gmap+_whyHtml(it)+_scoreCardHtml(l,it)+bredraw+'</div>');
         pg.bindTooltip(Math.round(it.area||0).toLocaleString()+'㎡',{permanent:true,direction:'center',className:'gacho-area-lbl',pane:'gachoPane'});
         pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;saveState();}}); // v20260821h(ドクター): クリックで色を変えない
+        // ★2026-08-29是正(ドクター報告「この筆はGoogleMAPのホバーが表示されない」): ①ホバー最新衛星は
+        // 点フラグの分岐にしか呼ばれておらず、境界(敷地境界)には元々バインドされていなかった仕様漏れ。
+        if(it.status!=='ng') _gmHoverBind(pg,it.lat,it.lng);
         g.addLayer(pg);
       }else{
         // v20260821c(ドクター): OK=緑リング(枠緑・中透明)に統一。NGは地図から見えなくする(OKだけでいい)。未確認は元のまま。
