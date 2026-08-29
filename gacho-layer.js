@@ -743,7 +743,7 @@ function previewNewOkOnMap(){
     var deduped=res.deduped;
     var name='未昇格OK候補(要確認)';
     var l=state.layers.filter(function(x){return x.name===name;})[0];
-    if(!l){l={id:uid(),name:name,color:'#facc15',visible:true,active:false,items:[],meta:{preview:true}};state.layers.push(l);}
+    if(!l){l={id:uid(),name:name,color:'#22d3ee',visible:true,active:false,items:[],meta:{preview:true}};state.layers.push(l);}
     l.items=deduped.map(function(p){
       if(p.kind==='boundary'){
         return {iid:p.sourceIid,type:'boundary',latlngs:p.latlngs,area:p.area,lat:p.lat,lng:p.lng,address:'未昇格(要確認)',status:'ok',userJudged:true,src:'preview'};
@@ -756,7 +756,7 @@ function previewNewOkOnMap(){
       var pts=deduped.filter(function(p){return p.lat!=null&&p.lng!=null;}).map(function(p){return [p.lat,p.lng];});
       if(pts.length)map.fitBounds(pts,{maxZoom:13});
     }catch(_){}
-    var msg='🔎 未昇格OK候補 '+deduped.length+'件を黄色レイヤー「'+name+'」に表示しました（round2_poolへはまだ書き込んでいません）';
+    var msg='🔎 未昇格OK候補 '+deduped.length+'件をシアン色レイヤー「'+name+'」に表示しました（round2_poolへはまだ書き込んでいません）';
     try{alert(msg);}catch(_){}
     toast(msg);
   }).catch(function(e){ toast('⚠ プレビュー集計に失敗: '+(e&&e.message||e)); });
@@ -1139,7 +1139,7 @@ function renderPanel(){
     // v20260823(ドクター「ピンク→緑への昇格をボタン1つで、AI外だし」): OK判定済みの手動ピックをround2_pool(緑・予備軍)へ一括昇格。
     // ★2026-08-29(ドクター「119件を地図上に表してくれ、私がチェックする」): 昇格を実行する前に、対象を
     // 黄色レイヤーで地図上に表示して目視確認できるプレビュー。round2_poolへは書き込まない。
-    h+='<div class="gacho-master"><button id="gachoPreviewNewOk" class="gacho-btn" style="background:rgba(250,204,21,.15);border-color:#facc15;font-weight:700" title="昇格対象(未昇格の真の新規)を黄色レイヤーで地図に表示して確認する。round2_poolへはまだ書き込まない">🔎 未昇格の新規を地図で確認</button></div>';
+    h+='<div class="gacho-master"><button id="gachoPreviewNewOk" class="gacho-btn" style="background:rgba(34,211,238,.15);border-color:#22d3ee;font-weight:700" title="昇格対象(未昇格の真の新規)をシアン色レイヤーで地図に表示して確認する。round2_poolへはまだ書き込まない">🔎 未昇格の新規を地図で確認</button></div>';
     h+='<div class="gacho-master"><button id="gachoPromoteD2" class="gacho-btn" style="background:rgba(34,197,94,.2);border-color:#22c55e;font-weight:700" title="OK判定済みの手動ピック(ピンク/手作業)をround2_pool(第2回納品候補・緑)へ一括昇格。区域不明・昇格済みは対象外">⬆ OK済みピックを予備軍(緑)へ昇格</button></div>';
     // ★2026-08-28(ドクター指示・⑥→⑦): 予備軍(round2_pool・クライアント未定)から特定クライアントへ抽出し
     // 納品(client_delivery_items・仮納品)へ登録する。⑤→⑥昇格とは別の、独立した操作。
