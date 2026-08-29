@@ -744,13 +744,17 @@ function previewNewOkOnMap(){
     var name='未昇格OK候補(要確認)';
     var l=state.layers.filter(function(x){return x.name===name;})[0];
     if(!l){l={id:uid(),name:name,color:'#22d3ee',visible:true,active:false,items:[],meta:{preview:true}};state.layers.push(l);}
+    // ★2026-08-29是正(ドクター報告「田原市のフラグが消えた」「フラグがなくポリゴン表示だけになっている
+    // 所が多数ある」): status:'ok'を付けるとレンダラーが強制的に緑色スタイルへ上書きし(点も境界も)、
+    // さらにstate.solo=l.idが他の全レイヤー(第2回納品候補・手動ピック等)を地図全体で非表示にしていた。
+    // 他レイヤーを一切隠さず、シアン色のまま重ねて表示するよう変更する。
     l.items=deduped.map(function(p){
       if(p.kind==='boundary'){
-        return {iid:p.sourceIid,type:'boundary',latlngs:p.latlngs,area:p.area,lat:p.lat,lng:p.lng,address:'未昇格(要確認)',status:'ok',userJudged:true,src:'preview'};
+        return {iid:p.sourceIid,type:'boundary',latlngs:p.latlngs,area:p.area,lat:p.lat,lng:p.lng,address:'未昇格(要確認)',userJudged:true,src:'preview'};
       }
-      return {iid:uid(),feature_id:p.sourceIid,lat:p.lat,lng:p.lng,address:'未昇格(要確認)',status:'ok',userJudged:true,src:'preview'};
+      return {iid:uid(),feature_id:p.sourceIid,lat:p.lat,lng:p.lng,address:'未昇格(要確認)',userJudged:true,src:'preview'};
     });
-    l.visible=true; l.active=true; state.solo=l.id;
+    l.visible=true; l.active=true;
     saveState(); render();
     // ★2026-08-29是正(ドクター報告「フラグが表示されない」): 候補が奈良/三重/愛知/福岡など複数県に
     // 散らばっているとfitBoundsが日本全体レベルまでズームアウトし、7pxの丸マーカーが実質見えなくなる。
