@@ -1015,6 +1015,17 @@ function renderLayerGroups(){
         // 点フラグの分岐にしか呼ばれておらず、境界(敷地境界)には元々バインドされていなかった仕様漏れ。
         if(it.status!=='ng') _gmHoverBind(pg,it.lat,it.lng);
         g.addLayer(pg);
+        // ★2026-08-29追加(ドクター要望「フラグも表示していた方が判り易い」): 境界はポリゴンのみで、
+        // 見つけにくい/クリックしにくいとの指摘。点フラグと同じ位置(it.lat/lng)に、同じ判定色の
+        // 丸フラグも重ねて表示する。ポップアップ内容はポリゴンと同一(同じ敷地境界の情報)。
+        if(it.lat!=null&&it.lng!=null){
+          var _bsty=it.status==='ok'?{radius:6,color:'#22c55e',weight:3,fillColor:l.color,fillOpacity:0.30}:{radius:6,color:'#fff',weight:2,fillColor:l.color,fillOpacity:0.95};
+          var bmk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_bsty));
+          bmk.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>敷地境界<br>'+areaTxt+gmap+_whyHtml(it)+_scoreCardHtml(l,it)+bredraw+'</div>');
+          bmk.on('popupopen',function(){if(!it.viewed){it.viewed=true;saveState();}});
+          if(it.status!=='ng') _gmHoverBind(bmk,it.lat,it.lng);
+          g.addLayer(bmk);
+        }
       }else{
         // v20260821c(ドクター): OK=緑リング(枠緑・中透明)に統一。NGは地図から見えなくする(OKだけでいい)。未確認は元のまま。
         // v20260821h(ドクター): クリック(見た)で色を変えない=間違いの元を止める。OK=緑リング/未確認=白枠+元色(常に一定)。
