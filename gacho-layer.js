@@ -1003,40 +1003,39 @@ function renderLayerGroups(){
       var seen='<span style="color:#9aa4ae">'+(vd?'✓ 見た':'')+'</span>';
       var stat=it.status==='ok'?' <b style="color:#3fb950">✓OK</b>':(it.status==='ng'?' <b style="color:#f85149">🚫NG(除外)</b>':'');
       var gmap='<div style="margin-top:6px"><a href="https://www.google.com/maps/search/?api=1&query='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🌐 Googleマップ</a> ｜ <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+it.lat+','+it.lng+'" target="_blank" rel="noopener" style="color:#58a6ff">🚶 ストリートビュー</a></div>';
+      // ★2026-08-29是正(ドクター指示「SWへ記載するだけでなく、恒常的にどのようなコードを設けるのか決めろ」):
+      // 以前は「境界(面)」と「筆(点)」で完全に別コードに分岐しており、点専用に実装された①ホバー最新衛星・
+      // 丸フラグ(ズームアウトしても見失わない)が、境界側には一度も実装されていなかった。この抜けが
+      // ドクターの実害(手描き境界を見失う)に直結した。今後、新しい表示種別(線 等)を追加しても同じ抜けを
+      // 構造的に起こせないよう、丸フラグ+ホバー+ポップアップを1つの共通関数`_gachoRenderFlag`に一本化し、
+      // ここでは「itがlat/lngを持つ限り必ず呼ぶ」＝if/elseの中に埋め込んで消えることがない書き方にする。
+      // 面(ポリゴン)等、その形状特有の追加描画は、この共通フラグの「後に・別途」足すだけにする。
+      var popupHtml,areaLabel='敷地境界';
       if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
-        // v20260823(ドクター「各フラグのモーダルを必ず統一してくれ」): 境界も同じスコアカードに統一。
-        // 「描き直す」は境界固有の操作なのでスコアカードの後ろに残す。
         var bredraw='<button class="gsc-draw" onclick="window.__gacho.redraw(\''+l.id+'\',\''+(it.iid||'')+'\')" title="この境界を消して描き直す">🗑 描き直す</button>';
-        var pg=L.polygon(it.latlngs,it.status==='ng'?{pane:'gachoPane',color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.1,dashArray:'4,4'}:(it.status==='ok'?{pane:'gachoPane',color:'#22c55e',weight:3,fillColor:'#22c55e',fillOpacity:0.30}:{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null})); // v20260821g(ドクター): 手描き=OK=緑の枠+緑の塗り(ピンクにしない)
-        pg.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>敷地境界<br>'+areaTxt+gmap+_whyHtml(it)+_scoreCardHtml(l,it)+bredraw+'</div>');
-        pg.bindTooltip(Math.round(it.area||0).toLocaleString()+'㎡',{permanent:true,direction:'center',className:'gacho-area-lbl',pane:'gachoPane'});
-        pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;saveState();}}); // v20260821h(ドクター): クリックで色を変えない
-        // ★2026-08-29是正(ドクター報告「この筆はGoogleMAPのホバーが表示されない」): ①ホバー最新衛星は
-        // 点フラグの分岐にしか呼ばれておらず、境界(敷地境界)には元々バインドされていなかった仕様漏れ。
-        if(it.status!=='ng') _gmHoverBind(pg,it.lat,it.lng);
-        g.addLayer(pg);
-        // ★2026-08-29追加(ドクター要望「フラグも表示していた方が判り易い」): 境界はポリゴンのみで、
-        // 見つけにくい/クリックしにくいとの指摘。点フラグと同じ位置(it.lat/lng)に、同じ判定色の
-        // 丸フラグも重ねて表示する。ポップアップ内容はポリゴンと同一(同じ敷地境界の情報)。
-        if(it.lat!=null&&it.lng!=null){
-          var _bsty=it.status==='ok'?{radius:6,color:'#22c55e',weight:3,fillColor:l.color,fillOpacity:0.30}:{radius:6,color:'#fff',weight:2,fillColor:l.color,fillOpacity:0.95};
-          var bmk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_bsty));
-          bmk.bindPopup('<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>敷地境界<br>'+areaTxt+gmap+_whyHtml(it)+_scoreCardHtml(l,it)+bredraw+'</div>');
-          bmk.on('popupopen',function(){if(!it.viewed){it.viewed=true;saveState();}});
-          if(it.status!=='ng') _gmHoverBind(bmk,it.lat,it.lng);
-          g.addLayer(bmk);
-        }
-      }else{
-        // v20260821c(ドクター): OK=緑リング(枠緑・中透明)に統一。NGは地図から見えなくする(OKだけでいい)。未確認は元のまま。
-        // v20260821h(ドクター): クリック(見た)で色を変えない=間違いの元を止める。OK=緑リング/未確認=白枠+元色(常に一定)。
-        var _sty=it.status==='ok'?{radius:7,color:'#22c55e',weight:3,fillColor:l.color,fillOpacity:0.30}:{radius:7,color:'#fff',weight:2,fillColor:l.color,fillOpacity:0.95};
+        popupHtml='<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+areaLabel+'<br>'+areaTxt+gmap+_whyHtml(it)+_scoreCardHtml(l,it)+bredraw+'</div>';
+      } else {
+        popupHtml='<div style="font-size:12px;min-width:250px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+esc(it.address||(it.lat!=null?(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)):''))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+_whyHtml(it)+_scoreCardHtml(l,it)+'</div>';
+      }
+      // ★共通フラグ(丸マーカー)＝どの表示種別でも必ず描く。ここを削って良い理由は無い。
+      if(it.lat!=null&&it.lng!=null){
+        var isB=(it.type==='boundary');
+        var _sty=it.status==='ok'?{radius:isB?6:7,color:'#22c55e',weight:3,fillColor:l.color,fillOpacity:0.30}:{radius:isB?6:7,color:'#fff',weight:2,fillColor:l.color,fillOpacity:0.95};
         var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
-        if(_reviewFilter&&it.iid)_reviewMarkerByIid[it.iid]=mk; // v20260820t: 送り機能でopenPopup
+        if(_reviewFilter&&it.iid&&!isB)_reviewMarkerByIid[it.iid]=mk; // v20260820t: 送り機能でopenPopup(境界は常時表示のため対象外)
         if(it.status!=='ng') _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(NG済は除外=課金しない・キー無ければno-op)
-        // v20260823(ドクター「各フラグのモーダルを必ず統一してくれ」): src==='aiKI'限定をやめ、全ての点フラグでスコアカード(8項目・NG理由記録)に統一。
-        mk.bindPopup('<div style="font-size:12px;min-width:250px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+esc(it.address||(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+_whyHtml(it)+_scoreCardHtml(l,it)+'</div>');
+        mk.bindPopup(popupHtml);
         mk.on('popupopen',function(){if(!it.viewed){it.viewed=true;saveState();}}); // v20260821h(ドクター): クリックで色を変えない
         g.addLayer(mk);
+      }
+      // ★形状特有の追加描画(面=ポリゴン)。共通フラグは既に上で描画済みなので、ここは形の可視化専用。
+      if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
+        var pg=L.polygon(it.latlngs,it.status==='ng'?{pane:'gachoPane',color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.1,dashArray:'4,4'}:(it.status==='ok'?{pane:'gachoPane',color:'#22c55e',weight:3,fillColor:'#22c55e',fillOpacity:0.30}:{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null})); // v20260821g(ドクター): 手描き=OK=緑の枠+緑の塗り(ピンクにしない)
+        pg.bindPopup(popupHtml);
+        pg.bindTooltip(Math.round(it.area||0).toLocaleString()+'㎡',{permanent:true,direction:'center',className:'gacho-area-lbl',pane:'gachoPane'});
+        pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;saveState();}});
+        if(it.status!=='ng') _gmHoverBind(pg,it.lat,it.lng);
+        g.addLayer(pg);
       }
     });
     g.addTo(m);_groups[l.id]=g;
