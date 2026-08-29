@@ -636,30 +636,80 @@ window.__gachoReloadD2=loadDelivery2FromDb;
 /* v20260823(ドクター「決まった作業はシステムへプログラムで動く、AIから外出し」「ピンク→緑への昇格をボタン1つで」):
    OK判定済みの手動ピック(ピンク/オレンジ「手作業｜県｜市町村」/生ピンク「手動ピック（判定）」)を一括でround2_pool(緑・予備軍)へ昇格。
    区域不明(pref/city未解決)の分は昇格せず件数を報告する(勝手に区域不明のまま昇格させない)。 */
-async function promotePinkToRound2(){
-  var d=_gDb(); if(!d){toast('DB未接続＝中断');return;}
-  // ★2026-08-28是正(ドクター指摘「アドホックな対応になっていないか」): 画層名の文字列一致で対象を
-  // 決める方式(ピンク正規表現/敷地境界/適地候補...と特殊分岐が増え続ける)をやめる。判定の唯一の正である
-  // ai_ok_labels(source=gacho_ok=通常筆のOK／handdraw_boundary=手描き境界のOK)を直接見る。
-  // どの画面・どのパネルでOKにしても、ここに書かれてさえいれば自動的に対象になる＝今後パネルが増えても
-  // このコードを触る必要がない。
-  var okRows=[];
+// ★2026-08-29是正(ドクター指摘「地図上、重複的なポリゴンをよく見かける」「392件も新規があるのはおかしい」):
+// promotePinkToRound2はsource_iid(描画イベントごとに変わるID)一致でしか重複判定しておらず、同じ土地を
+// 描き直した/複数回OKにした場合を見逃していた(実測: 392件中89件が実質同じ地点への重複)。
+// 判定は座標distanceだけでなく面積の含有率(交差面積÷小さい方の面積)で行う＝手描きの線のブレ(1〜2m)は
+// 面積比較なら吸収される。実測で「別区画」は含有率0%、「描き直しの重複」は91%以上と綺麗に分離した
+// (中間のグレーゾーンなし)ため、閾値85%はどこにも際どくかからない安全な値。
+var _GACHO_DEDUP_CONTAIN_TH=0.85, _GACHO_DEDUP_NEAR_M=30;
+function _gachoPolyFromLatlngs(latlngs){
   try{
-    var frm=0;
-    while(true){
-      var r=await d.from('ai_ok_labels').select('member_fids,lat,lng,memo,source').in('source',['gacho_ok','handdraw_boundary']).range(frm,frm+999);
-      if(r&&r.error)throw new Error(r.error.message);
-      var b=(r&&r.data)||[]; okRows=okRows.concat(b); if(b.length<1000)break; frm+=1000;
+    if(typeof turf==='undefined'||!latlngs||latlngs.length<3)return null;
+    var co=latlngs.map(function(p){return Array.isArray(p)?[p[1],p[0]]:[p.lng,p.lat];});
+    var f=co[0],l=co[co.length-1]; if(f[0]!==l[0]||f[1]!==l[1])co.push(f);
+    var poly=turf.polygon([co]);
+    return turf.area(poly)>0?poly:null;
+  }catch(_){return null;}
+}
+function _gachoContainRatio(pa,pb){
+  try{
+    var aa=turf.area(pa),ab=turf.area(pb); if(!aa||!ab)return 0;
+    var inter=turf.intersect(turf.featureCollection([pa,pb]));
+    if(!inter)return 0;
+    return turf.area(inter)/Math.min(aa,ab);
+  }catch(_){return 0;}
+}
+function _gachoHav(a,b,c,d){
+  var R=6371000,rad=Math.PI/180;
+  var dlat=(c-a)*rad,dlng=(d-b)*rad;
+  return 2*R*Math.asin(Math.min(1,Math.sqrt(Math.sin(dlat/2)*Math.sin(dlat/2)+Math.cos(a*rad)*Math.cos(c*rad)*Math.sin(dlng/2)*Math.sin(dlng/2))));
+}
+// candsを、poolRows(既存round2_pool)およびcands同士で空間重複除去する。戻り値=重複を除いた新規のみ。
+function _gachoDedupSpatial(cands,poolRows){
+  var CELL=0.0005,grid={};
+  function cellKey(la,ln){return Math.floor(la/CELL)+'_'+Math.floor(ln/CELL);}
+  function addGrid(o){var k=cellKey(o.lat,o.lng);(grid[k]=grid[k]||[]).push(o);}
+  poolRows.forEach(function(r){
+    if(r.lat==null||r.lng==null)return;
+    addGrid({lat:r.lat,lng:r.lng,kind:r.kind,poly:(r.kind==='boundary'&&r.latlngs)?_gachoPolyFromLatlngs(r.latlngs):null});
+  });
+  var kept=[];
+  cands.forEach(function(c){
+    if(c.lat==null||c.lng==null){kept.push(c);return;}
+    var poly=(c.kind==='boundary')?_gachoPolyFromLatlngs(c.latlngs):null;
+    var cy=Math.floor(c.lat/CELL),cx=Math.floor(c.lng/CELL),near=[];
+    for(var dy=-1;dy<=1;dy++)for(var dx=-1;dx<=1;dx++)near=near.concat(grid[(cy+dy)+'_'+(cx+dx)]||[]);
+    var isDup=false;
+    for(var i=0;i<near.length;i++){
+      var o=near[i];
+      if(_gachoHav(c.lat,c.lng,o.lat,o.lng)>_GACHO_DEDUP_NEAR_M)continue;
+      if(poly&&o.poly){ if(_gachoContainRatio(poly,o.poly)>=_GACHO_DEDUP_CONTAIN_TH){isDup=true;break;} }
+      else if(!poly&&!o.poly){ isDup=true;break; } // 筆(feature)同士は30m以内なら同一地点とみなす
+      else if(poly&&!o.poly){ try{ if(turf.booleanPointInPolygon(turf.point([o.lng,o.lat]),poly)){isDup=true;break;} }catch(_){} }
+      else if(!poly&&o.poly){ try{ if(turf.booleanPointInPolygon(turf.point([c.lng,c.lat]),o.poly)){isDup=true;break;} }catch(_){} }
     }
-  }catch(e){ toast('⚠ 判定データの取得に失敗＝中断: '+(e&&e.message||e)); return; }
-  if(!okRows.length){toast('OK判定済みの案件がありません');return;}
-
-  // NGへ転じたもの(_persistJudgment系はNG時にgacho_ok行を削除する設計だが、念のため二重チェック)を除外。
+    if(isDup)return;
+    addGrid({lat:c.lat,lng:c.lng,kind:c.kind,poly:poly});
+    kept.push(c);
+  });
+  return kept;
+}
+// ★2026-08-29(ドクター指摘「同じ処理をあちこちに書くな」): OK判定(ai_ok_labels)から「未昇格の真の新規」を
+// 算出するロジックは、昇格実行(promotePinkToRound2)と地図プレビュー(previewNewOkOnMap)の両方で使うため、
+// ここに1本化する。片方だけ直して数字がズレる事故を防ぐ。
+async function _gachoComputeNewOkCandidates(){
+  var d=_gDb(); if(!d)throw new Error('DB未接続');
+  var okRows=[];
+  var frm=0;
+  while(true){
+    var r=await d.from('ai_ok_labels').select('member_fids,lat,lng,memo,source').in('source',['gacho_ok','handdraw_boundary']).range(frm,frm+999);
+    if(r&&r.error)throw new Error(r.error.message);
+    var b=(r&&r.data)||[]; okRows=okRows.concat(b); if(b.length<1000)break; frm+=1000;
+  }
   var ngSet={};
-  try{
-    var frmN=0;
-    while(true){ var rN=await d.from('farmland_ng_list').select('feature_id').range(frmN,frmN+999); var bN=(rN&&rN.data)||[]; bN.forEach(function(x){ngSet[x.feature_id]=1;}); if(bN.length<1000)break; frmN+=1000; }
-  }catch(e){}
+  var frmN=0;
+  while(true){ var rN=await d.from('farmland_ng_list').select('feature_id').range(frmN,frmN+999); var bN=(rN&&rN.data)||[]; bN.forEach(function(x){ngSet[x.feature_id]=1;}); if(bN.length<1000)break; frmN+=1000; }
 
   var pink=[]; // {kind,sourceIid,lat,lng,area,latlngs}
   okRows.forEach(function(row){
@@ -673,29 +723,61 @@ async function promotePinkToRound2(){
       pink.push({kind:'feature',sourceIid:fid,lat:row.lat,lng:row.lng,area:null,latlngs:null});
     }
   });
+
+  var existing={},poolRows=[];
+  var frm2=0;
+  while(true){ var r2=await d.from('round2_pool').select('source_iid,kind,lat,lng,latlngs').range(frm2,frm2+999); var er=(r2&&r2.data)||[]; er.forEach(function(x){existing[x.source_iid]=1;}); poolRows=poolRows.concat(er); if(er.length<1000)break; frm2+=1000; }
+
+  var alreadyById=pink.filter(function(p){return p.sourceIid&&existing[p.sourceIid];}).length;
+  var notYetById=pink.filter(function(p){return !(p.sourceIid&&existing[p.sourceIid]);});
+  // ★2026-08-29是正: source_iid一致だけでなく、同じ土地を描き直した/複数回OKにした空間的重複も除去する。
+  var deduped=_gachoDedupSpatial(notYetById,poolRows);
+  var dupContent=notYetById.length-deduped.length;
+  return {pink:pink,alreadyById:alreadyById,dupContent:dupContent,deduped:deduped};
+}
+// ドクターが「119件を地図上に表してくれ、私がチェックする」と要求(2026-08-29)＝昇格を実行する前に、
+// 対象を地図上の専用レイヤーで目視確認できるようにする。round2_poolへは一切書き込まない(プレビューのみ)。
+function previewNewOkOnMap(){
+  toast('未昇格の新規候補を集計中…');
+  _gachoComputeNewOkCandidates().then(function(res){
+    var deduped=res.deduped;
+    var name='未昇格OK候補(要確認)';
+    var l=state.layers.filter(function(x){return x.name===name;})[0];
+    if(!l){l={id:uid(),name:name,color:'#facc15',visible:true,active:false,items:[],meta:{preview:true}};state.layers.push(l);}
+    l.items=deduped.map(function(p){
+      if(p.kind==='boundary'){
+        return {iid:p.sourceIid,type:'boundary',latlngs:p.latlngs,area:p.area,lat:p.lat,lng:p.lng,address:'未昇格(要確認)',status:'ok',userJudged:true,src:'preview'};
+      }
+      return {iid:uid(),feature_id:p.sourceIid,lat:p.lat,lng:p.lng,address:'未昇格(要確認)',status:'ok',userJudged:true,src:'preview'};
+    });
+    l.visible=true; l.active=true; state.solo=l.id;
+    saveState(); render();
+    try{
+      var pts=deduped.filter(function(p){return p.lat!=null&&p.lng!=null;}).map(function(p){return [p.lat,p.lng];});
+      if(pts.length)map.fitBounds(pts,{maxZoom:13});
+    }catch(_){}
+    var msg='🔎 未昇格OK候補 '+deduped.length+'件を黄色レイヤー「'+name+'」に表示しました（round2_poolへはまだ書き込んでいません）';
+    try{alert(msg);}catch(_){}
+    toast(msg);
+  }).catch(function(e){ toast('⚠ プレビュー集計に失敗: '+(e&&e.message||e)); });
+}
+window.__gachoPreviewNewOk=previewNewOkOnMap;
+async function promotePinkToRound2(){
+  var d=_gDb(); if(!d){toast('DB未接続＝中断');return;}
+  var res;
+  try{ res=await _gachoComputeNewOkCandidates(); }
+  catch(e){ toast('⚠ 判定データの取得に失敗＝中断: '+(e&&e.message||e)); return; }
+  var pink=res.pink,alreadyById=res.alreadyById,dupContent=res.dupContent,deduped=res.deduped;
   if(!pink.length){toast('OK判定済みの案件がありません');return;}
-
-  // v20260823(ドクター「あの表現はダメだ・誤解のもと」): 確認ダイアログが「pink.length件を昇格します」と表示していたが、
-  // 実際はDB照合後に既昇格分を弾くため、大半が既昇格済みの時ほど数字が実態と食い違い誤解を招いた(実例: 表示8件→実際は新規1件)。
-  // 確認前に既存チェックを済ませ、「本当に新規で入る件数」を表示する。
-  var existing={};
-  try{
-    var frm2=0;
-    while(true){ var r2=await d.from('round2_pool').select('source_iid').range(frm2,frm2+999); var er=(r2&&r2.data)||[]; er.forEach(function(x){existing[x.source_iid]=1;}); if(er.length<1000)break; frm2+=1000; }
-  }catch(e){ toast('⚠ 既存確認に失敗＝中断: '+(e&&e.message||e)); return; }
-
-  var newCount=0,alreadyCount=0;
-  pink.forEach(function(p){
-    if(p.sourceIid&&existing[p.sourceIid])alreadyCount++;else newCount++;
-  });
-  if(!newCount){toast('新規の昇格対象はありません(該当'+pink.length+'件は全て昇格済み)');return;}
+  var newCount=deduped.length;
+  if(!newCount){toast('新規の昇格対象はありません(該当'+pink.length+'件のうち昇格済み'+alreadyById+'件・重複描画'+dupContent+'件)');return;}
   // ★2026-08-28是正(ドクター指摘): ⑤→⑥(OK判定→予備軍プール保存)の時点ではクライアントは未定でよい。
   // 予備軍はクライアントを問わない共有プールとして保存し、「どのクライアントへ納品するか」は後で別途
   // ⑥→⑦の操作で決める。ここでclient_idを書き込むのは段階の先取りだったため削除した。
-  if(!confirm('OK判定済みのうち新規 '+newCount+'件を、予備軍(round2_pool・緑)へ昇格します。\n（既に昇格済みの'+alreadyCount+'件は対象外＝二重登録しません）\n・区域不明(県市町村未解決)は対象外にします\n実行しますか？'))return;
+  if(!confirm('OK判定済みのうち新規 '+newCount+'件を、予備軍(round2_pool・緑)へ昇格します。\n（既に昇格済みの'+alreadyById+'件・同一箇所への重複描画'+dupContent+'件は対象外＝二重登録しません）\n・区域不明(県市町村未解決)は対象外にします\n実行しますか？'))return;
 
   // 面積が無いfeature項目(通常筆のgacho_ok)はfarmland_snapshotsから引く(ai_ok_labelsは面積を持たないため)。
-  var needArea=pink.filter(function(p){return p.kind==='feature'&&!existing[p.sourceIid]&&p.area==null;}).map(function(p){return p.sourceIid;});
+  var needArea=deduped.filter(function(p){return p.kind==='feature'&&p.area==null;}).map(function(p){return p.sourceIid;});
   var areaMap={};
   for(var ai=0;ai<needArea.length;ai+=100){
     var achunk=needArea.slice(ai,ai+100);
@@ -705,12 +787,11 @@ async function promotePinkToRound2(){
     }catch(e){}
   }
 
-  var rows=[],skippedUnknown=0,skippedDup=0;
-  for(var _pi=0;_pi<pink.length;_pi++){
-    var p=pink[_pi];
+  var rows=[],skippedUnknown=0;
+  for(var _pi=0;_pi<deduped.length;_pi++){
+    var p=deduped[_pi];
     var sourceIid=p.sourceIid;
     if(!sourceIid)continue;
-    if(existing[sourceIid]){skippedDup++;continue;}
     var pref=null,city=null;
     if(p.lat!=null&&p.lng!=null){
       try{ var g=await _resolveManualGeo(Number(p.lat),Number(p.lng)); if(g){pref=g.pref;city=g.city;} }catch(_){}
@@ -720,7 +801,7 @@ async function promotePinkToRound2(){
     rows.push({kind:p.kind,source_iid:sourceIid,lat:p.lat,lng:p.lng,area_m2:(area!=null?area:null),latlngs:(p.latlngs||null),pref:pref,city:city,status:'reserve',round:2});
   }
 
-  if(!rows.length){toast('昇格対象0件(区域不明'+skippedUnknown+'件・昇格済み'+skippedDup+'件はスキップ)');return;}
+  if(!rows.length){toast('昇格対象0件(区域不明'+skippedUnknown+'件・昇格済み'+alreadyById+'件・重複描画'+dupContent+'件はスキップ)');return;}
 
   var inserted=0,errs=[];
   var BATCH=100;
@@ -733,7 +814,7 @@ async function promotePinkToRound2(){
     }catch(e){ errs.push(e&&e.message||e); }
   }
   await loadDelivery2FromDb();
-  var msg='⬆ 昇格 '+inserted+'件（区域不明でスキップ'+skippedUnknown+'件・昇格済みでスキップ'+skippedDup+'件'+(errs.length?'・エラー'+errs.length+'件':'')+'）';
+  var msg='⬆ 昇格 '+inserted+'件（区域不明でスキップ'+skippedUnknown+'件・昇格済みでスキップ'+alreadyById+'件・重複描画でスキップ'+dupContent+'件'+(errs.length?'・エラー'+errs.length+'件':'')+'）';
   try{alert(msg);}catch(_){}
   toast(msg);
 }
@@ -1056,6 +1137,9 @@ function renderPanel(){
     // v20260821z3(ドクター): 🗂整理・➕補完は🔄に完全統合されたため撤去(断捨離)。今後OKを増やしたら🔄で再反映。
     h+='<div class="gacho-master"><button id="gachoD2Manual" class="gacho-btn" style="background:rgba(255,20,147,.16);border-color:#ff1493" title="手作業ピック(ピンク)を『手作業｜県｜市町村』へ整理して階層表示。ピックの中身は不変・入れ物だけ整理・可逆">🖐 手作業ピックも県→市町村へ</button></div>';
     // v20260823(ドクター「ピンク→緑への昇格をボタン1つで、AI外だし」): OK判定済みの手動ピックをround2_pool(緑・予備軍)へ一括昇格。
+    // ★2026-08-29(ドクター「119件を地図上に表してくれ、私がチェックする」): 昇格を実行する前に、対象を
+    // 黄色レイヤーで地図上に表示して目視確認できるプレビュー。round2_poolへは書き込まない。
+    h+='<div class="gacho-master"><button id="gachoPreviewNewOk" class="gacho-btn" style="background:rgba(250,204,21,.15);border-color:#facc15;font-weight:700" title="昇格対象(未昇格の真の新規)を黄色レイヤーで地図に表示して確認する。round2_poolへはまだ書き込まない">🔎 未昇格の新規を地図で確認</button></div>';
     h+='<div class="gacho-master"><button id="gachoPromoteD2" class="gacho-btn" style="background:rgba(34,197,94,.2);border-color:#22c55e;font-weight:700" title="OK判定済みの手動ピック(ピンク/手作業)をround2_pool(第2回納品候補・緑)へ一括昇格。区域不明・昇格済みは対象外">⬆ OK済みピックを予備軍(緑)へ昇格</button></div>';
     // ★2026-08-28(ドクター指示・⑥→⑦): 予備軍(round2_pool・クライアント未定)から特定クライアントへ抽出し
     // 納品(client_delivery_items・仮納品)へ登録する。⑤→⑥昇格とは別の、独立した操作。
@@ -1171,6 +1255,7 @@ function bindPanel(){
     state.layers.forEach(function(l){ if(l.meta&&l.meta.client==='第2回納品候補')l.visible=state.showD2; });
     saveState();render();
   };
+  var prevNew=q('#gachoPreviewNewOk');if(prevNew)prevNew.onclick=function(){previewNewOkOnMap();};
   var pd2=q('#gachoPromoteD2');if(pd2)pd2.onclick=function(){promotePinkToRound2();};
   var exc=q('#gachoExtractClient');if(exc)exc.onclick=function(){extractPoolToClient();};
   var d2d=q('#gachoD2Del');if(d2d)d2d.onclick=function(){deleteEmptiedD2();};
