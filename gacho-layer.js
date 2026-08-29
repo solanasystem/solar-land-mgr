@@ -748,6 +748,10 @@ function previewNewOkOnMap(){
     // 所が多数ある」): status:'ok'を付けるとレンダラーが強制的に緑色スタイルへ上書きし(点も境界も)、
     // さらにstate.solo=l.idが他の全レイヤー(第2回納品候補・手動ピック等)を地図全体で非表示にしていた。
     // 他レイヤーを一切隠さず、シアン色のまま重ねて表示するよう変更する。
+    // ★2026-08-29再修正(ドクター報告「537件がシアンに変わっただけ」): 上の是正は今後この関数がsoloを
+    // 設定しなくなるだけで、以前の(修正前の)クリックでlocalStorageに残ったstate.solo=このレイヤーidは
+    // 解除していなかった。残留していれば必ずここで解除し、他の全レイヤーを確実に再表示する。
+    if(state.solo===l.id)state.solo=null;
     l.items=deduped.map(function(p){
       if(p.kind==='boundary'){
         return {iid:p.sourceIid,type:'boundary',latlngs:p.latlngs,area:p.area,lat:p.lat,lng:p.lng,address:'未昇格(要確認)',userJudged:true,src:'preview'};
