@@ -1522,7 +1522,34 @@ async function _buildDupGrid(){
   try{ if(window.CYAN&&window.CYAN.items)window.CYAN.items.forEach(function(x){_dupGridAdd(grid,x.la,x.ln);}); }catch(_){}
   try{ if(window.DELIVERY2&&window.DELIVERY2.items)window.DELIVERY2.items.forEach(function(x){_dupGridAdd(grid,x.lat,x.lng);}); }catch(_){}
   try{ var d=_gDb(); if(d){ var frm=0; while(true){ var r=await d.from('client_delivery_items').select('lat,lng').eq('status','confirmed').range(frm,frm+999); var rows=(r&&r.data)||[]; rows.forEach(function(x){_dupGridAdd(grid,x.lat,x.lng);}); if(rows.length<1000)break; frm+=1000; } } }catch(_){}
+  // ★2026-08-29(ドクター報告「NGにしたのに、別のシアン/黄色の候補として同じ場所が出てくる」・「その都度直せ」):
+  // ①適当/②検討/cyan等、独立した複数のAI候補パイプラインが互いの判定を見ていなかった。同じ座標が既に
+  // ai_ok_labels(OK)/farmland_ng_list(NG)で"判定済み"なら、どのパイプライン由来でも候補として出さない
+  // ようこのグリッドへ判定済み座標も加える＝loadNeutral()が読むこの1つのグリッドが「唯一の除外基準」になる。
+  try{ var d2=_gDb(); if(d2){ var frmN=0; while(true){ var rN=await d2.from('farmland_ng_list').select('lat,lng').range(frmN,frmN+999); var rowsN=(rN&&rN.data)||[]; rowsN.forEach(function(x){_dupGridAdd(grid,x.lat,x.lng);}); if(rowsN.length<1000)break; frmN+=1000; } } }catch(_){}
+  try{ var d3=_gDb(); if(d3){ var frmO=0; while(true){ var rO=await d3.from('ai_ok_labels').select('lat,lng').range(frmO,frmO+999); var rowsO=(rO&&rO.data)||[]; rowsO.forEach(function(x){_dupGridAdd(grid,x.lat,x.lng);}); if(rowsO.length<1000)break; frmO+=1000; } } }catch(_){}
   _dupGridCache=grid; return grid;
+}
+// ★2026-08-29(ドクター指示「その都度、不具合を見つけたら処理しなければ直らない。直ぐに処理だ」):
+// 判定を確定した瞬間に、①適当/②検討/cyan等どの画層にいようと、同じ座標30m以内にある「まだ未判定」の
+// 候補を全画層横断でその場で除去する。loadNeutral()側の恒久チェックは次回読込時に効くが、これは
+// 今まさに開いているセッション内で即座に反映するための即時版。判定済み(status有り)の項目は一切触らない。
+function _gachoPurgeNearbyUnjudged(lat,lng,exceptIid){
+  if(lat==null||lng==null)return;
+  var removed=0;
+  state.layers.forEach(function(l){
+    if(l.archived)return;
+    var keep=[];
+    l.items.forEach(function(it){
+      if(it.iid===exceptIid){keep.push(it);return;}
+      if(it.status){keep.push(it);return;} // 既に判定済みの項目は他パイプライン由来でも消さない
+      if(it.lat==null||it.lng==null){keep.push(it);return;}
+      if(_distM(lat,lng,it.lat,it.lng)<=30){removed++;return;}
+      keep.push(it);
+    });
+    l.items=keep;
+  });
+  if(removed){ try{ if(typeof window.showToast==='function')window.showToast('🔗 同じ場所の未判定候補 '+removed+'件を他画層からも除外しました','success'); }catch(_){} }
 }
 /* DBを正に、判定済み手動ピック(cc+id)を県→市町村へ自動整理。冪等・毎起動で復元可能。 */
 async function rebuildManualPicksFromDb(silent){
@@ -1602,7 +1629,18 @@ var GCRIT=[
  {k:'c8',t:'地目・都計',o:'区域外/可',x:'不可'}
 ];
 var GC7SUB=['既存太陽光','建物','耕作中','資材置場等','その他'];
-function _defScore(it){return {c1:'o',c2:'o',c3:'o',c4:'o',c5:'o',c6:((it.area!=null&&it.area<800)?'x':'o'),c7:'t',c8:'o'};}
+// ★2026-08-29是正(ドクター指摘「シアンのフラグ、ハザードを全く読んでないだろ」): 従来は農振・ハザードを
+// 含む全項目が「未チェックのまま自動的に緑(OK)」の既定値になっており、手描き境界等ハザードの自動判定を
+// 一度も通っていない項目でも、あたかも確認済みのように見えていた(実際に土砂警戒区域の中にある筆が
+// ハザード○のまま表示された実例あり)。①青地②ハザードは「即除外」の絶対ゲート(唯一の正の判断基準①②)
+// なので、score_ai.py由来の実データ(it.noshin/it.haz)がある時だけそれを反映し、無ければ△(要確認)に
+// する。緑(o)を「確認済み」の意味で使う以上、未確認のものに緑を出してはならない。
+function _gateFromReal(v){ if(v==null)return 't'; var s=String(v).toUpperCase(); if(s==='CLEAR'||s==='PASS')return 'o'; return 'x'; }
+function _defScore(it){
+  var c1=(it.noshin!=null)?_gateFromReal(it.noshin):'t'; // 農振・青地: 実データが無ければ要確認(手描き境界等)
+  var c2=(it.haz!=null)?_gateFromReal(it.haz):'t';        // ハザード: 同上
+  return {c1:c1,c2:c2,c3:'o',c4:'o',c5:'o',c6:((it.area!=null&&it.area<800)?'x':'o'),c7:'t',c8:'o'};
+}
 function _score(it){if(!it.score)it.score=_defScore(it);return it.score;}
 function _hasX(s){for(var k in s){if(s[k]==='x')return true;}return false;}
 function _scoreCodes(it,s){var codes=[];for(var i=0;i<GCRIT.length;i++){if(s[GCRIT[i].k]==='x')codes.push(GCRIT[i].k);}var ex=(it.ngsub&&it.ngsub.length)?('['+it.ngsub.join('/')+']'):'';return codes.join(',')+(ex?(' '+ex):'');}
@@ -1625,7 +1663,16 @@ function _whyHtml(it){
   if(it.toshi)p.push('都計 '+esc(String(it.toshi)));
   if(it.level)p.push('AI '+esc(String(it.level)));
   if(it.reject!=null)p.push('耕作放棄の可能性(AI衛星判定) '+it.reject);
-  p.push('接道/連系/日射/農振外/ハザードCLEAR=各ゲート通過');
+  // ★2026-08-29是正(ドクター指摘): 「ハザードCLEAR=各ゲート通過」は実データに関わらず常に表示される
+  // 固定文言だった。noshin/hazの実データがある時だけ書き、無ければ「未チェック」と正直に書く。
+  if(it.noshin!=null||it.haz!=null){
+    var gates=[];
+    if(it.noshin!=null)gates.push('農振'+(_gateFromReal(it.noshin)==='o'?'外(白地)':'該当'));
+    if(it.haz!=null)gates.push('ハザード'+(_gateFromReal(it.haz)==='o'?'CLEAR':'該当'));
+    p.push(gates.join('/')+'=AIゲート通過');
+  } else {
+    p.push('<span style="color:#f59e0b">⚠ 農振・ハザードの自動判定なし(手描き等)。目視で必ず確認してください</span>');
+  }
   return '<div class="gsc-why"><b>なぜ候補か</b><br>'+p.join(' ／ ')+'</div>';
 }
 function _gmImgHtml(it){
@@ -1726,6 +1773,7 @@ window.__gacho={
     it.viewed=true;
     if(it.type==='boundary'){ try{_saveBoundaryToDb(it);}catch(_){} } // v20260821z11: 境界のOK/NG確定をDBへ(消えない・アウトボックス)
     else { _persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed'); }
+    if(it.status)try{_gachoPurgeNearbyUnjudged(it.lat,it.lng,it.iid);}catch(_){}
     try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}
   }});saveState();setTimeout(function(){render();},0);},
   setCrit:function(lid,iid,ck,val,btn){var l=byId(lid);if(!l)return;var itr=null;l.items.forEach(function(it){if(it.iid===iid){itr=it;var s=_score(it);s[ck]=val;it.viewed=true;if(ck==='c7'&&val!=='x')it.ngsub=[];}});saveState();
@@ -1739,6 +1787,7 @@ window.__gacho={
   applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;it.userJudged=true;if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1;
     if(it.type==='boundary'){ try{_saveBoundaryToDb(it);}catch(_){} } // v20260823(ドクター「モーダルを統一」): 境界も同じスコアカードを使うため、境界のDB保存も忘れず呼ぶ
     else { _persistJudgmentScored(it,s); }
+    try{_gachoPurgeNearbyUnjudged(it.lat,it.lng,it.iid);}catch(_){}
     _restyleMark(it.feature_id,it.status);try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   /* v20260821z12(ドクター): ピンの下の農水省筆ポリゴン(実測の形)を取得→そのまま敷地境界に=勘で描かない。
@@ -1876,19 +1925,37 @@ window.__gacho={
       return true;
     });
     var ex={};l.items.forEach(function(it){if(it.feature_id)ex[it.feature_id]=1;});
-    var added=0;
+    var pending=[];
     items.forEach(function(c){
       if(c.lat==null||c.lng==null)return;
       var fid=pfx+c.no;
       if(ex[fid])return;
-      l.items.push({iid:iid(),feature_id:fid,lat:Number(c.lat),lng:Number(c.lng),address:(c.addr||c.city||''),area:(c.area!=null?Number(c.area):null),chiban:c.chiban,src:'aiKI',status:null,level:c.level,toshi:c.toshi,reject:c.reject});
-      ex[fid]=1;added++;
+      var newIt={iid:iid(),feature_id:fid,lat:Number(c.lat),lng:Number(c.lng),address:(c.addr||c.city||''),area:(c.area!=null?Number(c.area):null),chiban:c.chiban,src:'aiKI',status:null,level:c.level,toshi:c.toshi,reject:c.reject};
+      if(_gDbOk[fid])newIt.status='ok'; else if(_gDbNg[fid])newIt.status='ng';
+      pending.push(newIt); ex[fid]=1;
     });
-    // ★v20260818k: DB保存済みの判定(OK/NG)を、この画層の筆に復元適用(消えたOKを二度と消さない)。
+    // ★v20260818k: DB保存済みの判定(OK/NG)を、この画層の既存筆に復元適用(消えたOKを二度と消さない)。
     l.items.forEach(function(it){ if(it.feature_id){ if(_gDbOk[it.feature_id])it.status='ok'; else if(_gDbNg[it.feature_id])it.status='ng'; } });
-    saveState();setTimeout(function(){render();},0);
-    var msg=[];if(added)msg.push('新規'+added+'件');if(removed)msg.push('ハザード除去で'+removed+'件を削除');
-    if(msg.length)toast('画層「'+layerName+'」: '+msg.join(' ／ ')+'（クリーン反映）');
+    // ★2026-08-29(ドクター報告「NGにしたら別の黄色候補として同じ場所が出てきた」「その都度処理しろ」):
+    // ①適当/②検討等のAI候補パイプラインは互いに独立しており、cyan/round2_pool/OK/NG判定と一切
+    // 重複チェックしていなかった。既に他パイプラインで座標が判定・記録済みなら、この画層へは
+    // (自分自身の判定でない限り)入れない/残さない。_buildDupGrid()にfarmland_ng_list/ai_ok_labelsも
+    // 含めたので、ここで使うだけで全パイプライン共通の「唯一の除外基準」になる。
+    _buildDupGrid().then(function(dupGrid){
+      var added=0,skippedDup=0;
+      pending.forEach(function(it){
+        if(!it.status&&_isNearKnown300_337_108(it.lat,it.lng,dupGrid)){skippedDup++;return;}
+        l.items.push(it); added++;
+      });
+      l.items=l.items.filter(function(it){
+        if(it.status)return true; // 自分自身が既にOK/NG確定済みなら残す
+        if(_isNearKnown300_337_108(it.lat,it.lng,dupGrid)){skippedDup++;return false;}
+        return true;
+      });
+      saveState();setTimeout(function(){render();},0);
+      var msg=[];if(added)msg.push('新規'+added+'件');if(removed)msg.push('ハザード除去で'+removed+'件を削除');if(skippedDup)msg.push('他判定と重複で'+skippedDup+'件を除外');
+      if(msg.length)toast('画層「'+layerName+'」: '+msg.join(' ／ ')+'（クリーン反映）');
+    });
   }
 };
 
