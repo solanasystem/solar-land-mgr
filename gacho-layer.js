@@ -852,12 +852,6 @@ async function extractPoolToClient(){
   }catch(e){ toast('⚠ クライアント一覧の取得に失敗＝中断: '+(e&&e.message||e)); return; }
   if(!clients.length){toast('稼働中のクライアントがありません(clientsテーブルを確認してください)');return;}
 
-  var msg='抽出先クライアントの番号を入力:\n'+clients.map(function(c,i){return (i+1)+': '+c.name;}).join('\n');
-  var s=prompt(msg,'1'); if(s==null)return;
-  var idx=parseInt(s,10)-1;
-  if(isNaN(idx)||idx<0||idx>=clients.length){toast('番号が不正です');return;}
-  var client=clients[idx];
-
   var unassigned=[];
   try{
     var frm=0;
@@ -869,39 +863,64 @@ async function extractPoolToClient(){
   }catch(e){ toast('⚠ 予備軍の取得に失敗＝中断: '+(e&&e.message||e)); return; }
   if(!unassigned.length){toast('クライアント未割当の予備軍がありません');return;}
 
-  var groups={}; var order=[];
+  var groups={}; var order=[]; var prefOrder=[]; var prefTotal={};
   unassigned.forEach(function(p){
-    var k=(p.pref||'(県不明)')+'|'+(p.city||'(市町村不明)');
-    if(!groups[k]){groups[k]={pref:p.pref||'(県不明)',city:p.city||'(市町村不明)',items:[]};order.push(k);}
+    var pref=p.pref||'(県不明)', city=p.city||'(市町村不明)';
+    var k=pref+'|'+city;
+    if(!groups[k]){groups[k]={pref:pref,city:city,items:[]};order.push(k);}
     groups[k].items.push(p);
+    if(prefOrder.indexOf(pref)<0)prefOrder.push(pref);
+    prefTotal[pref]=(prefTotal[pref]||0)+1;
   });
-  order.sort(function(a,b){return groups[b].items.length-groups[a].items.length;});
-  _showPoolExtractModal(d,client,groups,order);
+  prefOrder.sort(function(a,b){return prefTotal[b]-prefTotal[a];});
+  order.sort(function(a,b){
+    var pa=groups[a].pref, pb=groups[b].pref;
+    if(pa!==pb) return prefOrder.indexOf(pa)-prefOrder.indexOf(pb);
+    return groups[b].items.length-groups[a].items.length;
+  });
+  _showPoolExtractModal(d,clients,groups,order,prefOrder,prefTotal,unassigned.length);
 }
 window.__gachoExtractPoolToClient=extractPoolToClient;
 
-function _showPoolExtractModal(d,client,groups,order){
+// ★2026-08-30(ドクター提示イメージ「表計算の様に県ごとの小計・合計・クライアント選択」): 単なる
+// チェックリストでなく、県→市町村の階層＋小計行＋合計行＋クライアント選択プルダウンを1画面に。
+// 県の行にチェックを入れると、その県の全市町村が一括で選択される(逆も可)。
+function _showPoolExtractModal(d,clients,groups,order,prefOrder,prefTotal,grandTotal){
   var ex=document.getElementById('gachoPoolExtract');if(ex){try{ex.remove();}catch(_){}}
   var ov=document.createElement('div');ov.id='gachoPoolExtract';
   ov.style.cssText='position:fixed;inset:0;z-index:100002;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;';
-  var rows=order.map(function(k){
-    var g=groups[k];
-    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:13px" class="_pex-row" data-k="'+k+'" data-n="'+g.items.length+'">'
-      +'<input type="checkbox" class="_pex-cb" data-k="'+k+'" style="width:16px;height:16px;accent-color:#a855f7">'
-      +'<span style="flex:1">'+g.pref+' '+g.city+'</span><span style="color:#a855f7;font-weight:700;font-family:monospace">'+g.items.length+'件</span></label>';
-  }).join('');
-  ov.innerHTML='<div style="background:#0d1117;border:1px solid #30363d;border-radius:12px;padding:18px 20px;width:420px;max-height:82vh;display:flex;flex-direction:column;color:#e6edf3;font:14px/1.5 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.6)">'
-    +'<div style="font-weight:800;font-size:15px;margin-bottom:2px">📤 予備軍を「'+client.name+'」へ抽出</div>'
-    +'<div style="font-size:11px;color:#8b949e;margin-bottom:10px">市町村にチェックを入れて選択（複数可）。合計は自動集計されます。</div>'
+  var rowsHtml='';
+  prefOrder.forEach(function(pref){
+    rowsHtml+='<tr class="_pex-pref-row" data-pref="'+pref+'" style="background:#161b22">'
+      +'<td style="padding:5px 8px"><input type="checkbox" class="_pex-pref-cb" data-pref="'+pref+'" style="width:15px;height:15px;accent-color:#a855f7"></td>'
+      +'<td style="padding:5px 8px;font-weight:800" colspan="2">'+pref+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;font-family:monospace;color:#8b949e">計'+prefTotal[pref]+'</td></tr>';
+    order.filter(function(k){return groups[k].pref===pref;}).forEach(function(k){
+      var g=groups[k];
+      rowsHtml+='<tr class="_pex-row" data-k="'+k+'" data-pref="'+pref+'" data-n="'+g.items.length+'">'
+        +'<td style="padding:4px 8px 4px 22px"><input type="checkbox" class="_pex-cb" data-k="'+k+'" data-pref="'+pref+'" style="width:15px;height:15px;accent-color:#a855f7"></td>'
+        +'<td style="padding:4px 8px" colspan="2">'+g.city+'</td>'
+        +'<td style="padding:4px 8px;text-align:right;font-family:monospace">'+g.items.length+'件</td></tr>';
+    });
+  });
+  ov.innerHTML='<div style="background:#0d1117;border:1px solid #30363d;border-radius:12px;padding:18px 20px;width:460px;max-height:86vh;display:flex;flex-direction:column;color:#e6edf3;font:14px/1.5 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.6)">'
+    +'<div style="font-weight:800;font-size:15px;margin-bottom:10px">📤 予備軍をクライアントへ抽出</div>'
+    +'<div style="margin-bottom:10px"><label style="font-size:11px;color:#8b949e">クライアント名</label>'
+      +'<select id="_pexClient" style="width:100%;padding:8px;border-radius:6px;border:1px solid #30363d;background:#161b22;color:#e6edf3;font-size:13px;margin-top:3px">'
+      +clients.map(function(c,i){return '<option value="'+i+'">'+c.name+'</option>';}).join('')+'</select></div>'
     +'<div style="display:flex;gap:6px;margin-bottom:8px">'
       +'<button id="_pexAll" style="flex:1;padding:6px;border-radius:6px;border:1px solid #30363d;background:#161b22;color:#8b949e;font-size:11px;cursor:pointer">全選択</button>'
       +'<button id="_pexNone" style="flex:1;padding:6px;border-radius:6px;border:1px solid #30363d;background:#161b22;color:#8b949e;font-size:11px;cursor:pointer">全解除</button>'
     +'</div>'
-    +'<div style="overflow-y:auto;border:1px solid #21262d;border-radius:8px;padding:2px 0;flex:1">'+rows+'</div>'
-    +'<div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 4px;font-size:13px">'
-      +'<span>選択中: <b id="_pexCount" style="color:#a855f7">0</b>件</span>'
+    +'<div style="overflow-y:auto;border:1px solid #21262d;border-radius:8px;flex:1">'
+      +'<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="position:sticky;top:0;background:#0d1117"><th></th><th colspan="2" style="text-align:left;padding:5px 8px;color:#8b949e;font-size:11px">県／市町村</th><th style="text-align:right;padding:5px 8px;color:#8b949e;font-size:11px">件数</th></tr></thead>'
+      +'<tbody>'+rowsHtml+'</tbody></table>'
     +'</div>'
-    +'<div style="display:flex;gap:8px;margin-top:6px">'
+    +'<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;border-top:1px solid #30363d">'
+      +'<tr><td style="padding:6px 8px" colspan="3">選択分 小計</td><td style="padding:6px 8px;text-align:right;font-family:monospace;color:#a855f7;font-weight:800" id="_pexSubtotal">0</td></tr>'
+      +'<tr><td style="padding:6px 8px;color:#8b949e" colspan="3">予備軍 合計(未割当)</td><td style="padding:6px 8px;text-align:right;font-family:monospace;color:#8b949e">'+grandTotal+'</td></tr>'
+    +'</table>'
+    +'<div style="display:flex;gap:8px;margin-top:10px">'
       +'<button id="_pexGo" style="flex:1;background:#238636;border:1px solid #2ea043;color:#fff;border-radius:8px;padding:10px;font-weight:700;cursor:pointer" disabled>✓ 選択分を仮納品登録</button>'
       +'<button id="_pexCancel" style="flex:0.6;background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:8px;padding:10px;cursor:pointer">キャンセル</button>'
     +'</div></div>';
@@ -909,16 +928,33 @@ function _showPoolExtractModal(d,client,groups,order){
   function close(){try{ov.remove();}catch(_){}}
   function updCount(){
     var n=0; ov.querySelectorAll('._pex-cb:checked').forEach(function(cb){n+=parseInt(cb.closest('._pex-row').dataset.n,10)||0;});
-    document.getElementById('_pexCount').textContent=n;
+    document.getElementById('_pexSubtotal').textContent=n;
     document.getElementById('_pexGo').disabled=(n===0);
+    // 県チェックボックスの状態(全ON/一部/全OFF)を子の状態から同期
+    prefOrder.forEach(function(pref){
+      var kids=ov.querySelectorAll('._pex-cb[data-pref="'+pref+'"]');
+      var pcb=ov.querySelector('._pex-pref-cb[data-pref="'+pref+'"]');
+      if(!pcb||!kids.length)return;
+      var checked=0; kids.forEach(function(cb){if(cb.checked)checked++;});
+      pcb.checked=(checked===kids.length); pcb.indeterminate=(checked>0&&checked<kids.length);
+    });
   }
   ov.querySelectorAll('._pex-cb').forEach(function(cb){cb.onchange=updCount;});
-  document.getElementById('_pexAll').onclick=function(){ov.querySelectorAll('._pex-cb').forEach(function(cb){cb.checked=true;});updCount();};
-  document.getElementById('_pexNone').onclick=function(){ov.querySelectorAll('._pex-cb').forEach(function(cb){cb.checked=false;});updCount();};
+  ov.querySelectorAll('._pex-pref-cb').forEach(function(pcb){
+    pcb.onchange=function(){
+      var on=pcb.checked;
+      ov.querySelectorAll('._pex-cb[data-pref="'+pcb.dataset.pref+'"]').forEach(function(cb){cb.checked=on;});
+      updCount();
+    };
+  });
+  document.getElementById('_pexAll').onclick=function(){ov.querySelectorAll('._pex-cb,._pex-pref-cb').forEach(function(cb){cb.checked=true;});updCount();};
+  document.getElementById('_pexNone').onclick=function(){ov.querySelectorAll('._pex-cb,._pex-pref-cb').forEach(function(cb){cb.checked=false;});updCount();};
   document.getElementById('_pexCancel').onclick=close;
   document.getElementById('_pexGo').onclick=async function(){
     var keys=[]; ov.querySelectorAll('._pex-cb:checked').forEach(function(cb){keys.push(cb.dataset.k);});
     if(!keys.length)return;
+    var ci=parseInt(document.getElementById('_pexClient').value,10);
+    var client=clients[ci];
     var picked=[]; keys.forEach(function(k){picked=picked.concat(groups[k].items);});
     close();
     await _runPoolExtract(d,client,picked);
