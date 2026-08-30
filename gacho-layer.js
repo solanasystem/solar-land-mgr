@@ -838,6 +838,10 @@ window.__gachoPromoteToRound2=promotePinkToRound2;
 /* ===== ⑥→⑦(ドクター指示・2026-08-28): 予備軍(round2_pool・クライアント未定の共有プール)から
    特定クライアントへ抽出し、client_delivery_items(仮納品)へ登録する。ここで初めてID(client_id)の
    紐付けが発生する。⑤→⑥(promotePinkToRound2)とは明確に別の操作。 ===== */
+// ★2026-08-30(ドクター「毎回AIに説明するのでなく、市町村別に何件あるか表示してクリックで選び納品書へ
+//   まとめる仕組みを作れ」): 旧実装は「未割当を全部まとめて1クライアントへ」だけの一括操作だった。
+//   市町村ごとの件数を見せ、チェックボックスで選んだ分だけを抽出→仮納品登録→Excel(第1回と同じ書式)まで
+//   1つの画面で完結させる。件数の数え方(市町村別カウント)はここに1本化=AIが毎回手計算しない。
 async function extractPoolToClient(){
   var d=_gDb(); if(!d){toast('DB未接続＝中断');return;}
   var clients=[];
@@ -848,50 +852,120 @@ async function extractPoolToClient(){
   }catch(e){ toast('⚠ クライアント一覧の取得に失敗＝中断: '+(e&&e.message||e)); return; }
   if(!clients.length){toast('稼働中のクライアントがありません(clientsテーブルを確認してください)');return;}
 
-  var unassigned=[];
-  try{
-    var frm=0;
-    while(true){
-      var r=await d.from('round2_pool').select('id,kind,source_iid,lat,lng,area_m2,latlngs,pref,city,status').is('client_id',null).eq('round',2).range(frm,frm+999);
-      if(r&&r.error)throw new Error(r.error.message);
-      var b=(r&&r.data)||[]; unassigned=unassigned.concat(b); if(b.length<1000)break; frm+=1000;
-    }
-  }catch(e){ toast('⚠ 予備軍の取得に失敗＝中断: '+(e&&e.message||e)); return; }
-  if(!unassigned.length){toast('クライアント未割当の予備軍がありません');return;}
-
   var msg='抽出先クライアントの番号を入力:\n'+clients.map(function(c,i){return (i+1)+': '+c.name;}).join('\n');
   var s=prompt(msg,'1'); if(s==null)return;
   var idx=parseInt(s,10)-1;
   if(isNaN(idx)||idx<0||idx>=clients.length){toast('番号が不正です');return;}
   var client=clients[idx];
 
-  if(!confirm('予備軍のうちクライアント未割当 '+unassigned.length+'件を、「'+client.name+'」へ抽出し仮納品登録します。\n・この操作でround2_poolの各行にclient_idが確定します(ここで初めてID紐付け)\n実行しますか？'))return;
+  var unassigned=[];
+  try{
+    var frm=0;
+    while(true){
+      var r=await d.from('round2_pool').select('id,kind,source_iid,lat,lng,area_m2,latlngs,pref,city,chiban,address,status').is('client_id',null).eq('round',2).range(frm,frm+999);
+      if(r&&r.error)throw new Error(r.error.message);
+      var b=(r&&r.data)||[]; unassigned=unassigned.concat(b); if(b.length<1000)break; frm+=1000;
+    }
+  }catch(e){ toast('⚠ 予備軍の取得に失敗＝中断: '+(e&&e.message||e)); return; }
+  if(!unassigned.length){toast('クライアント未割当の予備軍がありません');return;}
 
+  var groups={}; var order=[];
+  unassigned.forEach(function(p){
+    var k=(p.pref||'(県不明)')+'|'+(p.city||'(市町村不明)');
+    if(!groups[k]){groups[k]={pref:p.pref||'(県不明)',city:p.city||'(市町村不明)',items:[]};order.push(k);}
+    groups[k].items.push(p);
+  });
+  order.sort(function(a,b){return groups[b].items.length-groups[a].items.length;});
+  _showPoolExtractModal(d,client,groups,order);
+}
+window.__gachoExtractPoolToClient=extractPoolToClient;
+
+function _showPoolExtractModal(d,client,groups,order){
+  var ex=document.getElementById('gachoPoolExtract');if(ex){try{ex.remove();}catch(_){}}
+  var ov=document.createElement('div');ov.id='gachoPoolExtract';
+  ov.style.cssText='position:fixed;inset:0;z-index:100002;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;';
+  var rows=order.map(function(k){
+    var g=groups[k];
+    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:13px" class="_pex-row" data-k="'+k+'" data-n="'+g.items.length+'">'
+      +'<input type="checkbox" class="_pex-cb" data-k="'+k+'" style="width:16px;height:16px;accent-color:#a855f7">'
+      +'<span style="flex:1">'+g.pref+' '+g.city+'</span><span style="color:#a855f7;font-weight:700;font-family:monospace">'+g.items.length+'件</span></label>';
+  }).join('');
+  ov.innerHTML='<div style="background:#0d1117;border:1px solid #30363d;border-radius:12px;padding:18px 20px;width:420px;max-height:82vh;display:flex;flex-direction:column;color:#e6edf3;font:14px/1.5 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.6)">'
+    +'<div style="font-weight:800;font-size:15px;margin-bottom:2px">📤 予備軍を「'+client.name+'」へ抽出</div>'
+    +'<div style="font-size:11px;color:#8b949e;margin-bottom:10px">市町村にチェックを入れて選択（複数可）。合計は自動集計されます。</div>'
+    +'<div style="display:flex;gap:6px;margin-bottom:8px">'
+      +'<button id="_pexAll" style="flex:1;padding:6px;border-radius:6px;border:1px solid #30363d;background:#161b22;color:#8b949e;font-size:11px;cursor:pointer">全選択</button>'
+      +'<button id="_pexNone" style="flex:1;padding:6px;border-radius:6px;border:1px solid #30363d;background:#161b22;color:#8b949e;font-size:11px;cursor:pointer">全解除</button>'
+    +'</div>'
+    +'<div style="overflow-y:auto;border:1px solid #21262d;border-radius:8px;padding:2px 0;flex:1">'+rows+'</div>'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 4px;font-size:13px">'
+      +'<span>選択中: <b id="_pexCount" style="color:#a855f7">0</b>件</span>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;margin-top:6px">'
+      +'<button id="_pexGo" style="flex:1;background:#238636;border:1px solid #2ea043;color:#fff;border-radius:8px;padding:10px;font-weight:700;cursor:pointer" disabled>✓ 選択分を仮納品登録</button>'
+      +'<button id="_pexCancel" style="flex:0.6;background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:8px;padding:10px;cursor:pointer">キャンセル</button>'
+    +'</div></div>';
+  document.body.appendChild(ov);
+  function close(){try{ov.remove();}catch(_){}}
+  function updCount(){
+    var n=0; ov.querySelectorAll('._pex-cb:checked').forEach(function(cb){n+=parseInt(cb.closest('._pex-row').dataset.n,10)||0;});
+    document.getElementById('_pexCount').textContent=n;
+    document.getElementById('_pexGo').disabled=(n===0);
+  }
+  ov.querySelectorAll('._pex-cb').forEach(function(cb){cb.onchange=updCount;});
+  document.getElementById('_pexAll').onclick=function(){ov.querySelectorAll('._pex-cb').forEach(function(cb){cb.checked=true;});updCount();};
+  document.getElementById('_pexNone').onclick=function(){ov.querySelectorAll('._pex-cb').forEach(function(cb){cb.checked=false;});updCount();};
+  document.getElementById('_pexCancel').onclick=close;
+  document.getElementById('_pexGo').onclick=async function(){
+    var keys=[]; ov.querySelectorAll('._pex-cb:checked').forEach(function(cb){keys.push(cb.dataset.k);});
+    if(!keys.length)return;
+    var picked=[]; keys.forEach(function(k){picked=picked.concat(groups[k].items);});
+    close();
+    await _runPoolExtract(d,client,picked);
+  };
+}
+
+async function _runPoolExtract(d,client,picked){
+  if(!confirm('選択した '+picked.length+'件を、「'+client.name+'」へ抽出し仮納品登録します。\n・この操作でround2_poolの各行にclient_idが確定します(ここで初めてID紐付け)\n実行しますか？'))return;
   var deliveryId=null;
   try{
     var per=new Date().toISOString().slice(0,10);
-    var dr=await d.from('client_deliveries').insert({client_id:client.id,period:per,status:'draft',notes:'予備軍からの抽出'}).select();
+    var dr=await d.from('client_deliveries').insert({client_id:client.id,period:per,status:'draft',notes:'予備軍からの抽出(市町村選択・'+picked.length+'件)'}).select();
     if(dr&&dr.data&&dr.data[0])deliveryId=dr.data[0].id;
   }catch(e){}
   if(!deliveryId){toast('⚠ 納品ロットの作成に失敗＝中断');return;}
 
-  var inserted=0,errs=0;
-  for(var i=0;i<unassigned.length;i++){
-    var p=unassigned[i];
+  var inserted=0,errs=0,done=[];
+  for(var i=0;i<picked.length;i++){
+    var p=picked[i];
     try{
-      var ir=await d.from('client_delivery_items').insert({client_id:client.id,delivery_id:deliveryId,pref:p.pref,city:p.city,area_m2:p.area_m2,lat:p.lat,lng:p.lng,source:'round2_pool',status:'tentative',ai_note:'round2_pool id:'+p.id+' kind:'+p.kind+' source_iid:'+p.source_iid});
+      var ir=await d.from('client_delivery_items').insert({client_id:client.id,delivery_id:deliveryId,pref:p.pref,city:p.city,chiban:p.chiban,address:p.address,area_m2:p.area_m2,lat:p.lat,lng:p.lng,source:'round2_pool',status:'tentative',ai_note:'round2_pool id:'+p.id+' kind:'+p.kind+' source_iid:'+p.source_iid});
       if(ir&&ir.error)throw new Error(ir.error.message);
       var ur=await d.from('round2_pool').update({client_id:client.id}).eq('id',p.id);
       if(ur&&ur.error)throw new Error(ur.error.message);
-      inserted++;
+      inserted++; done.push(p);
     }catch(e){ errs++; }
   }
   var m='📤 '+client.name+'へ抽出: '+inserted+'件'+(errs?'・エラー'+errs+'件':'');
-  try{alert(m);}catch(_){}
   toast(m);
   try{await loadDelivery2FromDb();}catch(_){}
+  // ★第1回納品と同じ書式(NO/緯度経度/住所/地番/面積/地目/信頼/備考)でExcelをブラウザから直接ダウンロード。
+  try{ _exportPoolExtractExcel(client,done); }catch(e){ console.warn('[extract] excel出力skip:',e); }
+  try{alert(m+'\nExcelのダウンロードも開始しました。');}catch(_){}
 }
-window.__gachoExtractPoolToClient=extractPoolToClient;
+
+function _exportPoolExtractExcel(client,items){
+  if(typeof XLSX==='undefined'){toast('⚠ Excel出力ライブラリ未読込のためスキップ');return;}
+  var aoa=[['NO','緯度経度','住所','地番','面積','地目','信頼','備考']];
+  items.forEach(function(p,i){
+    aoa.push([i+1, (p.lat!=null?p.lat+', '+p.lng:''), p.address||((p.pref||'')+(p.city||'')), p.chiban||'', p.area_m2||'', '', '', 'round2_pool予備軍抽出('+(p.city||'')+')']);
+  });
+  var ws=XLSX.utils.aoa_to_sheet(aoa);
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'納品案件');
+  var fname=client.name+'_納品案件_'+new Date().toISOString().slice(0,10)+'_'+items.length+'件.xlsx';
+  XLSX.writeFile(wb,fname);
+}
 /* v20260821m(ドクター復旧): ダウンロード済みスナップJSONファイルを選んで直接復元(ブラウザ内が壊れていても、確認済みの09:13ファイルから手描き境界を戻す)。 */
 function restoreFromFile(){
   try{
