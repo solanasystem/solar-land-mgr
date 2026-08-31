@@ -1007,7 +1007,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <div id="ghLegend" style="margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:236px;">
       <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px;">🟣 合筆提案+保留（紫フラグ）</div>
       <div style="font-size:11px;font-weight:800;color:#c084fc;padding:3px 5px;background:rgba(168,85,247,0.08);border-radius:4px;">未検定 残り <span id="ghRemainCount" style="font-variant-numeric:tabular-nums;font-size:15px;color:#e9d5ff;">—</span> 件<span style="font-weight:400;color:var(--text-muted);"> ／ 総数 <span id="ghTotalCount" style="font-variant-numeric:tabular-nums;">—</span> 件</span></div>
-      <div style="font-size:9px;color:var(--text-muted);margin-top:4px;line-height:1.3;">案件を「評価を確定」(OK/NG)すると紫から変わり、この残数が自動で減ります。</div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:4px;line-height:1.3;">案件を「評価を確定」(1回目・OK/NG)すると紫から変わり、この残数が自動で減ります。</div>
+      <div style="font-size:10.5px;font-weight:800;color:#fbbf24;padding:3px 5px;margin-top:6px;background:rgba(251,191,36,0.08);border-radius:4px;">🔁 2回目確認待ち(1回目OK・予備群未昇格) <span id="ghPromoWaitCount" style="font-variant-numeric:tabular-nums;font-size:15px;color:#fde68a;">—</span> 件</div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:3px;line-height:1.3;">1回目OKの案件は即座に予備群へは入りません。「⬆ OK済みピックを予備軍(緑)へ昇格」で2回目確認し、そこで初めて予備群(round2_pool)へ入ります。</div>
     </div>
     <!-- 🛰️ AI衛星判定ボタンは削除(断捨離 v20260820)。未実装のプレースホルダで地図表示なし。AI選定自体はapply_reject(ng_list ai_reject)で稼働中。 -->
     <!-- 🔗 合筆・低圧太陽光 確定候補（放棄×市街化調整×2筆合筆・目視確定9カ所） v20260806a -->
@@ -7308,17 +7310,51 @@ window.__ghMarkers={};
    ghDelete経由(このレイヤー専用のNGボタン)は直接、それぞれこのSetから削除→カウンター再描画。 */
 window.__ghPendingFids=new Set();
 window.__ghAllFids=new Set(); // このレイヤーに属する全fid(判定取消時に残数へ戻すため、Pending削除後も保持)
+/* v20260831b(ドクター指示): 2段階検定。①1回目検定(OK/NG)で紫を抜ける=即時。②1回目OKはその場では
+   予備群(round2_pool)へ入らず「2回目確認待ち」に留まる→「⬆ OK済みピックを予備軍(緑)へ昇格」(2回目確認)
+   で初めて予備群へ入る。__ghPromoWaiting=1回目OKだがround2_pool未昇格のfid集合(全gacho_ok対象・レイヤー横断)。 */
+window.__ghPromoWaiting=new Set();
 function _ghUpdateCounter(){
-  var re=document.getElementById('ghRemainCount'), to=document.getElementById('ghTotalCount');
+  var re=document.getElementById('ghRemainCount'), to=document.getElementById('ghTotalCount'), pw=document.getElementById('ghPromoWaitCount');
   if(re)re.textContent=window.__ghPendingFids.size;
   if(to)to.textContent=window.__ghTotal||0;
+  if(pw)pw.textContent=window.__ghPromoWaiting.size;
+}
+async function _ghRefreshPromoWaiting(){
+  try{
+    var d=(typeof window!=='undefined'&&window.db)?window.db:(typeof db!=='undefined'?db:null);
+    if(!d)return;
+    var okFids=new Set(),frm=0;
+    while(true){
+      var r=await d.from('ai_ok_labels').select('member_fids').eq('source','gacho_ok').range(frm,frm+999);
+      var rows=(r&&r.data)||[];
+      rows.forEach(function(x){(x.member_fids||[]).forEach(function(f){okFids.add(f);});});
+      if(rows.length<1000)break; frm+=1000;
+    }
+    var poolFids=new Set(); frm=0;
+    while(true){
+      var r2=await d.from('round2_pool').select('source_iid').range(frm,frm+999);
+      var rows2=(r2&&r2.data)||[];
+      rows2.forEach(function(x){if(x.source_iid)poolFids.add(x.source_iid);});
+      if(rows2.length<1000)break; frm+=1000;
+    }
+    var waiting=new Set(); okFids.forEach(function(f){if(!poolFids.has(f))waiting.add(f);});
+    window.__ghPromoWaiting=waiting; _ghUpdateCounter();
+  }catch(e){ console.warn('[_ghRefreshPromoWaiting]',e); }
 }
 document.addEventListener('gachoJudged',function(e){
   var fid=e && e.detail && e.detail.fid;
-  if(!fid || !window.__ghAllFids.has(fid)) return;
+  if(!fid)return;
   var st=e.detail.status;
-  if(st==='ok'||st==='ng'){ if(window.__ghPendingFids.has(fid)){ window.__ghPendingFids.delete(fid); _ghUpdateCounter(); } }
-  else{ if(!window.__ghPendingFids.has(fid)){ window.__ghPendingFids.add(fid); _ghUpdateCounter(); } } // OK/NG再押しで判定取消→紫へ戻る
+  // ①紫カウンター: このレイヤー(gappitsu_hold)所属のfidのみ対象
+  if(window.__ghAllFids.has(fid)){
+    if(st==='ok'||st==='ng'){ if(window.__ghPendingFids.has(fid)){ window.__ghPendingFids.delete(fid); } }
+    else{ if(!window.__ghPendingFids.has(fid)){ window.__ghPendingFids.add(fid); } } // OK/NG再押しで判定取消→紫へ戻る
+  }
+  // ②2回目確認待ちカウンター: レイヤーを問わず全gacho_ok対象(予備群昇格は全レイヤー共通の仕組みのため)
+  if(st==='ok'){ window.__ghPromoWaiting.add(fid); }
+  else{ if(window.__ghPromoWaiting.has(fid)){ window.__ghPromoWaiting.delete(fid); } } // NG/取消=昇格待ちから外れる
+  _ghUpdateCounter();
 });
 window.ghDelete=async function(fid,lat,lng){
   if(!confirm('この筆をNGとして削除します。よろしいですか？（記録を消せば復帰可）')) return;
@@ -7382,6 +7418,7 @@ function _ghIsDupOf337_108(la,lo){
         });
         lyr.addTo(map); window.__ghLayer=lyr;
         window.__ghTotal=shown; _ghUpdateCounter();
+        _ghRefreshPromoWaiting(); // v20260831b: 2回目確認待ち(1回目OK・未昇格)の実数をDBから取得
         console.log('[gappitsu_hold] 紫フラグ '+shown+'件表示 (NG除外'+Object.keys(ng).length+', 未検定残'+window.__ghPendingFids.size+')');
       }catch(e){ console.warn('[gappitsu_hold]',e); }
     })();

@@ -830,11 +830,82 @@ async function promotePinkToRound2(){
     }catch(e){ errs.push(e&&e.message||e); }
   }
   await loadDelivery2FromDb();
+  // v20260831b(ドクター指示・2段階検定): 昇格(2回目確認)実行後、紫フラグ画面の「2回目確認待ち」カウンターを
+  // 実データで再計算(区域不明でスキップされた分は待機のまま残る=正しい)。
+  try{ if(typeof window._ghRefreshPromoWaiting==='function')window._ghRefreshPromoWaiting(); }catch(_){}
+  // v20260831c: 一括昇格(=「一括OK」)でも最終確認チェックの点滅状態を解除する(個別確認中だった分も含め終了扱い)。
+  if(_finalCheckBlinking){ _stopFinalPromotionBlink(); var _btn=document.getElementById('gachoFinalCheck'); if(_btn){_btn.textContent='🔴 最終納品昇格チェック';_btn.classList.remove('on');_btn.style.background='rgba(250,204,21,.15)';_btn.style.borderColor='#eab308';} }
   var msg='⬆ 昇格 '+inserted+'件（区域不明でスキップ'+skippedUnknown+'件・昇格済みでスキップ'+alreadyById+'件・重複描画でスキップ'+dupContent+'件'+(errs.length?'・エラー'+errs.length+'件':'')+'）';
   try{alert(msg);}catch(_){}
   toast(msg);
 }
 window.__gachoPromoteToRound2=promotePinkToRound2;
+/* ===== v20260831c(ドクター指示・人間第2段階チェック): 「最終納品昇格チェック」=1回目OK済み・予備群未昇格の
+   案件を地図上で点滅させ、①個別に1件だけ確認して昇格 ②一括昇格(既存promotePinkToRound2を流用)のどちらかで
+   最終確定する。_finalCheckSet(fid→候補データ)はスコアカードの個別昇格ボタン表示判定にも使う。 ===== */
+async function toggleFinalPromotionCheck(){
+  var btn=document.getElementById('gachoFinalCheck');
+  if(_finalCheckBlinking){ _stopFinalPromotionBlink(); if(btn){btn.textContent='🔴 最終納品昇格チェック';btn.classList.remove('on');btn.style.background='rgba(250,204,21,.15)';btn.style.borderColor='#eab308';} return; }
+  var d=_gDb(); if(!d){toast('DB未接続＝中断');return;}
+  var res;
+  try{ res=await _gachoComputeNewOkCandidates(); }
+  catch(e){ toast('⚠ 取得失敗＝中断: '+(e&&e.message||e)); return; }
+  var deduped=res.deduped;
+  if(!deduped.length){ toast('2回目確認待ちの案件はありません(既に昇格済みか、OK判定がありません)'); return; }
+  var set={}; deduped.forEach(function(p){ if(p.sourceIid)set[p.sourceIid]=p; });
+  _finalCheckSet=set;
+  var found=0;
+  for(var fid in set){ var mk=_reviewMarks[fid]; if(mk){ found++; _blinkStart(fid,mk); } }
+  _finalCheckBlinking=true;
+  if(btn){btn.textContent='⏹ チェック終了（点滅中'+found+'/'+deduped.length+'件）';btn.classList.add('on');btn.style.background='rgba(250,204,21,.35)';btn.style.borderColor='#facc15';}
+  toast('🔴 2回目確認待ち '+deduped.length+'件のうち、現在地図上で見えている'+found+'件を点滅表示しました。フラグをクリックして個別確認→「予備群へ昇格」、または上の⬆ボタンで一括昇格してください。');
+}
+function _blinkStart(fid,mk){
+  if(!mk||!mk.setStyle)return;
+  if(mk._finalCheckTimer)return; // 二重登録防止
+  var orig={color:mk.options.color,weight:mk.options.weight,radius:mk.options.radius,fillOpacity:mk.options.fillOpacity};
+  _finalCheckOrig[fid]=orig;
+  var on=false;
+  mk._finalCheckTimer=setInterval(function(){
+    on=!on;
+    try{ mk.setStyle(on?{color:'#facc15',weight:4,radius:(orig.radius||7)+4,fillOpacity:1}:{color:orig.color,weight:orig.weight,radius:orig.radius,fillOpacity:orig.fillOpacity}); }catch(_){}
+  },450);
+}
+function _blinkStop(fid){
+  var mk=_reviewMarks[fid]; if(!mk)return;
+  if(mk._finalCheckTimer){ clearInterval(mk._finalCheckTimer); mk._finalCheckTimer=null; }
+  var orig=_finalCheckOrig[fid];
+  if(orig&&mk.setStyle){ try{ mk.setStyle({color:orig.color,weight:orig.weight,radius:orig.radius,fillOpacity:orig.fillOpacity}); }catch(_){} }
+  delete _finalCheckOrig[fid];
+}
+function _stopFinalPromotionBlink(){
+  if(_finalCheckSet){ for(var fid in _finalCheckSet){ _blinkStop(fid); } }
+  _finalCheckBlinking=false; _finalCheckSet=null;
+}
+// 個別に1件だけ最終確認→round2_pool(予備群)へ昇格。promotePinkToRound2の単件版(同じ区域解決/面積補完ロジック)。
+async function promoteOneToRound2(fid){
+  if(!_finalCheckSet||!_finalCheckSet[fid]){ toast('この筆は2回目確認待ちではありません(先に「🔴 最終納品昇格チェック」を押してください)'); return; }
+  var d=_gDb(); if(!d){toast('DB未接続＝中断');return;}
+  var p=_finalCheckSet[fid];
+  var pref=null,city=null;
+  if(p.lat!=null&&p.lng!=null){ try{ var g=await _resolveManualGeo(Number(p.lat),Number(p.lng)); if(g){pref=g.pref;city=g.city;} }catch(_){} }
+  if(!pref||!city||pref==='区域不明'||city==='区域不明'){ toast('⚠ 区域(県市町村)が特定できないため個別昇格できません。座標を確認してください。'); return; }
+  var area=p.area;
+  if(area==null&&p.kind==='feature'){
+    try{ var ar=await d.from('farmland_snapshots').select('area_sqm').eq('feature_id',p.sourceIid).limit(1); area=(ar&&ar.data&&ar.data[0]&&ar.data[0].area_sqm)||null; }catch(_){}
+  }
+  try{
+    var ir=await d.from('round2_pool').insert({kind:p.kind,source_iid:p.sourceIid,lat:p.lat,lng:p.lng,area_m2:(area!=null?area:null),latlngs:(p.latlngs||null),pref:pref,city:city,status:'reserve',round:2}).select('id');
+    if(ir&&ir.error)throw new Error(ir.error.message);
+  }catch(e){ toast('⚠ 昇格失敗: '+(e&&e.message||e)); return; }
+  _blinkStop(fid); delete _finalCheckSet[fid];
+  var remain=Object.keys(_finalCheckSet).length;
+  var m=getMap(); if(m)m.closePopup();
+  await loadDelivery2FromDb();
+  try{ if(typeof window._ghRefreshPromoWaiting==='function')window._ghRefreshPromoWaiting(); }catch(_){}
+  toast('✅ 予備群(round2_pool)へ昇格しました。2回目確認待ち残り '+remain+'件');
+  if(remain===0){ _finalCheckBlinking=false; var btn=document.getElementById('gachoFinalCheck'); if(btn){btn.textContent='🔴 最終納品昇格チェック';btn.classList.remove('on');btn.style.background='rgba(250,204,21,.15)';btn.style.borderColor='#eab308';} toast('🎉 2回目確認待ちが全て完了しました'); }
+}
 /* ===== ⑥→⑦(ドクター指示・2026-08-28): 予備軍(round2_pool・クライアント未定の共有プール)から
    特定クライアントへ抽出し、client_delivery_items(仮納品)へ登録する。ここで初めてID(client_id)の
    紐付けが発生する。⑤→⑥(promotePinkToRound2)とは明確に別の操作。 ===== */
@@ -1285,6 +1356,9 @@ function renderPanel(){
     // 黄色レイヤーで地図上に表示して目視確認できるプレビュー。round2_poolへは書き込まない。
     h+='<div class="gacho-master"><button id="gachoPreviewNewOk" class="gacho-btn" style="background:rgba(34,211,238,.15);border-color:#22d3ee;font-weight:700" title="昇格対象(未昇格の真の新規)をシアン色レイヤーで地図に表示して確認する。round2_poolへはまだ書き込まない">🔎 未昇格の新規を地図で確認</button></div>';
     h+='<div class="gacho-master"><button id="gachoPromoteD2" class="gacho-btn" style="background:rgba(34,197,94,.2);border-color:#22c55e;font-weight:700" title="OK判定済みの手動ピック(ピンク/手作業)をround2_pool(第2回納品候補・緑)へ一括昇格。区域不明・昇格済みは対象外">⬆ OK済みピックを予備軍(緑)へ昇格</button></div>';
+    // v20260831c(ドクター指示・人間第2段階チェック): 1回目OK済み・未昇格の案件を地図上で点滅させ、個別または
+    // 一括で最終確認してから予備群(round2_pool)へ昇格する。既存の⬆一括昇格ボタンは「一括OK」として兼用。
+    h+='<div class="gacho-master"><button id="gachoFinalCheck" class="gacho-btn'+(_finalCheckBlinking?' on':'')+'" style="'+(_finalCheckBlinking?'background:rgba(250,204,21,.28);border-color:#facc15':'background:rgba(250,204,21,.15);border-color:#eab308')+';font-weight:700" onclick="window.__gacho.toggleFinalCheck()" title="1回目OK・予備群未昇格の案件を地図上で点滅させ、1件ずつ確認して昇格。一括昇格は上の⬆ボタンで可">🔴 最終納品昇格チェック</button></div>';
     // ★2026-08-28(ドクター指示・⑥→⑦): 予備軍(round2_pool・クライアント未定)から特定クライアントへ抽出し
     // 納品(client_delivery_items・仮納品)へ登録する。⑤→⑥昇格とは別の、独立した操作。
     h+='<div class="gacho-master"><button id="gachoExtractClient" class="gacho-btn" style="background:rgba(168,85,247,.2);border-color:#a855f7;font-weight:700" title="予備軍(round2_pool)のうちクライアント未割当の案件を、選んだクライアントへ抽出して仮納品登録する">📤 予備軍をクライアントへ抽出</button></div>';
@@ -1824,13 +1898,22 @@ function _scoreCardHtml(l,it){
     +'<button class="gsc-draw" onclick="window.__gacho.drawArea(\''+l.id+'\',\''+iid+'\')" title="実測が無い/形を変えたい時: 隣接を含め手描き→面積を再計算(⑥面積に反映)">✏️ 手描きで敷地境界（面積を増やす）</button>';
   // v20260823(ドクター「グーグルアースも全てに入れておいてくれ」): スコアカード側に1回だけ入れる=呼び出し元(108/御所218/AIKI/gappitsu_hold等)全部に自動で効く。
   var earthLink=(it.lat!=null&&it.lng!=null)?('<div style="margin:4px 0 6px"><a href="https://earth.google.com/web/@'+it.lat+','+it.lng+',0a,1000d,35y,0h,0t,0r" target="_blank" rel="noopener" style="color:#58a6ff">🌍 Googleアース</a></div>'):'';
+  // v20260831c(ドクター指示・人間第2段階チェック): 「最終納品昇格チェック」モード中で、かつこの筆が
+  // 1回目OK済み・予備群未昇格(_finalCheckSet対象)の時だけ、個別に1件だけ昇格させるボタンを追加表示する。
+  var promoBtn=(_finalCheckSet&&it.feature_id&&_finalCheckSet[it.feature_id])
+    ?('<button class="gsc-fix" style="background:#78350f;border-color:#f59e0b;margin-top:5px" onclick="window.__gacho.promoteOne(\''+it.feature_id+'\')">✅ この筆を予備群へ昇格（2回目確認）</button>')
+    :'';
   return _gmImgHtml(it)+earthLink+'<div class="gsc">'+rows+vd+drawBtn+'<button class="gsc-fix" onclick="window.__gacho.applyScore(\''+l.id+'\',\''+iid+'\')">この判定を確定</button>'
+    +promoBtn
     +'<button class="gsc-fix" style="background:#7f1d1d;border-color:#f85149;margin-top:5px" onclick="window.__gacho.deleteFlag(\''+l.id+'\',\''+iid+'\')">🗑 この筆を削除（OKから外す）</button></div>';
 }
 /* ===== v20260820m(ドクター): 判定済み(OK/NG/閲覧)フラグの見た目を変える=一度見たか一目で判る =====
    ページ側マーカー(開拓候補/公式放棄地/紫151/御所218)はfeature_idでonReview登録→判定時とマーカー再生成時に減光＋色枠。
    OK=緑枠/NG=赤枠/閲覧のみ=灰破線、いずれも減光。未判定は元の明るい色のまま。 */
 var _reviewMarks={}; // fid -> Leafletマーカー
+/* v20260831c(ドクター指示): 最終納品昇格チェック(人間第2段階)の状態。_finalCheckSet=fid→候補データ(現在チェック対象)、
+   _finalCheckBlinking=モード中か、_finalCheckOrig=点滅前のマーカースタイル退避(復元用)。 */
+var _finalCheckSet=null, _finalCheckBlinking=false, _finalCheckOrig={};
 function _reviewStateOf(fid){
   if(!fid)return null;
   for(var i=0;i<state.layers.length;i++){var its=state.layers[i].items;for(var j=0;j<its.length;j++){var it=its[j];if(it.feature_id===fid){if(it.status==='ok'||it.status==='ng')return it.status;if(it.viewed)return 'viewed';}}}
@@ -1857,6 +1940,9 @@ window.__gacho={
   // v20260820m(ドクター): ページ側フラグの判定済み見た目。onReview(fid,marker)で登録=判定時＋再描画時に減光/色枠。
   reviewState:function(fid){return _reviewStateOf(fid);},
   onReview:function(fid,marker){if(!fid||!marker)return;_reviewMarks[fid]=marker;var st=_reviewStateOf(fid);if(st)_restyleMark(fid,st);},
+  // v20260831c(ドクター指示・人間第2段階チェック): 「最終納品昇格チェック」ボタン用。
+  toggleFinalCheck:function(){toggleFinalPromotionCheck();},
+  promoteOne:function(fid){promoteOneToRound2(fid);},
   removeItem:function(lid,itemIid){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();setTimeout(function(){render();},0);},
   /* v20260821z22(ドクター): 全筆に削除ボタン。この筆をOK/NGから外し、DBのOK記録(gacho_ok/手描き境界)も削除=カウントから確実に外す。1筆ずつ・確認付き。 */
   deleteFlag:function(lid,itemIid){
