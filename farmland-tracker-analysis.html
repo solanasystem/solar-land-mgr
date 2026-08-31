@@ -1002,6 +1002,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
       <div id="yukyuCount" style="font-size:10px;color:#67e8f9;margin-top:5px;font-weight:700;">読込で件数表示</div>
       <div style="font-size:9px;color:var(--text-muted);margin-top:4px;line-height:1.3;">種類は面積で判定：低圧太陽光は最低800〜1200㎡。狭小地・九州は蓄電池。次は合筆で800㎡超を作る。</div>
     </div>
+    <!-- 🟣 合筆提案+保留(紫フラグ) 残数カウンター v20260831a(ドクター指示): 常時表示レイヤーのため専用トグルは無く、
+         legendのみ常時表示。評価確定(OK/NG)で紫→他色に変わるたびgh_updateGhCounter()がリアルタイムに残数を更新。 -->
+    <div id="ghLegend" style="margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:236px;">
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px;">🟣 合筆提案+保留（紫フラグ）</div>
+      <div style="font-size:11px;font-weight:800;color:#c084fc;padding:3px 5px;background:rgba(168,85,247,0.08);border-radius:4px;">未検定 残り <span id="ghRemainCount" style="font-variant-numeric:tabular-nums;font-size:15px;color:#e9d5ff;">—</span> 件<span style="font-weight:400;color:var(--text-muted);"> ／ 総数 <span id="ghTotalCount" style="font-variant-numeric:tabular-nums;">—</span> 件</span></div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:4px;line-height:1.3;">案件を「評価を確定」(OK/NG)すると紫から変わり、この残数が自動で減ります。</div>
+    </div>
     <!-- 🛰️ AI衛星判定ボタンは削除(断捨離 v20260820)。未実装のプレースホルダで地図表示なし。AI選定自体はapply_reject(ng_list ai_reject)で稼働中。 -->
     <!-- 🔗 合筆・低圧太陽光 確定候補（放棄×市街化調整×2筆合筆・目視確定9カ所） v20260806a -->
     <!-- 🔗 合筆・太陽光候補ボタンは削除(断捨離 v20260820・ドクター指示)。SUNトラスト初回300で一区切り。データは残置(後で戻せる)。 -->
@@ -7296,6 +7303,23 @@ window.toggleEdgePanel = function(id){
 <script>
 /* 🟣 合筆提案+保留(151) 紫フラグ + 🗑NG削除。cases_all.json由来=突合表と同一。常時表示。NGはfarmland_ng_list(gh_接頭辞)に記録し再読込後も除外。 */
 window.__ghMarkers={};
+/* v20260831a(ドクター指示): 個別検定で紫→OK/NGに変わった残数をリアルタイム表示。
+   window.__ghPendingFids=まだ未検定(紫のまま)のfid集合。setStatus経由の判定は'gachoJudged'イベントで、
+   ghDelete経由(このレイヤー専用のNGボタン)は直接、それぞれこのSetから削除→カウンター再描画。 */
+window.__ghPendingFids=new Set();
+window.__ghAllFids=new Set(); // このレイヤーに属する全fid(判定取消時に残数へ戻すため、Pending削除後も保持)
+function _ghUpdateCounter(){
+  var re=document.getElementById('ghRemainCount'), to=document.getElementById('ghTotalCount');
+  if(re)re.textContent=window.__ghPendingFids.size;
+  if(to)to.textContent=window.__ghTotal||0;
+}
+document.addEventListener('gachoJudged',function(e){
+  var fid=e && e.detail && e.detail.fid;
+  if(!fid || !window.__ghAllFids.has(fid)) return;
+  var st=e.detail.status;
+  if(st==='ok'||st==='ng'){ if(window.__ghPendingFids.has(fid)){ window.__ghPendingFids.delete(fid); _ghUpdateCounter(); } }
+  else{ if(!window.__ghPendingFids.has(fid)){ window.__ghPendingFids.add(fid); _ghUpdateCounter(); } } // OK/NG再押しで判定取消→紫へ戻る
+});
 window.ghDelete=async function(fid,lat,lng){
   if(!confirm('この筆をNGとして削除します。よろしいですか？（記録を消せば復帰可）')) return;
   try{
@@ -7304,6 +7328,8 @@ window.ghDelete=async function(fid,lat,lng){
     }
     var m=window.__ghMarkers[fid];
     if(m&&window.__ghLayer){ window.__ghLayer.removeLayer(m); delete window.__ghMarkers[fid]; }
+    if(window.__ghPendingFids.has(fid)){ window.__ghPendingFids.delete(fid); _ghUpdateCounter(); }
+    try{document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:fid,status:'ng'}}));}catch(_){}
     if(typeof map!=='undefined'&&map) map.closePopup();
   }catch(e){ alert('削除失敗: '+((e&&e.message)||e)); }
 };
@@ -7349,9 +7375,14 @@ function _ghIsDupOf337_108(la,lo){
           },{maxWidth:300,minWidth:230});
           if(window.__gacho&&window.__gacho.onReview)window.__gacho.onReview(c.fid,m); // v20260820m: 判定済みは減光/色枠
           m.addTo(lyr); window.__ghMarkers[c.fid]=m; shown++;
+          // v20260831a: 既にOK/NG確定済み(前回セッション等)のfidは残数カウントに含めない。それ以外(未検定/viewedのみ)は紫の残りとして計上。
+          window.__ghAllFids.add(c.fid);
+          var _st=(window.__gacho&&window.__gacho.reviewState)?window.__gacho.reviewState(c.fid):null;
+          if(_st!=='ok' && _st!=='ng') window.__ghPendingFids.add(c.fid);
         });
         lyr.addTo(map); window.__ghLayer=lyr;
-        console.log('[gappitsu_hold] 紫フラグ '+shown+'件表示 (NG除外'+Object.keys(ng).length+')');
+        window.__ghTotal=shown; _ghUpdateCounter();
+        console.log('[gappitsu_hold] 紫フラグ '+shown+'件表示 (NG除外'+Object.keys(ng).length+', 未検定残'+window.__ghPendingFids.size+')');
       }catch(e){ console.warn('[gappitsu_hold]',e); }
     })();
   } else { setTimeout(waitGH,150); }
