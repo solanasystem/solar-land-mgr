@@ -842,11 +842,17 @@ async function promotePinkToRound2(){
 window.__gachoPromoteToRound2=promotePinkToRound2;
 /* ===== v20260831c(ドクター指示・人間第2段階チェック): 「最終納品昇格チェック」=1回目OK済み・予備群未昇格の
    案件を地図上で点滅させ、①個別に1件だけ確認して昇格 ②一括昇格(既存promotePinkToRound2を流用)のどちらかで
-   最終確定する。_finalCheckSet(fid→候補データ)はスコアカードの個別昇格ボタン表示判定にも使う。 ===== */
+   最終確定する。_finalCheckSet(fid→候補データ)はスコアカードの個別昇格ボタン表示判定にも使う。
+   ★v20260831d是正(ドクター報告「起動したが変化なし」): 当初_reviewMarksに頼っていたが、この登録は
+   gappitsu_hold_151等「ページ側の生Leafletレイヤー」が明示的にonReview()した場合だけで、通常のgacho
+   state.layers由来のマーカーは登録されない。よって対象の大半でマーカーが見つからず点滅0件になっていた。
+   gappitsu_hold_151と同じ「自前でL.circleMarkerを生成する」方式に変更し、必ず全件を地図に出す。 ===== */
+var _finalCheckLayer=null;
 async function toggleFinalPromotionCheck(){
   var btn=document.getElementById('gachoFinalCheck');
   if(_finalCheckBlinking){ _stopFinalPromotionBlink(); if(btn){btn.textContent='🔴 最終納品昇格チェック';btn.classList.remove('on');btn.style.background='rgba(250,204,21,.15)';btn.style.borderColor='#eab308';} return; }
   var d=_gDb(); if(!d){toast('DB未接続＝中断');return;}
+  var m=getMap(); if(!m||typeof L==='undefined'){toast('⚠ 地図が未初期化です');return;}
   var res;
   try{ res=await _gachoComputeNewOkCandidates(); }
   catch(e){ toast('⚠ 取得失敗＝中断: '+(e&&e.message||e)); return; }
@@ -854,12 +860,43 @@ async function toggleFinalPromotionCheck(){
   if(!deduped.length){ toast('2回目確認待ちの案件はありません(既に昇格済みか、OK判定がありません)'); return; }
   var set={}; deduped.forEach(function(p){ if(p.sourceIid)set[p.sourceIid]=p; });
   _finalCheckSet=set;
-  var found=0;
-  for(var fid in set){ var mk=_reviewMarks[fid]; if(mk){ found++; _blinkStart(fid,mk); } }
+  if(!m.getPane('finalCheckPane')){ var pn=m.createPane('finalCheckPane'); pn.style.zIndex=660; }
+  if(_finalCheckLayer){ try{ m.removeLayer(_finalCheckLayer); }catch(_){} }
+  _finalCheckLayer=L.layerGroup([]);
+  var found=0,pts=[];
+  deduped.forEach(function(p){
+    if(p.lat==null||p.lng==null)return;
+    var fid=p.sourceIid;
+    var mk=L.circleMarker([p.lat,p.lng],{pane:'finalCheckPane',radius:8,fillColor:'#f59e0b',color:'#ffffff',weight:2,fillOpacity:0.92});
+    try{ _gmHoverBind(mk,p.lat,p.lng); }catch(_){}
+    mk.bindPopup(function(){
+      var g='https://www.google.com/maps?q='+p.lat+','+p.lng;
+      var areaN=(p.area!=null?Number(p.area):null);
+      var sc=flagScoreCardImpl(fid,{lat:p.lat,lng:p.lng,area:areaN,address:'2回目確認待ち',src:'finalcheck',layerName:'最終納品昇格チェック',color:'#f59e0b'});
+      return '<div style="font-family:sans-serif;font-size:12px;min-width:230px">'
+        +'<div style="font-weight:800;color:#f59e0b;margin-bottom:4px">🔁 2回目確認待ち</div>'
+        +'<div style="margin-bottom:6px"><a href="'+g+'" target="_blank" style="color:#38bdf8">📍地図</a></div>'
+        +sc+'</div>';
+    },{maxWidth:300,minWidth:230});
+    mk.addTo(_finalCheckLayer);
+    _reviewMarks[fid]=mk; // 以後の減光/色枠表示にも通常のonReview登録と同様に使う
+    _blinkStart(fid,mk);
+    found++; pts.push([p.lat,p.lng]);
+  });
+  _finalCheckLayer.addTo(m);
   _finalCheckBlinking=true;
-  if(btn){btn.textContent='⏹ チェック終了（点滅中'+found+'/'+deduped.length+'件）';btn.classList.add('on');btn.style.background='rgba(250,204,21,.35)';btn.style.borderColor='#facc15';}
-  toast('🔴 2回目確認待ち '+deduped.length+'件のうち、現在地図上で見えている'+found+'件を点滅表示しました。フラグをクリックして個別確認→「予備群へ昇格」、または上の⬆ボタンで一括昇格してください。');
+  if(btn){btn.textContent='⏹ チェック終了（点滅中'+found+'件）';btn.classList.add('on');btn.style.background='rgba(250,204,21,.35)';btn.style.borderColor='#facc15';}
+  try{
+    if(pts.length){
+      var lats=pts.map(function(x){return x[0];}),lngs=pts.map(function(x){return x[1];});
+      var spread=Math.max(Math.max.apply(null,lats)-Math.min.apply(null,lats),Math.max.apply(null,lngs)-Math.min.apply(null,lngs));
+      if(spread<1.5)m.fitBounds(pts,{maxZoom:14});
+    }
+  }catch(_){}
+  toast('🔴 2回目確認待ち '+found+'件を地図上に点滅表示しました。フラグをクリックして個別確認→「予備群へ昇格」、または上の⬆ボタンで一括昇格してください。');
 }
+// _scoreCardHtml/flagScoreCardは同一ファイル内の既存実装をそのまま呼ぶ(別名で参照だけ用意=読みやすさのため)。
+function flagScoreCardImpl(fid,meta){ return window.__gacho.flagScoreCard(fid,meta); }
 function _blinkStart(fid,mk){
   if(!mk||!mk.setStyle)return;
   if(mk._finalCheckTimer)return; // 二重登録防止
@@ -879,7 +916,8 @@ function _blinkStop(fid){
   delete _finalCheckOrig[fid];
 }
 function _stopFinalPromotionBlink(){
-  if(_finalCheckSet){ for(var fid in _finalCheckSet){ _blinkStop(fid); } }
+  if(_finalCheckSet){ for(var fid in _finalCheckSet){ _blinkStop(fid); delete _reviewMarks[fid]; } }
+  if(_finalCheckLayer){ try{ var m=getMap(); if(m)m.removeLayer(_finalCheckLayer); }catch(_){} _finalCheckLayer=null; }
   _finalCheckBlinking=false; _finalCheckSet=null;
 }
 // 個別に1件だけ最終確認→round2_pool(予備群)へ昇格。promotePinkToRound2の単件版(同じ区域解決/面積補完ロジック)。
@@ -899,12 +937,16 @@ async function promoteOneToRound2(fid){
     if(ir&&ir.error)throw new Error(ir.error.message);
   }catch(e){ toast('⚠ 昇格失敗: '+(e&&e.message||e)); return; }
   _blinkStop(fid); delete _finalCheckSet[fid];
+  var mkDone=_reviewMarks[fid];
+  if(mkDone&&_finalCheckLayer){ try{ _finalCheckLayer.removeLayer(mkDone); }catch(_){} }
+  delete _reviewMarks[fid];
   var remain=Object.keys(_finalCheckSet).length;
   var m=getMap(); if(m)m.closePopup();
   await loadDelivery2FromDb();
   try{ if(typeof window._ghRefreshPromoWaiting==='function')window._ghRefreshPromoWaiting(); }catch(_){}
   toast('✅ 予備群(round2_pool)へ昇格しました。2回目確認待ち残り '+remain+'件');
-  if(remain===0){ _finalCheckBlinking=false; var btn=document.getElementById('gachoFinalCheck'); if(btn){btn.textContent='🔴 最終納品昇格チェック';btn.classList.remove('on');btn.style.background='rgba(250,204,21,.15)';btn.style.borderColor='#eab308';} toast('🎉 2回目確認待ちが全て完了しました'); }
+  else{ var _btn2=document.getElementById('gachoFinalCheck'); if(_btn2)_btn2.textContent='⏹ チェック終了（点滅中'+remain+'件）'; }
+  if(remain===0){ _finalCheckBlinking=false; _finalCheckSet=null; _finalCheckLayer=null; var btn=document.getElementById('gachoFinalCheck'); if(btn){btn.textContent='🔴 最終納品昇格チェック';btn.classList.remove('on');btn.style.background='rgba(250,204,21,.15)';btn.style.borderColor='#eab308';} toast('🎉 2回目確認待ちが全て完了しました'); }
 }
 /* ===== ⑥→⑦(ドクター指示・2026-08-28): 予備軍(round2_pool・クライアント未定の共有プール)から
    特定クライアントへ抽出し、client_delivery_items(仮納品)へ登録する。ここで初めてID(client_id)の
