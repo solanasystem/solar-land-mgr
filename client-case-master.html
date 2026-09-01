@@ -4,7 +4,9 @@
      v20260824b: 「No」(案件番号)をクリック→現地調査マップ(client-delivery-map.html)の該当地点へ別タブで直行(座標をURLへ渡し、点滅ハイライト+ポップアップ自動表示)。
      v20260824c: 【緊急修正・SUNトラスト報告】「操作」ボタンを押しても画面が変化しないバグを修正。switchDetailTab()が
      タブ名から要素IDを'dtab'+先頭大文字+残りで機械的に計算するのに対し、書類タブのHTML側IDが省略形"dtabDocs"のままで
-     不一致(正しくは"dtabDocuments")→null参照エラーでopenDetail()がモーダル表示直前で例外停止していた。IDを一致させて修正。 -->
+     不一致(正しくは"dtabDocuments")→null参照エラーでopenDetail()がモーダル表示直前で例外停止していた。IDを一致させて修正。
+     v20260901a【SUNトラスト報告①】1回目/2回目の納品データが混在して分かりにくいとの要望。案件番号の下に小さく
+     「第N回」を表示(client_deliveries.period/delivered_atの昇順で採番)。絞り込み機能の追加は今回は行わない。 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -15,7 +17,7 @@
 /* v20260824e(ドクター指示・SUNトラスト報告事故を受けて): metaタグのCache-Controlは実ブラウザで効かない場合がある事が
    実機検証で判明したため、社内分析ページと同じ「ver_client.txtと埋込BUILDが違えば自動で最新へリロード」方式を導入。
    クライアント向け全ページ共通のバージョン(ver_client.txt)。無限ループ防止=sessionStorageで同一版は最大2回まで。 */
-(function(){var BUILD='20260826c';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
+(function(){var BUILD='20260901a';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
   if(!t||t===BUILD){return;}
   var key='_cbtry_client_'+t,n=0;try{n=parseInt(sessionStorage.getItem(key)||'0',10)||0;}catch(_){}
   if(n>=2){return;}
@@ -83,7 +85,7 @@
 <div class="top">
   <div class="brand">GRID LAND <b>MGR</b> // 案件マスター（地権者情報）</div>
   <div style="display:flex;gap:12px;align-items:center;">
-    <span class="verbadge">BUILD 20260826c</span>
+    <span class="verbadge">BUILD 20260901a</span>
     <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
     <a class="back" href="client-portal.html">◀ ポータル</a>
     <a class="back" href="client-select.html">⇄ 切替</a>
@@ -256,13 +258,32 @@ function relock(){ try{ localStorage.removeItem(_dekKey()); }catch(e){} DEK=null
 // v20260824(アドホック横断監査): client_delivery_itemsが未ページングだった。件数増加(第2回納品候補等)で
 //   1000件上限に達すると表示が黙って欠ける恐れがあったため、他の内部ツールと同じページング方式に統一。
 /* _fetchAllPaged は v20260825(重複ファイル台帳グループ4共通化)で client-shared-fetch.js へ移動 */
+var ROUND_NO={}; // round_id(client_deliveries.id) -> 納品回数(1,2,3...)
 async function loadItems(){
   var r=await _fetchAllPaged(function(){
-    var q=db.from('client_delivery_items').select('delivery_id:id,delivery_no,pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng').eq('status','confirmed').order('pref',{ascending:true});
+    var q=db.from('client_delivery_items').select('delivery_id:id,round_id:delivery_id,delivery_no,pref,city,town,chiban,area_m2,chimoku,zone,address,lat,lng').eq('status','confirmed').order('pref',{ascending:true});
     if(CID)q=q.eq('client_id',CID);
     return q;
   });
   ITEMS=(r&&r.data)||[];
+  await loadRoundNumbers();
+}
+// v20260901(SUNトラスト報告①): 1回目/2回目の納品が混在して分かりにくいとの要望。
+//   client_deliveries(納品ロット)を取得し、period(無ければdelivered_at)の昇順で1,2,3...を振る。
+//   案件番号の下に小さく「第N回」を表示するだけに留め、一覧の絞り込みは今回は追加しない。
+async function loadRoundNumbers(){
+  ROUND_NO={};
+  var ids=[]; ITEMS.forEach(function(it){ if(it.round_id&&ids.indexOf(it.round_id)===-1) ids.push(it.round_id); });
+  if(!ids.length) return;
+  try{
+    var r=await db.from('client_deliveries').select('id,period,delivered_at').in('id',ids);
+    var rows=(r&&r.data)||[];
+    rows.sort(function(a,b){
+      var ka=a.delivered_at||a.period||'', kb=b.delivered_at||b.period||'';
+      return ka<kb?-1:(ka>kb?1:0);
+    });
+    rows.forEach(function(row,i){ ROUND_NO[row.id]=i+1; });
+  }catch(e){}
 }
 async function loadNotesAndRender(){
   NOTES={}; var fail=0, ok=0;
@@ -304,11 +325,13 @@ function renderTable(){
     var n=NOTES[r.delivery_id]||{};
     var docs=n._registryDocs||[];
     var no=(r.delivery_no!=null?r.delivery_no:(i+1)); // ★案件番号=DB固定のdelivery_no(地図と共通・削除/追加で不変)。未採番はi+1で暫定表示
+    var rn=ROUND_NO[r.round_id];
+    var roundLine=rn?('<br><span style="color:var(--muted);font-size:10px">第'+rn+'回</span>'):'';
     return '<tr>'+
       // v20260826(SUNトラスト報告②④): 別タブへの遷移先に?back=を付け「戻る」の確実な戻り先を指定(②)。
       // rel="noopener"は同一オリジンの自社ページへの遷移でのみ外し、Chromiumの新タブへの
       // sessionStorage引き継ぎ(=解錠状態が続く④)を働かせる。外部サイトへのリンクでは引き続きnoopenerを使う。
-      '<td>'+((r.lat!=null&&r.lng!=null)?('<a href="client-delivery-map.html?lat='+r.lat+'&lng='+r.lng+'&highlight=1&back='+encodeURIComponent('client-case-master.html')+'" target="_blank" title="現地調査マップでこの場所を開く" style="color:var(--plasma);text-decoration:underline;font-weight:700">'+no+' 🗺</a>'):no)+'</td><td>'+esc(loc)+'</td><td>'+esc(r.chiban)+'</td><td>'+(r.area_m2!=null?Math.round(r.area_m2).toLocaleString():'')+'</td><td>'+esc(r.chimoku)+'</td><td>'+esc(r.zone)+'</td>'+
+      '<td>'+((r.lat!=null&&r.lng!=null)?('<a href="client-delivery-map.html?lat='+r.lat+'&lng='+r.lng+'&highlight=1&back='+encodeURIComponent('client-case-master.html')+'" target="_blank" title="現地調査マップでこの場所を開く" style="color:var(--plasma);text-decoration:underline;font-weight:700">'+no+' 🗺</a>'):no)+roundLine+'</td><td>'+esc(loc)+'</td><td>'+esc(r.chiban)+'</td><td>'+(r.area_m2!=null?Math.round(r.area_m2).toLocaleString():'')+'</td><td>'+esc(r.chimoku)+'</td><td>'+esc(r.zone)+'</td>'+
       judgeCell(r.delivery_id)+
       (DEK? ('<td class="'+(n.name?'sec':'secempty')+'">'+(n.name?esc(n.name):'—')+'</td>'+
              '<td class="'+(n.tel?'sec':'secempty')+'">'+(n.tel?esc(n.tel):'—')+'</td>'+
