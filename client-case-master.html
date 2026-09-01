@@ -394,8 +394,28 @@ function renderDocList(){
   if(!docs.length){ el.innerHTML='<div style="color:var(--muted);font-size:13px">まだ書類がアップロードされていません。</div>'; return; }
   el.innerHTML=docs.map(function(d,i){
     return '<div class="docrow"><span>📄 '+esc(d.name||'書類')+' <span style="color:var(--muted);font-size:11px">('+esc((d.uploadedAt||'').slice(0,10))+(d.transcribed?' ・ 転記済':'')+')</span></span>'+
-      '<button class="btn gold" onclick="runTranscribe('+i+')">'+(d.transcribed?'再度AI転記':'AI転記')+'</button></div>';
+      '<span style="display:flex;gap:6px"><button class="btn gold" onclick="runTranscribe('+i+')">'+(d.transcribed?'再度AI転記':'AI転記')+'</button>'+
+      '<button class="btn" style="border-color:var(--rose);color:var(--rose)" onclick="deleteDoc('+i+')">削除</button></span></div>';
   }).join('');
+}
+// v20260901b【SUNトラスト報告②】書類の削除機能が無かったため追加。誤アップロード時に取り消せる。
+//   _registryDocs配列から取り除いて再暗号化保存(saveEdit等と同じ手順)＋Storage実体も削除(容量回収)。
+async function deleteDoc(docIndex){
+  if(!DEK||!_detId)return;
+  var prev=NOTES[_detId]||{}; var docs=(prev._registryDocs||[]).slice();
+  var d=docs[docIndex]; if(!d)return;
+  if(!confirm('「'+(d.name||'この書類')+'」を削除します。取り消せません。よろしいですか。'))return;
+  docs.splice(docIndex,1);
+  var obj={name:prev.name||'',tel:prev.tel||'',addr:prev.addr||'',status:prev.status||'',memo:prev.memo||'',_registryDocs:docs};
+  try{
+    var e=await ClientCrypto.encryptNote(DEK,JSON.stringify(obj));
+    var payload={client_id:CID,delivery_id:_detId,ciphertext:e.ciphertext,iv:e.iv,updated_at:new Date().toISOString(),updated_by:(localStorage.getItem('glm_user')||'client')};
+    var up=await db.from('client_secure_notes').upsert(payload,{onConflict:'client_id,delivery_id'});
+    if(up.error){toast('削除失敗: '+up.error.message);return;}
+    NOTES[_detId]=obj;
+    try{ await db.storage.from('registry-docs').remove([d.path]); }catch(e2){} // 実体削除(失敗しても一覧からは消えているので致命的ではない)
+    toast('書類を削除しました'); renderDocList(); renderTable();
+  }catch(e){toast('削除失敗: '+(e&&e.message||e));}
 }
 
 async function uploadDoc(){
