@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<!-- BUILD: client-cases v20260810a / クライアント専用:納品案件のステータス管理。SUNトラスト自身がステータスを追加/編集(client_status_options)し各案件に適用(case_proposals)。※自社の共有ページには一切依存しない -->
+<!-- BUILD: client-cases v20260901a / クライアント専用:納品案件のステータス管理。SUNトラスト自身がステータスを追加/編集(client_status_options)し各案件に適用(case_proposals)。※自社の共有ページには一切依存しない
+     v20260901a: 検索欄(市/地番/住所)＋NGブラインド(judgment='NG'をデフォルト非表示・トグルで表示)を追加。判定は client-judge.js 共有モジュールから読む(複製せず1本化)。 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +8,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>納品案件・ステータス管理 // GRID LAND MGR</title>
 <script>
-(function(){var BUILD='20260826c';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
+(function(){var BUILD='20260901a';try{fetch('ver_client.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(t){t=(t||'').trim();
   if(!t||t===BUILD){return;}
   var key='_cbtry_client_'+t,n=0;try{n=parseInt(sessionStorage.getItem(key)||'0',10)||0;}catch(_){}
   if(n>=2){return;}
@@ -19,6 +20,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="client-functions.js?v=20260826c"></script>
 <script src="client-shared-fetch.js?v=20260825b"></script>
+<script src="client-judge.js?v=20260825b"></script>
 <style>
   :root{--void:#050b1a;--panel:#0d1730;--panel2:#12203f;--line:#26375c;--plasma:#00d4ff;--gold:#f59e0b;--mint:#34d399;--rose:#f472b6;--text:#eaf0ff;--muted:#8698bd;--jp:'Zen Kaku Gothic New',sans-serif;--mono:'JetBrains Mono',monospace;}
   *{margin:0;padding:0;box-sizing:border-box;}
@@ -59,13 +61,16 @@
   .cnav-i{color:var(--muted);text-decoration:none;font-size:13px;font-weight:700;padding:7px 14px;border:1px solid var(--line);border-radius:7px;}
   .cnav-i:hover{color:var(--text);border-color:var(--plasma);}
   .cnav-i.on{color:var(--gold);border-color:var(--gold);background:rgba(245,158,11,0.08);}
+  input.search{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:9px 12px;font-size:13px;min-width:240px;}
+  .ngtoggle{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;cursor:pointer;user-select:none;}
+  .ngtoggle input{cursor:pointer;}
 </style>
 </head>
 <body>
 <div class="top">
   <div class="brand">GRID LAND <b>MGR</b> // 納品案件・ステータス管理</div>
   <div style="display:flex;gap:12px;align-items:center;">
-    <span class="verbadge">BUILD 20260826c</span>
+    <span class="verbadge">BUILD 20260901a</span>
     <div class="cchip"><small>CLIENT</small> <span id="cname">—</span></div>
     <a class="back" href="client-portal.html">◀ ポータル</a>
     <a class="back" href="client-select.html">⇄ 切替</a>
@@ -77,6 +82,9 @@
   <div class="sub">御社の確定納品案件に、<b>御社独自のステータス</b>を付けて管理できます。ステータスは御社で自由に追加・編集できます。</div>
   <div class="bar">
     <button class="btn" onclick="openStatusConfig()">⚙ ステータスを設定（追加・編集）</button>
+    <input class="search" id="search" type="text" name="glm_status_filter" autocomplete="off" autocapitalize="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')" placeholder="市・地番・住所で絞り込み（Enterで検索）" onkeydown="if(event.key==='Enter')renderRows()">
+    <button class="btn" onclick="document.getElementById('search').value='';renderRows();" title="検索窓をクリア" style="padding:6px 10px;">✖</button>
+    <label class="ngtoggle"><input type="checkbox" id="showNg" onchange="renderRows()"> NG案件も表示</label>
     <span class="cnt" id="cnt">—</span>
   </div>
   <div class="tblwrap"><table id="tbl"><thead><tr><th style="width:48px;text-align:right">NO</th><th>市</th><th>地番</th><th>面積(㎡)</th><th>地目</th><th>区域</th><th>住所</th><th>緯度</th><th>経度</th><th>確認</th><th>備考</th><th>ステータス</th></tr></thead><tbody id="tb"><tr><td colspan="12" class="muted">読込中…</td></tr></tbody></table></div>
@@ -103,7 +111,7 @@ var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI
 var db=supabase.createClient(SB_URL,SB_KEY);
 var CLIENT_NAME=localStorage.getItem('glm_client_name')||'株式会社SUNトラスト';
 document.getElementById('cname').textContent=CLIENT_NAME;
-var CID=null, ROWS=[], OPTS=[], STMAP={};
+var CID=null, ROWS=[], OPTS=[], STMAP={}, JMAP={};
 var DEFAULT_OPTS=[{label:'未確認',color:'#8698bd'},{label:'検討中',color:'#f59e0b'},{label:'現地確認済',color:'#00d4ff'},{label:'採用',color:'#34d399'},{label:'却下',color:'#f472b6'},{label:'契約',color:'#a78bfa'}];
 
 function buildClientNav(current){
@@ -126,6 +134,7 @@ async function init(){
   if(!CID){ document.getElementById('tb').innerHTML='<tr><td colspan="12" class="muted">クライアントを特定できませんでした</td></tr>'; return; }
   await loadOpts();
   await loadStatuses();
+  try{ JMAP=await ClientJudge.loadMap(db,CID); }catch(e){ JMAP={}; }
   await loadRows();
 }
 async function loadOpts(){
@@ -156,9 +165,18 @@ async function loadRows(){
 }
 function renderRows(){
   var tb=document.getElementById('tb');
-  document.getElementById('cnt').textContent=ROWS.length+'件';
-  if(!ROWS.length){ tb.innerHTML='<tr><td colspan="12" class="muted">確定納品案件がありません</td></tr>'; return; }
-  tb.innerHTML=ROWS.map(function(r,i){
+  var q=(document.getElementById('search').value||'').trim().toLowerCase();
+  var showNg=document.getElementById('showNg').checked;
+  var ngHidden=0;
+  var rows=ROWS.filter(function(r){
+    if(!showNg && JMAP[r.id]==='NG'){ ngHidden++; return false; }
+    if(!q) return true;
+    var hay=[cityOf(r),r.chiban,r.address].map(function(v){return String(v||'').toLowerCase();}).join(' ');
+    return hay.indexOf(q)!==-1;
+  });
+  document.getElementById('cnt').textContent=rows.length+'件'+(ngHidden?'（NG '+ngHidden+'件非表示）':'');
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="12" class="muted">'+(ROWS.length?'該当する案件がありません':'確定納品案件がありません')+'</td></tr>'; return; }
+  tb.innerHTML=rows.map(function(r,i){
     var cur=STMAP[r.id]||'';
     var sel='<select class="st" onchange="setStatus(\''+r.id+'\',this.value)"><option value="">（未設定）</option>'+
       OPTS.map(function(o){return '<option value="'+o.label+'"'+(o.label===cur?' selected':'')+'>'+o.label+'</option>';}).join('')+'</select>';
