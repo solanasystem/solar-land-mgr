@@ -33,6 +33,32 @@ function normalizeAreaKey(areaName){
   return s.replace(/(市|町|村|区)$/,'').trim();
 }
 
+/* ★2026-09-01(ドクター報告「黒木さん(九州)、現地調査マップにフラグが3つしか表示されない」で発覚):
+   AREA_TO_PREFは「糟屋郡篠栗」のような郡名付き正式名称のみをキーに持つが、
+   実データのarea_nameには「篠栗町」のような郡名を省略した表記が使われることがあり、
+   normalizeAreaKeyで「篠栗」にしてもAREA_TO_PREFに一致せず電力会社null判定になっていた
+   (実例: 篠栗町/苅田町/大刀洗町/広川町/宇美町/桂川町/添田町/筑前町が九州で判定漏れ)。
+   郡名を除いた短縮名が全国で一意な場合のみ(重複があれば誤判定を避けフォールバックしない)、
+   遅延構築した逆引き表で救済する。 */
+let _shortAreaToPref = null;
+function _buildShortAreaToPref(){
+  const counts = {};
+  for(const k in AREA_TO_PREF){
+    const m = k.match(/郡(.+)$/);
+    if(!m) continue;
+    const short = m[1];
+    counts[short] = (counts[short] || 0) + 1;
+  }
+  const map = {};
+  for(const k in AREA_TO_PREF){
+    const m = k.match(/郡(.+)$/);
+    if(!m) continue;
+    const short = m[1];
+    if(counts[short] === 1) map[short] = AREA_TO_PREF[k];
+  }
+  return map;
+}
+
 function getPowerCompanyFromArea(areaName){
   if(!areaName) return null;
   /* ①広域地方名を最優先（既存データの「中部」「関東」等） */
@@ -43,7 +69,11 @@ function getPowerCompanyFromArea(areaName){
   const key = normalizeAreaKey(areaName);
   const pref = AREA_TO_PREF[key];
   if(pref) return PREF_TO_POWER[pref] || null;
-  /* ④未マッピング */
+  /* ④郡名省略の短縮表記フォールバック(全国で一意な町村名のみ) */
+  if(!_shortAreaToPref) _shortAreaToPref = _buildShortAreaToPref();
+  const shortPref = _shortAreaToPref[key];
+  if(shortPref) return PREF_TO_POWER[shortPref] || null;
+  /* ⑤未マッピング */
   return null;
 }
 
