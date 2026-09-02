@@ -50,11 +50,16 @@
       <option value="confirmed">確定納品のみ(confirmed)</option>
       <option value="all">全ステータス</option>
     </select>
+    <select id="filterClient"><option value="">クライアント：全て</option></select>
+    <select id="filterRound"><option value="">納品回：全て</option></select>
     <input id="q" placeholder="検索：地番・所在・市・県…">
     <a href="mode-select.html" style="font-size:12px">← 戻る</a>
   </div>
 </div>
-<div class="wrap"><div id="tree" class="loading">読み込み中…</div></div>
+<div class="wrap">
+  <div id="deliverySummary" style="margin-bottom:18px"></div>
+  <div id="tree" class="loading">読み込み中…</div>
+</div>
 
 <script>
 (function(){
@@ -62,7 +67,7 @@
   var SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
   var SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
   var esc=function(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
-  var CLIENTS={}, DELIV={}, ITEMS=[];
+  var CLIENTS={}, DELIV={}, ITEMS=[], POOL_RESERVE=null;
   var db=null;
   var TREE=document.getElementById('tree');
   function show(msg){ if(TREE){ TREE.className='loading'; TREE.innerHTML=msg; } }
@@ -106,14 +111,69 @@
       var b=r.data||[]; all=all.concat(b); if(b.length<1000)break; from+=1000;
     }
     ITEMS=all;
+    // ★2026-09-02(ドクター指示「DB上に仕組みが有っても表示する仕組みが出来ていない。目に見えて確認できる
+    //   仕組みを付け加える」): round2_pool(⑥予備軍)は既に存在するテーブルだが、このページには一切
+    //   連動していなかった。予備軍の残数(status=reserve)をここで取得し、サマリーに表示する。
+    try{
+      var pr=await db.from('round2_pool').select('id',{count:'exact',head:true}).eq('status','reserve');
+      POOL_RESERVE=(pr&&typeof pr.count==='number')?pr.count:null;
+    }catch(_e){ POOL_RESERVE=null; }
+  }
+
+  // ★client_deliveries.status='confirmed'をcreated_at昇順に並べ「第N回」を動的に算出する。
+  //   round_no列をDBに追加するアドホックなDDLではなく、既存データから毎回同じ順序で再現可能な
+  //   ロジックとして固定する(データが増えても自動で第N回が振られる・ハードコード禁止)。
+  //   ROUND_NO_MAPはbuild()のツリー表示ラベルにも共用する(重複計算しない・単一の正)。
+  var ROUND_NO_MAP={}, CONFIRMED_LIST=[];
+  function computeRoundNoMap(){
+    CONFIRMED_LIST=Object.keys(DELIV).map(function(k){return DELIV[k];})
+      .filter(function(d){return d.status==='confirmed';})
+      .sort(function(a,b){return String(a.created_at||'').localeCompare(String(b.created_at||''));});
+    ROUND_NO_MAP={};
+    CONFIRMED_LIST.forEach(function(d,i){ ROUND_NO_MAP[d.id]=i+1; });
+  }
+  // ★案件マスター(main.html)の既存フィルタUIパターン(セレクトボックス→JS側filter)を流用。
+  //   クライアント一覧・納品回一覧はDBの実データから動的生成する(固定選択肢のハードコード禁止)。
+  function populateFilters(){
+    var cSel=document.getElementById('filterClient');
+    Object.keys(CLIENTS).sort(function(a,b){return String(CLIENTS[a]).localeCompare(String(CLIENTS[b]),'ja');}).forEach(function(id){
+      var o=document.createElement('option'); o.value=id; o.textContent=CLIENTS[id]||id; cSel.appendChild(o);
+    });
+    var rSel=document.getElementById('filterRound');
+    CONFIRMED_LIST.forEach(function(d,i){
+      var o=document.createElement('option'); o.value=d.id; o.textContent='第'+(i+1)+'回'; rSel.appendChild(o);
+    });
+  }
+  function buildDeliverySummary(){
+    var el=document.getElementById('deliverySummary');
+    if(!el)return;
+    var confirmed=CONFIRMED_LIST;
+    var rows=confirmed.map(function(d,i){
+      var n=(d.case_count!=null)?d.case_count:(ITEMS.filter(function(it){return it.delivery_id===d.id;}).length);
+      var dt=(d.delivered_at||d.created_at||'').slice(0,10);
+      return '<tr><td class="mono" style="color:var(--acc);font-weight:800">第'+(i+1)+'回</td><td class="mono">'+esc(dt)+'</td>'
+        +'<td class="mono" style="text-align:right">'+n+'件</td><td>'+esc(d.notes||d.period||'')+'</td></tr>';
+    }).join('');
+    var reserveLine=(POOL_RESERVE==null)
+      ?'<span style="color:var(--soft)">予備軍(round2_pool)残数: 取得失敗</span>'
+      :'<span style="color:var(--acc);font-weight:800">予備軍(round2_pool)残数: '+POOL_RESERVE+' 件</span><span style="color:var(--soft);font-size:12px"> — これから納品ロットへ組み込める候補（status=reserve）</span>';
+    el.innerHTML='<div style="background:var(--surf);border:1px solid var(--bd);border-radius:9px;padding:14px 16px;margin-bottom:6px">'
+      +'<div style="font-weight:800;font-size:14px;margin-bottom:8px">📈 納品履歴（confirmed・時系列）</div>'
+      +(rows?'<table class="cases" style="width:100%;margin:0 0 10px 0"><tr><th>回</th><th>日付</th><th>件数</th><th>内容</th></tr>'+rows+'</table>':'<div style="color:var(--soft);font-size:12px;margin-bottom:8px">確定納品ロットがまだありません</div>')
+      +'<div style="border-top:1px solid var(--bd);padding-top:8px;font-size:13px">'+reserveLine+'</div>'
+      +'</div>';
   }
 
   function build(){
     var q=(document.getElementById('q').value||'').trim().toLowerCase();
     var stf=document.getElementById('st').value;
+    var clf=document.getElementById('filterClient').value;
+    var rdf=document.getElementById('filterRound').value;
     var items=ITEMS.filter(function(it){
       if(stf==='confirmed' && it.status!=='confirmed')return false;
       if(stf==='confirmed' && isExcludedTown(it))return false; // 東員町は確定納品300には含めない。「全ステータス」では確認中も表示する
+      if(clf && String(it.client_id)!==clf)return false;
+      if(rdf && String(it.delivery_id)!==rdf)return false;
       if(q){ var hay=[it.chiban,it.address,it.city,it.pref,it.town].join(' ').toLowerCase(); if(hay.indexOf(q)<0)return false; }
       return true;
     });
@@ -121,7 +181,8 @@
     var tree={};
     items.forEach(function(it){
       var cl=CLIENTS[it.client_id]||it.client_id||'(不明client)';
-      var dv=DELIV[it.delivery_id]||{}; var per=(dv.period||'期不明')+(dv.notes?(' '+dv.notes):'');
+      var dv=DELIV[it.delivery_id]||{}; var rn=ROUND_NO_MAP[it.delivery_id];
+      var per=(rn?('第'+rn+'回 '):'')+(dv.period||'期不明')+(dv.notes?(' '+dv.notes):'');
       var pf=it.pref||'県不明'; var ct=it.city||'市不明';
       tree[cl]=tree[cl]||{n:0,ch:{}};
       var a=tree[cl]; a.n++;
@@ -175,9 +236,14 @@
       if(!db) throw new Error('Supabaseクライアントを初期化できませんでした。');
       await loadAll();
       if(done)return; done=true; clearTimeout(killer);
+      computeRoundNoMap();
+      populateFilters();
+      buildDeliverySummary();
       build();
       document.getElementById('q').addEventListener('input',build);
       document.getElementById('st').addEventListener('change',build);
+      document.getElementById('filterClient').addEventListener('change',build);
+      document.getElementById('filterRound').addEventListener('change',build);
     }catch(e){
       if(done)return; done=true; clearTimeout(killer);
       show('<div>⚠ 読み込み失敗: '+esc((e&&e.message)||e)+'</div>');
