@@ -40,6 +40,12 @@
   .st-confirmed{color:var(--ok)} .st-hold{color:var(--warn)} .st-removed{color:var(--danger)}
   a{color:var(--acc)}
   .loading{padding:40px;text-align:center;color:var(--soft)}
+  .editBtn{background:var(--surf2);border:1px solid var(--bd);color:var(--acc);border-radius:6px;padding:3px 9px;font-size:11px;cursor:pointer}
+  .editBtn:hover{border-color:var(--acc)}
+  tr.edit-row input{background:var(--surf);border:1px solid var(--bd);border-radius:5px;color:var(--ink);padding:4px 7px;font-size:12px}
+  tr.edit-row label{color:var(--soft);font-size:11px;display:flex;flex-direction:column;gap:2px}
+  tr.edit-row button{border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;border:1px solid var(--bd);background:var(--surf2);color:var(--ink)}
+  tr.edit-row button:first-of-type{background:var(--acc);color:#05252e;font-weight:800;border-color:var(--acc)}
 </style>
 </head>
 <body>
@@ -106,7 +112,7 @@
     (d.data||[]).forEach(function(x){DELIV[x.id]=x;});
     var all=[],from=0;
     while(true){
-      var r=await db.from('client_delivery_items').select('client_id,delivery_id,pref,city,town,chiban,area_m2,chimoku,zone,address,status,lat,lng').range(from,from+999);
+      var r=await db.from('client_delivery_items').select('id,client_id,delivery_id,pref,city,town,chiban,area_m2,chimoku,zone,address,status,lat,lng').range(from,from+999);
       if(r.error)throw new Error('client_delivery_items: '+(r.error.message||r.error));
       var b=r.data||[]; all=all.concat(b); if(b.length<1000)break; from+=1000;
     }
@@ -126,9 +132,12 @@
   //   ROUND_NO_MAPはbuild()のツリー表示ラベルにも共用する(重複計算しない・単一の正)。
   var ROUND_NO_MAP={}, CONFIRMED_LIST=[];
   function computeRoundNoMap(){
+    // ★2026-09-02是正: created_at(DBへの登録タイミング)は実際の納品日と一致するとは限らない
+    //   (例: 第1回は2026-08-09にレコード作成→実際の確定納品は2026-08-17)。
+    //   実際の納品順を正しく表すのはdelivered_at。無ければcreated_atへフォールバックする。
     CONFIRMED_LIST=Object.keys(DELIV).map(function(k){return DELIV[k];})
       .filter(function(d){return d.status==='confirmed';})
-      .sort(function(a,b){return String(a.created_at||'').localeCompare(String(b.created_at||''));});
+      .sort(function(a,b){return String(a.delivered_at||a.created_at||'').localeCompare(String(b.delivered_at||b.created_at||''));});
     ROUND_NO_MAP={};
     CONFIRMED_LIST.forEach(function(d,i){ ROUND_NO_MAP[d.id]=i+1; });
   }
@@ -163,6 +172,60 @@
       +'<div style="border-top:1px solid var(--bd);padding-top:8px;font-size:13px">'+reserveLine+'</div>'
       +'</div>';
   }
+
+  // ★2026-09-02(ドクター指示): このページは基本的に読み取り専用の参照台帳だが、SUNトラスト社報告の
+  //   「納品済み案件のピン(緯度経度)と農地ナビの地番がズレている」ケースのように、納品後に誤りが
+  //   判明した場合のみ、その場でclient_delivery_itemsを修正できるようにする。全行常時編集可能にはせず、
+  //   ✏️ボタンを押した行だけインライン編集フォームを開く方式(誤操作防止・同時に複数開かない)。
+  window.__editRow = function(btn){
+    var tr = btn.closest('tr');
+    var id = tr.getAttribute('data-id');
+    var it = ITEMS.find(function(x){return String(x.id)===String(id);});
+    if(!it) return;
+    var next = tr.nextElementSibling;
+    if(next && next.classList.contains('edit-row')){ next.remove(); return; }
+    document.querySelectorAll('tr.edit-row').forEach(function(r){r.remove();});
+    var editTr = document.createElement('tr');
+    editTr.className='edit-row';
+    editTr.setAttribute('data-edit-id', it.id);
+    editTr.innerHTML = '<td colspan="9" style="background:var(--surf2);padding:10px">'
+      +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">'
+      +'<label>地番<input type="text" class="ed_chiban" value="'+esc(it.chiban||'')+'" style="width:160px"></label>'
+      +'<label>緯度<input type="text" class="ed_lat" value="'+esc(it.lat!=null?it.lat:'')+'" style="width:110px"></label>'
+      +'<label>経度<input type="text" class="ed_lng" value="'+esc(it.lng!=null?it.lng:'')+'" style="width:110px"></label>'
+      +'<label>所在<input type="text" class="ed_address" value="'+esc(it.address||'')+'" style="width:220px"></label>'
+      +'<label>面積㎡<input type="text" class="ed_area" value="'+esc(it.area_m2!=null?it.area_m2:'')+'" style="width:90px"></label>'
+      +'<button type="button" onclick="window.__saveRow(this)">💾 保存</button>'
+      +'<button type="button" onclick="this.closest(\'tr\').remove()">キャンセル</button>'
+      +'<span class="ed_msg" style="color:var(--soft);font-size:12px"></span>'
+      +'</div></td>';
+    tr.parentNode.insertBefore(editTr, tr.nextSibling);
+  };
+  window.__saveRow = async function(btn){
+    var editTr = btn.closest('tr');
+    var id = editTr.getAttribute('data-edit-id');
+    var msg = editTr.querySelector('.ed_msg');
+    var latRaw=editTr.querySelector('.ed_lat').value.trim();
+    var lngRaw=editTr.querySelector('.ed_lng').value.trim();
+    var areaRaw=editTr.querySelector('.ed_area').value.trim();
+    var patch = {
+      chiban: editTr.querySelector('.ed_chiban').value.trim() || null,
+      lat: latRaw===''?null:parseFloat(latRaw),
+      lng: lngRaw===''?null:parseFloat(lngRaw),
+      address: editTr.querySelector('.ed_address').value.trim() || null,
+      area_m2: areaRaw===''?null:parseFloat(areaRaw)
+    };
+    if(msg) msg.textContent='保存中…';
+    try{
+      var r = await db.from('client_delivery_items').update(patch).eq('id', id).select();
+      if(r.error) throw new Error(r.error.message||r.error);
+      var it = ITEMS.find(function(x){return String(x.id)===String(id);});
+      if(it) Object.assign(it, patch);
+      build();
+    }catch(e){
+      if(msg) msg.textContent='⚠ 保存失敗: '+((e&&e.message)||e);
+    }
+  };
 
   function build(){
     var q=(document.getElementById('q').value||'').trim().toLowerCase();
@@ -205,10 +268,10 @@
           Object.keys(c.ch).sort().forEach(function(ct){
             var d=c.ch[ct];
             H+='<div class="node" style="margin-left:48px"><div class="row" onclick="this.parentNode.classList.toggle(\'open\')"><span class="tw">▸</span>🏘 '+esc(ct)+'<span class="cnt">'+d.n+'件</span></div><div class="kids">';
-            H+='<table class="cases"><tr><th>No</th><th>地番</th><th>面積㎡</th><th>地目</th><th>区域</th><th>所在</th><th>状態</th><th>地図</th></tr>';
+            H+='<table class="cases"><tr><th>No</th><th>地番</th><th>面積㎡</th><th>地目</th><th>区域</th><th>所在</th><th>状態</th><th>地図</th><th>操作</th></tr>';
             d.items.sort(function(x,y){return String(x.chiban).localeCompare(String(y.chiban));}).forEach(function(it,i){
               var g=it.lat?('<a href="https://www.google.com/maps/search/?api=1&query='+it.lat+','+it.lng+'" target="_blank">🌐</a>'):'';
-              H+='<tr><td class="no">'+(i+1)+'</td><td class="mono">'+esc(it.chiban)+'</td><td class="mono" style="text-align:right">'+(it.area_m2!=null?Number(it.area_m2).toLocaleString():'')+'</td><td>'+esc(it.chimoku)+'</td><td>'+esc(it.zone)+'</td><td>'+esc(it.address)+'</td><td class="'+stCls(it.status)+'">'+esc(it.status)+'</td><td>'+g+'</td></tr>';
+              H+='<tr data-id="'+esc(it.id)+'"><td class="no">'+(i+1)+'</td><td class="mono">'+esc(it.chiban)+'</td><td class="mono" style="text-align:right">'+(it.area_m2!=null?Number(it.area_m2).toLocaleString():'')+'</td><td>'+esc(it.chimoku)+'</td><td>'+esc(it.zone)+'</td><td>'+esc(it.address)+'</td><td class="'+stCls(it.status)+'">'+esc(it.status)+'</td><td>'+g+'</td><td><button type="button" class="editBtn" onclick="window.__editRow(this)">✏️ 修正</button></td></tr>';
             });
             H+='</table></div></div>';
           });
