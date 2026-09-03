@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<!-- BUILD: area-intake v20260903a / トラッカーフィルター投入のボタン化(ドクター指示2026-09-03)。
+     農地ナビGeoJSONの手動DLは人手のまま。DL済みデータをGrid Land MGRへ取り込む工程
+     (build_pool→物理フィルター→AI検定=既存の①適地候補系統)を、AI手作業の代わりに
+     このフォーム→pipeline_jobs(キュー)→ローカル常駐run_pipeline_queue.pyで自動実行する。
+     新しい入口は作らない(①適地候補②手動ピックの2系統のみ、という唯一の正は変更しない)。 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>エリア投入 // GRID LAND MGR</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="common-auth.js?v=20260813kuroki"></script>
+<style>
+  :root{--bg:#0d1117;--surf:#161c22;--surf2:#1b2530;--bd:#2a3742;--ink:#e6edf3;--soft:#9fb0bd;--acc:#00d4ff;
+    --ok:#3fb950;--warn:#d29922;--danger:#f0736a;--mono:Consolas,"Yu Gothic",monospace;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:system-ui,"Yu Gothic",Meiryo,sans-serif;font-size:14px}
+  .top{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,#0d1117,rgba(13,17,23,.92));border-bottom:1px solid var(--bd);padding:12px 20px;display:flex;align-items:center;gap:16px}
+  .top h1{font-size:17px;font-weight:800}
+  .top .sub{color:var(--soft);font-size:12px}
+  .top .sp{margin-left:auto}
+  .wrap{padding:16px 20px 60px;max-width:920px;margin:0 auto}
+  .card{background:var(--surf);border:1px solid var(--bd);border-radius:9px;padding:16px 18px;margin-bottom:18px}
+  .card h2{font-size:14px;margin-bottom:12px}
+  .field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+  .field label{font-size:12px;color:var(--soft)}
+  .field input,.field select{background:var(--surf2);border:1px solid var(--bd);border-radius:6px;color:var(--ink);padding:8px 10px;font-size:13px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  button.submit{background:var(--acc);color:#05252e;font-weight:800;border:none;border-radius:7px;padding:10px 18px;font-size:13px;cursor:pointer}
+  button.submit:hover{opacity:.9}
+  #msg{margin-top:10px;font-size:12.5px}
+  table.jobs{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.jobs th,table.jobs td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--bd);vertical-align:top}
+  table.jobs th{color:var(--soft);font-size:11px;text-transform:uppercase}
+  .st-pending{color:var(--soft)} .st-running{color:var(--acc)} .st-done{color:var(--ok)} .st-error{color:var(--danger)}
+  a{color:var(--acc)}
+  .hint{color:var(--soft);font-size:11.5px;margin-top:-6px;margin-bottom:10px}
+  .loading{padding:20px;text-align:center;color:var(--soft)}
+</style>
+</head>
+<body>
+<div class="top">
+  <div><h1>📥 エリア投入(トラッカーフィルター)</h1><div class="sub">農地ナビDL済みデータをシステムへ取り込み、物理フィルター→AI検定へ自動投入</div></div>
+  <div class="sp"><a href="mode-select.html" style="font-size:12px">← 戻る</a></div>
+</div>
+<div class="wrap">
+  <div class="card">
+    <h2>新規ジョブ登録</h2>
+    <div class="hint">農地ナビからのGeoJSONダウンロードは事前に人手で完了させ、Downloadsフォルダに置いておくこと。ここで登録すると、そのファイルを自動で読み込み①青地/ハザード②接道③連系④日照⑤AI検定まで自動実行される。</div>
+    <div class="row2">
+      <div class="field"><label>エリアキー(半角英数字・小文字。例: aichi_chita)</label><input id="f_key" placeholder="aichi_chita"></div>
+      <div class="field"><label>エリア表示名</label><input id="f_name" placeholder="愛知・知多半島"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>都道府県</label>
+        <select id="f_pref">
+          <option value="23">愛知県(23)</option>
+          <option value="24">三重県(24)</option>
+          <option value="29">奈良県(29)</option>
+        </select>
+      </div>
+      <div class="field"><label>最小面積(㎡)</label><input id="f_area" value="800"></div>
+    </div>
+    <div class="field"><label>対象市区町村(カンマ区切り・部分一致)</label><input id="f_cities" placeholder="常滑市,南知多町,半田市,美浜町"></div>
+    <div class="field"><label>GeoJSONファイル名パターン(Downloadsフォルダ内・ワイルドカード可)</label><input id="f_glob" placeholder="農地ピン_20260830*.geojson"></div>
+    <button class="submit" onclick="submitJob()">🚀 投入する(自動実行キューへ登録)</button>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card">
+    <h2>ジョブ一覧</h2>
+    <div id="jobsArea" class="loading">読み込み中…</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
+  var SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+  var esc=function(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
+  var db=null;
+  function getClient(){
+    if(window.__auth && window.__auth.sb) return window.__auth.sb;
+    return window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+  }
+  function waitSupabase(){
+    return new Promise(function(resolve,reject){
+      var n=0;
+      (function poll(){
+        if(typeof window.supabase!=='undefined' && window.supabase.createClient) return resolve();
+        if(n++>60) return reject(new Error('supabase-js(CDN)が読み込めませんでした。'));
+        setTimeout(poll,100);
+      })();
+    });
+  }
+
+  window.submitJob = async function(){
+    var msg=document.getElementById('msg');
+    var key=document.getElementById('f_key').value.trim();
+    var name=document.getElementById('f_name').value.trim();
+    var pref=document.getElementById('f_pref').value;
+    var area=parseInt(document.getElementById('f_area').value,10)||800;
+    var citiesRaw=document.getElementById('f_cities').value.trim();
+    var glob=document.getElementById('f_glob').value.trim();
+    if(!/^[a-z0-9_]+$/.test(key)){ msg.innerHTML='<span style="color:var(--danger)">⚠ エリアキーは半角英小文字・数字・アンダースコアのみ</span>'; return; }
+    if(!name || !citiesRaw || !glob){ msg.innerHTML='<span style="color:var(--danger)">⚠ 表示名・市区町村・ファイル名パターンは必須</span>'; return; }
+    var cities=citiesRaw.split(',').map(function(s){return s.trim();}).filter(Boolean);
+    msg.textContent='登録中…';
+    try{
+      var opName=(window.__auth && window.__auth.profile && window.__auth.profile.name)||'unknown';
+      var r=await db.from('pipeline_jobs').insert([{area_key:key,area_name:name,pref_code:pref,cities:cities,
+        geojson_glob:glob,min_area:area,status:'pending',requested_by:opName}]).select();
+      if(r.error) throw new Error(r.error.message||r.error);
+      msg.innerHTML='<span style="color:var(--ok)">✔ 登録しました。次回のキュー実行(数分おき)で自動処理されます。</span>';
+      document.getElementById('f_key').value='';document.getElementById('f_name').value='';
+      document.getElementById('f_cities').value='';document.getElementById('f_glob').value='';
+      loadJobs();
+    }catch(e){
+      msg.innerHTML='<span style="color:var(--danger)">⚠ 登録失敗: '+esc((e&&e.message)||e)+'</span>';
+    }
+  };
+
+  function stCls(s){return {pending:'st-pending',running:'st-running',done:'st-done',error:'st-error'}[s]||'';}
+  function fmtSummary(s){
+    if(!s) return '';
+    if(typeof s==='string'){ try{ s=JSON.parse(s); }catch(_e){ return esc(s); } }
+    return '適当'+(s['適当']||0)+' / 検討'+(s['検討']||0)+' / 不可'+(s['不可']||0)+' (プール'+(s['白地プール件数']||0)+')';
+  }
+  async function loadJobs(){
+    var el=document.getElementById('jobsArea');
+    try{
+      var r=await db.from('pipeline_jobs').select('id,area_key,area_name,status,cities,result_summary,log_tail,requested_by,created_at,finished_at').order('created_at',{ascending:false}).limit(50);
+      if(r.error) throw new Error(r.error.message||r.error);
+      var rows=(r.data||[]).map(function(j){
+        var err=(j.status==='error' && j.log_tail)?('<div style="color:var(--danger);font-size:11px;margin-top:3px;white-space:pre-wrap;max-height:80px;overflow:auto">'+esc(j.log_tail.slice(-500))+'</div>'):'';
+        return '<tr><td class="mono">'+esc(j.area_key)+'</td><td>'+esc(j.area_name)+'</td>'
+          +'<td class="'+stCls(j.status)+'">'+esc(j.status)+'</td>'
+          +'<td>'+esc(fmtSummary(j.result_summary))+err+'</td>'
+          +'<td class="mono">'+esc(j.requested_by)+'</td>'
+          +'<td class="mono">'+esc((j.created_at||'').slice(0,16).replace('T',' '))+'</td></tr>';
+      }).join('');
+      el.className='';
+      el.innerHTML='<table class="jobs"><tr><th>キー</th><th>エリア名</th><th>状態</th><th>結果</th><th>登録者</th><th>登録日時</th></tr>'
+        +(rows||'<tr><td colspan="6" style="color:var(--soft)">まだジョブがありません</td></tr>')+'</table>';
+    }catch(e){
+      el.innerHTML='<div style="color:var(--danger)">⚠ 読込失敗: '+esc((e&&e.message)||e)+'</div>';
+    }
+  }
+
+  (async function boot(){
+    try{
+      await waitSupabase();
+      db=getClient();
+      await loadJobs();
+      setInterval(loadJobs, 15000);
+    }catch(e){
+      document.getElementById('jobsArea').innerHTML='<div style="color:var(--danger)">⚠ '+esc((e&&e.message)||e)+'</div>';
+    }
+  })();
+})();
+</script>
+</body>
+</html>
