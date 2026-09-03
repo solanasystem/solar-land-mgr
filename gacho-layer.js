@@ -1130,7 +1130,7 @@ function renderLayerGroups(){
       // ★共通フラグ(丸マーカー)＝どの表示種別でも必ず描く。ここを削って良い理由は無い。
       if(it.lat!=null&&it.lng!=null){
         var isB=(it.type==='boundary');
-        var _sty=it.status==='ok'?{radius:isB?6:7,color:'#22c55e',weight:3,fillColor:l.color,fillOpacity:0.30}:{radius:isB?6:7,color:'#fff',weight:2,fillColor:l.color,fillOpacity:0.95};
+        var _sty=it.status==='ok'?{radius:isB?6:7,color:'#22c55e',weight:3,fillColor:l.color,fillOpacity:0}:{radius:isB?6:7,color:'#fff',weight:2,fillColor:l.color,fillOpacity:0.95}; // v20260903(ドクター): OK=枠緑・中透明のはずがfillOpacity0.30(中まで塗り)のバグ。0に是正
         var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
         if(_reviewFilter&&it.iid&&!isB)_reviewMarkerByIid[it.iid]=mk; // v20260820t: 送り機能でopenPopup(境界は常時表示のため対象外)
         if(it.status!=='ng') _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(NG済は除外=課金しない・キー無ければno-op)
@@ -1839,7 +1839,7 @@ function _reviewStateOf(fid){
   return null;
 }
 function _reviewStyle(st){
-  if(st==='ok')return {color:'#22c55e',weight:3,fillOpacity:0.30}; // OK=緑リング(枠緑・中透明)
+  if(st==='ok')return {color:'#22c55e',weight:3,fillOpacity:0}; // OK=緑リング(枠緑・中透明) v20260903是正: 0.30のままだと中まで塗りつぶされるバグだった
   if(st==='ng')return {opacity:0,fillOpacity:0}; // v20260821c(ドクター): NGは地図から見えなくする(OKだけでいい)
   if(st==='viewed')return {color:'#c9d1d9',weight:2.5,fillOpacity:0.35,dashArray:'3,3'};
   return null;
