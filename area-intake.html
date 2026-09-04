@@ -64,7 +64,8 @@
       <div class="field"><label>最小面積(㎡)</label><input id="f_area" value="800"></div>
     </div>
     <div class="field"><label>対象市区町村(カンマ区切り・部分一致)</label><input id="f_cities" placeholder="常滑市,南知多町,半田市,美浜町"></div>
-    <div class="field"><label>GeoJSONファイル名パターン(Downloadsフォルダ内・ワイルドカード可)</label><input id="f_glob" placeholder="農地ピン_20260830*.geojson"></div>
+    <div class="field"><label>対象期間(直近何時間以内にDownloadsへ保存した農地ピンファイルを対象にするか)</label><input id="f_lookback" value="48"></div>
+    <div class="hint">ファイル名の指定は不要。Downloadsフォルダの「農地ピン_*.geojson」のうち、この時間以内に保存されたもの全部を自動で対象にします。</div>
     <button class="submit" onclick="submitJob()">🚀 投入する(自動実行キューへ登録)</button>
     <div id="msg"></div>
   </div>
@@ -104,19 +105,22 @@
     var pref=document.getElementById('f_pref').value;
     var area=parseInt(document.getElementById('f_area').value,10)||800;
     var citiesRaw=document.getElementById('f_cities').value.trim();
-    var glob=document.getElementById('f_glob').value.trim();
+    var lookback=parseInt(document.getElementById('f_lookback').value,10)||48;
     if(!/^[a-z0-9_]+$/.test(key)){ msg.innerHTML='<span style="color:var(--danger)">⚠ エリアキーは半角英小文字・数字・アンダースコアのみ</span>'; return; }
-    if(!name || !citiesRaw || !glob){ msg.innerHTML='<span style="color:var(--danger)">⚠ 表示名・市区町村・ファイル名パターンは必須</span>'; return; }
+    if(!name || !citiesRaw){ msg.innerHTML='<span style="color:var(--danger)">⚠ 表示名・市区町村は必須</span>'; return; }
     var cities=citiesRaw.split(',').map(function(s){return s.trim();}).filter(Boolean);
     msg.textContent='登録中…';
     try{
       var opName=(window.__auth && window.__auth.profile && window.__auth.profile.name)||'unknown';
+      // ★2026-09-05(ドクター指摘「ファイル名まで指定しないといけないのか」): geojson_globはNOT NULL
+      //   列のため固定値を入れておく(実際の対象選別はrun_pipeline_queue.py側でlookback_hoursにより
+      //   Downloadsフォルダの農地ピン_*.geojsonから直近保存分を自動抽出する)。
       var r=await db.from('pipeline_jobs').insert([{area_key:key,area_name:name,pref_code:pref,cities:cities,
-        geojson_glob:glob,min_area:area,status:'pending',requested_by:opName}]).select();
+        geojson_glob:'農地ピン_*.geojson',lookback_hours:lookback,min_area:area,status:'pending',requested_by:opName}]).select();
       if(r.error) throw new Error(r.error.message||r.error);
-      msg.innerHTML='<span style="color:var(--ok)">✔ 登録しました。次回のキュー実行(数分おき)で自動処理されます。</span>';
+      msg.innerHTML='<span style="color:var(--ok)">✔ 登録しました。次回のキュー実行(10分以内)で自動処理されます。</span>';
       document.getElementById('f_key').value='';document.getElementById('f_name').value='';
-      document.getElementById('f_cities').value='';document.getElementById('f_glob').value='';
+      document.getElementById('f_cities').value='';
       loadJobs();
     }catch(e){
       msg.innerHTML='<span style="color:var(--danger)">⚠ 登録失敗: '+esc((e&&e.message)||e)+'</span>';
