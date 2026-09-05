@@ -51,17 +51,24 @@
     var zoom=opts.zoom||17;
     var toastFn=(typeof opts.toast==='function')?opts.toast:(typeof window.showToast==='function'?window.showToast:null);
     var addrPromise=opts.address?Promise.resolve(opts.address):reverseGeocodeAddress(lat,lng);
+    function openTab(){
+      var a=document.createElement('a');
+      a.href='https://map.maff.go.jp/?z='+zoom+'&clat='+lat+'&clon='+lng;
+      a.target='maff_nouchi_'+Date.now(); // タブ再利用によるSPA側の古い状態持ち越しを避けるため毎回ユニーク化
+      a.rel='noopener';
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
+    }
+    // ★2026-09-05是正(ドクター報告「農地ナビに所在をコピペする機能が動いていない」): 先に新しい
+    //   タブを開いてしまうと、そのタブへフォーカスが移り、直後のnavigator.clipboard.writeText()が
+    //   ブラウザのフォーカス制約(NotAllowedError: Document is not focused)で失敗する。クリップボード
+    //   書き込みを完了させてから(then内で)タブを開く順序に変更。
     addrPromise.then(function(addr){
       if(addr){
         try{navigator.clipboard&&navigator.clipboard.writeText(addr).catch(function(){});}catch(_e){}
         if(toastFn)toastFn('住所をコピーしました：'+addr+'　農地ナビの「住所から探す」で検索してください','success');
       }
-    });
-    var a=document.createElement('a');
-    a.href='https://map.maff.go.jp/?z='+zoom+'&clat='+lat+'&clon='+lng;
-    a.target='maff_nouchi_'+Date.now(); // タブ再利用によるSPA側の古い状態持ち越しを避けるため毎回ユニーク化
-    a.rel='noopener';
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
+      openTab();
+    }).catch(function(){ openTab(); });
   }
   window.NouchiNaviUtils={reverseGeocodeAddress:reverseGeocodeAddress,openNouchiNavi:openNouchiNavi};
 })();
