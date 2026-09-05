@@ -250,4 +250,17 @@
     }
   } catch (e) {}
 
+  // ★2026-09-05(ドクター指示「今後すべてのページでバージョンを出力する際の共通事項とせよ」):
+  //   画面左上のビルドバージョン表示バッジ。各ページがwindow.__BUILD__を設定していれば
+  //   自動で表示される（全ページ共通・1本を読込＝コピペ複製禁止 INDEX§0）。
+  try {
+    if (!document.querySelector('script[data-build-version-badge]')) {
+      var _bvb = document.createElement('script');
+      _bvb.src = 'build-version-badge.js?v=20260905a';
+      _bvb.setAttribute('data-build-version-badge', '1');
+      _bvb.defer = true;
+      (document.head || document.documentElement).appendChild(_bvb);
+    }
+  } catch (e) {}
+
 })();
