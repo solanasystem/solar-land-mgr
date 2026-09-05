@@ -1793,6 +1793,11 @@ function _whyHtml(it){
   if(it.toshi)p.push('都計 '+esc(String(it.toshi)));
   if(it.level)p.push('AI '+esc(String(it.level)));
   if(it.reject!=null)p.push('耕作放棄の可能性(AI衛星判定) '+it.reject);
+  // ★2026-09-05(ドクター指示「片方の画像で判断した場合というカテゴリーを設けろ」): AI判定が
+  // 現在(Esri)+過去(GSI年度別)の2時点画像のうち片方しか取得できなかった場合(partial=true)、
+  // 精度が完全データより劣る可能性があることを隠さず表示する(知多半島/豊橋豊川市の実測で
+  // 片方欠損時の判定は不可寄り・適当寄りどちらにも大きく振れることを確認済み)。
+  if(it.partial)p.push('<span style="color:#f59e0b">⚠ 片方の衛星画像のみでAI判定(過去画像が地理院タイル側で取得不可)。精度が下がっている可能性あり・目視確認を推奨</span>');
   // ★2026-08-29是正(ドクター指摘): 「ハザードCLEAR=各ゲート通過」は実データに関わらず常に表示される
   // 固定文言だった。noshin/hazの実データがある時だけ書き、無ければ「未チェック」と正直に書く。
   if(it.noshin!=null||it.haz!=null){
