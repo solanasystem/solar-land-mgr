@@ -1921,7 +1921,11 @@ function openNouchiNavi(lat, lng, address) {
   }
   const a = document.createElement('a');
   a.href = `https://map.maff.go.jp/?zoom=${map.getZoom()}&lat=${lat}&lng=${lng}`;
-  a.target = '_blank';
+  // ★2026-09-05是正(黒木さん報告「以前調べた地番の場所へ飛ぶ」): 固定target='_blank'だと、
+  //   map.maff.go.jp側が既存タブを再利用した際にSPA内部の検索結果(前回の地番)を保持したまま
+  //   URLの座標だけ変わり、古い結果が表示され続ける事象が起きていた。呼ぶたびにユニークな
+  //   target名にして必ず新しいタブを開かせ、外部サイト側の古い状態を持ち越させない。
+  a.target = 'maff_nouchi_' + Date.now();
   a.rel = 'noopener';
   document.body.appendChild(a);
   a.click();
@@ -2038,7 +2042,7 @@ function buildPopup(c, land, survey, landowner) {
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           ${(surveyMode && land?.lat && land?.lng) ? `<button class="popup-btn" onclick="startNav(${land.lat},${land.lng})" style="background:var(--blue);border-color:var(--blue);color:#fff;font-weight:700;flex:1 1 100%">\ud83d\uddfa \u30ca\u30d3\u958b\u59cb</button>` : ''}
           ${land?.google_map ? `<button class="popup-btn" onclick="window.open('${_escUrlAttr(land.google_map)}','_blank')">\ud83d\uddfa \u5730\u56f3</button>` : ''}
-          ${land?.lat && land?.lng ? `<button class="popup-btn" onclick="window.open('https://map.maff.go.jp/?zoom=17&lat=${land.lat}&lng=${land.lng}','_blank')" style="border-color:var(--green);color:var(--green)">\ud83c\udf3e \u8fb2\u5730\u30ca\u30d3</button>` : ''}
+          ${land?.lat && land?.lng ? `<button class="popup-btn" onclick="openNouchiNavi(${land.lat},${land.lng})" style="border-color:var(--green);color:var(--green)">\ud83c\udf3e \u8fb2\u5730\u30ca\u30d3</button>` : ''}
           ${confirmed
             ? `<button class="popup-btn confirmed-label" style="flex:1">\u2713 \u78ba\u8a8d\u6e08\u307f</button><button class="popup-btn" style="flex:1;border-color:var(--red);color:var(--red)" onclick="unConfirm('${c.id}')">\ud83d\udd04 \u89e3\u9664</button>`
             : `<button class="popup-btn confirm" onclick="openConfirmModal('${c.id}','${(caseDisplayNo(c)||'').replace(/'/g,"\\'")}')">\u78ba\u8a8d\u7d42\u4e86</button>`}
