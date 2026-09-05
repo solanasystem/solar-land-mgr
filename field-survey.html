@@ -28,6 +28,7 @@
 <script src="power-company-utils.js?v=20260901a"></script>
 <script src="power-company-tabs-ui.js?v=20260825a"></script>
 <script src="noshin-pref-bounds.js?v=20260820"></script>
+<script src="nouchi-navi-utils.js?v=20260905a"></script>
 
 
 <script>
@@ -1918,22 +1919,12 @@ function updateBaseMap() {
   }
 }
 
+// ★2026-09-05(ドクター指示): 座標URL(z/clat/clon)は農地ナビ側の仕様に依存し不確実なため、
+//   座標→住所(GSI逆ジオコーディング)へ変換してクリップボードにコピーし、農地ナビの「住所から
+//   探す」で確実に検索できるようにする方式へ変更。共通ロジックはnouchi-navi-utils.jsに1本化
+//   (field-survey/farmland-tracker/farmland-tracker-analysisの重複実装を解消)。
 function openNouchiNavi(lat, lng, address) {
-  if (address) {
-    navigator.clipboard.writeText(address).catch(() => {});
-    showToast(`\u4f4f\u6240\u3092\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f\uff1a${address}\u3000\u8fb2\u5730\u30ca\u30d3\u306e\u300c\u4f4f\u6240\u304b\u3089\u63a2\u3059\u300d\u3067\u691c\u7d22\u3057\u3066\u304f\u3060\u3055\u3044`, 'success');
-  }
-  const a = document.createElement('a');
-  a.href = `https://map.maff.go.jp/?zoom=${map.getZoom()}&lat=${lat}&lng=${lng}`;
-  // ★2026-09-05是正(黒木さん報告「以前調べた地番の場所へ飛ぶ」): 固定target='_blank'だと、
-  //   map.maff.go.jp側が既存タブを再利用した際にSPA内部の検索結果(前回の地番)を保持したまま
-  //   URLの座標だけ変わり、古い結果が表示され続ける事象が起きていた。呼ぶたびにユニークな
-  //   target名にして必ず新しいタブを開かせ、外部サイト側の古い状態を持ち越させない。
-  a.target = 'maff_nouchi_' + Date.now();
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  window.NouchiNaviUtils.openNouchiNavi(lat, lng, {zoom: map.getZoom(), address: address, toast: showToast});
 }
 
 function loadFude() {
