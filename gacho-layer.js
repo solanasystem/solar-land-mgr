@@ -17,6 +17,12 @@ var _pickMode=false;
 var _drawTarget=null; // v20260820h(ドクター): 手描き敷地境界→対象フラグの面積を更新(小さい土地を800㎡以上へ)。{lid,iid}
 var _addMode=false;
 var _addModeResume=false; // v20260823(ドクター): 手描きに入る時だけ📍を一時停止し、終わったら自動再開＝📍は連続作業用、押し直すのは終了時だけでよい
+// ★2026-09-07(ドクター指示「大量にフラグを載せると表示や移動が遅くならないか」): 愛知・豊橋市/豊川市
+// (2,019件)を含め全レイヤー合計3,520件超のAI候補+手動ピック等がSVGレンダラー(既定)で個別DOM要素として
+// 描画されており、大量マーカーでパン/ズームが重くなる。全circleMarker/polygonをCanvasレンダラー1枚に
+// まとめて描画することでDOM要素数を1つに抑える(ヒットテスト/ホバー/クリックはLeaflet標準機能で動作)。
+var _gachoRenderer=null;
+function _getGachoRenderer(){ if(!_gachoRenderer)_gachoRenderer=L.canvas({padding:0.5}); return _gachoRenderer; }
 
 function loadState(){
   var s=null;try{s=JSON.parse(localStorage.getItem(LS_KEY));}catch(_){}
@@ -1131,7 +1137,7 @@ function renderLayerGroups(){
       if(it.lat!=null&&it.lng!=null){
         var isB=(it.type==='boundary');
         var _sty=it.status==='ok'?{radius:isB?6:7,color:'#22c55e',weight:3,fillColor:l.color,fillOpacity:0}:{radius:isB?6:7,color:'#fff',weight:2,fillColor:l.color,fillOpacity:0.95}; // v20260903(ドクター): OK=枠緑・中透明のはずがfillOpacity0.30(中まで塗り)のバグ。0に是正
-        var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane'},_sty));
+        var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane',renderer:_getGachoRenderer()},_sty));
         if(_reviewFilter&&it.iid&&!isB)_reviewMarkerByIid[it.iid]=mk; // v20260820t: 送り機能でopenPopup(境界は常時表示のため対象外)
         if(it.status!=='ng') _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(NG済は除外=課金しない・キー無ければno-op)
         mk.bindPopup(popupHtml);
@@ -1140,7 +1146,7 @@ function renderLayerGroups(){
       }
       // ★形状特有の追加描画(面=ポリゴン)。共通フラグは既に上で描画済みなので、ここは形の可視化専用。
       if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
-        var pg=L.polygon(it.latlngs,it.status==='ng'?{pane:'gachoPane',color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.1,dashArray:'4,4'}:(it.status==='ok'?{pane:'gachoPane',color:'#22c55e',weight:3,fillColor:'#22c55e',fillOpacity:0.30}:{pane:'gachoPane',color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null})); // v20260821g(ドクター): 手描き=OK=緑の枠+緑の塗り(ピンクにしない)
+        var pg=L.polygon(it.latlngs,it.status==='ng'?{pane:'gachoPane',renderer:_getGachoRenderer(),color:'#6e7681',weight:1,fillColor:'#6e7681',fillOpacity:0.1,dashArray:'4,4'}:(it.status==='ok'?{pane:'gachoPane',renderer:_getGachoRenderer(),color:'#22c55e',weight:3,fillColor:'#22c55e',fillOpacity:0.30}:{pane:'gachoPane',renderer:_getGachoRenderer(),color:l.color,weight:2,fillColor:l.color,fillOpacity:vd?0.08:0.25,dashArray:vd?'4,4':null})); // v20260821g(ドクター): 手描き=OK=緑の枠+緑の塗り(ピンクにしない)
         pg.bindPopup(popupHtml);
         pg.bindTooltip(Math.round(it.area||0).toLocaleString()+'㎡',{permanent:true,direction:'center',className:'gacho-area-lbl',pane:'gachoPane'});
         pg.on('popupopen',function(){if(!it.viewed){it.viewed=true;saveState();}});
@@ -1170,7 +1176,7 @@ function renderDelivered(){
   try{ m.getPane('gachoDelivPane').style.display=''; }catch(_){}
   var g=L.layerGroup([]);
   window.DELIVERED300.pts.forEach(function(pt){
-    var mk=L.circleMarker([pt[0],pt[1]],{pane:'gachoDelivPane',radius:7,color:'#ffffff',weight:2,fillColor:'#ef4444',fillOpacity:0.85,interactive:true});
+    var mk=L.circleMarker([pt[0],pt[1]],{pane:'gachoDelivPane',renderer:_getGachoRenderer(),radius:7,color:'#ffffff',weight:2,fillColor:'#ef4444',fillOpacity:0.85,interactive:true});
     mk.bindTooltip('第1回納品済(300)',{direction:'top'});
     g.addLayer(mk);
   });
