@@ -21,8 +21,14 @@ var _addModeResume=false; // v20260823(ドクター): 手描きに入る時だ�
 // (2,019件)を含め全レイヤー合計3,520件超のAI候補+手動ピック等がSVGレンダラー(既定)で個別DOM要素として
 // 描画されており、大量マーカーでパン/ズームが重くなる。全circleMarker/polygonをCanvasレンダラー1枚に
 // まとめて描画することでDOM要素数を1つに抑える(ヒットテスト/ホバー/クリックはLeaflet標準機能で動作)。
-var _gachoRenderer=null;
-function _getGachoRenderer(){ if(!_gachoRenderer)_gachoRenderer=L.canvas({padding:0.5}); return _gachoRenderer; }
+var _gachoRenderer=null,_gachoDelivRenderer=null;
+// ★2026-09-09是正(ドクター報告「フラグは出ているが判定モーダルが出ていない」): 1つのCanvas
+// rendererインスタンスは1つのpaneにしか属せない(Leafletの仕様)。gachoPane用マーカーと
+// gachoDelivPane用マーカーが同じrendererを共有していたため、後者のpane指定が実質無視され、
+// ズーム時の座標変換基準がズレてクリック判定(ヒットテスト)が効かなくなっていたと推定。
+// pane別にrendererを分離する。
+function _getGachoRenderer(){ if(!_gachoRenderer)_gachoRenderer=L.canvas({padding:0.5,pane:'gachoPane'}); return _gachoRenderer; }
+function _getGachoDelivRenderer(){ if(!_gachoDelivRenderer)_gachoDelivRenderer=L.canvas({padding:0.5,pane:'gachoDelivPane'}); return _gachoDelivRenderer; }
 
 function loadState(){
   var s=null;try{s=JSON.parse(localStorage.getItem(LS_KEY));}catch(_){}
@@ -1129,7 +1135,8 @@ function renderLayerGroups(){
       var popupHtml,areaLabel='敷地境界';
       if(it.type==='boundary'&&it.latlngs&&it.latlngs.length>=3){
         var bredraw='<button class="gsc-draw" onclick="window.__gacho.redraw(\''+l.id+'\',\''+(it.iid||'')+'\')" title="この境界を消して描き直す">🗑 描き直す</button>';
-        popupHtml='<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+areaLabel+'<br>'+areaTxt+gmap+_whyHtml(it)+_scoreCardHtml(l,it)+bredraw+'</div>';
+        var bcoord=esc(it.address||(it.lat!=null?(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)):''));
+        popupHtml='<div style="font-size:12px;min-width:160px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+areaLabel+' <span style="color:#8b949e">'+bcoord+'</span><br>'+areaTxt+gmap+_whyHtml(it)+_scoreCardHtml(l,it)+bredraw+'</div>';
       } else {
         popupHtml='<div style="font-size:12px;min-width:250px"><b style="color:'+l.color+'">'+esc(l.name)+'</b> '+seen+stat+'<br>'+esc(it.address||(it.lat!=null?(Number(it.lat).toFixed(5)+', '+Number(it.lng).toFixed(5)):''))+(it.chiban?'<br>地番 '+esc(it.chiban):'')+'<br>'+areaTxt+(it.deliver?'<br>区分 '+esc(it.deliver):'')+gmap+_whyHtml(it)+_scoreCardHtml(l,it)+'</div>';
       }
@@ -1176,7 +1183,7 @@ function renderDelivered(){
   try{ m.getPane('gachoDelivPane').style.display=''; }catch(_){}
   var g=L.layerGroup([]);
   window.DELIVERED300.pts.forEach(function(pt){
-    var mk=L.circleMarker([pt[0],pt[1]],{pane:'gachoDelivPane',renderer:_getGachoRenderer(),radius:7,color:'#ffffff',weight:2,fillColor:'#ef4444',fillOpacity:0.85,interactive:true});
+    var mk=L.circleMarker([pt[0],pt[1]],{pane:'gachoDelivPane',renderer:_getGachoDelivRenderer(),radius:7,color:'#ffffff',weight:2,fillColor:'#ef4444',fillOpacity:0.85,interactive:true});
     mk.bindTooltip('第1回納品済(300)',{direction:'top'});
     g.addLayer(mk);
   });
