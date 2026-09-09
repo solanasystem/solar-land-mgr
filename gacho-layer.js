@@ -17,6 +17,17 @@ var _pickMode=false;
 var _drawTarget=null; // v20260820h(ドクター): 手描き敷地境界→対象フラグの面積を更新(小さい土地を800㎡以上へ)。{lid,iid}
 var _addMode=false;
 var _addModeResume=false; // v20260823(ドクター): 手描きに入る時だけ📍を一時停止し、終わったら自動再開＝📍は連続作業用、押し直すのは終了時だけでよい
+var _nextRoundNo=null,_poolReserveCount=null; // ★2026-09-09(ドクター指示「納品したら差し引いて次回の回数を表示・AI外出しで実装」): client_deliveries(confirmed)件数+1=次回の回数。round2_pool(status=reserve)件数=納品確定のたびshippedへ切替わり自動で差し引かれた残数。delivery-round-utils.jsのgetNextRoundInfo()で取得しキャッシュ。ハードコードで"第2回"固定にしない。
+// ★window.DELIVERY2.totalItems(loadDelivery2FromDb)はround=2の全件(reserve+shipped)のまま維持する
+// (_buildDupGridの重複防止は出荷済みの場所も含めて判定する必要があるため)。表示用の件数だけ
+// _poolReserveCount(reserveのみ=次回に回せる実数)を使い分ける。
+async function _loadNextRoundNo(){
+  try{
+    var d=_gDb(); if(!d||typeof window.getNextRoundInfo!=='function')return;
+    var info=await window.getNextRoundInfo(d);
+    if(info&&info.nextRound!=null){ _nextRoundNo=info.nextRound; _poolReserveCount=info.poolReserve; try{render();}catch(_){} }
+  }catch(_){}
+}
 // ★2026-09-07(ドクター指示「大量にフラグを載せると表示や移動が遅くならないか」): 愛知・豊橋市/豊川市
 // (2,019件)を含め全レイヤー合計3,520件超のAI候補+手動ピック等がSVGレンダラー(既定)で個別DOM要素として
 // 描画されており、大量マーカーでパン/ズームが重くなる。全circleMarker/polygonをCanvasレンダラー1枚に
@@ -1288,9 +1299,11 @@ function renderPanel(){
     // 0画層の設定も崩れる。362(第2回納品候補)の全レイヤーだけを1クリックでON/OFFする専用ボタン。
     // v20260823(ドクター): 「||512」等の固定フォールバックはJSの0=falsyで「本当に0件」の時も古い数字を表示してしまう
     // 欠陥だった(round2_poolのRLSで実際に0件返ってきた時に512と誤表示した事故の真因)。生の値だけを表示する。
-    var _d2n=window.DELIVERY2.totalItems;
-    h+='<div class="gacho-master"><button id="gachoD2Show" class="gacho-btn'+(state.showD2?' on':'')+'" style="'+(state.showD2?'background:rgba(34,197,94,.28);border-color:#22c55e':'')+'" title="第2回納品候補('+_d2n+')の全レイヤーだけをON/OFF。他の作業台レイヤーには触らない">'+(state.showD2?'🟢 第2回納品候補('+_d2n+')を表示中':'🟢 第2回納品候補('+_d2n+')を地図に表示')+'</button></div>';
-    h+='<div class="gacho-master"><button id="gachoD2Rebuild" class="gacho-btn" style="background:rgba(8,145,178,.28);border-color:#22d3ee;font-weight:700" title="第2回納品候補の階層を確定データ('+_d2n+')に完全一致。移動/補完/外れNGの除外を一括・可逆・推奨">🔄 第2回を確定データに一致（'+_d2n+'）</button></div>';
+    var _d2n=window.DELIVERY2.totalItems; // 地図に描画する全件(round2_pool round=2の全件・出荷済み含む=重複防止に使う既存の集計。件数の性質が違うため表示ラベルには使わない)
+    var _rn=(_nextRoundNo!=null?_nextRoundNo:'?'); // ハードコード「第2回」廃止。DBから取得した次回番号(未取得時は?)
+    var _rc=(_poolReserveCount!=null?_poolReserveCount:_d2n); // 表示用件数=納品確定済み(shipped)を差し引いたreserveの実数。未取得時のみ暫定で_d2nにフォールバック
+    h+='<div class="gacho-master"><button id="gachoD2Show" class="gacho-btn'+(state.showD2?' on':'')+'" style="'+(state.showD2?'background:rgba(34,197,94,.28);border-color:#22c55e':'')+'" title="第'+_rn+'回納品予定('+_rc+')の全レイヤーだけをON/OFF。他の作業台レイヤーには触らない">'+(state.showD2?'🟢 第'+_rn+'回納品予定('+_rc+')を表示中':'🟢 第'+_rn+'回納品予定('+_rc+')を地図に表示')+'</button></div>';
+    h+='<div class="gacho-master"><button id="gachoD2Rebuild" class="gacho-btn" style="background:rgba(8,145,178,.28);border-color:#22d3ee;font-weight:700" title="第'+_rn+'回納品予定の階層を確定データ('+_rc+')に完全一致。移動/補完/外れNGの除外を一括・可逆・推奨">🔄 第'+_rn+'回を確定データに一致（'+_rc+'）</button></div>';
     // v20260821z3(ドクター): 🗂整理・➕補完は🔄に完全統合されたため撤去(断捨離)。今後OKを増やしたら🔄で再反映。
     h+='<div class="gacho-master"><button id="gachoD2Manual" class="gacho-btn" style="background:rgba(255,20,147,.16);border-color:#ff1493" title="手作業ピック(ピンク)を『手作業｜県｜市町村』へ整理して階層表示。ピックの中身は不変・入れ物だけ整理・可逆">🖐 手作業ピックも県→市町村へ</button></div>';
     // v20260823(ドクター「ピンク→緑への昇格をボタン1つで、AI外だし」): OK判定済みの手動ピックをround2_pool(緑・予備軍)へ一括昇格。
@@ -2233,6 +2246,7 @@ function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(
   injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments().then(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}});setTimeout(loadDbJudgments,2500);setTimeout(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}},4200);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
   try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
   try{loadDelivery2FromDb();setTimeout(loadDelivery2FromDb,2600);}catch(_){} // v20260823: 362はround2_poolからライブ取得(静的ファイル依存を撤去)
+  try{_loadNextRoundNo();}catch(_){} // v20260909: 次回の回数(第N回)をDBから取得しボタン表示へ反映
   // 削除した筆を復活させない: 起動時＋遅延描画に追随して掃引
   try{ _sweepDeletedFlags(); setTimeout(_sweepDeletedFlags,1800); setTimeout(_sweepDeletedFlags,4500); setTimeout(_sweepDeletedFlags,9000); setInterval(_sweepDeletedFlags,20000); m.on('moveend zoomend',function(){_sweepDeletedFlags();}); }catch(_){}
   // 絶対に消えない: 起動時に未保存をDBへ再送→15秒毎に再試行→オンライン復帰で即再送。HUDで未保存件数を常時表示。
