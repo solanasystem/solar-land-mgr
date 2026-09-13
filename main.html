@@ -809,7 +809,7 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" style="color:var(--red);border-color:var(--red)" onclick="deleteCase()">🗑 案件削除</button>
       <button class="btn btn-ghost" onclick="closeModal('editCaseModal')">キャンセル</button>
-      <button class="btn btn-primary" onclick="saveCase()">保存する</button>
+      <button class="btn btn-primary" onclick="saveCase(this)">保存する</button>
     </div>
   </div>
 </div>
@@ -1831,15 +1831,19 @@ function statusBadgeInline(id,cur,lsa){
   return `<span class="status-badge status-select-wrap status-${cls}" style="position:relative"><span class="status-dot"></span><select class="inline-select" onchange="quickUpdateStatus('${id}',this.value,this)"><option value=""${!cur?' selected':''}>\u2014</option>${opts}</select>${suffix}</span>`;
 }
 async function quickUpdateKubun(id,val,el){
-  const{error}=await db.from('cases').update({kubun:val}).eq('id',id);
+  // 2026-09-13: update成功でも実は0行(該当id無し等)のことがあり、無言でrefreshAllが元の値を出していた。
+  // .select('id')で「実際に更新できた行」を確認し、0件ならエラー表示する。
+  const{data,error}=await db.from('cases').update({kubun:val}).eq('id',id).select('id');
   if(error){showToast('更新エラー: '+error.message,'error');return;}
+  if(!data||data.length===0){showToast('更新に失敗しました(対象の案件が見つかりません)','error');return;}
   el.closest('.badge-select-wrap').className=`badge badge-select-wrap badge-${kubunClass(val)}`;
   showToast('発電区分を更新しました','success');
   await refreshAll();
 }
 async function quickUpdateStatus(id,val,el){
-  const{error}=await db.from('cases').update({status:val}).eq('id',id);
+  const{data,error}=await db.from('cases').update({status:val}).eq('id',id).select('id');
   if(error){showToast('更新エラー: '+error.message,'error');return;}
+  if(!data||data.length===0){showToast('更新に失敗しました(対象の案件が見つかりません)','error');return;}
   el.closest('.status-select-wrap').className=`status-badge status-select-wrap status-${statusClass(val)}`;
   showToast('ステータスを更新しました','success');
   await refreshAll();
@@ -4404,11 +4408,19 @@ function openCaseEditModal(caseId){
   const dc=document.getElementById('ec_dc_kw');         if(dc) dc.value=c.dc_kw||'';
   document.getElementById('editCaseModal').classList.add('open');
 }
+let _refreshGen=0;
 async function refreshAll(){
+  // 世代ガード(2026-09-13): refreshAll()は毎回4種類を全件取得し直すため数秒かかる。
+  // 保存操作が続けて2回起きる等でrefreshAll()が並走すると、後から返ってきたレスポンスが
+  // 呼ばれた順に関係なく画面を上書きしていた(古い実行の結果が新しい実行の結果を踏み潰す)。
+  // 「一番最後に呼ばれた実行」だけが画面に反映されるよう、自分より新しい実行が
+  // 既に始まっていたら(=自分は古い)、取得できていても画面には反映せず捨てる。
+  const myGen=++_refreshGen;
   const{data}=await _fetchAllPaged('cases','*',q=>q.order('created_at',{ascending:false}));
   const{data:loData}=await _fetchAllPaged('landowner_info','*,cases(id,case_no,display_case_no,status,kubun,area_name,parent_case_no,branch_no,last_letter_sent_at)',q=>q.order('case_id'));
   const{data:ldData}=await _fetchAllPaged('land_info','*,cases(id,case_no,display_case_no,status,area_name,price,parent_case_no,branch_no)');
   const{data:reData}=await _fetchAllPaged('realestate_info','*,cases(id,case_no,display_case_no,area_name,parent_case_no,branch_no)');
+  if(myGen!==_refreshGen)return; // 自分より新しい実行が既に始まっている→この結果は古いので画面に反映しない
   const loMap={};
   (loData||[]).forEach(lo=>{if(lo.case_id)loMap[lo.case_id]=lo.name||'';});
   allCases=sortCasesByParentChild((data||[]).map(c=>({...c,landowner_name:loMap[c.id]||''})));
@@ -4451,23 +4463,36 @@ async function refreshAll(){
     }
   }
 }
-async function saveCase(){
-  const g=id=>document.getElementById(id);
-  const acVal=g('ec_ac_kw')?.value;
-  const dcVal=g('ec_dc_kw')?.value;
-  const dnRaw=(g('ec_display_case_no')?.value||'').trim();
-  const payload={
-    display_case_no:dnRaw||null,
-    kubun:g('ec_kubun').value,
-    status:g('ec_status').value,
-    price:g('ec_price').value?Number(g('ec_price').value):null,
-    contract_type:g('ec_contract_type')?.value||null,
-    ac_kw:acVal?Number(acVal):null,
-    dc_kw:dcVal?Number(dcVal):null
-  };
-  const{error}=await db.from('cases').update(payload).eq('id',currentCaseId);
-  if(error){showToast('保存エラー: '+error.message,'error');return;}
-  showToast('案件情報を更新しました');closeModal('editCaseModal');await refreshAll();
+let _savingCase=false;
+async function saveCase(btnEl){
+  // 二重クリック防止(2026-09-13: 九州黒木さん報告「OKにしたのに戻る」の根治)。
+  // 通信待ち中もボタンが押せたため、保存中にもう一度押すと2つのrefreshAll()が並走し、
+  // 後から返ってきた方(古い実行)が新しい値を踏み潰して古いステータスに戻って見えていた。
+  if(_savingCase)return;
+  _savingCase=true;
+  if(btnEl)btnEl.disabled=true;
+  try{
+    const g=id=>document.getElementById(id);
+    const acVal=g('ec_ac_kw')?.value;
+    const dcVal=g('ec_dc_kw')?.value;
+    const dnRaw=(g('ec_display_case_no')?.value||'').trim();
+    const payload={
+      display_case_no:dnRaw||null,
+      kubun:g('ec_kubun').value,
+      status:g('ec_status').value,
+      price:g('ec_price').value?Number(g('ec_price').value):null,
+      contract_type:g('ec_contract_type')?.value||null,
+      ac_kw:acVal?Number(acVal):null,
+      dc_kw:dcVal?Number(dcVal):null
+    };
+    const{data,error}=await db.from('cases').update(payload).eq('id',currentCaseId).select('id');
+    if(error){showToast('保存エラー: '+error.message,'error');return;}
+    if(!data||data.length===0){showToast('保存に失敗しました(対象の案件が見つかりません)','error');return;}
+    showToast('案件情報を更新しました');closeModal('editCaseModal');await refreshAll();
+  } finally {
+    _savingCase=false;
+    if(btnEl)btnEl.disabled=false;
+  }
 }
 async function deleteCase(){
   const c=allCases.find(x=>String(x.id)===String(currentCaseId));
