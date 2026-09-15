@@ -853,6 +853,10 @@ async function promotePinkToRound2(){
     }catch(e){ errs.push(e&&e.message||e); }
   }
   await loadDelivery2FromDb();
+  // v20260916(栗本さん「昇格しても(N)が増えない」根治): 昇格でreserve行はinsertされるが、ボタンの
+  // 「第N回…(N)」に出る_poolReserveCountは起動時1回しかキャッシュされず昇格後に再取得されないため
+  // 表示が古い値のまま固まっていた。ここで残数を再取得→render()し、昇格結果を即ラベルへ反映する。
+  try{await _loadNextRoundNo();}catch(_){}
   var msg='⬆ 昇格 '+inserted+'件（区域不明でスキップ'+skippedUnknown+'件・昇格済みでスキップ'+alreadyById+'件・重複描画でスキップ'+dupContent+'件'+(errs.length?'・エラー'+errs.length+'件':'')+'）';
   try{alert(msg);}catch(_){}
   toast(msg);
