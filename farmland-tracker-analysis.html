@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260916a / ⚡空容量レイヤーにズーム規定を追加(ドクター「ズーム規定が無いと表示にタイムラグがあって見難い」)。CAP_MIN_ZOOM=9未満は描画せず凡例に案内、9以上は画面内(余白30%)の変電所だけ描画し、地図移動/ズーム(moveend)のたびに描き直す(農振NOSHIN_MIN_ZOOMと同方式)。全国4,074点を一括生成していた負荷を解消。マーカー半径・スタイル・点滅・判定・popupは無変更(v20260626sのカビ模様回避=半径固定は維持)。トーストは初回表示時のみ、移動時の再描画は無音。 前:v20260915a -->
 <!-- BUILD: farmland-tracker-analysis v20260915a / ⚡空容量レイヤーを全国版(v5)に更新。配信を R2(substation_capacity_v4)→同一オリジン data/grid/substation_capacity_v5.geojson に切替。一般送配電8社(北海道/東北/東京/中部/北陸/関西/中国/九州)の変圧器(変電所)予想潮流・空容量一覧CSVを統合(7,9xx行・公表2026-07〜09)。四国・沖縄はドクター指示で対象外。座標=旧v4確定分を再利用+OSM変電所名称一致、未確定(pending)は非表示。判定に「空容量(上位系等考慮)=0」を🟡条件付きへ追加(_capCat/popup)。popupに事業者/所在/上位系考慮空容量/公表日を追加。凡例の出典行を読込メタから自動表示(#capLegendSrc)。生成スクリプト=solar-land-mgr-satellite/substation_capacity/build_v5.py(非公開)。 -->
 <!-- BUILD: farmland-tracker-analysis v20260820u / 🩹(ドクター)レビュー中の不具合3点を是正。①OKを押すたびOKが減る=既にOKの筆にOKでトグルOFFしていた→自分が確定済み(userJudged)の同判定の再押しだけ取消、それ以外は確定(減らない)。②手描きピンク(敷地境界)がレビュー絞り込みで消える→境界はレビュー中も常時表示(消さない)＋userJudged格上げ条件を強化(status=okでもuserJudged無しは格上げ)。③手動ピック等feature_id無しも判定後に残す(_reviewTouchedをiidでも保持)。前:v20260820t -->
 <!-- BUILD: farmland-tracker-analysis v20260820t / 🔢(ドクター)「判定したのに加算されない」を修正＋「▶次へ」送り機能。真因=ページ側フラグの判定は判定メモ層(judgeOnly・非表示・「合筆・保留」等の名前)に入り、パネルの調査中集計が非表示/参照名を除外していた。→判定メモ層は名前/可視に関係なく常に集計＋手描き敷地境界のOKも集計。加えて「🔎未確定の既OK」ON時に「▶次へ」=次の未確認へ地図を飛ばしポップアップを開く(reviewNext・_reviewSeenで一巡)=137件を探さず順に潰せる。前:v20260820s(q/r/s: レビュービュー/確定は消さず残す/手描きOK加算) -->
@@ -838,7 +839,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260915a ⚡空容量レイヤー全国8社版(v5)</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260916a ⚡空容量ズーム規定(z9以上・画面内のみ)</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -1160,6 +1161,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #facc15;margin-right:5px"></span>OSM近接(100-500m)</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #fb923c;margin-right:5px"></span>要確認(500m-3km)</div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:transparent;border:2px solid #fb7185;margin-right:5px"></span>OSM対応なし</div>
+        <div id="capZoomHint" style="margin-top:3px;color:#fb923c;font-size:9px;">ズーム9以上で画面内の変電所を表示</div>
         <div id="capLegendSrc" style="margin-top:3px;color:var(--text-dim);font-size:9px;">全国8社（北海道/東北/東京/中部/北陸/関西/中国/九州）読込中…</div>
       </div>
     </div>
@@ -6644,6 +6646,13 @@ function _renderSubstations(){
 var capEnabled=false, capLoading=false, capLayer=null, capCache=null;
 var capFilter={ok:true,cond:true,ng:true};
 var capMeta=null; // v20260915a: v5メタ(事業者別公表日)
+var CAP_MIN_ZOOM=9, _capMoveHandler=null; // v20260916a: ズーム規定(9未満は描画しない・画面内のみ描画)
+function _capZoomHint(){
+  var el=document.getElementById('capZoomHint'); if(!el||!map) return;
+  var z=map.getZoom();
+  el.textContent=(z<CAP_MIN_ZOOM)?('⚠ ズーム'+CAP_MIN_ZOOM+'以上で画面内の変電所を表示（現在: '+z+'）'):('画面内の変電所のみ表示中（ズーム'+z+'／移動すると描き直し）');
+  el.style.color=(z<CAP_MIN_ZOOM)?'#fb923c':'var(--text-dim)';
+}
 function _capLegendSrc(){
   var el=document.getElementById('capLegendSrc'); if(!el) return;
   if(!capMeta||!capMeta.companies){ el.textContent='出典: 各一般送配電事業者 公表「変圧器(変電所)予想潮流・空容量一覧」'; return; }
@@ -6686,7 +6695,7 @@ function _toggleCapFilter(cat){
     el.style.opacity = capFilter[cat] ? '1' : '0.4';
     var mk=el.querySelector('.capF_mark'); if(mk) mk.textContent = capFilter[cat] ? '☑' : '☐';
   }
-  if(capEnabled && capCache) _renderCapacitySubstations();
+  if(capEnabled && capCache) _renderCapacitySubstations(true);
 }
 function toggleCapacitySubstations(){
   var btn=document.getElementById('hzCapacity'); var lg=document.getElementById('capLegend');
@@ -6699,6 +6708,7 @@ function toggleCapacitySubstations(){
   }
   if(btn)btn.classList.add('active');
   if(lg)lg.style.display='block';
+  if(!_capMoveHandler){_capMoveHandler=function(){ if(capEnabled&&capCache) _renderCapacitySubstations(true); else _capZoomHint(); }; map.on('moveend',_capMoveHandler);} // v20260916a
   if(capCache){_renderCapacitySubstations();return;}
   _loadCapacitySubstations();
 }
@@ -6719,9 +6729,12 @@ async function _loadCapacitySubstations(){
     var lg=document.getElementById('capLegend'); if(lg)lg.style.display='none';
   }
 }
-function _renderCapacitySubstations(){
+function _renderCapacitySubstations(quiet){
   if(!capCache)return;
   if(capLayer){map.removeLayer(capLayer);capLayer=null;}
+  _capZoomHint();
+  if(map.getZoom()<CAP_MIN_ZOOM){ if(!quiet) showToast('配電用変電所(空容量)はズーム'+CAP_MIN_ZOOM+'以上で画面内の分を表示します（現在: '+map.getZoom()+'）','success'); return; } // v20260916a
+  var _bb=map.getBounds().pad(0.3); // v20260916a: 画面内+余白30%のみ描画
   if(!map.getPane('subPane')){var pp=map.createPane('subPane');pp.style.zIndex=635;}
   capLayer=L.layerGroup([],{pane:'subPane'});
   var n=0, capSum=0;
@@ -6730,6 +6743,7 @@ function _renderCapacitySubstations(){
     var lng=f.geometry.coordinates[0], lat=f.geometry.coordinates[1];
     // v20260626t: null/undefined座標を弾く（未ジオコ997件対策）
     if(lat==null||lng==null||isNaN(lat)||isNaN(lng))return;
+    if(!_bb.contains([lat,lng]))return; // v20260916a
     var p=f.properties||{};
     // 二重チェック: properties側の lat/lng も null なら除外
     if(p.lat==null||p.lng==null)return;
@@ -6824,7 +6838,7 @@ function _renderCapacitySubstations(){
     capLayer.addLayer(m); n++;
   });
   capLayer.addTo(map);
-  showToast(n+'件の配電用変電所を表示 / 空容量合計 '+capSum.toFixed(0)+'MW','success');
+  if(!quiet) showToast('画面内 '+n+'件の配電用変電所を表示 / 空容量合計 '+capSum.toFixed(0)+'MW（移動・ズームで描き直し）','success');
 }
 
 // ======== Phase2：クリック地点→最寄り66–110kV変電所の直線距離 ========
