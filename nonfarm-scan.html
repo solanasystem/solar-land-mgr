@@ -115,9 +115,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <div id="map"></div>
     <div class="legend">
       <h4>凡例</h4>
-      <div class="row"><span class="sw" style="background:rgba(34,197,94,.35);border-color:#16a34a;"></span><span>緑＝農地（get_fude・対象外の参考）</span></div>
-      <div class="row"><span class="sw" style="background:transparent;border-color:#f85149;"></span><span>緑でない筆＝非農地候補</span></div>
-      <div class="note">地番境界(法務省MojMap)から農地を引いた補集合＝非農地。衛星の現況を見てクリックで選別してください（z14以上で農地マスク表示）。</div>
+      <div class="row"><span class="sw" style="background:radial-gradient(circle,#22c55e 40%,rgba(34,197,94,.4) 41%);border:none;border-radius:50%;width:12px;height:12px;"></span><span>緑点＝農地（既知・農地ナビ由来の参考）</span></div>
+      <div class="row"><span class="sw" style="background:transparent;border-color:#f85149;"></span><span>農地点を含まない筆＝非農地候補</span></div>
+      <div class="note">筆(MojMap地番境界)の中に既知の農地点が入れば「農地」、無ければ「非農地」。衛星の現況を見てクリックで選別してください（z13以上で農地点表示）。</div>
       <div class="note">筆が無い場所をクリックしても「地番境界なし」として選別・記録できます。</div>
     </div>
   </div>
@@ -229,20 +229,23 @@ function tileRingsToLngLat(rings,tx,ty,z,extent){
 }
 
 /* ============================================================================
- * 農地筆オーバーレイ（get_fude_in_bbox=A / 緑マスク）
- *  farmland-tracker.html:1826 _fetchAndRenderAgriFude を忠実に移植。
- *  返る {geometry, land_type} を緑の半透明ポリゴンで描画し、点内包判定用に保持。
+ * 農地オーバーレイ（get_farmland_in_bbox=既知の農地点 / farmland_snapshots）
+ *  ※ get_fude_in_bbox はDBが空(奈良五條/愛知田原/三重松阪すべて0件)のため切替。
+ *  返るのはポリゴンでなく点(lat,lng+属性)。小さな緑の円マーカーで表示し、
+ *  クリック時の農地判定用に agriPoints=[{lat,lng},...] を保持する。
+ *  列: id,lat,lng,address,noushin_code,noushin_name,land_class,area_sqm,toshi_keikaku
  * ========================================================================== */
+var AGRI_MIN_ZOOM=13; // 点は z13 以上で表示
 var agriLayer=null,agriCanvas=null,agriTimer=null;
-var agriFeatures=[]; // 保持: クリック点の農地判定(turf.booleanPointInPolygon)に使う
+var agriPoints=[]; // 保持: 筆ポリゴン内に農地点があるかの判定に使う
 function renderAgriInView(){
   if(agriTimer)clearTimeout(agriTimer);
   agriTimer=setTimeout(_doRenderAgri,200);
 }
 function _doRenderAgri(){
-  if(map.getZoom()<FUDE_MIN_ZOOM){
+  if(map.getZoom()<AGRI_MIN_ZOOM){
     if(agriLayer){map.removeLayer(agriLayer);agriLayer=null;}
-    agriFeatures=[];
+    agriPoints=[];
     return;
   }
   _fetchAndRenderAgri();
@@ -251,7 +254,7 @@ async function _fetchAndRenderAgri(){
   var b=map.getBounds().pad(0.1);
   var res;
   try{
-    res=await db.rpc('get_fude_in_bbox',{
+    res=await db.rpc('get_farmland_in_bbox',{
       lat_min:b.getSouth(), lat_max:b.getNorth(),
       lng_min:b.getWest(),  lng_max:b.getEast(),
       row_limit:2000
@@ -259,30 +262,30 @@ async function _fetchAndRenderAgri(){
   }catch(e){console.warn('[agri] rpc exception',e);return;}
   if(res.error||!res.data){if(res.error)console.warn('[agri] rpc error',res.error);return;}
   if(agriLayer){map.removeLayer(agriLayer);agriLayer=null;}
-  var features=res.data.map(function(row){
-    return {type:'Feature',geometry:row.geometry,properties:{land_type:row.land_type}};
-  });
-  agriFeatures=features; // 保持
+  var pts=[],markers=[];
   if(!map.getPane('agriPane')){var _p=map.createPane('agriPane');_p.style.zIndex=450;}
   if(!agriCanvas)agriCanvas=L.canvas({pane:'agriPane',padding:0.5});
-  agriLayer=L.geoJSON({type:'FeatureCollection',features:features},{
-    renderer:agriCanvas,
-    pane:'agriPane',
-    style:function(f){
-      var lt=f.properties.land_type;
-      return {fillColor:lt===100?'#22c55e':'#eab308',fillOpacity:0.30,color:lt===100?'#16a34a':'#ca8a04',weight:1};
-    }
-  }).addTo(map);
+  for(var i=0;i<res.data.length;i++){
+    var row=res.data[i];
+    if(row.lat==null||row.lng==null)continue;
+    pts.push({lat:row.lat,lng:row.lng});
+    markers.push(L.circleMarker([row.lat,row.lng],{
+      renderer:agriCanvas, pane:'agriPane', radius:4,
+      fillColor:'#22c55e', color:'#16a34a', weight:1, fillOpacity:0.55, interactive:false
+    }));
+  }
+  agriPoints=pts; // 保持
+  agriLayer=L.layerGroup(markers).addTo(map);
 }
 
-/* クリック点が農地筆に内包されるか（保持した緑features・turf.booleanPointInPolygon） */
-function isFarmlandPoint(lat,lng){
-  if(typeof turf==='undefined'||!agriFeatures.length)return false;
-  var pt=turf.point([lng,lat]);
-  for(var i=0;i<agriFeatures.length;i++){
-    var g=agriFeatures[i]&&agriFeatures[i].geometry;
-    if(!g)continue;
-    try{ if(turf.booleanPointInPolygon(pt,agriFeatures[i]))return true; }catch(_){}
+/* 筆ポリゴン内に農地点(agriPoints)が1つでも入るか＝農地。無ければ非農地。
+   （点データなので従来の「クリック点が農地ポリゴンに内包か」を逆に判定） */
+function parcelHasFarmland(parcelPolyFeature){
+  if(typeof turf==='undefined'||!agriPoints.length||!parcelPolyFeature)return false;
+  for(var i=0;i<agriPoints.length;i++){
+    try{
+      if(turf.booleanPointInPolygon(turf.point([agriPoints[i].lng,agriPoints[i].lat]),parcelPolyFeature))return true;
+    }catch(_){}
   }
   return false;
 }
@@ -330,17 +333,18 @@ async function onMapClickForNonfarm(ev){
     var rawArea=foundProps['地番区域']||'';
     var areaLabel=rawArea.split('_').filter(function(s){return s&&s.trim();}).join(' ');
 
-    // 面積（turf.area）: タイル座標のリングを [lng,lat] へ変換してGeoJSONポリゴン化
-    var areaSqm=null;
+    // 筆ポリゴンを [lng,lat] へ変換して面積算出＋農地判定に使う
+    var parcelPoly=null, areaSqm=null;
     try{
       var llRings=tileRingsToLngLat(foundRings,tx,ty,z,extent);
       if(llRings.length){
-        areaSqm=Math.round(turf.area({type:'Feature',geometry:{type:'Polygon',coordinates:llRings}}));
+        parcelPoly={type:'Feature',geometry:{type:'Polygon',coordinates:llRings}};
+        areaSqm=Math.round(turf.area(parcelPoly));
       }
     }catch(_){}
 
-    // 農地/非農地 判定（クリック点が保持した緑features に内包されるか）
-    var isFarm=isFarmlandPoint(lat,lng);
+    // 農地/非農地 判定（筆ポリゴン内に農地点が1つでも入れば農地）
+    var isFarm=parcelHasFarmland(parcelPoly);
     var landuse=isFarm?'farmland':'nonfarm';
 
     currentCandidate={chiban:chiban,areaLabel:areaLabel,lat:lat,lng:lng,area_sqm:areaSqm,landuse:landuse};
