@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260916g / ⚡変電所(OSM 4,815件)レイヤーにも空容量と同じズーム規定を適用(ドクター「一気に変電所が表示されている。一度読み込むと2度目から全部出る仕組みもやめろ、無駄な情報」)。CAP_MIN_ZOOM(9)未満は描画せず凡例に案内、9以上は画面内+余白30%だけ描画、moveendで描き直し(描画済み範囲内の小移動では描き直さない=ポップアップ保護)。キャッシュ(subCache)は保持するが全件描画はしない。トーストは初回のみ。 -->
 <!-- BUILD: farmland-tracker v20260916f / 📐変電所の「半径計測」トグルを追加(ドクター: 変電所からの距離で高圧/特高の蓄電所が接続可能か否かが決まる)。⚡変電所(OSM)・⚡空容量の両マーカーのポップアップに「半径計測」ボタン。ONでその変電所を中心に半径1km(緑)/2km(黄)/3km(橙・破線)の円と距離ラベルを描画、再クリックでOFF。複数の変電所で同時に表示可。凡例に表示中箇所数と「全て消す」。両レイヤーをOFFにしたらリングも消す。専用ringPane(z630, 非インタラクティブ)でマーカーのクリックを妨げない。地図移動の描き直しでも消えない(マーカーとは独立管理)。 -->
 <!-- BUILD: farmland-tracker v20260916d / 🏷バージョン表示を1箇所に統一(ドクター)。唯一の正=このページ先頭のBUILDコメント。共通build-version-badge.jsがこれを読んでロゴ横の「v3.0」を書き換える(変更内容はホバー)。緑の「BUILD: …」帯(ヘッダ)と左上の固定表示・window.__BUILD__固定値(v20260905aのまま放置されていた)を撤去。 前:v20260916b -->
 <!-- BUILD: farmland-tracker v20260916b / ⚡変電所/空容量マーカーにホバー時のツールチップ(名称)を追加(ドクター「フラグにカーソルを持って行っても名前が表示されない」)。空容量=名称+空容量MW+🟢🟡🔴、⚡変電所(OSM)=名称+電圧。既存の farmland-tooltip スタイル・direction:top で統一。クリックのポップアップは従来どおり。＋v20260916aの退行修正: ポップアップ自動パン(moveend)で描き直されて開いた直後に消えていた→描画済み範囲内の小移動では描き直さない。前:v20260916a -->
@@ -1101,6 +1102,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
     <button class="hazard-btn" id="hzMeasure" onclick="toggleMeasure()">&#128207; 最寄り変電所(66–110kV)</button>
     <div id="subLegend" style="display:none;margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);max-width:220px;">
       <div style="font-size:10px;line-height:1.7;">
+        <div id="subZoomHint" style="color:#fb923c;">ズーム9以上で画面内の変電所を表示</div>
         <div id="subRingInfo" style="margin-top:4px;font-weight:600;">📐 半径計測: 変電所をクリック→「半径計測」</div>
         <div><span style="color:#22c55e">●</span>1km <span style="color:#facc15">●</span>2km <span style="color:#f97316">●</span>3km（蓄電所の接続可否の目安） <a href="#" onclick="clearSubRings();return false;" style="color:#4aa3ff;text-decoration:none;margin-left:6px">全て消す</a></div>
         <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#e53935;border:1px solid #333;margin-right:5px"></span>500kV級（基幹）</div>
@@ -6383,6 +6385,11 @@ function toggleSubstations(){
   subEnabled=!subEnabled;
   if(!subEnabled){ if(subLayer){map.removeLayer(subLayer);subLayer=null;} if(btn)btn.classList.remove('active'); if(lg)lg.style.display='none'; if(!capEnabled) clearSubRings(); showToast('変電所を非表示にしました','success'); return; }
   if(btn)btn.classList.add('active'); if(lg)lg.style.display='block';
+  if(!_subMoveHandler){_subMoveHandler=function(){
+    if(!(subEnabled&&subCache)){ _subZoomHint(); return; }
+    if(_subRenderedBounds && map.getZoom()===_subRenderedZoom && _subRenderedBounds.contains(map.getBounds())){ _subZoomHint(); return; }
+    _renderSubstations(true);
+  }; map.on('moveend',_subMoveHandler);} // v20260916g
   if(subCache){_renderSubstations();return;}
   _loadSubstations();
 }
@@ -6403,9 +6410,18 @@ async function _loadSubstations(){
     showToast('変電所の読み込みに失敗: '+e.message,'error');
   }
 }
-function _renderSubstations(){
+var _subRenderedBounds=null, _subRenderedZoom=null; // v20260916g
+function _subZoomHint(){
+  var el=document.getElementById('subZoomHint'); if(!el||!map) return; var z=map.getZoom();
+  el.textContent=(z<CAP_MIN_ZOOM)?('⚠ ズーム'+CAP_MIN_ZOOM+'以上で画面内の変電所を表示（現在: '+z+'）'):('画面内の変電所のみ表示中（ズーム'+z+'／移動すると描き直し）');
+  el.style.color=(z<CAP_MIN_ZOOM)?'#fb923c':'var(--text-dim)';
+}
+function _renderSubstations(quiet){
   if(!subEnabled||!subCache)return;
   if(subLayer){map.removeLayer(subLayer);subLayer=null;}
+  _subZoomHint();
+  if(map.getZoom()<CAP_MIN_ZOOM){ if(!quiet) showToast('変電所はズーム'+CAP_MIN_ZOOM+'以上で画面内の分を表示します（現在: '+map.getZoom()+'）','success'); return; } // v20260916g
+  var _bb=map.getBounds().pad(0.3); _subRenderedBounds=_bb; _subRenderedZoom=map.getZoom(); // v20260916g: 画面内+余白30%のみ
   if(!map.getPane('subPane')){var pp=map.createPane('subPane');pp.style.zIndex=635;}
   if(!subRenderer)subRenderer=L.canvas({pane:'subPane',padding:0.5});
   subLayer=L.layerGroup([],{pane:'subPane'});
@@ -6414,6 +6430,7 @@ function _renderSubstations(){
     var g=f.geometry; if(!g||g.type!=='Point')return;
     var lng=Number(g.coordinates[0]),lat=Number(g.coordinates[1]);
     if(isNaN(lat)||isNaN(lng))return;
+    if(!_bb.contains([lat,lng]))return; // v20260916g
     var pr=f.properties||{}; var col=_subColor(pr.voltage_kv);
     var m=L.circleMarker([lat,lng],{renderer:subRenderer,pane:'subPane',radius:_zoomRadius(),color:'#222',weight:1,fillColor:col,fillOpacity:0.95,opacity:1});
     var volt=(pr.voltage_kv!=null)?(pr.voltage_kv+'kV'):(pr.voltage||'—');
@@ -6423,7 +6440,7 @@ function _renderSubstations(){
     subLayer.addLayer(m); n++;
   });
   subLayer.addTo(map);
-  showToast(n+'件の変電所を表示（© OpenStreetMap contributors）','success');
+  if(!quiet) showToast('画面内 '+n+'件の変電所を表示（© OpenStreetMap contributors／移動・ズームで描き直し）','success');
 }
 
 
@@ -6480,7 +6497,7 @@ function _bindRingButton(marker,lat,lng,name){
 var capEnabled=false, capLoading=false, capLayer=null, capCache=null;
 var capFilter={ok:true,cond:true,ng:true};
 var capMeta=null; // v20260915a: v5メタ(事業者別公表日)
-var CAP_MIN_ZOOM=9, _capMoveHandler=null, _capRenderedBounds=null, _capRenderedZoom=null; // v20260916a: ズーム規定(9未満は描画しない・画面内のみ描画)
+var CAP_MIN_ZOOM=9, _capMoveHandler=null, _capRenderedBounds=null, _capRenderedZoom=null, _subMoveHandler=null; // v20260916g: ⚡変電所も同じ規定 // v20260916a: ズーム規定(9未満は描画しない・画面内のみ描画)
 function _capZoomHint(){
   var el=document.getElementById('capZoomHint'); if(!el||!map) return;
   var z=map.getZoom();
