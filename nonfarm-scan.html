@@ -118,6 +118,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
       <div class="row"><span class="sw" style="background:rgba(34,197,94,.35);border-color:#16a34a;"></span><span>緑＝農地（get_fude・対象外の参考）</span></div>
       <div class="row"><span class="sw" style="background:transparent;border-color:#f85149;"></span><span>緑でない筆＝非農地候補</span></div>
       <div class="note">地番境界(法務省MojMap)から農地を引いた補集合＝非農地。衛星の現況を見てクリックで選別してください（z14以上で農地マスク表示）。</div>
+      <div class="note">筆が無い場所をクリックしても「地番境界なし」として選別・記録できます。</div>
     </div>
   </div>
   <div class="side" id="side">
@@ -306,10 +307,10 @@ async function onMapClickForNonfarm(ev){
   var ty=Math.floor((1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*n);
   try{
     var resp=await window.__PMT.getZxy(z,tx,ty);
-    if(!resp){showToast('この地点の地番境界タイルがありません','warning');return;}
+    if(!resp){showFallbackPopup(lat,lng,ev.latlng);return;} // タイル自体が空白=地番境界データなし
     var tile=new window.__VT(new window.__Pbf(resp.data));
     var layerNames=Object.keys(tile.layers);
-    if(!layerNames.length)return;
+    if(!layerNames.length){showFallbackPopup(lat,lng,ev.latlng);return;} // レイヤ無し=地番境界データなし
     var layer=tile.layers[layerNames[0]];
     var extent=layer.extent;
     var pxFull=(lng+180)/360*n*extent;
@@ -322,7 +323,7 @@ async function onMapClickForNonfarm(ev){
       var geom=feat.loadGeometry();
       if(pointInPolygon(px,py,geom)){foundProps=feat.properties;foundRings=geom;break;}
     }
-    if(!foundProps){showToast('この地点に地番境界の筆が見つかりません','warning');return;}
+    if(!foundProps){showFallbackPopup(lat,lng,ev.latlng);return;} // 筆が見つからない=地番境界データなし
 
     // 地番プロパティ（AMX 2024-04 実属性: キーは '地番'）
     var chiban=foundProps['地番']||'';
@@ -381,6 +382,32 @@ function zoomHere(lat,lng){
 }
 
 /* ============================================================================
+ * フォールバック: MojMap に筆が無い（登記所備付地図の空白）地点も選別・記録できる
+ *  地番境界を必須ゲートにしない。landuse は常に 'nonfarm'、面積は任意手入力。
+ * ========================================================================== */
+function showFallbackPopup(lat,lng,latlng){
+  currentCandidate={fallback:true,chiban:'',lat:lat,lng:lng,area_sqm:null,landuse:'nonfarm'};
+  if(nfPopup){try{map.closePopup(nfPopup);}catch(_){}}
+  nfPopup=L.popup({maxWidth:300,minWidth:240}).setLatLng(latlng).setContent(buildFallbackPopup(lat,lng)).openOn(map);
+}
+function buildFallbackPopup(lat,lng){
+  var latS=Number(lat).toFixed(6), lngS=Number(lng).toFixed(6);
+  var g='https://www.google.com/maps/search/?api=1&query='+lat+','+lng;
+  var sv='https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+lat+','+lng;
+  return '<div class="np-body">'+
+    '<div class="np-title nonfarm">🗺 地番境界データなし（登記所備付地図の空白）</div>'+
+    '<div class="np-row"><span class="k">緯度経度</span><span class="v">'+latS+', '+lngS+'</span></div>'+
+    '<div class="np-row"><span class="k">面積</span><span class="v"><input id="nfManualArea" type="number" min="0" step="1" placeholder="手入力(㎡)" style="width:104px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:var(--font-main);font-size:12px;padding:3px 6px;text-align:right;"> ㎡</span></div>'+
+    '<div class="np-links">'+
+      '<a href="'+g+'" target="_blank" rel="noopener">🌐 Googleマップ</a>'+
+      '<a href="'+sv+'" target="_blank" rel="noopener">🚶 ストリートビュー</a>'+
+      '<button onclick="zoomHere('+lat+','+lng+')">🔍 現況を大きく見る</button>'+
+    '</div>'+
+    '<button class="np-pick" onclick="recordFallbackPick()">⬆ この地点を適地として選別（地番境界なし）</button>'+
+  '</div>';
+}
+
+/* ============================================================================
  * 選別・記録: Supabase nonfarm_candidates へ INSERT → 失敗時 localStorage フォールバック
  * ========================================================================== */
 function loadLocalPicks(){
@@ -390,17 +417,8 @@ function saveLocalPicks(arr){
   try{localStorage.setItem(LS_KEY,JSON.stringify(arr));}catch(_){}
 }
 
-async function recordPick(){
-  if(!currentCandidate){showToast('記録対象がありません','warning');return;}
-  var c=currentCandidate;
-  var rec={
-    chiban:c.chiban||'',
-    lat:c.lat, lng:c.lng,
-    area_sqm:(c.area_sqm!=null?c.area_sqm:null),
-    landuse:c.landuse,
-    status:'picked',
-    memo:c.areaLabel||''
-  };
+/* 共通保存: nonfarm_candidates へ INSERT → 失敗時 localStorage フォールバック */
+async function saveRecAndRefresh(rec){
   var savedToDb=false;
   try{
     var res=await db.from('nonfarm_candidates').insert([rec]).select();
@@ -422,6 +440,38 @@ async function recordPick(){
   }
   if(nfPopup){try{map.closePopup(nfPopup);}catch(_){}}
   await refreshPickList();
+}
+
+/* 従来ケース（筆あり）の記録 */
+async function recordPick(){
+  if(!currentCandidate){showToast('記録対象がありません','warning');return;}
+  var c=currentCandidate;
+  var rec={
+    chiban:c.chiban||'',
+    lat:c.lat, lng:c.lng,
+    area_sqm:(c.area_sqm!=null?c.area_sqm:null),
+    landuse:c.landuse,
+    status:'picked',
+    memo:c.areaLabel||''
+  };
+  await saveRecAndRefresh(rec);
+}
+
+/* フォールバック（地番境界なし）の記録: 面積は任意手入力 */
+async function recordFallbackPick(){
+  if(!currentCandidate||!currentCandidate.fallback){showToast('記録対象がありません','warning');return;}
+  var manual=null;
+  var el=document.getElementById('nfManualArea');
+  if(el&&el.value!==''){var v=Number(el.value);if(!isNaN(v)&&v>=0)manual=Math.round(v);}
+  var rec={
+    chiban:'',
+    lat:currentCandidate.lat, lng:currentCandidate.lng,
+    area_sqm:manual,
+    landuse:'nonfarm',
+    status:'picked',
+    memo:'地番境界なし(登記所備付地図の空白)'
+  };
+  await saveRecAndRefresh(rec);
 }
 
 /* DB + localStorage をまとめて選別済みリストへ */
@@ -447,7 +497,15 @@ function renderPickList(items){
   items.forEach(function(it){
     var isFarm=it.landuse==='farmland';
     var area=(it.area_sqm!=null&&it.area_sqm!=='')?(Number(it.area_sqm).toLocaleString()+' ㎡'):'—';
-    var label=(it.memo?esc(it.memo)+' ':'')+esc(it.chiban||'—');
+    var label;
+    if(it.chiban&&String(it.chiban).trim()){
+      label=(it.memo?esc(it.memo)+' ':'')+esc(it.chiban);
+    }else{
+      // 地番境界なし: 地番が空なら「(地番境界なし) lat,lng」で表示
+      var _la=(it.lat!=null)?Number(it.lat).toFixed(6):'?';
+      var _ln=(it.lng!=null)?Number(it.lng).toFixed(6):'?';
+      label='(地番境界なし) '+_la+','+_ln;
+    }
     html+='<div class="pick-item">'+
       '<div class="ph"><span class="chiban">'+label+'</span>'+
         '<span class="tag '+(isFarm?'farmland':'nonfarm')+'">'+(isFarm?'農地':'非農地')+'</span></div>'+
