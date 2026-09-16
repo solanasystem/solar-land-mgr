@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260916h / 🩹「フラグをクリックしてもモーダルが出ない」の修正(ドクター報告)。真因=空容量マーカーのポップアップ(幅340px)の自動パンが描画済み範囲の余白(30%=約270px)を超えると moveend で描き直され、マーカーごと入れ替わってポップアップが即閉じていた(v20260916bの範囲判定では不十分。変電所側は幅200pxで偶然すり抜け)。修正=範囲判定に加え「そのレイヤーのマーカーのポップアップが開いている間は描き直さない」。閉じた時(popupclose)に描き直しが保留されていれば実行。両レイヤー共通。 -->
 <!-- BUILD: farmland-tracker-analysis v20260916g / ⚡変電所(OSM 4,815件)レイヤーにも空容量と同じズーム規定を適用(ドクター「一気に変電所が表示されている。一度読み込むと2度目から全部出る仕組みもやめろ、無駄な情報」)。CAP_MIN_ZOOM(9)未満は描画せず凡例に案内、9以上は画面内+余白30%だけ描画、moveendで描き直し(描画済み範囲内の小移動では描き直さない=ポップアップ保護)。キャッシュ(subCache)は保持するが全件描画はしない。トーストは初回のみ。 -->
 <!-- BUILD: farmland-tracker-analysis v20260916f / 📐変電所の「半径計測」トグルを追加(ドクター: 変電所からの距離で高圧/特高の蓄電所が接続可能か否かが決まる)。⚡変電所(OSM)・⚡空容量の両マーカーのポップアップに「半径計測」ボタン。ONでその変電所を中心に半径1km(緑)/2km(黄)/3km(橙・破線)の円と距離ラベルを描画、再クリックでOFF。複数の変電所で同時に表示可。凡例に表示中箇所数と「全て消す」。両レイヤーをOFFにしたらリングも消す。専用ringPane(z630, 非インタラクティブ)でマーカーのクリックを妨げない。地図移動の描き直しでも消えない(マーカーとは独立管理)。 -->
 <!-- BUILD: farmland-tracker-analysis v20260916d / 🏷バージョン表示を1箇所に統一(ドクター)。唯一の正=このページ先頭のBUILDコメント。共通build-version-badge.jsがこれを読んでロゴ横の「v3.0」を書き換える(変更内容はホバー)。緑の「BUILD: …」帯(ヘッダ)と左上の固定表示・window.__BUILD__固定値(v20260905aのまま放置されていた)を撤去。 前:v20260916c -->
@@ -6613,9 +6614,11 @@ function toggleSubstations(){
   if(btn)btn.classList.add('active'); if(lg)lg.style.display='block';
   if(!_subMoveHandler){_subMoveHandler=function(){
     if(!(subEnabled&&subCache)){ _subZoomHint(); return; }
+    if(_popupOpenOn(subLayer)){ _subPendingRender=true; _subZoomHint(); return; } // v20260916h
     if(_subRenderedBounds && map.getZoom()===_subRenderedZoom && _subRenderedBounds.contains(map.getBounds())){ _subZoomHint(); return; }
     _renderSubstations(true);
   }; map.on('moveend',_subMoveHandler);} // v20260916g
+  _bindPopupGuard(); // v20260916h
   if(subCache){_renderSubstations();return;}
   _loadSubstations();
 }
@@ -6723,7 +6726,18 @@ function _bindRingButton(marker,lat,lng,name){
 var capEnabled=false, capLoading=false, capLayer=null, capCache=null;
 var capFilter={ok:true,cond:true,ng:true};
 var capMeta=null; // v20260915a: v5メタ(事業者別公表日)
-var CAP_MIN_ZOOM=9, _capMoveHandler=null, _capRenderedBounds=null, _capRenderedZoom=null, _subMoveHandler=null; // v20260916g: ⚡変電所も同じ規定 // v20260916a: ズーム規定(9未満は描画しない・画面内のみ描画)
+var CAP_MIN_ZOOM=9, _capMoveHandler=null, _capRenderedBounds=null, _capRenderedZoom=null, _subMoveHandler=null; // v20260916g: ⚡変電所も同じ規定
+var _capPendingRender=false, _subPendingRender=false, _popupGuardBound=false; // v20260916h
+function _popupOpenOn(layer){ // そのレイヤーグループ内のマーカーのポップアップが開いているか
+  try{ var p=map._popup; if(!p||!p.isOpen()||!p._source||!layer) return false; return layer.hasLayer(p._source); }catch(_){ return false; }
+}
+function _bindPopupGuard(){
+  if(_popupGuardBound) return; _popupGuardBound=true;
+  map.on('popupclose',function(){ setTimeout(function(){
+    if(_capPendingRender){ _capPendingRender=false; if(capEnabled&&capCache&&!_popupOpenOn(capLayer)) _renderCapacitySubstations(true); }
+    if(_subPendingRender){ _subPendingRender=false; if(subEnabled&&subCache&&!_popupOpenOn(subLayer)) _renderSubstations(true); }
+  },0); });
+} // v20260916a: ズーム規定(9未満は描画しない・画面内のみ描画)
 function _capZoomHint(){
   var el=document.getElementById('capZoomHint'); if(!el||!map) return;
   var z=map.getZoom();
@@ -6788,10 +6802,12 @@ function toggleCapacitySubstations(){
   if(lg)lg.style.display='block';
   if(!_capMoveHandler){_capMoveHandler=function(){
     if(!(capEnabled&&capCache)){ _capZoomHint(); return; }
+    if(_popupOpenOn(capLayer)){ _capPendingRender=true; _capZoomHint(); return; } // v20260916h: ポップアップ閲覧中は描き直さない
     // v20260916b: 描画済み範囲(余白30%)内の小移動(ポップアップの自動パン等)では描き直さない＝クリックしたポップアップが消えない
     if(_capRenderedBounds && map.getZoom()===_capRenderedZoom && _capRenderedBounds.contains(map.getBounds())){ _capZoomHint(); return; }
     _renderCapacitySubstations(true);
   }; map.on('moveend',_capMoveHandler);} // v20260916a
+  _bindPopupGuard(); // v20260916h
   if(capCache){_renderCapacitySubstations();return;}
   _loadCapacitySubstations();
 }
