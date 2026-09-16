@@ -256,7 +256,7 @@
   try {
     if (!document.querySelector('script[data-build-version-badge]')) {
       var _bvb = document.createElement('script');
-      _bvb.src = 'build-version-badge.js?v=20260905a';
+      _bvb.src = 'build-version-badge.js?v=20260916d';
       _bvb.setAttribute('data-build-version-badge', '1');
       _bvb.defer = true;
       (document.head || document.documentElement).appendChild(_bvb);
