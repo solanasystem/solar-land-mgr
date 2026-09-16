@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<!-- BUILD: nonfarm-scan v20260916a / 非農地スキャン: 地番境界(MojMap)×農地マスク(get_fude)で農地の補集合を地図表示し、衛星現況で非農地適地を人が選別・記録。U-A=非農地。 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>非農地スキャン - GRID LAND MGR</title>
+<!-- ===== 権限管理ガード（必ず他スクリプトより前） ===== -->
+<script src="common-auth.js?v=20260813kuroki"></script>
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Supabase UMD -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<!-- 面積計算 turf -->
+<script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
+<!-- 手動PBFデコード用 pbf (decodePBFTile が使用する global Pbf) -->
+<script src="https://unpkg.com/pbf@3.2.1/dist/pbf.js"></script>
+<!-- 地番境界PMTiles表示用（farmland-tracker.html と同じ v5.1.0 + ESMデコーダ） -->
+<script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
+<script type="module">
+  // pmtiles と ベクタータイルデコーダを読み込み、グローバルにエクスポート（farmland-tracker.html と同一）
+  import * as pmtilesModule from 'https://esm.sh/pmtiles@3.0.6';
+  const vtModule = await import('https://esm.sh/@mapbox/vector-tile@1.3.1');
+  const pbfModule = await import('https://esm.sh/pbf@3.2.1');
+  window.__PMT = new pmtilesModule.PMTiles('https://data.source.coop/smartmaps/amx-2024-04/MojMap_amx_2024.pmtiles');
+  window.__VT = vtModule.VectorTile;
+  window.__Pbf = pbfModule.default;
+  window.dispatchEvent(new Event('pmtReady'));
+</script>
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;--accent:#f0b429;--green:#3fb950;--red:#f85149;--text:#e6edf3;--text-muted:#8b949e;--font-main:'Zen Kaku Gothic New',sans-serif;--font-mono:'Share Tech Mono',monospace;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 16px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;z-index:1000;}
+.header-left{display:flex;align-items:center;gap:12px;min-width:0;}
+.logo{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--text);}
+.logo-icon{width:28px;height:28px;background:linear-gradient(135deg,#0F7B3E,#064E2A);border-radius:6px;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 1px 2px rgba(255,255,255,.15),0 2px 4px rgba(0,0,0,.3);font-size:15px;}
+.logo-text{font-size:14px;font-weight:700;white-space:nowrap;}
+.page-title{font-size:13px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.base-switch{display:flex;gap:4px;align-items:center;}
+.base-switch .lbl{font-size:11px;color:var(--text-muted);margin-right:2px;}
+.btn{padding:6px 12px;border-radius:6px;border:1px solid var(--border);font-family:var(--font-main);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;background:none;color:var(--text-muted);}
+.btn:hover{background:var(--surface2);color:var(--text);}
+.btn.active{background:var(--accent);color:#000;border-color:var(--accent);}
+.body-wrap{flex:1;display:flex;min-height:0;position:relative;}
+.map-wrapper{flex:1;position:relative;overflow:hidden;}
+#map{width:100%;height:100%;background:#0a0d12;}
+/* 凡例 */
+.legend{position:absolute;left:12px;bottom:16px;z-index:600;background:rgba(22,27,34,.94);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:12px;max-width:240px;box-shadow:0 4px 14px rgba(0,0,0,.4);}
+.legend h4{font-size:11px;color:var(--accent);margin-bottom:7px;letter-spacing:.5px;font-family:var(--font-mono);}
+.legend .row{display:flex;align-items:center;gap:8px;margin-bottom:5px;line-height:1.35;}
+.legend .sw{width:16px;height:12px;border-radius:3px;flex-shrink:0;border:1px solid rgba(255,255,255,.25);}
+.legend .note{font-size:10.5px;color:var(--text-muted);margin-top:5px;line-height:1.4;}
+/* 右パネル */
+.side{width:300px;flex-shrink:0;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:0;}
+.side-head{padding:12px 14px;border-bottom:1px solid var(--border);}
+.side-head .t{font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;}
+.side-head .c{font-size:11px;color:var(--text-muted);margin-top:3px;}
+.side-list{flex:1;overflow-y:auto;padding:8px;}
+.pick-item{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:8px 10px;margin-bottom:7px;font-size:12px;}
+.pick-item .ph{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:3px;}
+.pick-item .chiban{font-weight:700;word-break:break-all;}
+.pick-item .tag{font-size:10px;padding:1px 6px;border-radius:10px;flex-shrink:0;white-space:nowrap;}
+.pick-item .tag.nonfarm{background:rgba(240,180,41,.15);color:var(--accent);border:1px solid rgba(240,180,41,.4);}
+.pick-item .tag.farmland{background:rgba(63,185,80,.15);color:var(--green);border:1px solid rgba(63,185,80,.4);}
+.pick-item .meta{font-size:11px;color:var(--text-muted);}
+.pick-item .src{font-size:9.5px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px;}
+.side-empty{color:var(--text-muted);font-size:12px;text-align:center;padding:24px 12px;line-height:1.6;}
+/* ポップアップ内 */
+.np-body{padding:11px 12px;min-width:230px;}
+.np-title{font-family:var(--font-mono);font-size:12px;margin-bottom:9px;padding-bottom:7px;border-bottom:1px solid var(--border);letter-spacing:.5px;}
+.np-title.nonfarm{color:var(--accent);}
+.np-title.farmland{color:var(--green);}
+.np-row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:3px 0;}
+.np-row .k{color:var(--text-muted);white-space:nowrap;}
+.np-row .v{font-weight:600;text-align:right;word-break:break-all;}
+.np-links{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0 8px;}
+.np-links a,.np-links button{font-size:11px;padding:4px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--text);text-decoration:none;cursor:pointer;font-family:var(--font-main);}
+.np-links a:hover,.np-links button:hover{background:#232b3a;}
+.np-pick{width:100%;padding:8px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#000;font-weight:700;font-size:12.5px;cursor:pointer;font-family:var(--font-main);}
+.np-pick:hover{filter:brightness(1.08);}
+.np-pick.farmland{border-color:var(--green);background:var(--green);color:#04210c;}
+/* トースト */
+#toastContainer{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:5000;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;}
+.toast{background:var(--surface2);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:6px;padding:9px 16px;font-size:12.5px;box-shadow:0 4px 14px rgba(0,0,0,.5);max-width:80vw;}
+.toast.success{border-left-color:var(--green);}
+.toast.error{border-left-color:var(--red);}
+.toast.warning{border-left-color:var(--accent);}
+.leaflet-popup-content-wrapper{background:var(--surface);color:var(--text);border:1px solid var(--border);}
+.leaflet-popup-content{margin:0;}
+.leaflet-popup-tip{background:var(--surface);border:1px solid var(--border);}
+@media(max-width:720px){.side{position:absolute;right:0;top:0;bottom:0;width:78vw;max-width:320px;z-index:700;box-shadow:-4px 0 18px rgba(0,0,0,.5);transform:translateX(100%);transition:transform .2s;}.side.open{transform:translateX(0);}.page-title{display:none;}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-left">
+    <a class="logo" href="index.html"><span class="logo-icon">🍀</span><span class="logo-text">GRID LAND MGR</span></a>
+    <span class="page-title">🛰 非農地スキャン（都市計画区域→現況で選別）</span>
+  </div>
+  <div class="base-switch">
+    <span class="lbl">地図:</span>
+    <button class="btn active" id="gisEsri" onclick="switchGIS('esri')" title="最新の衛星画像（Esri World Imagery）">🛰 最新衛星</button>
+    <button class="btn" id="gisSat" onclick="switchGIS('satellite')" title="国土地理院 衛星写真">🌍 GSI衛星</button>
+    <button class="btn" id="gisMap" onclick="switchGIS('map')" title="国土地理院 地図">🗺 地図</button>
+    <button class="btn" id="sideToggle" onclick="toggleSide()" title="選別リストの開閉">📋 リスト</button>
+  </div>
+</div>
+<div class="body-wrap">
+  <div class="map-wrapper">
+    <div id="map"></div>
+    <div class="legend">
+      <h4>凡例</h4>
+      <div class="row"><span class="sw" style="background:rgba(34,197,94,.35);border-color:#16a34a;"></span><span>緑＝農地（get_fude・対象外の参考）</span></div>
+      <div class="row"><span class="sw" style="background:transparent;border-color:#f85149;"></span><span>緑でない筆＝非農地候補</span></div>
+      <div class="note">地番境界(法務省MojMap)から農地を引いた補集合＝非農地。衛星の現況を見てクリックで選別してください（z14以上で農地マスク表示）。</div>
+    </div>
+  </div>
+  <div class="side" id="side">
+    <div class="side-head">
+      <div class="t">📋 選別済み 適地候補</div>
+      <div class="c" id="pickCount">0 件</div>
+    </div>
+    <div class="side-list" id="pickList">
+      <div class="side-empty">地図をクリックして筆を選び、<br>「⬆ 適地として選別・記録」で<br>ここに追加されます。</div>
+    </div>
+  </div>
+</div>
+<div id="toastContainer"></div>
+
+<script>
+/* ============================================================================
+ * 非農地スキャン（nonfarm-scan）
+ *  - 地番境界(MojMap AMX PMTiles=全筆U) から 農地(get_fude_in_bbox=A) を引いた
+ *    補集合＝非農地 を、衛星現況を見ながら人がクリックで選別・記録する。
+ *  - 既存機構は farmland-tracker.html から忠実に移植。
+ * ========================================================================== */
+var SUPABASE_URL='https://fygnrjjifoasozbhkxlk.supabase.co';
+var SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
+var db=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+
+var LS_KEY='nonfarm_candidates_local';
+var FUDE_MIN_ZOOM=14;
+
+/* ---- トースト ---- */
+function showToast(msg,type){
+  var c=document.getElementById('toastContainer');
+  var t=document.createElement('div');
+  t.className='toast '+(type||'success');
+  t.textContent=msg;
+  c.appendChild(t);
+  setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},5000);
+}
+
+/* ---- ベース地図（farmland-tracker.html:1191/switchGIS を参考。Esri最新衛星を既定） ---- */
+var map,baseLayer=null,currentGIS='esri';
+var BASE_TILES={
+  map:'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',
+  satellite:'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',
+  esri:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+};
+var BASE_TILE_OPTS={
+  map:{attribution:'© 国土地理院',maxZoom:20,maxNativeZoom:18,opacity:0.9},
+  satellite:{attribution:'© 国土地理院',maxZoom:20,maxNativeZoom:18,opacity:0.9},
+  esri:{attribution:'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics',maxZoom:20,maxNativeZoom:19,opacity:0.98}
+};
+function switchGIS(mode){
+  if(!BASE_TILES[mode])return;
+  currentGIS=mode;
+  try{localStorage.setItem('nonfarmBaseGIS',mode);}catch(_){}
+  if(baseLayer){map.removeLayer(baseLayer);}
+  var opts=BASE_TILE_OPTS[mode]||{attribution:'',maxZoom:20,maxNativeZoom:18,opacity:0.9};
+  baseLayer=L.tileLayer(BASE_TILES[mode],opts);
+  baseLayer.addTo(map);
+  baseLayer.bringToBack();
+  ['map','satellite','esri'].forEach(function(m){
+    var el=document.getElementById(m==='map'?'gisMap':(m==='satellite'?'gisSat':'gisEsri'));
+    if(el)el.classList.toggle('active',m===mode);
+  });
+  if(agriLayer)agriLayer.bringToFront();
+}
+
+/* ---- 手動PBFデコード（farmland-tracker.html:2570,2574 をそのまま移植） ---- */
+function decodePBFTile(buf){var pbf=new Pbf(new Uint8Array(buf));var layers={};pbf.readFields(function(tag,layers,pbf){if(tag===3){var layer={name:'',version:1,extent:4096,keys:[],values:[],features:[]};pbf.readMessage(readVTLayer,layer);if(layer.name)layers[layer.name]=layer;}},layers);return layers;}
+function readVTLayer(tag,layer,pbf){if(tag===15)layer.version=pbf.readVarint();else if(tag===1)layer.name=pbf.readString();else if(tag===5)layer.extent=pbf.readVarint();else if(tag===3)layer.keys.push(pbf.readString());else if(tag===4){var v={};pbf.readMessage(readVTValue,v);layer.values.push(v);}else if(tag===2){var f={id:0,tags:[],type:0,geometry:[]};pbf.readMessage(readVTFeature,f);layer.features.push(f);}}
+function readVTFeature(tag,f,pbf){if(tag===1)f.id=pbf.readVarint();else if(tag===2)f.tags=pbf.readPackedVarint();else if(tag===3)f.type=pbf.readVarint();else if(tag===4)f.geometry=pbf.readPackedVarint();}
+function readVTValue(tag,v,pbf){if(tag===1)v.v=pbf.readString();else if(tag===2)v.v=pbf.readFloat();else if(tag===3)v.v=pbf.readDouble();else if(tag===4)v.v=pbf.readVarint(true);else if(tag===5)v.v=pbf.readVarint();else if(tag===6)v.v=pbf.readSVarint();else if(tag===7)v.v=pbf.readBoolean();}
+function getVTProperties(feature,layer){var props={};for(var i=0;i+1<feature.tags.length;i+=2){var ki=feature.tags[i],vi=feature.tags[i+1];if(ki<layer.keys.length&&vi<layer.values.length)props[layer.keys[ki]]=layer.values[vi].v;}return props;}
+
+/* ---- ポイント・イン・ポリゴン（タイル座標系。farmland-tracker.html:7981 と同一） ---- */
+function pointInPolygon(x,y,rings){
+  var inside=false;
+  for(var r=0;r<rings.length;r++){
+    var ring=rings[r];
+    for(var i=0,j=ring.length-1;i<ring.length;j=i++){
+      var xi=ring[i].x,yi=ring[i].y;
+      var xj=ring[j].x,yj=ring[j].y;
+      var hit=((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi);
+      if(hit)inside=!inside;
+    }
+  }
+  return inside;
+}
+
+/* ---- タイル座標のリングを [lng,lat] リングへ変換（farmland-tracker.html:6924-6926 の式） ---- */
+function tileRingsToLngLat(rings,tx,ty,z,extent){
+  var n=Math.pow(2,z),out=[];
+  for(var r=0;r<rings.length;r++){
+    var ring=rings[r],coords=[];
+    for(var i=0;i<ring.length;i++){
+      var px=ring[i].x,py=ring[i].y;
+      var lng=(((tx)+px/extent)/n)*360-180;
+      var nLat=Math.PI*(1-2*((ty)+py/extent)/n);
+      var lat=180/Math.PI*Math.atan(0.5*(Math.exp(nLat)-Math.exp(-nLat)));
+      coords.push([lng,lat]);
+    }
+    if(coords.length){
+      var f=coords[0],l=coords[coords.length-1];
+      if(f[0]!==l[0]||f[1]!==l[1])coords.push([f[0],f[1]]); // リングを閉じる
+      out.push(coords);
+    }
+  }
+  return out;
+}
+
+/* ============================================================================
+ * 農地筆オーバーレイ（get_fude_in_bbox=A / 緑マスク）
+ *  farmland-tracker.html:1826 _fetchAndRenderAgriFude を忠実に移植。
+ *  返る {geometry, land_type} を緑の半透明ポリゴンで描画し、点内包判定用に保持。
+ * ========================================================================== */
+var agriLayer=null,agriCanvas=null,agriTimer=null;
+var agriFeatures=[]; // 保持: クリック点の農地判定(turf.booleanPointInPolygon)に使う
+function renderAgriInView(){
+  if(agriTimer)clearTimeout(agriTimer);
+  agriTimer=setTimeout(_doRenderAgri,200);
+}
+function _doRenderAgri(){
+  if(map.getZoom()<FUDE_MIN_ZOOM){
+    if(agriLayer){map.removeLayer(agriLayer);agriLayer=null;}
+    agriFeatures=[];
+    return;
+  }
+  _fetchAndRenderAgri();
+}
+async function _fetchAndRenderAgri(){
+  var b=map.getBounds().pad(0.1);
+  var res;
+  try{
+    res=await db.rpc('get_fude_in_bbox',{
+      lat_min:b.getSouth(), lat_max:b.getNorth(),
+      lng_min:b.getWest(),  lng_max:b.getEast(),
+      row_limit:2000
+    });
+  }catch(e){console.warn('[agri] rpc exception',e);return;}
+  if(res.error||!res.data){if(res.error)console.warn('[agri] rpc error',res.error);return;}
+  if(agriLayer){map.removeLayer(agriLayer);agriLayer=null;}
+  var features=res.data.map(function(row){
+    return {type:'Feature',geometry:row.geometry,properties:{land_type:row.land_type}};
+  });
+  agriFeatures=features; // 保持
+  if(!map.getPane('agriPane')){var _p=map.createPane('agriPane');_p.style.zIndex=450;}
+  if(!agriCanvas)agriCanvas=L.canvas({pane:'agriPane',padding:0.5});
+  agriLayer=L.geoJSON({type:'FeatureCollection',features:features},{
+    renderer:agriCanvas,
+    pane:'agriPane',
+    style:function(f){
+      var lt=f.properties.land_type;
+      return {fillColor:lt===100?'#22c55e':'#eab308',fillOpacity:0.30,color:lt===100?'#16a34a':'#ca8a04',weight:1};
+    }
+  }).addTo(map);
+}
+
+/* クリック点が農地筆に内包されるか（保持した緑features・turf.booleanPointInPolygon） */
+function isFarmlandPoint(lat,lng){
+  if(typeof turf==='undefined'||!agriFeatures.length)return false;
+  var pt=turf.point([lng,lat]);
+  for(var i=0;i<agriFeatures.length;i++){
+    var g=agriFeatures[i]&&agriFeatures[i].geometry;
+    if(!g)continue;
+    try{ if(turf.booleanPointInPolygon(pt,agriFeatures[i]))return true; }catch(_){}
+  }
+  return false;
+}
+
+/* ============================================================================
+ * クリック点→地番取得（MojMap PMTiles 点内包。farmland-tracker.html:8092-8150 を移植）
+ * ========================================================================== */
+var nfPopup=null;
+var currentCandidate=null;
+
+async function onMapClickForNonfarm(ev){
+  var t=ev.originalEvent&&ev.originalEvent.target;
+  if(t&&(t.closest('.leaflet-marker-icon')||t.closest('.leaflet-popup')))return;
+  if(map.getZoom()<FUDE_MIN_ZOOM){showToast('z14以上に拡大してからクリックしてください','warning');return;}
+  if(!window.__PMT||!window.__VT||!window.__Pbf){showToast('地番境界データを読込中です。少し待って再度クリックしてください','warning');return;}
+
+  var lng=ev.latlng.lng,lat=ev.latlng.lat;
+  var z=Math.min(Math.max(Math.floor(map.getZoom()),14),16); // AMX fude は z14-16 のみ実データ
+  var n=Math.pow(2,z);
+  var latR=lat*Math.PI/180;
+  var tx=Math.floor((lng+180)/360*n);
+  var ty=Math.floor((1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*n);
+  try{
+    var resp=await window.__PMT.getZxy(z,tx,ty);
+    if(!resp){showToast('この地点の地番境界タイルがありません','warning');return;}
+    var tile=new window.__VT(new window.__Pbf(resp.data));
+    var layerNames=Object.keys(tile.layers);
+    if(!layerNames.length)return;
+    var layer=tile.layers[layerNames[0]];
+    var extent=layer.extent;
+    var pxFull=(lng+180)/360*n*extent;
+    var pyFull=(1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*n*extent;
+    var px=pxFull-tx*extent, py=pyFull-ty*extent;
+    var foundProps=null,foundRings=null;
+    for(var i=0;i<layer.length;i++){
+      var feat=layer.feature(i);
+      if(feat.type!==3)continue;
+      var geom=feat.loadGeometry();
+      if(pointInPolygon(px,py,geom)){foundProps=feat.properties;foundRings=geom;break;}
+    }
+    if(!foundProps){showToast('この地点に地番境界の筆が見つかりません','warning');return;}
+
+    // 地番プロパティ（AMX 2024-04 実属性: キーは '地番'）
+    var chiban=foundProps['地番']||'';
+    var rawArea=foundProps['地番区域']||'';
+    var areaLabel=rawArea.split('_').filter(function(s){return s&&s.trim();}).join(' ');
+
+    // 面積（turf.area）: タイル座標のリングを [lng,lat] へ変換してGeoJSONポリゴン化
+    var areaSqm=null;
+    try{
+      var llRings=tileRingsToLngLat(foundRings,tx,ty,z,extent);
+      if(llRings.length){
+        areaSqm=Math.round(turf.area({type:'Feature',geometry:{type:'Polygon',coordinates:llRings}}));
+      }
+    }catch(_){}
+
+    // 農地/非農地 判定（クリック点が保持した緑features に内包されるか）
+    var isFarm=isFarmlandPoint(lat,lng);
+    var landuse=isFarm?'farmland':'nonfarm';
+
+    currentCandidate={chiban:chiban,areaLabel:areaLabel,lat:lat,lng:lng,area_sqm:areaSqm,landuse:landuse};
+
+    if(nfPopup){try{map.closePopup(nfPopup);}catch(_){}}
+    nfPopup=L.popup({maxWidth:300,minWidth:240}).setLatLng(ev.latlng).setContent(buildNonfarmPopup(currentCandidate)).openOn(map);
+  }catch(e){
+    console.warn('[nonfarm] クリックデコード失敗:',e);
+    showToast('地番の取得に失敗しました','error');
+  }
+}
+
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function buildNonfarmPopup(c){
+  var isFarm=c.landuse==='farmland';
+  var title=isFarm?'🌾 農地（参考・要農地転用）':'🏗 非農地 適地候補';
+  var area=(c.area_sqm!=null)?(Number(c.area_sqm).toLocaleString()+' ㎡'):'—';
+  var judge=isFarm?'農地':'非農地';
+  var g='https://www.google.com/maps/search/?api=1&query='+c.lat+','+c.lng;
+  var sv='https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+c.lat+','+c.lng;
+  return '<div class="np-body">'+
+    '<div class="np-title '+(isFarm?'farmland':'nonfarm')+'">'+title+'</div>'+
+    '<div class="np-row"><span class="k">地番</span><span class="v">'+(esc(c.areaLabel)?esc(c.areaLabel)+' ':'')+esc(c.chiban||'—')+'</span></div>'+
+    '<div class="np-row"><span class="k">面積</span><span class="v">'+area+'</span></div>'+
+    '<div class="np-row"><span class="k">判定</span><span class="v" style="color:'+(isFarm?'var(--green)':'var(--accent)')+'">'+judge+'</span></div>'+
+    '<div class="np-links">'+
+      '<a href="'+g+'" target="_blank" rel="noopener">🌐 Googleマップ</a>'+
+      '<a href="'+sv+'" target="_blank" rel="noopener">🚶 ストリートビュー</a>'+
+      '<button onclick="zoomHere('+c.lat+','+c.lng+')">🔍 現況を大きく見る</button>'+
+    '</div>'+
+    '<button class="np-pick'+(isFarm?' farmland':'')+'" onclick="recordPick()">⬆ 適地として選別・記録</button>'+
+  '</div>';
+}
+
+/* 現況を大きく見る=Esri最新衛星でズーム */
+function zoomHere(lat,lng){
+  switchGIS('esri');
+  map.setView([lat,lng],19);
+}
+
+/* ============================================================================
+ * 選別・記録: Supabase nonfarm_candidates へ INSERT → 失敗時 localStorage フォールバック
+ * ========================================================================== */
+function loadLocalPicks(){
+  try{var raw=localStorage.getItem(LS_KEY);return raw?JSON.parse(raw):[];}catch(_){return [];}
+}
+function saveLocalPicks(arr){
+  try{localStorage.setItem(LS_KEY,JSON.stringify(arr));}catch(_){}
+}
+
+async function recordPick(){
+  if(!currentCandidate){showToast('記録対象がありません','warning');return;}
+  var c=currentCandidate;
+  var rec={
+    chiban:c.chiban||'',
+    lat:c.lat, lng:c.lng,
+    area_sqm:(c.area_sqm!=null?c.area_sqm:null),
+    landuse:c.landuse,
+    status:'picked',
+    memo:c.areaLabel||''
+  };
+  var savedToDb=false;
+  try{
+    var res=await db.from('nonfarm_candidates').insert([rec]).select();
+    if(res.error){
+      console.warn('[pick] DB insert error → localStorageへ:',res.error);
+    }else{
+      savedToDb=true;
+    }
+  }catch(e){
+    console.warn('[pick] DB insert exception → localStorageへ:',e);
+  }
+  if(!savedToDb){
+    var local=loadLocalPicks();
+    local.unshift(Object.assign({},rec,{created_at:new Date().toISOString(),_local:true}));
+    saveLocalPicks(local);
+    showToast('DBに保存できないためこの端末に記録しました（テーブル未作成/権限）','warning');
+  }else{
+    showToast('適地候補としてDBに記録しました','success');
+  }
+  if(nfPopup){try{map.closePopup(nfPopup);}catch(_){}}
+  await refreshPickList();
+}
+
+/* DB + localStorage をまとめて選別済みリストへ */
+async function refreshPickList(){
+  var dbRows=[];
+  try{
+    var res=await db.from('nonfarm_candidates').select('*').eq('status','picked').order('created_at',{ascending:false});
+    if(!res.error&&res.data)dbRows=res.data.map(function(r){return Object.assign({},r,{_local:false});});
+  }catch(_){}
+  var local=loadLocalPicks();
+  var all=dbRows.concat(local);
+  renderPickList(all);
+}
+
+function renderPickList(items){
+  var box=document.getElementById('pickList');
+  document.getElementById('pickCount').textContent=items.length+' 件';
+  if(!items.length){
+    box.innerHTML='<div class="side-empty">地図をクリックして筆を選び、<br>「⬆ 適地として選別・記録」で<br>ここに追加されます。</div>';
+    return;
+  }
+  var html='';
+  items.forEach(function(it){
+    var isFarm=it.landuse==='farmland';
+    var area=(it.area_sqm!=null&&it.area_sqm!=='')?(Number(it.area_sqm).toLocaleString()+' ㎡'):'—';
+    var label=(it.memo?esc(it.memo)+' ':'')+esc(it.chiban||'—');
+    html+='<div class="pick-item">'+
+      '<div class="ph"><span class="chiban">'+label+'</span>'+
+        '<span class="tag '+(isFarm?'farmland':'nonfarm')+'">'+(isFarm?'農地':'非農地')+'</span></div>'+
+      '<div class="meta">'+area+'</div>'+
+      '<div class="src">'+(it._local?'この端末(localStorage)':'DB')+'</div>'+
+    '</div>';
+  });
+  box.innerHTML=html;
+}
+
+/* 右パネル開閉（モバイル） */
+function toggleSide(){document.getElementById('side').classList.toggle('open');}
+
+/* ============================================================================
+ * 初期化
+ * ========================================================================== */
+function initMap(){
+  map=L.map('map',{zoomControl:true,maxZoom:20}).setView([34.55,136.5],15);
+  var _sg='esri';
+  try{var _sv=localStorage.getItem('nonfarmBaseGIS');if(_sv&&BASE_TILES[_sv])_sg=_sv;}catch(_){}
+  currentGIS=_sg;
+  baseLayer=L.tileLayer(BASE_TILES[_sg],BASE_TILE_OPTS[_sg]||{attribution:'',maxZoom:20,maxNativeZoom:18,opacity:0.95});
+  baseLayer.addTo(map);
+  ['map','satellite','esri'].forEach(function(m){
+    var el=document.getElementById(m==='map'?'gisMap':(m==='satellite'?'gisSat':'gisEsri'));
+    if(el)el.classList.toggle('active',m===_sg);
+  });
+  map.on('moveend',renderAgriInView);
+  map.on('zoomend',renderAgriInView);
+  map.on('click',onMapClickForNonfarm);
+  renderAgriInView();
+}
+
+initMap();
+refreshPickList();
+</script>
+</body>
+</html>
