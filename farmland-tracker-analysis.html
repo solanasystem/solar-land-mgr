@@ -8534,8 +8534,8 @@ if(typeof map!=='undefined'&&map&&map.on){
      window.DELIVERY2はgacho-layer.jsのloadDelivery2FromDb()がround2_poolテーブルから毎回ライブで組み立てる。
      ファイル自体は移行直前の最終スナップショットとして残す(参照はしない)。 -->
 <script src="cyan-candidates.js?v=20260822a"></script><!-- ドクター2026-08-22: 手作業探索の目印(既得地/青)で使用。保存値108は古いスナップショット(build_cyan_candidates.py生成)=最新の🔬適地フィルター実行とは別物 -->
-<script src="delivery-round-utils.js?v=20260909a"></script><!-- ★2026-09-09(ドクター指示): 「第N回納品予定」を確定納品件数+1から動的算出する共通ロジック。gacho-layer.jsの_loadNextRoundNo()が使う -->
-<script src="gacho-layer.js?v=20260909a"></script>
+<script src="delivery-round-utils.js?v=20260916a"></script><!-- ★2026-09-09(ドクター指示): 「第N回納品予定」を確定納品件数+1から動的算出する共通ロジック。gacho-layer.jsの_loadNextRoundNo()が使う -->
+<script src="gacho-layer.js?v=20260916a"></script>
 <!-- 2026-08-28 ドクター指示「桑名、いなべは不要だ」で表示停止。③接道④連系が未検証(生成元kuwana_inabe_pipeline.pyは①②のみ)のまま画層に出ていた件の是正。
      ai_kuwana_inabe.js自体・output/kuwana_inabe_*.geojsonは残置(後で戻せる)。再開する場合は横断監査20260828参照。
 <script src="ai_kuwana_inabe.js?v=20260816b"></script>
@@ -8774,7 +8774,9 @@ if(typeof map!=='undefined'&&map&&map.on){
       if(r&&r.error)throw new Error(r.error.message||r.error);
       try{ db.from('ai_ok_labels').insert({source:'gacho_ok',member_fids:[fid],lat:la,lng:ln,memo:'cyan適地→予備軍追加('+(_cyanClientName||'')+')'}).then(function(){},function(){}); }catch(_){}
       if(typeof showToast==='function')showToast('⬆ 予備軍(round2_pool)へ追加しました','success');
-      try{loadClientCounts();}catch(_){}
+      // v20260916(根本改修): 書いたら「単一の正」へ通知(再取得＋round2pool:changed発火)。これでこの
+      // ページのサマリーもgacho-layer.jsのボタン(N)も同時に更新される。通知が無い環境のみ従来動作へ退避。
+      try{ if(typeof window.notifyRound2PoolChanged==='function')await window.notifyRound2PoolChanged(db); else loadClientCounts(); }catch(_){}
     }catch(e){ var m='予備軍への追加に失敗: '+((e&&e.message)||e); if(typeof showToast==='function')showToast(m,'error'); else alert(m); }
   };
   // 候補を1件その場で外し、件数(バッジ/パネル/実質数/リスト)を即更新。判定・削除・登録から呼ぶ。
@@ -8801,6 +8803,9 @@ if(typeof map!=='undefined'&&map&&map.on){
   };
   // gacho(スコアカード)でOK/NG/削除/確定したら、その筆を候補から外す=モーダル判定で数字が動く(ドクター)。
   try{ document.addEventListener('gachoJudged',function(e){ var f=e&&e.detail&&e.detail.fid; if(f&&window.__cyanRemove)window.__cyanRemove(f); }); }catch(_){}
+  // v20260916(根本改修): 予備軍件数の「単一の正」を購読。round2_poolがどの経路で変わっても
+  // サマリー「予備軍(round2_pool)累計 N件」を再取得して更新する=このページも件数を独自同期しない。
+  try{ document.addEventListener('round2pool:changed',function(){ try{loadClientCounts();}catch(_){} }); }catch(_){}
   function summaryHtml(N,T){
     // ★足し算しない(35+11=46がOKに見えるのを廃止)。性質の違う数を別々に、意味が分かる表記で。
     // ★2026-08-28是正: 以前はclient_delivery_items(status=tentative)を数えていたが、__cyanDeliverは
@@ -8813,8 +8818,11 @@ if(typeof map!=='undefined'&&map&&map.on){
     if(!_ref.summary)return;
     if(typeof db==='undefined'||!db){ _ref.summary.innerHTML=summaryHtml(order.length,null); return; }
     try{
-      var t=await db.from('round2_pool').select('id',{count:'exact',head:true}).eq('status','reserve');
-      _ref.summary.innerHTML=summaryHtml(order.length,(t&&typeof t.count==='number')?t.count:0);
+      // v20260916(根本改修): 件数は「単一の正」getPoolReserveCount()から取得。生クエリを複製しない。
+      var c=(typeof window.getPoolReserveCount==='function')
+        ? await window.getPoolReserveCount(db)
+        : ((await db.from('round2_pool').select('id',{count:'exact',head:true}).eq('status','reserve')).count);
+      _ref.summary.innerHTML=summaryHtml(order.length,(typeof c==='number')?c:0);
     }catch(e){ _ref.summary.innerHTML=summaryHtml(order.length,null); }
   }
   function buildRegList(){

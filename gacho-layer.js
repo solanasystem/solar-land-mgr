@@ -853,10 +853,10 @@ async function promotePinkToRound2(){
     }catch(e){ errs.push(e&&e.message||e); }
   }
   await loadDelivery2FromDb();
-  // v20260916(栗本さん「昇格しても(N)が増えない」根治): 昇格でreserve行はinsertされるが、ボタンの
-  // 「第N回…(N)」に出る_poolReserveCountは起動時1回しかキャッシュされず昇格後に再取得されないため
-  // 表示が古い値のまま固まっていた。ここで残数を再取得→render()し、昇格結果を即ラベルへ反映する。
-  try{await _loadNextRoundNo();}catch(_){}
+  // v20260916(栗本さん「根本的な改修を、いつでも起こりうる」): round2_poolを書いたら「単一の正」へ
+  // 通知するだけ。表示の再取得・再描画は round2pool:changed の購読側(初期化で登録)が行うため、
+  // ここで件数キャッシュを手動更新する必要はない=昇格の呼び忘れでズレる構造を根絶。
+  try{ if(typeof window.notifyRound2PoolChanged==='function')await window.notifyRound2PoolChanged(d); }catch(_){}
   var msg='⬆ 昇格 '+inserted+'件（区域不明でスキップ'+skippedUnknown+'件・昇格済みでスキップ'+alreadyById+'件・重複描画でスキップ'+dupContent+'件'+(errs.length?'・エラー'+errs.length+'件':'')+'）';
   try{alert(msg);}catch(_){}
   toast(msg);
@@ -2251,6 +2251,9 @@ function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(
   try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
   try{loadDelivery2FromDb();setTimeout(loadDelivery2FromDb,2600);}catch(_){} // v20260823: 362はround2_poolからライブ取得(静的ファイル依存を撤去)
   try{_loadNextRoundNo();}catch(_){} // v20260909: 次回の回数(第N回)をDBから取得しボタン表示へ反映
+  // v20260916: 予備軍(reserve)件数の「単一の正」を購読。round2_poolがどの経路で変わっても、
+  // notifyRound2PoolChanged()の通知を受けてボタンの(N)を再描画する=このファイルは件数を数え直さない。
+  try{ document.addEventListener('round2pool:changed',function(e){ if(e&&e.detail&&typeof e.detail.reserve==='number'){ _poolReserveCount=e.detail.reserve; try{render();}catch(_){} } }); }catch(_){}
   // 削除した筆を復活させない: 起動時＋遅延描画に追随して掃引
   try{ _sweepDeletedFlags(); setTimeout(_sweepDeletedFlags,1800); setTimeout(_sweepDeletedFlags,4500); setTimeout(_sweepDeletedFlags,9000); setInterval(_sweepDeletedFlags,20000); m.on('moveend zoomend',function(){_sweepDeletedFlags();}); }catch(_){}
   // 絶対に消えない: 起動時に未保存をDBへ再送→15秒毎に再試行→オンライン復帰で即再送。HUDで未保存件数を常時表示。

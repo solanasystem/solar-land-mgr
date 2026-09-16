@@ -9,6 +9,7 @@
 <title>納品情報 構造ビュー // GRID LAND MGR</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="common-auth.js?v=20260813kuroki"></script>
+<script src="delivery-round-utils.js?v=20260916a"></script>
 <style>
   :root{--bg:#0d1117;--surf:#161c22;--surf2:#1b2530;--bd:#2a3742;--ink:#e6edf3;--soft:#9fb0bd;--acc:#00d4ff;
     --ok:#3fb950;--warn:#d29922;--danger:#f0736a;--mono:Consolas,"Yu Gothic",monospace;}
@@ -121,8 +122,11 @@
     //   仕組みを付け加える」): round2_pool(⑥予備軍)は既に存在するテーブルだが、このページには一切
     //   連動していなかった。予備軍の残数(status=reserve)をここで取得し、サマリーに表示する。
     try{
-      var pr=await db.from('round2_pool').select('id',{count:'exact',head:true}).eq('status','reserve');
-      POOL_RESERVE=(pr&&typeof pr.count==='number')?pr.count:null;
+      // v20260916(根本改修): 件数は「単一の正」getPoolReserveCount()から取得。生クエリを複製しない。
+      POOL_RESERVE=(typeof window.getPoolReserveCount==='function')
+        ? await window.getPoolReserveCount(db)
+        : ((await db.from('round2_pool').select('id',{count:'exact',head:true}).eq('status','reserve')).count);
+      if(typeof POOL_RESERVE!=='number')POOL_RESERVE=null;
     }catch(_e){ POOL_RESERVE=null; }
   }
 
