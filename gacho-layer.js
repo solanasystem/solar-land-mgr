@@ -1,3 +1,4 @@
+/* v20260916c(ドクター): loadNeutralの「クリーン反映」トーストを整理。重複除外のみは無音(console)・新規/ハザード除去だけ1枚に集約。 */
 /* 画層(レイヤー)システム。本番トラッカーのインラインIIFEを外部化(内容は同一)。分析ページ等で共有。 */
 /* v20260820o(ドクター): 移行前カウントから納品済(deliver=納品/○○｜納品層)を除外＋判定OKの層別内訳表示。/ v20260820n: Phase0=「📸 移行前スナップショット」。全gacho状態(全フラグ＋判定OK/NG/閲覧をfeature_id付き)を丸ごとSW(JSON DL＋復元キー)＋基準カウント(_migCounts)。「↩スナップに戻す」で完全復元。組み替え前後で数字一致を確認する検問。 */
 /* v20260820m(ドクター): 判定済みフラグの見た目を変える。onReview(fid,marker)/reviewState(fid)公開API＋判定時(applyScore/setStatus/setCrit)にマーカーを減光＋色枠(OK緑/NG赤/閲覧灰破線)=一度見たか一目で判る。feature_id基準で再描画でも保持。 */
@@ -62,6 +63,7 @@ function byId(id){return state.layers.filter(function(l){return l.id===id;})[0]|
 function activeLayer(){return state.layers.filter(function(l){return l.active;})[0]||null;}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function toast(m){if(typeof showToast==='function'){try{showToast(m);return;}catch(_){}}try{console.log('[画層]',m);}catch(_){}}
+var _cleanMsgs=[], _cleanTimer=null; // v20260916c: loadNeutralのクリーン反映通知を1枚に集約
 
 function ensurePane(m){if(_pane)return _pane;_pane=m.createPane('gachoPane');_pane.style.zIndex=660;return _pane;}
 
@@ -2140,8 +2142,13 @@ window.__gacho={
         return true;
       });
       saveState();setTimeout(function(){render();},0);
-      var msg=[];if(added)msg.push('新規'+added+'件');if(removed)msg.push('ハザード除去で'+removed+'件を削除');if(skippedDup)msg.push('他判定と重複で'+skippedDup+'件を除外');
-      if(msg.length)toast('画層「'+layerName+'」: '+msg.join(' ／ ')+'（クリーン反映）');
+      // v20260916c(ドクター「右下にずらずら出るモーダルに意味があるのか」): 重複除外だけ(added=0,removed=0)は、外した候補が次回起動でも
+      // 同じように外されるため毎回同じ数字が出るだけ＝無音にする(除外処理自体は従来どおり実行)。画層が実際に変わった時
+      // (新規追加/ハザード除去)だけ通知し、起動時に複数画層分が積み上がらないよう1.2秒以内のものは1枚にまとめる。
+      if(added||removed){
+        _cleanMsgs.push('「'+layerName+'」'+[added?('新規'+added+'件'):'',removed?('ハザード除去で'+removed+'件を削除'):''].filter(Boolean).join('／'));
+        clearTimeout(_cleanTimer); _cleanTimer=setTimeout(function(){ toast('画層クリーン反映: '+_cleanMsgs.join(' ｜ ')); _cleanMsgs=[]; },1200);
+      }else if(skippedDup){ try{console.log('[画層] 「'+layerName+'」: 他判定と重複で'+skippedDup+'件を除外(通知なし)');}catch(_){} }
     });
   }
 };

@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260916c / 🔕起動時に右下へ画層ごとに積み上がっていた「画層「…」: 他判定と重複でN件を除外（クリーン反映）」トーストを整理(ドクター「出す意味があるのか」)。重複除外だけの時は毎回同じ数字が出るだけなので無音(consoleのみ)、画層が実際に変わった時(新規/ハザード除去)だけ1枚にまとめて通知。除外処理そのものは従来どおり。gacho-layer.js?v同期。前:v20260916b -->
 <!-- BUILD: farmland-tracker-analysis v20260916b / ⚡変電所/空容量マーカーにホバー時のツールチップ(名称)を追加(ドクター「フラグにカーソルを持って行っても名前が表示されない」)。空容量=名称+空容量MW+🟢🟡🔴、⚡変電所(OSM)=名称+電圧。既存の farmland-tooltip スタイル・direction:top で統一。クリックのポップアップは従来どおり。＋v20260916aの退行修正: ポップアップ自動パン(moveend)で描き直されて開いた直後に消えていた→描画済み範囲内の小移動では描き直さない。前:v20260916a -->
 <!-- BUILD: farmland-tracker-analysis v20260916a / ⚡空容量レイヤーにズーム規定を追加(ドクター「ズーム規定が無いと表示にタイムラグがあって見難い」)。CAP_MIN_ZOOM=9未満は描画せず凡例に案内、9以上は画面内(余白30%)の変電所だけ描画し、地図移動/ズーム(moveend)のたびに描き直す(農振NOSHIN_MIN_ZOOMと同方式)。全国4,074点を一括生成していた負荷を解消。マーカー半径・スタイル・点滅・判定・popupは無変更(v20260626sのカビ模様回避=半径固定は維持)。トーストは初回表示時のみ、移動時の再描画は無音。 前:v20260915a -->
 <!-- BUILD: farmland-tracker-analysis v20260915a / ⚡空容量レイヤーを全国版(v5)に更新。配信を R2(substation_capacity_v4)→同一オリジン data/grid/substation_capacity_v5.geojson に切替。一般送配電8社(北海道/東北/東京/中部/北陸/関西/中国/九州)の変圧器(変電所)予想潮流・空容量一覧CSVを統合(7,9xx行・公表2026-07〜09)。四国・沖縄はドクター指示で対象外。座標=旧v4確定分を再利用+OSM変電所名称一致、未確定(pending)は非表示。判定に「空容量(上位系等考慮)=0」を🟡条件付きへ追加(_capCat/popup)。popupに事業者/所在/上位系考慮空容量/公表日を追加。凡例の出典行を読込メタから自動表示(#capLegendSrc)。生成スクリプト=solar-land-mgr-satellite/substation_capacity/build_v5.py(非公開)。 -->
@@ -840,7 +841,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
   <div class="header-left">
     <a class="logo" href="index.html"><div class="logo-icon"><svg viewBox="0 0 64 64" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cv-ne" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-nw" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#86efac"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#15803d"/></linearGradient><linearGradient id="cv-se" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient><linearGradient id="cv-sw" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#16a34a"/><stop offset="50%" stop-color="#22c55e"/><stop offset="100%" stop-color="#86efac"/></linearGradient></defs><polygon points="30,30 16,8 4,22 18,30" fill="url(#cv-nw)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="6" y1="22" x2="16" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="34,30 48,8 60,22 46,30" fill="url(#cv-ne)" stroke="#0F7B3E" stroke-width="0.8"/><line x1="48" y1="12" x2="58" y2="22" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/><polygon points="30,34 16,56 4,42 18,34" fill="url(#cv-sw)" stroke="#0F7B3E" stroke-width="0.8"/><polygon points="34,34 48,56 60,42 46,34" fill="url(#cv-se)" stroke="#0F7B3E" stroke-width="0.8"/><circle cx="32" cy="32" r="2.5" fill="#064E2A"/><line x1="32" y1="34" x2="32" y2="58" stroke="#15803d" stroke-width="1.5" stroke-linecap="round"/></svg></div><span class="logo-text">GRID LAND MGR</span><span class="logo-version">v3.0</span></a>
     <span class="page-title">&#127807; 農地変更トラッカー <span style="color:#f59e0b;">＜分析ページ＞</span></span>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260916b ⚡変電所/空容量マーカーにホバー名称</span>
+    <span style="font-family:var(--font-mono);font-size:9px;color:#22c55e;border:1px solid #22c55e;border-radius:4px;padding:2px 6px;margin-left:8px;">BUILD: v20260916c 🔕クリーン反映トースト整理</span>
   </div>
   <!-- 用途別レイヤー切替（3階層）v20260806b -->
   <div id="useLayerGroup" style="display:none;align-items:center;gap:6px;margin:0 12px;">
@@ -8558,7 +8559,7 @@ if(typeof map!=='undefined'&&map&&map.on){
      ファイル自体は移行直前の最終スナップショットとして残す(参照はしない)。 -->
 <script src="cyan-candidates.js?v=20260822a"></script><!-- ドクター2026-08-22: 手作業探索の目印(既得地/青)で使用。保存値108は古いスナップショット(build_cyan_candidates.py生成)=最新の🔬適地フィルター実行とは別物 -->
 <script src="delivery-round-utils.js?v=20260916a"></script><!-- ★2026-09-09(ドクター指示): 「第N回納品予定」を確定納品件数+1から動的算出する共通ロジック。gacho-layer.jsの_loadNextRoundNo()が使う -->
-<script src="gacho-layer.js?v=20260916a"></script>
+<script src="gacho-layer.js?v=20260916c"></script>
 <!-- 2026-08-28 ドクター指示「桑名、いなべは不要だ」で表示停止。③接道④連系が未検証(生成元kuwana_inabe_pipeline.pyは①②のみ)のまま画層に出ていた件の是正。
      ai_kuwana_inabe.js自体・output/kuwana_inabe_*.geojsonは残置(後で戻せる)。再開する場合は横断監査20260828参照。
 <script src="ai_kuwana_inabe.js?v=20260816b"></script>
