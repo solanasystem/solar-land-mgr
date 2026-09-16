@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker v20260917a / 🩹「変電所のフラグをクリックしてもモーダルが開かない」の真因と根治(ドクター報告・分析ページで実クリック再現)。真因=gachoPane(z660)等の上位paneに置かれたcanvas renderer(9/7〜9/9の大量マーカーCanvas化)が画面全体を覆い、描画物に当たらないクリック/ホバーまで吸い込む→その下のsubPane(z635)の変電所/空容量マーカーは一切反応しない(本ページにはこのcanvasが無いので開いていた)。根治=mapコンテナのキャプチャ段階で「対象がLeafletのcanvasで、そのrendererの描画物にヒットしていない」イベント(click/dblclick/mousedown/mouseup/contextmenu/mousemove)を、canvasを一時的にpointer-events:noneにして真下の要素へ再送する共通シム(_canvasClickThrough)。canvas自身の描画物へのクリックは従来どおり。mousemoveは真下の要素が変わった時にmouseover/mouseoutも合成(ホバーのツールチップが効く)。pane順序は変えない。 -->
 <!-- BUILD: farmland-tracker v20260916h / 🩹「フラグをクリックしてもモーダルが出ない」の修正(ドクター報告)。真因=空容量マーカーのポップアップ(幅340px)の自動パンが描画済み範囲の余白(30%=約270px)を超えると moveend で描き直され、マーカーごと入れ替わってポップアップが即閉じていた(v20260916bの範囲判定では不十分。変電所側は幅200pxで偶然すり抜け)。修正=範囲判定に加え「そのレイヤーのマーカーのポップアップが開いている間は描き直さない」。閉じた時(popupclose)に描き直しが保留されていれば実行。両レイヤー共通。 -->
 <!-- BUILD: farmland-tracker v20260916g / ⚡変電所(OSM 4,815件)レイヤーにも空容量と同じズーム規定を適用(ドクター「一気に変電所が表示されている。一度読み込むと2度目から全部出る仕組みもやめろ、無駄な情報」)。CAP_MIN_ZOOM(9)未満は描画せず凡例に案内、9以上は画面内+余白30%だけ描画、moveendで描き直し(描画済み範囲内の小移動では描き直さない=ポップアップ保護)。キャッシュ(subCache)は保持するが全件描画はしない。トーストは初回のみ。 -->
 <!-- BUILD: farmland-tracker v20260916f / 📐変電所の「半径計測」トグルを追加(ドクター: 変電所からの距離で高圧/特高の蓄電所が接続可能か否かが決まる)。⚡変電所(OSM)・⚡空容量の両マーカーのポップアップに「半径計測」ボタン。ONでその変電所を中心に半径1km(緑)/2km(黄)/3km(橙・破線)の円と距離ラベルを描画、再クリックでOFF。複数の変電所で同時に表示可。凡例に表示中箇所数と「全て消す」。両レイヤーをOFFにしたらリングも消す。専用ringPane(z630, 非インタラクティブ)でマーカーのクリックを妨げない。地図移動の描き直しでも消えない(マーカーとは独立管理)。 -->
@@ -6446,6 +6447,59 @@ function _renderSubstations(quiet){
   if(!quiet) showToast('画面内 '+n+'件の変電所を表示（© OpenStreetMap contributors／移動・ズームで描き直し）','success');
 }
 
+
+
+// ======== v20260917a: canvas rendererの「空振りイベント」を真下の要素へ通す(全pane共通シム) ========
+// 真因: gachoPane(z660)等の上位paneのcanvas rendererは画面全体を覆い、描画物に当たらないクリック/ホバーまで吸い込む。
+//       その下の subPane(z635) の変電所/空容量マーカー(SVG/canvas)は一切反応しない(「モーダルが出ない」・分析ページで実クリック再現)。
+// 対処: キャプチャ段階で対象がLeafletのcanvasかつ描画物にヒットしていなければ、そのcanvasを一時的に pointer-events:none にして
+//       真下の要素へ同じイベントを再送する(複数canvasが重なっていても順に貫通・再送中は上のcanvasを透過のまま保つので無限ループしない)。
+(function(){
+  var FWD={click:1,dblclick:1,mousedown:1,mouseup:1,contextmenu:1,mousemove:1};
+  var lastBelow=null;
+  function rendererOf(canvas){
+    var found=null;
+    try{ map.eachLayer(function(l){ if(!found && l instanceof L.Canvas && l._container===canvas) found=l; }); }catch(_){}
+    return found;
+  }
+  function hasHit(r,ev){
+    try{
+      var p=map.mouseEventToLayerPoint(ev);
+      for(var o=r._drawFirst;o;o=o.next){ var l=o.layer; if(l&&l.options&&l.options.interactive&&l._containsPoint&&l._containsPoint(p)) return true; }
+      return false;
+    }catch(_){ return true; } // 判定できない時は従来どおり(吸わせる)
+  }
+  function handler(ev){
+    if(!FWD[ev.type]) return;
+    var t=ev.target; if(!(t instanceof HTMLCanvasElement)) return;
+    if(!t.closest||!t.closest('.leaflet-pane')) return;
+    var r=rendererOf(t); if(!r) return;
+    if(hasHit(r,ev)) return; // canvas自身の描画物への操作 → そのまま
+    var prev=t.style.pointerEvents; t.style.pointerEvents='none';
+    try{
+      var below=document.elementFromPoint(ev.clientX,ev.clientY);
+      var cont=map.getContainer();
+      if(!below||below===t||below===cont||!cont.contains(below)) return; // 地図の素地 → 通常のmapイベントに任せる
+      ev.stopPropagation(); ev.preventDefault();
+      var init={bubbles:true,cancelable:true,view:window,clientX:ev.clientX,clientY:ev.clientY,screenX:ev.screenX,screenY:ev.screenY,
+                button:ev.button,buttons:ev.buttons,ctrlKey:ev.ctrlKey,shiftKey:ev.shiftKey,altKey:ev.altKey,metaKey:ev.metaKey};
+      if(ev.type==='mousemove' && lastBelow!==below){
+        if(lastBelow){ try{ lastBelow.dispatchEvent(new MouseEvent('mouseout',init)); }catch(_){} }
+        below.dispatchEvent(new MouseEvent('mouseover',init)); lastBelow=below;
+      }
+      below.dispatchEvent(new MouseEvent(ev.type,init)); // 同期。ネストした再送中も t は透過のまま
+    }finally{ t.style.pointerEvents=prev; }
+  }
+  function install(){
+    try{
+      if(typeof map==='undefined'||!map||!map.getContainer) { setTimeout(install,500); return; }
+      var c=map.getContainer(); if(c.__canvasClickThrough) return; c.__canvasClickThrough=true;
+      Object.keys(FWD).forEach(function(tp){ c.addEventListener(tp,handler,true); });
+      window._canvasClickThrough=true;
+    }catch(_){ setTimeout(install,500); }
+  }
+  install();
+})();
 
 // ======== v20260916f: 変電所 半径計測リング(1km/2km/3km) ========
 // ドクター(2026-09-16): 変電所からの距離によって高圧/特別高圧の蓄電所が接続可能か否かが決まる

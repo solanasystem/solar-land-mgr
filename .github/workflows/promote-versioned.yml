@@ -6,6 +6,7 @@ name: Promote versioned files and stamp build
 # ② v20260916e(ドクター「バージョンは必ず毎回の修正で変更されるようになっているのか」): main への push のたびに
 #    build.json を機械的に生成してコミットする（人が版を書き足す運用に依存しない＝忘れても必ず変わる）。
 #    版 = v<コミット日(JST)>-<短縮SHA>。全ページ共通の build-version-badge.js がこれを読んでロゴ横バッジに出す。
+#    ver.txt にも同じ版を書く(v20260917a): 各ページの自動リロード(?_cb=<ver.txt>)がデプロイごとに必ず新HTMLを取り直す。
 #    自身のコミットは [skip ci] で再発火しない。両処理を同じジョブ・同じ concurrency に置き、push の競合を避ける。
 
 on:
@@ -48,7 +49,10 @@ jobs:
           printf '{"build":"%s","commit":"%s","date":"%s","subject":%s,"stamped_at":"%s"}\n' \
             "$build" "$sha" "$date_jst" "$subject" "$(TZ=Asia/Tokyo date +%Y-%m-%dT%H:%M:%S+09:00)" > build.json
           cat build.json
-          git add build.json
+          # v20260917a: ver.txt も同じ版で更新(各ページの自動リロード機構が「最新版と違えば ?_cb=<版> で1回リロード」するため、
+          # デプロイのたびに一意のクエリで必ず新HTMLを取り直す＝ブラウザ/CDNキャッシュ(max-age=600)に古いHTMLが残らない)
+          echo "$build" > ver.txt
+          git add build.json ver.txt
       - name: Commit and push if changed
         run: |
           set -e
