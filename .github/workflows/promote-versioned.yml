@@ -1,16 +1,16 @@
-name: Promote versioned files to served names
+name: Promote versioned files and stamp build
 
-# 配信名マーカー "<name>_v<token>.<ext>" または "<name>__v<token>.<ext>" が push されると、
-# "<name>.<ext>"(配信名) へ自動コピーし、版名ファイルを削除する。
-# アンダースコア1本でも2本でも動く（DL時に __ が _ に化けても昇格）。
-# paths を **_v* にしてルート直下のpushでも確実に発火させる。
-# 全ファイル共通。人間はリネーム/削除を一切しない。
+# ① 配信名マーカー "<name>_v<token>.<ext>" または "<name>__v<token>.<ext>" が push されると、
+#    "<name>.<ext>"(配信名) へ自動コピーし、版名ファイルを削除する。
+#    アンダースコア1本でも2本でも動く（DL時に __ が _ に化けても昇格）。全ファイル共通。人間はリネーム/削除を一切しない。
+# ② v20260916e(ドクター「バージョンは必ず毎回の修正で変更されるようになっているのか」): main への push のたびに
+#    build.json を機械的に生成してコミットする（人が版を書き足す運用に依存しない＝忘れても必ず変わる）。
+#    版 = v<コミット日(JST)>-<短縮SHA>。全ページ共通の build-version-badge.js がこれを読んでロゴ横バッジに出す。
+#    自身のコミットは [skip ci] で再発火しない。両処理を同じジョブ・同じ concurrency に置き、push の競合を避ける。
 
 on:
   push:
     branches: [ main ]
-    paths:
-      - '**_v*'
   workflow_dispatch: {}
 
 permissions:
@@ -28,7 +28,6 @@ jobs:
       - name: Promote versioned files
         run: |
           set -e
-          changed=0
           for f in $(ls -1 2>/dev/null | grep -E '_+v[0-9A-Za-z]+\.[^.]+$' | sort); do
             canonical="$(echo "$f" | sed -E 's/_+v[0-9A-Za-z]+(\.[^.]+)$/\1/')"
             if [ "$canonical" = "$f" ] || [ -z "$canonical" ]; then continue; fi
@@ -36,10 +35,26 @@ jobs:
             cp -f "$f" "$canonical"
             git rm -q "$f"
             git add "$canonical"
-            changed=1
           done
-          if [ "$changed" -eq 0 ]; then echo "no versioned files"; exit 0; fi
+      - name: Stamp build.json
+        run: |
+          set -e
+          sha="$(git rev-parse --short=7 "$GITHUB_SHA")"
+          # コミット日時(JST)・件名。件名はJSON用にエスケープ
+          date_jst="$(git log -1 --format=%cd --date=iso-strict "$GITHUB_SHA")"
+          day="$(TZ=Asia/Tokyo git log -1 --format=%cd --date=format-local:%Y%m%d "$GITHUB_SHA")"
+          subject="$(git log -1 --format=%s "$GITHUB_SHA" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip(), ensure_ascii=False))')"
+          build="v${day}-${sha}"
+          printf '{"build":"%s","commit":"%s","date":"%s","subject":%s,"stamped_at":"%s"}\n' \
+            "$build" "$sha" "$date_jst" "$subject" "$(TZ=Asia/Tokyo date +%Y-%m-%dT%H:%M:%S+09:00)" > build.json
+          cat build.json
+          git add build.json
+      - name: Commit and push if changed
+        run: |
+          set -e
+          if git diff --cached --quiet; then echo "nothing to commit"; exit 0; fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "deploy: promote versioned files to served names [skip ci]"
+          build="$(python3 -c 'import json; print(json.load(open("build.json"))["build"])')"
+          git commit -m "stamp: build ${build} (auto) [skip ci]"
           git push
