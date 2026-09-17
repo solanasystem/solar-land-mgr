@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260917b / 🔬「AI分析結果（検証中）」レイヤーを再配線。適地候補749件相当の母集団(computeCyanLiveと同一ロジックで再現・ライブ734件=DBが継続変化しているため差分あり、data/ai_eye_749.geojson meta.population_note参照)へ reject_classifier.pkl(手動NG/OK判定を教師にした分類器)で①適当/②検討/③不可の3値+reject score(確度)+ゲート理由を付与し検証表示。旧v20260816aの自作aiAnalysisPane(v20260816eで画層システムに置換済み・現存せず)は復活させず、現行の画層API window.__gacho.loadNeutral()一本で「AI分析結果（検証中・749相当・シアン）」レイヤーとして追加(既存の①適当/②検討2分割レイヤー群と同一パターン踏襲)。data/ai_eye_749.geojsonを新規追加のみ・既存レイヤー/候補/ai_ok_labels/farmland_ng_list/納品/予備軍/本番DBは無変更(SELECTのみで生成)。 -->
 <!-- BUILD: farmland-tracker-analysis v20260917a / 🩹「変電所のフラグをクリックしてもモーダルが開かない」の真因と根治(ドクター報告・分析ページで実クリック再現)。真因=gachoPane(z660)等の上位paneに置かれたcanvas renderer(9/7〜9/9の大量マーカーCanvas化)が画面全体を覆い、描画物に当たらないクリック/ホバーまで吸い込む→その下のsubPane(z635)の変電所/空容量マーカーは一切反応しない(本ページにはこのcanvasが無いので開いていた)。根治=mapコンテナのキャプチャ段階で「対象がLeafletのcanvasで、そのrendererの描画物にヒットしていない」イベント(click/dblclick/mousedown/mouseup/contextmenu/mousemove)を、canvasを一時的にpointer-events:noneにして真下の要素へ再送する共通シム(_canvasClickThrough)。canvas自身の描画物へのクリックは従来どおり。mousemoveは真下の要素が変わった時にmouseover/mouseoutも合成(ホバーのツールチップが効く)。pane順序は変えない。 -->
 <!-- BUILD: farmland-tracker-analysis v20260916h / 🩹「フラグをクリックしてもモーダルが出ない」の修正(ドクター報告)。真因=空容量マーカーのポップアップ(幅340px)の自動パンが描画済み範囲の余白(30%=約270px)を超えると moveend で描き直され、マーカーごと入れ替わってポップアップが即閉じていた(v20260916bの範囲判定では不十分。変電所側は幅200pxで偶然すり抜け)。修正=範囲判定に加え「そのレイヤーのマーカーのポップアップが開いている間は描き直さない」。閉じた時(popupclose)に描き直しが保留されていれば実行。両レイヤー共通。 -->
 <!-- BUILD: farmland-tracker-analysis v20260916g / ⚡変電所(OSM 4,815件)レイヤーにも空容量と同じズーム規定を適用(ドクター「一気に変電所が表示されている。一度読み込むと2度目から全部出る仕組みもやめろ、無駄な情報」)。CAP_MIN_ZOOM(9)未満は描画せず凡例に案内、9以上は画面内+余白30%だけ描画、moveendで描き直し(描画済み範囲内の小移動では描き直さない=ポップアップ保護)。キャッシュ(subCache)は保持するが全件描画はしない。トーストは初回のみ。 -->
@@ -9266,6 +9267,27 @@ if(typeof map!=='undefined'&&map&&map.on){
       },function(){});
     }catch(_e){}
   } else { setTimeout(waitNextDeliv,300); }
+})();
+</script>
+
+<!-- ===== 🔬 AI分析結果（検証中）v20260917b 分析ページ専用 =====
+     適地候補749件相当の母集団(computeCyanLiveと同一ロジックで再現)へ reject_classifier.pkl(栗本さんの
+     手動NG/OK判定を教師にした分類器)で①適当/②検討/③不可の3値+reject score(確度)+ゲート理由を付与した
+     data/ai_eye_749.geojson を読み、既存の画層API window.__gacho.loadNeutral() 経由でシアンの単一レイヤー
+     「AI分析結果（検証中・749相当・シアン）」として追加する。他の画層・既存データ・本番DBは無変更(読込のみ)。 -->
+<script>
+(function waitAiEye749(){
+  if (typeof map!=='undefined' && map && window.__gacho && window.__gacho.loadNeutral) {
+    fetch('data/ai_eye_749.geojson?v=20260917b').then(function(r){return r&&r.ok?r.json():null;}).then(function(g){
+      if(!g||!g.features||!g.features.length)return;
+      var items=g.features.map(function(ft){
+        var p=ft.properties||{},c=ft.geometry.coordinates;
+        return {no:p.feature_id,lat:c[1],lng:c[0],area:p.area_sqm,city:p.city,level:p.ai_level,reject:p.reject,noshin:p.noshin_status,haz:p.hazard_status};
+      });
+      window.__gacho.loadNeutral(items,'AI分析結果（検証中・749相当・シアン）','#00e5ff','aiEye749');
+      console.log('[aiEye749] '+items.length+'件表示 内訳='+JSON.stringify((g.meta&&g.meta.distribution)||{}));
+    }).catch(function(e){ console.warn('[aiEye749] ai_eye_749.geojson読込失敗',e); });
+  } else { setTimeout(waitAiEye749,200); }
 })();
 </script>
 
