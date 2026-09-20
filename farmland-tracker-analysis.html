@@ -8891,11 +8891,31 @@ if(typeof map!=='undefined'&&map&&map.on){
   var _goTok=0;
   function _cyEsc(x){ return String((x&&x.message)||x).replace(/[<>&"']/g,''); }
   // モーダルが「画面内に実際に見えている」か(サイズ>0かつ地図の表示範囲内)。開いているだけで画面外に出ている状態も検出する。
-  function _cyModalVisible(){
-    var p=document.querySelector('.leaflet-popup'); if(!p)return false;
-    var r=p.getBoundingClientRect(); if(r.width<=10||r.height<=10)return false;
+  // 見えていない理由を返す(見えている時は空文字)。大きさだけでなく「実際に描画される状態か」(表示なし/非表示/透明/画面外)も確認する。
+  // 透明度はアニメーション途中の値を拾わないよう、Leafletが付ける最終値(inline style)を優先し、祖先(地図コンテナまで)の分も掛け合わせる。
+  function _cyModalWhyHidden(){
+    var p=document.querySelector('.leaflet-popup'); if(!p)return 'モーダルが存在しない';
+    var r=p.getBoundingClientRect(); if(r.width<=10||r.height<=10)return 'モーダルの大きさが0(親が非表示)';
+    try{
+      var cont=map.getContainer(), e=p, op=1;
+      while(e&&e!==document.body){
+        var cs=getComputedStyle(e);
+        if(cs.display==='none')return '表示なし(display:none)';
+        if(e===p&&cs.visibility==='hidden')return '非表示(visibility:hidden)';
+        var io=(e.style&&e.style.opacity!=='')?parseFloat(e.style.opacity):parseFloat(cs.opacity);
+        if(!isNaN(io))op*=io;
+        if(e===cont)break; e=e.parentElement;
+      }
+      if(op<0.1)return '透明(opacity≈0)';
+    }catch(_){}
     var c=map.getContainer().getBoundingClientRect(); var tall=r.height>c.height-10;
-    return r.left>=c.left-3&&r.right<=c.right+3&&(tall||r.top>=c.top-3)&&r.bottom>c.top+40&&r.top<c.bottom-40;
+    if(!(r.left>=c.left-3&&r.right<=c.right+3&&(tall||r.top>=c.top-3)&&r.bottom>c.top+40&&r.top<c.bottom-40))return '画面の外に出ていた';
+    return '';
+  }
+  function _cyModalVisible(){ return _cyModalWhyHidden()===''; }
+  // 診断: マーカーが地図に載っていない時の内部状態を1行にまとめる(画面のトーストに出す)
+  function _cyDiag(m){
+    try{ return '[地図にLAY='+(map.hasLayer(LAY)?'有':'無')+' LAY内='+LAY.getLayers().length+' このマーカーLAY内='+(m&&LAY.hasLayer(m)?'有':'無')+' 表示='+(on?'ON':'OFF')+' 候補数='+order.length+']'; }catch(e){ return '[診断失敗]'; }
   }
   // ★2026-09-20(ドクター報告「適地候補2件だけモーダルが表示されない・処理ができない」): 候補のモーダルは
   //   マーカー経由(mk.openPopup)でしか開けず、開けなくても例外が握りつぶされて画面に何も出なかった。
@@ -8906,8 +8926,11 @@ if(typeof map!=='undefined'&&map&&map.on){
     try{
       var m=marks[i]; var isOpen=!!(m&&m.isPopupOpen&&m.isPopupOpen());
       if(isOpen&&_cyModalVisible())return; // 正常
-      var why=!m?'マーカー未作成':(!m._map?'マーカーが地図に載っていない':(!isOpen?'ポップアップが開いていない/閉じられた':'モーダルが画面の外に出ていた'));
+      var why=!m?'マーカー未作成':(!m._map?'マーカーが地図に載っていない':(!isOpen?'ポップアップが開いていない/閉じられた':_cyModalWhyHidden()));
+      var diag=(m&&!m._map)?(' '+_cyDiag(m)):'';
       try{ map.closePopup(); }catch(_){}
+      // 地図から外れていたら、候補フラグ(マーカー)ごと作り直して地図へ載せ直す(フラグが見えない状態も同時に直す)
+      if(!m||!m._map){ try{ built=false; LAY.clearLayers(); build(); try{ if(map.hasLayer(LAY))map.removeLayer(LAY); }catch(_){} LAY.addTo(map); m=marks[i]; if(m)m.setStyle({radius:11,weight:3,color:'#ffffff'}); }catch(e){ diag+=' 再構築失敗:'+_cyEsc(e); } }
       var viaMarker=false;
       if(m&&m._map){ try{ m.openPopup(); viaMarker=true; }catch(_){} }
       if(!viaMarker){
@@ -8916,7 +8939,7 @@ if(typeof map!=='undefined'&&map&&map.on){
       }
       setTimeout(function(){
         var ok=_cyModalVisible();
-        var msg=ok?('モーダルを自動で再表示しました（原因: '+why+'）'):('⚠ 候補'+(i+1)+'のモーダルを開けませんでした（原因: '+why+'）。「次▶」「◀前」で再試行してください');
+        var msg=ok?('モーダルを自動で再表示しました（原因: '+why+diag+'）'):('⚠ 候補'+(i+1)+'のモーダルを開けませんでした（原因: '+why+diag+' ／ 再表示後の状態: '+_cyModalWhyHidden()+'）。「次▶」「◀前」で再試行してください');
         if(typeof showToast==='function')showToast(msg,ok?'info':'error'); else if(!ok)alert(msg);
       },600);
     }catch(e){ var m2='⚠ モーダル表示エラー: '+_cyEsc(e); if(typeof showToast==='function')showToast(m2,'error'); }
