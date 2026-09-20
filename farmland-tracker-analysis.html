@@ -8801,6 +8801,16 @@ if(typeof map!=='undefined'&&map&&map.on){
       try{ var ok=await db.from('ai_ok_labels').select('member_fids').overlaps('member_fids',chunk); ((ok&&ok.data)||[]).forEach(function(x){(x.member_fids||[]).forEach(function(f){inv[f]=1;});}); }catch(e){}
     }
     var before=cand.length; cand=cand.filter(function(x){return !inv[x.f];}); steps.investRemoved=before-cand.length;
+    // ★2026-09-20(ドクター報告「候補2件だけモーダルが出ない・フラグが一瞬出て消える」): 別ID(aiEye749…/tsuB…等)で「削除」済みの
+    //   同一筆が候補に残っていた。gacho側の掃引(_sweepDeletedFlags→__gachoRemoveFeatureMarker)は座標一致(1.2e-5度≒1.3m)で
+    //   マーカーを消す仕様のため、候補フラグが数秒で消えモーダルも一緒に閉じていた(DBで実証: 候補と削除済み記録が同座標)。
+    //   「削除した筆は二度と出さない」に合わせ、削除済み(gacho_ng|deleted)と座標が一致する候補もここで除外する(IDが違っても同じ筆を同一視)。
+    setStep&&setStep('削除済みの筆(別ID・同座標)を除外中…');
+    var _delPts=[]; try{ var _dfrom=0; while(true){ var _dr=await db.from('farmland_ng_list').select('lat,lng').eq('ng_reason','gacho_ng|deleted').range(_dfrom,_dfrom+999); var _drows=(_dr&&_dr.data)||[]; _drows.forEach(function(x){ if(x.lat!=null&&x.lng!=null)_delPts.push([+x.lat,+x.lng]); }); if(_drows.length<1000)break; _dfrom+=1000; if(_dfrom>60000)break; } }catch(e){}
+    var _DEPS=1.2e-5, _delGrid={}; _delPts.forEach(function(p){ var k=Math.round(p[0]/0.0003)+'_'+Math.round(p[1]/0.0003); (_delGrid[k]=_delGrid[k]||[]).push(p); });
+    var _bDel=cand.length;
+    cand=cand.filter(function(x){ var ci=Math.round(x.la/0.0003), cj=Math.round(x.ln/0.0003); for(var di=-1;di<=1;di++)for(var dj=-1;dj<=1;dj++){ var arr=_delGrid[(ci+di)+'_'+(cj+dj)]; if(arr)for(var q=0;q<arr.length;q++){ if(Math.abs(arr[q][0]-x.la)<_DEPS&&Math.abs(arr[q][1]-x.ln)<_DEPS)return false; } } return true; });
+    steps.deletedPosRemoved=_bDel-cand.length;
     // ★既得地(納品/仮納品/OK済/手動ピック)と30m以内で重なる候補を除外(二重取り防止・ドクター)。
     // feature_id一致だけだとID表記ズレ(240383566 vs emaffMie_240383566)ですり抜けるので、座標30mで確実に落とす。
     setStep&&setStep('既得地(納品/OK/ピック)との重なり(30m)を除外中…');
@@ -9095,6 +9105,7 @@ if(typeof map!=='undefined'&&map&&map.on){
         +'<div>→ ⑤⑦モデル(reject&lt;'+(s.cutNg!=null?s.cutNg.toFixed(3):'0.65')+'/未採点・手動NG実データから自動算出): <b>'+s.model+'</b></div>'
         +'<div>→ ①青地(農振農用地ポリゴン内)除外: <b>−'+s.aochiRemoved+'</b> → '+s.afterAochi+'</div>'
         +'<div>→ 調査済み(OK/NG)除外: <b>−'+s.investRemoved+'</b></div>'
+        +'<div>→ 削除済みの筆(別IDで削除された同座標)除外: <b>−'+(s.deletedPosRemoved||0)+'</b></div>'
         +'<div>→ 既得地(納品/OK/ピック)と重複(30m)除外: <b>−'+(s.deliveredRemoved||0)+'</b></div>'
         +'<div>→ 隣接筆を30mで1カ所に統合: <b>−'+(s.mergeRemoved||0)+'</b></div>'
         +'<div style="color:#00e5ff;font-weight:800;margin-top:3px">＝ 適地候補: '+s.result+' 件</div>'
