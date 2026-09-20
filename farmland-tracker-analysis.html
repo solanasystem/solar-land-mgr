@@ -8883,19 +8883,62 @@ if(typeof map!=='undefined'&&map&&map.on){
     return '<div style="min-width:200px">'+head+'<div style="font-size:12px;line-height:1.8">面積 <b>'+(it.a||'—')+'㎡</b><br>①青地外 ②ハザ外 ③接道 ④連系 ✓<br>⑤日照・⑦現況(モデル): '+rej+'</div><div style="font-size:10px;color:#94a3b8;margin-top:4px">スコアカード初期化待ち…再クリックで表示</div></div>';
   }
   function build(){ if(built)return; built=true;
-    order.forEach(function(it,i){ var mk=L.circleMarker([it.la,it.ln],{renderer:rnd,radius:7,color:'#00e5ff',weight:2,fillColor:'#00e5ff',fillOpacity:0.55}); mk.bindPopup(function(){return cyanPopup(it,i);},{minWidth:250,maxWidth:340,maxHeight:900,autoPan:true,keepInView:true,closeOnClick:false}); LAY.addLayer(mk); marks[i]=mk; });
+    order.forEach(function(it,i){ var mk=L.circleMarker([it.la,it.ln],{renderer:rnd,radius:7,color:'#00e5ff',weight:2,fillColor:'#00e5ff',fillOpacity:0.55}); mk.bindPopup(function(){ try{ return cyanPopup(it,i); }catch(e){ return '<div style="min-width:220px;color:#f87171;font-size:12px;line-height:1.6">⚠ モーダル生成エラー: '+_cyEsc(e)+'</div>'; } },{minWidth:250,maxWidth:340,maxHeight:900,autoPan:true,keepInView:true,closeOnClick:false}); LAY.addLayer(mk); marks[i]=mk; });
   }
   function updCounter(){ if(counterEl){ if(idx<0){counterEl.textContent='0 / '+order.length;} else {var it=order[idx];counterEl.textContent=(idx+1)+' / '+order.length+'  '+(it.c||'');} } try{updRowHL();}catch(_){} }
   function turnOn(){ on=true; build(); LAY.addTo(map); showPanel(); if(_ref.sw){_ref.sw.textContent='ON';_ref.sw.style.color='#00e5ff';} }
   function turnOff(){ on=false; map.removeLayer(LAY); if(_ref.sw){_ref.sw.textContent='OFF';_ref.sw.style.color='#6e7681';} }
+  var _goTok=0;
+  function _cyEsc(x){ return String((x&&x.message)||x).replace(/[<>&"']/g,''); }
+  // モーダルが「画面内に実際に見えている」か(サイズ>0かつ地図の表示範囲内)。開いているだけで画面外に出ている状態も検出する。
+  function _cyModalVisible(){
+    var p=document.querySelector('.leaflet-popup'); if(!p)return false;
+    var r=p.getBoundingClientRect(); if(r.width<=10||r.height<=10)return false;
+    var c=map.getContainer().getBoundingClientRect(); var tall=r.height>c.height-10;
+    return r.left>=c.left-3&&r.right<=c.right+3&&(tall||r.top>=c.top-3)&&r.bottom>c.top+40&&r.top<c.bottom-40;
+  }
+  // ★2026-09-20(ドクター報告「適地候補2件だけモーダルが表示されない・処理ができない」): 候補のモーダルは
+  //   マーカー経由(mk.openPopup)でしか開けず、開けなくても例外が握りつぶされて画面に何も出なかった。
+  //   移動が終わった後に「実際に見えているか」を確認し、マーカーが無い/地図に載っていない/閉じられた/画面外に
+  //   出ていた場合は自動で開き直し(マーカー経由→ダメなら座標へ直接)、復旧した時は理由を画面に出す
+  //   (原因の切り分けが画面だけでできる)。
+  function _cyEnsureModal(i,it){
+    try{
+      var m=marks[i]; var isOpen=!!(m&&m.isPopupOpen&&m.isPopupOpen());
+      if(isOpen&&_cyModalVisible())return; // 正常
+      var why=!m?'マーカー未作成':(!m._map?'マーカーが地図に載っていない':(!isOpen?'ポップアップが開いていない/閉じられた':'モーダルが画面の外に出ていた'));
+      try{ map.closePopup(); }catch(_){}
+      var viaMarker=false;
+      if(m&&m._map){ try{ m.openPopup(); viaMarker=true; }catch(_){} }
+      if(!viaMarker){
+        var html; try{ html=cyanPopup(it,i); }catch(e){ html='<div style="min-width:220px;color:#f87171;font-size:12px;line-height:1.6">⚠ モーダル生成エラー: '+_cyEsc(e)+'</div>'; }
+        L.popup({minWidth:250,maxWidth:340,maxHeight:900,autoPan:true,keepInView:true,closeOnClick:false}).setLatLng([it.la,it.ln]).setContent(html).openOn(map);
+      }
+      setTimeout(function(){
+        var ok=_cyModalVisible();
+        var msg=ok?('モーダルを自動で再表示しました（原因: '+why+'）'):('⚠ 候補'+(i+1)+'のモーダルを開けませんでした（原因: '+why+'）。「次▶」「◀前」で再試行してください');
+        if(typeof showToast==='function')showToast(msg,ok?'info':'error'); else if(!ok)alert(msg);
+      },600);
+    }catch(e){ var m2='⚠ モーダル表示エラー: '+_cyEsc(e); if(typeof showToast==='function')showToast(m2,'error'); }
+  }
   function goTo(i){
     if(!order.length)return; if(!on)turnOn();
     if(i<0)i=0; if(i>=order.length)i=order.length-1;
     // ★候補切替時、ドラッグでbody直下に移動済みの古いポップアップが残ると引き出し線が古い位置を指したままになる不具合の是正。切替の都度必ず一掃してから開く。
     try{_cyanCloseAllPopups();}catch(_){}
     if(idx>=0&&marks[idx])marks[idx].setStyle({radius:7,weight:2,color:'#00e5ff'});
-    idx=i; var it=order[idx]; curFid=it.f; map.flyTo([it.la,it.ln],18);
-    var mk=marks[idx]; if(mk){ mk.setStyle({radius:11,weight:3,color:'#ffffff'}); setTimeout(function(){try{mk.openPopup();}catch(_){}},450); }
+    idx=i; var it=order[idx]; curFid=it.f;
+    if(!marks[i]||!map.hasLayer(LAY)){ try{ built=false; LAY.clearLayers(); build(); if(!map.hasLayer(LAY))LAY.addTo(map); }catch(_){} }
+    var mk=marks[i]; if(mk){ mk.setStyle({radius:11,weight:3,color:'#ffffff'}); }
+    var tok=++_goTok, tz=Math.min(18,map.getMaxZoom()||18), ens=false;
+    // 移動(flyTo)が終わってから0.9秒後に「見えているか」を確認。moveendが来ない場合の保険タイマー付き。
+    // (flyToが即時終了しても取りこぼさないよう、リスナー登録はflyToより前に行う)
+    var runEns=function(){ try{map.off('moveend',onEnd);}catch(_){} if(ens||tok!==_goTok)return; ens=true; setTimeout(function(){ if(tok!==_goTok)return; _cyEnsureModal(i,it); },900); };
+    var onEnd=function(){ if(Math.abs(map.getZoom()-tz)<0.01)runEns(); };
+    map.on('moveend',onEnd);
+    setTimeout(runEns,6500);
+    map.flyTo([it.la,it.ln],tz);
+    setTimeout(function(){ if(tok!==_goTok)return; try{ var m=marks[i]; if(m)m.openPopup(); }catch(_){} },450);
     updCounter();
   }
   // ===== クライアント納品登録(client_delivery_items) =====
