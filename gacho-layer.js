@@ -1761,6 +1761,15 @@ function _isNearKnown300_337_108(la,ln,grid){
   }}
   return false;
 }
+// このブラウザで判定済み(OK/NG)の、AI候補以外の項目(手動ピック/手描き境界/予備軍/納品等)の座標グリッド。loadNeutralの二重表示除外に使う。
+function _localJudgedGrid(){
+  var g={};
+  try{ state.layers.forEach(function(l){ if(l.archived)return; (l.items||[]).forEach(function(it){
+    if(!it.status||it.src==='aiKI'||it.lat==null||it.lng==null)return;
+    _dupGridAdd(g,it.lat,it.lng);
+  }); }); }catch(_){}
+  return g;
+}
 async function _buildDupGrid(){
   if(_dupGridCache)return _dupGridCache;
   var grid={};
@@ -2218,13 +2227,18 @@ window.__gacho={
     // 含めたので、ここで使うだけで全パイプライン共通の「唯一の除外基準」になる。
     _buildDupGrid().then(function(dupGrid){
       var added=0,skippedDup=0;
+      // ★2026-09-21(ドクター「重複フラグはなぜ出るのか」): DB上の判定(dupGrid)に無くても、このブラウザで既に判定済み(OK/NG)の
+      //   手動ピック/手描き/予備軍等(AI候補以外)と同じ場所(30m)の未判定AI候補は、同じ筆の二重表示になる(例: 手動ピック✓OK+①適当が同一筆に重なる)。
+      //   → 局所の判定済み座標も除外基準に加える(判定済み=既知という既存方針の延長・表示側のみ・DB/元データは無変更)。
+      var lg=_localJudgedGrid();
+      var _known=function(it){return _isNearKnown300_337_108(it.lat,it.lng,dupGrid)||_isNearKnown300_337_108(it.lat,it.lng,lg);};
       pending.forEach(function(it){
-        if(!it.status&&_isNearKnown300_337_108(it.lat,it.lng,dupGrid)){skippedDup++;return;}
+        if(!it.status&&_known(it)){skippedDup++;return;}
         l.items.push(it); added++;
       });
       l.items=l.items.filter(function(it){
         if(it.status)return true; // 自分自身が既にOK/NG確定済みなら残す
-        if(_isNearKnown300_337_108(it.lat,it.lng,dupGrid)){skippedDup++;return false;}
+        if(_known(it)){skippedDup++;return false;}
         return true;
       });
       saveState();setTimeout(function(){render();},0);
