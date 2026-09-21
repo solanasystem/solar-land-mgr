@@ -21,6 +21,33 @@ async function getNextRoundInfo(db){
   return out;
 }
 
+/* ===== 過去納品分(第N回ごとの納品済み位置)の「単一の正」 =====
+   ドクター指示(2026-09-20)「今までに納品した場所は1つのタブにまとめ、第1回分・第2回分…をリストから選んで
+   地図に表示したい(新しい場所を開拓する時、すでに開拓した場所がわかりダブらないように)」への対応。
+   ・「第N回」の定義は上の getNextRoundInfo / nouhin-structure.html の ROUND_NO_MAP と同じ
+     (client_deliveries.status='confirmed' を delivered_at(無ければcreated_at)昇順に並べた順番)。
+   ・位置は client_delivery_items(status='confirmed')の lat/lng。確定するたびに自動で「第N+1回分」が増える(ハードコード禁止)。
+   戻り値: [{no,id,period,notes,count,pts:[[lat,lng],...]}] (第1回から順)。失敗時は例外を投げる(呼び側で握る)。 */
+async function getPastDeliveryRounds(db){
+  var d=await db.from('client_deliveries').select('id,period,notes,status,delivered_at,created_at').eq('status','confirmed');
+  if(d.error)throw new Error(d.error.message||String(d.error));
+  var list=(d.data||[]).slice().sort(function(a,b){return String(a.delivered_at||a.created_at||'').localeCompare(String(b.delivered_at||b.created_at||''));});
+  var rounds=list.map(function(x,i){ return {no:i+1,id:x.id,period:x.period||'',notes:x.notes||'',count:0,pts:[]}; });
+  if(!rounds.length)return rounds;
+  var byId={}; rounds.forEach(function(r){ byId[r.id]=r; });
+  var ids=rounds.map(function(r){return r.id;});
+  var frm=0;
+  while(true){
+    var r=await db.from('client_delivery_items').select('delivery_id,lat,lng').eq('status','confirmed').in('delivery_id',ids).order('id',{ascending:true}).range(frm,frm+999);
+    if(r.error)throw new Error(r.error.message||String(r.error));
+    var b=r.data||[];
+    b.forEach(function(x){ var rd=byId[x.delivery_id]; if(rd&&x.lat!=null&&x.lng!=null)rd.pts.push([+x.lat,+x.lng]); });
+    if(b.length<1000)break; frm+=1000; if(frm>50000)break;
+  }
+  rounds.forEach(function(r){ r.count=r.pts.length; });
+  return rounds;
+}
+
 /* ===== 予備軍(round2_pool status=reserve)件数の「単一の正」＋変更通知バス =====
    ドクター指示(2026-09-16「根本的な改修をしておいてくれ、いつでも起こりうることだ」)への恒久対応。
    従来 round2_pool(reserve)を数える生クエリが gacho-layer.js / farmland-tracker-analysis.html /
@@ -45,6 +72,7 @@ async function notifyRound2PoolChanged(db){
 }
 if(typeof window!=='undefined'){
   window.getNextRoundInfo=getNextRoundInfo;
+  window.getPastDeliveryRounds=getPastDeliveryRounds;
   window.getPoolReserveCount=getPoolReserveCount;
   window.getRound2Reserve=getRound2Reserve;
   window.notifyRound2PoolChanged=notifyRound2PoolChanged;

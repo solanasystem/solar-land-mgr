@@ -1189,20 +1189,44 @@ function renderLayerGroups(){
 function render(){renderPanel();renderLayerGroups();try{renderDelivered();}catch(_){}}
 /* 納品済300を地図に一律グレーで表示(二度出し防止・ドクター2026-08-21)。既定OFF・候補より下pane・クリック不要の背景。 */
 var _deliveredLayer=null;
+/* ===== 過去納品分(第N回ごと)=「過去納品分」1つのタブにまとめた表示(ドクター2026-09-20) =====
+   第N回の定義と位置の取得は delivery-round-utils.js の getPastDeliveryRounds(単一の正・DBの確定済み納品)。
+   取得できない時だけ、第1回に限り従来の静的リスト(DELIVERED300)へ退避。表示/非表示は回ごとに state.pastRounds に保持。
+   既定は「全て表示」(新規開拓の時に既開拓の場所が見えてダブらない)。 */
+var _pastRounds=null; // [{no,id,period,notes,count,pts}] 未取得=null
+var _PAST_COLORS=['#ef4444','#f97316','#a855f7','#eab308','#ec4899','#14b8a6'];
+function _pastRoundsList(){
+  if(_pastRounds&&_pastRounds.length)return _pastRounds;
+  if(window.DELIVERED300&&window.DELIVERED300.pts){ return [{no:1,id:'static300',period:'',notes:'',count:window.DELIVERED300.pts.length,pts:window.DELIVERED300.pts}]; }
+  return [];
+}
+function _pastVis(no){ if(!state.pastRounds)return true; var v=state.pastRounds[no]; return v===undefined?true:!!v; } // 未設定=表示(既定は全て表示)
+async function loadPastDeliveries(){
+  try{
+    var d=_gDb(); if(!d||typeof window.getPastDeliveryRounds!=='function')return;
+    var r=await window.getPastDeliveryRounds(d);
+    if(r&&r.length){ _pastRounds=r; try{render();}catch(_){} }
+  }catch(e){ try{console.warn('[過去納品分] 取得失敗:',e&&e.message||e);}catch(_){} }
+}
+window.__gachoReloadPast=loadPastDeliveries;
 function renderDelivered(){
   var m=getMap(); if(!m)return;
   if(_deliveredLayer){try{m.removeLayer(_deliveredLayer);}catch(_){}_deliveredLayer=null;}
-  if(!state.showDelivered||!window.DELIVERED300||!window.DELIVERED300.pts)return;
+  var rounds=_pastRoundsList().filter(function(r){return _pastVis(r.no)&&r.pts&&r.pts.length;});
+  if(!rounds.length)return;
   if(!m.getPane('gachoDelivPane')){var p=m.createPane('gachoDelivPane');p.style.zIndex=445;}
   // v20260823(ドクター): 「⊗既得地を表示」(TAKENLAY)は撤去・こちらを300表示の唯一の正とする。
   // 0画層でgachoDelivPaneが一緒に消えるのを防ぐため、表示ONにするこの瞬間だけ明示的にdisplayを戻す
   // (takenPaneと同じ理由・同じ対処。恒久ホワイトリスト化はしない=0画層は本当に全部隠す)。
   try{ m.getPane('gachoDelivPane').style.display=''; }catch(_){}
   var g=L.layerGroup([]);
-  window.DELIVERED300.pts.forEach(function(pt){
-    var mk=L.circleMarker([pt[0],pt[1]],{pane:'gachoDelivPane',renderer:_getGachoDelivRenderer(),radius:7,color:'#ffffff',weight:2,fillColor:'#ef4444',fillOpacity:0.85,interactive:true});
-    mk.bindTooltip('第1回納品済(300)',{direction:'top'});
-    g.addLayer(mk);
+  rounds.forEach(function(rd){
+    var col=_PAST_COLORS[(rd.no-1)%_PAST_COLORS.length];
+    rd.pts.forEach(function(pt){
+      var mk=L.circleMarker([pt[0],pt[1]],{pane:'gachoDelivPane',renderer:_getGachoDelivRenderer(),radius:7,color:'#ffffff',weight:2,fillColor:col,fillOpacity:0.85,interactive:true});
+      mk.bindTooltip('第'+rd.no+'回納品済('+rd.count+')',{direction:'top'});
+      g.addLayer(mk);
+    });
   });
   g.addTo(m); _deliveredLayer=g;
 }
@@ -1295,7 +1319,25 @@ function renderPanel(){
   // v20260821z(ドクター): 「未確認のみ表示」撤去(断捨離)。面積ラベルは残す。
   // v20260821z11(ドクター): 「㎡ 面積ラベル」撤去(面積はポップアップ/描画後表示で確認)。
   // v20260821z4(ドクター): 初回納品済を一律グレーで表示=二度出し防止。新規開拓(緑)と一目で区別。
-  if(window.DELIVERED300)h+='<div class="gacho-master"><button id="gachoShowDeliv" class="gacho-btn'+(state.showDelivered?' on':'')+'" style="'+(state.showDelivered?'background:rgba(239,68,68,.30);border-color:#ef4444':'')+'" title="第1回納品済'+(window.DELIVERED300.count||300)+'を赤で地図に表示=同じ場所を二度出さないため。新規開拓(緑)と一目で区別">'+(state.showDelivered?'🔴 第1回納品(300)を表示中':'🔴 第1回納品(300)を地図に表示')+'</button></div>';
+  // v20260920(ドクター): 今までに納品した場所は「過去納品分」1つのタブにまとめる。▽で回ごとのリスト(第1回分・第2回分…)を開き、
+  //   回ごとに表示/隠すを切り替える。既定は全て表示(新規開拓の時、すでに開拓した場所が見えてダブらない)。
+  //   第N回はDBの確定済み納品から自動で増える(delivery-round-utils.js getPastDeliveryRounds)。
+  var _pastList=_pastRoundsList();
+  if(_pastList.length){
+    var _pastTot=0,_pastOn=0; _pastList.forEach(function(r){ _pastTot+=r.count; if(_pastVis(r.no))_pastOn+=r.count; });
+    h+='<div class="gacho-master"><button id="gachoPastToggle" class="gacho-btn wide'+(_pastOn?' on':'')+'" style="'+(_pastOn?'background:rgba(239,68,68,.22);border-color:#ef4444':'')+'" title="今までに納品した場所。回ごとに地図へ表示/非表示。新しい場所を開拓する時に、すでに開拓した場所が分かりダブらないための表示">🗂 過去納品分（表示'+_pastOn+'／全'+_pastTot+'）'+(state.pastOpen?' △':' ▽')+'</button></div>';
+    if(state.pastOpen){
+      h+='<div class="gacho-past" style="margin:0 0 6px 4px;padding:6px 8px;border:1px solid #30363d;border-radius:6px;background:rgba(255,255,255,.03)">'
+        +'<div style="display:flex;gap:6px;margin-bottom:5px"><button id="gachoPastAll" class="gacho-btn">👁 全て表示</button><button id="gachoPastNone" class="gacho-btn">🚫 全て隠す</button></div>';
+      _pastList.forEach(function(r){
+        var on=_pastVis(r.no), col=_PAST_COLORS[(r.no-1)%_PAST_COLORS.length];
+        h+='<div style="display:flex;align-items:center;gap:6px;margin:3px 0"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+col+';flex:0 0 auto"></span>'
+          +'<span style="flex:1;font-size:12px">第'+r.no+'回分（'+r.count+'件）<span style="color:#8b949e;font-size:10px"> '+esc(String(r.period||''))+'</span></span>'
+          +'<button class="gacho-btn gachoPastBtn'+(on?' on':'')+'" data-r="'+r.no+'" style="min-width:64px;'+(on?'background:'+col+'44;border-color:'+col:'')+'">'+(on?'表示中':'表示')+'</button></div>';
+      });
+      h+='</div>';
+    }
+  }
   // v20260821z2(ドクター): 「見た分をOKに一括」「除外は非表示」撤去(断捨離)。NGは既定(showNg=false)で地図から隠れたまま=機能は維持。
   // v20260820i(ドクター): 納品300を座標突合して画層から完全削除(先にSW退避=DB無変更・完全復元可)
   // v20260821z9(ドクター): 断捨離。↩納品を戻す/📸移行前スナップショット/↩スナップに戻す/📂スナップJSONから復元 を撤去(移行完了・仰々しい)。🔄第2回一致とその↩だけ残す。復元は自動DLしたJSON＋git履歴が担保。
@@ -1311,18 +1353,17 @@ function renderPanel(){
     h+='<div class="gacho-master"><button id="gachoD2Show" class="gacho-btn'+(state.showD2?' on':'')+'" style="'+(state.showD2?'background:rgba(34,197,94,.28);border-color:#22c55e':'')+'" title="第'+_rn+'回納品予定('+_rc+')の全レイヤーだけをON/OFF。他の作業台レイヤーには触らない">'+(state.showD2?'🟢 第'+_rn+'回納品予定('+_rc+')を表示中':'🟢 第'+_rn+'回納品予定('+_rc+')を地図に表示')+'</button></div>';
     h+='<div class="gacho-master"><button id="gachoD2Rebuild" class="gacho-btn" style="background:rgba(8,145,178,.28);border-color:#22d3ee;font-weight:700" title="第'+_rn+'回納品予定の階層を確定データ('+_rc+')に完全一致。移動/補完/外れNGの除外を一括・可逆・推奨">🔄 第'+_rn+'回を確定データに一致（'+_rc+'）</button></div>';
     // v20260821z3(ドクター): 🗂整理・➕補完は🔄に完全統合されたため撤去(断捨離)。今後OKを増やしたら🔄で再反映。
-    h+='<div class="gacho-master"><button id="gachoD2Manual" class="gacho-btn" style="background:rgba(255,20,147,.16);border-color:#ff1493" title="手作業ピック(ピンク)を『手作業｜県｜市町村』へ整理して階層表示。ピックの中身は不変・入れ物だけ整理・可逆">🖐 手作業ピックも県→市町村へ</button></div>';
+    // v20260920(ドクター断捨離): 「🖐手作業ピックも県→市町村へ」(起動時に自動で同じ処理が走る)と
+    //   「🔎未昇格の新規を地図で確認」(適地フィルターとは無関係の昇格前プレビュー)を撤去。関数本体は残置(起動時処理/API用)。
     // v20260823(ドクター「ピンク→緑への昇格をボタン1つで、AI外だし」): OK判定済みの手動ピックをround2_pool(緑・予備軍)へ一括昇格。
-    // ★2026-08-29(ドクター「119件を地図上に表してくれ、私がチェックする」): 昇格を実行する前に、対象を
-    // 黄色レイヤーで地図上に表示して目視確認できるプレビュー。round2_poolへは書き込まない。
-    h+='<div class="gacho-master"><button id="gachoPreviewNewOk" class="gacho-btn" style="background:rgba(34,211,238,.15);border-color:#22d3ee;font-weight:700" title="昇格対象(未昇格の真の新規)をシアン色レイヤーで地図に表示して確認する。round2_poolへはまだ書き込まない">🔎 未昇格の新規を地図で確認</button></div>';
     h+='<div class="gacho-master"><button id="gachoPromoteD2" class="gacho-btn" style="background:rgba(34,197,94,.2);border-color:#22c55e;font-weight:700" title="OK判定済みの手動ピック(ピンク/手作業)をround2_pool(第2回納品候補・緑)へ一括昇格。区域不明・昇格済みは対象外">⬆ OK済みピックを予備軍(緑)へ昇格</button></div>';
     // ★2026-08-28(ドクター指示・⑥→⑦): 予備軍(round2_pool・クライアント未定)から特定クライアントへ抽出し
     // 納品(client_delivery_items・仮納品)へ登録する。⑤→⑥昇格とは別の、独立した操作。
     h+='<div class="gacho-master"><button id="gachoExtractClient" class="gacho-btn" style="background:rgba(168,85,247,.2);border-color:#a855f7;font-weight:700" title="予備軍(round2_pool)のうちクライアント未割当の案件を、選んだクライアントへ抽出して仮納品登録する">📤 予備軍をクライアントへ抽出</button></div>';
-    h+='<div class="gacho-master"><button id="gachoTidy" class="gacho-btn" style="background:rgba(210,153,34,.2);border-color:#d29922" title="旧レイヤー(保留/対象外/AI候補/適当/検討/要確認 等)をSWへ退避し作業台から外す=県→市町村＋手作業＋手動ピックだけの綺麗な作業台に。可逆(退避↩で戻せる)">🧹 旧レイヤーを退避で片付け（県→市町村だけに）</button></div>';
-    if(_d2Emptied.length||_hasD2Snap()){
-      h+='<div class="gacho-master">'+(_d2Emptied.length?'<button id="gachoD2Del" class="gacho-btn on" title="移動で空になった元レイヤーを削除(0件のみ・総数不変を再確認)">🗑 空レイヤー削除（'+_d2Emptied.length+'）</button>':'')+(_hasD2Snap()?'<button id="gachoD2Undo" class="gacho-btn on" title="第2回移行を移行前に戻す">↩ 移行を元に戻す</button>':'')+'</div>';
+    // v20260920(ドクター断捨離): 「🧹旧レイヤーを退避で片付け」(起動時に一度だけ自動実行済み)と
+    //   「↩移行を元に戻す」(移行完了・押すと画層が巻き戻る)を撤去。関数本体は残置。
+    if(_d2Emptied.length){
+      h+='<div class="gacho-master"><button id="gachoD2Del" class="gacho-btn on" title="移動で空になった元レイヤーを削除(0件のみ・総数不変を再確認)">🗑 空レイヤー削除（'+_d2Emptied.length+'）</button></div>';
     }
   }
   // ★v20260818j(栗本さん:根拠のある数字だけ見せろ): OK/NGは「判定対象の候補レイヤー」だけで意味を持つ。
@@ -1425,20 +1466,21 @@ function bindPanel(){
   var mn=q('#gachoMin');if(mn)mn.onclick=function(){var b=q('#gachoBody');if(!b)return;_gachoPanelCollapsed=(b.style.display!=='none');b.style.display=(_gachoPanelCollapsed?'none':'');};
   var sa=q('#gachoShowAll');if(sa)sa.onclick=showAll;
   var ha=q('#gachoHideAll');if(ha)ha.onclick=hideAll;
-  var shd=q('#gachoShowDeliv');if(shd)shd.onclick=function(){state.showDelivered=!state.showDelivered;saveState();try{renderDelivered();}catch(_){}renderPanel();};
+  // 過去納品分: ▽で回ごとのリストを開閉／全て表示・全て隠す／回ごとの表示切替(すべてstate.pastRoundsに保持)
+  var pastT=q('#gachoPastToggle');if(pastT)pastT.onclick=function(){state.pastOpen=!state.pastOpen;saveState();renderPanel();};
+  function _setPastAll(v){ state.pastRounds=state.pastRounds||{}; _pastRoundsList().forEach(function(r){ state.pastRounds[r.no]=v; }); saveState(); try{renderDelivered();}catch(_){} renderPanel(); }
+  var pastA=q('#gachoPastAll');if(pastA)pastA.onclick=function(){_setPastAll(true);};
+  var pastN=q('#gachoPastNone');if(pastN)pastN.onclick=function(){_setPastAll(false);};
+  all('.gachoPastBtn').forEach(function(b){ b.onclick=function(){ var no=parseInt(b.getAttribute('data-r'),10); if(isNaN(no))return; state.pastRounds=state.pastRounds||{}; state.pastRounds[no]=!_pastVis(no); saveState(); try{renderDelivered();}catch(_){} renderPanel(); }; });
   var d2s=q('#gachoD2Show');if(d2s)d2s.onclick=function(){
     state.showD2=!state.showD2;
     state.layers.forEach(function(l){ if(l.meta&&l.meta.client==='第2回納品候補')l.visible=state.showD2; });
     saveState();render();
   };
-  var prevNew=q('#gachoPreviewNewOk');if(prevNew)prevNew.onclick=function(){previewNewOkOnMap();};
   var pd2=q('#gachoPromoteD2');if(pd2)pd2.onclick=function(){promotePinkToRound2();};
   var exc=q('#gachoExtractClient');if(exc)exc.onclick=function(){extractPoolToClient();};
   var d2d=q('#gachoD2Del');if(d2d)d2d.onclick=function(){deleteEmptiedD2();};
-  var d2u=q('#gachoD2Undo');if(d2u)d2u.onclick=function(){undoDelivery2();};
   var d2r=q('#gachoD2Rebuild');if(d2r)d2r.onclick=function(){rebuildDelivery2();};
-  var d2mn=q('#gachoD2Manual');if(d2mn)d2mn.onclick=function(){try{_backfillManualJudgmentsToDb();}catch(_){}rebuildManualPicksFromDb(false);};
-  var tdy=q('#gachoTidy');if(tdy)tdy.onclick=function(){tidyOldLayers();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
@@ -2257,6 +2299,7 @@ function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(
   injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments().then(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}});setTimeout(loadDbJudgments,2500);setTimeout(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}},4200);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
   try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
   try{loadDelivery2FromDb();setTimeout(loadDelivery2FromDb,2600);}catch(_){} // v20260823: 362はround2_poolからライブ取得(静的ファイル依存を撤去)
+  try{loadPastDeliveries();setTimeout(loadPastDeliveries,3200);}catch(_){} // v20260920: 過去納品分(第N回)を確定済み納品からライブ取得
   try{_loadNextRoundNo();}catch(_){} // v20260909: 次回の回数(第N回)をDBから取得しボタン表示へ反映
   // v20260916: 予備軍(reserve)件数の「単一の正」を購読。round2_poolがどの経路で変わっても、
   // notifyRound2PoolChanged()の通知を受けてボタンの(N)を再描画する=このファイルは件数を数え直さない。
