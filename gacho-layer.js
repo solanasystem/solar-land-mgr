@@ -640,7 +640,7 @@ function _d2InSync(){
   var want=Object.keys(vF).length+Object.keys(vB).length;
   var seenF={},seenB={},have=0;
   state.layers.forEach(function(l){
-    if(l.archived||!(l.meta&&l.meta.client==='第2回納品候補'))return;
+    if(l.archived||_d2IsPink(l)||!(l.meta&&l.meta.client==='第2回納品候補'))return; // 手作業(手動ピック判定)の画層は予備軍の階層ではない=数えない(数えると常に不一致になり毎回再構築が走る)
     (l.items||[]).forEach(function(it){
       if(it.type==='boundary'){ if(it.iid&&!seenB[it.iid]){seenB[it.iid]=1;have++;if(!vB[it.iid])have+=1000000;} }
       else if(it.feature_id&&!seenF[it.feature_id]){ seenF[it.feature_id]=1;have++;if(!vF[it.feature_id])have+=1000000; }
@@ -1419,6 +1419,10 @@ function renderPanel(){
   // ★v20260818j(栗本さん:グループのOK/NGは意味が混ざる): グループ見出しは「計(件数)」だけにする。
   //   判定のOK/NGは候補レイヤー各行と最上部「調査中の判定合計」だけに出す=数字が全部根拠を持つ。
   var _lcnt=function(ls){var a=0;ls.forEach(function(l){a+=l.items.length;});return '計'+a;};
+  // 第2回納品候補の見出し: 予備軍(round2_pool)の画層と、手作業(手動ピックのOK/NG判定)の画層は別物。合計だけ出すと予備軍の実数とずれて見える(2026-09-21 699≠687)ため分けて出す。
+  var _splitCnt=function(ls){var r=0,m=0;ls.forEach(function(l){if(_d2IsPink(l))m+=l.items.length;else r+=l.items.length;});return {r:r,m:m};};
+  var _d2cnt=function(ls,chk){var c=_splitCnt(ls);var bad=(chk&&_poolReserveCount!=null&&c.r!==_poolReserveCount);
+    return '<span'+(bad?' style="color:#f85149" title="画面の予備軍の画層(合計'+c.r+')がDBの予備軍('+_poolReserveCount+')と一致していません"':'')+'>'+(bad?'⚠ ':'')+'予備軍'+c.r+(c.m?'＋手作業'+c.m:'')+'</span>';};
   // 第2回納品候補の「行政区域別 確定OK件数」を固定データ(delivery2-candidates.js)から表示=AIが数え直さない・ブレない。
   var _D2=window.DELIVERY2;
   var _d2c=function(pref,city){ try{ if(!_D2||!_D2.locCount)return null; if(city!=null)return (_D2.locCount[pref]&&_D2.locCount[pref][city])||0; var s=0,o=_D2.locCount[pref]||{}; for(var k in o)s+=o[k]; return s; }catch(_){return null;} };
@@ -1457,7 +1461,7 @@ function renderPanel(){
   _clientKeys.forEach(function(cli){
     var ck='C:'+cli; var co=_gopen(ck);
     var call=[];Object.keys(_tree[cli]).forEach(function(p){Object.keys(_tree[cli][p]).forEach(function(rr){call=call.concat(_tree[cli][p][rr]);});});
-    h+='<div class="gacho-grp" data-grp="'+esc(ck)+'" style="cursor:pointer;margin-top:8px;padding:5px 6px;background:rgba(88,166,255,.10);border:1px solid #2a3742;border-radius:6px;font-weight:800"><span style="width:12px;display:inline-block">'+(co?'▾':'▸')+'</span>🏢 '+esc(cli)+(cli==='第2回納品候補'&&_D2?' <b style="color:#22d3ee;font-weight:700">予備軍 '+(_poolReserveCount!=null?_poolReserveCount:(_D2.reserve?_D2.reserve.totalItems:_D2.totalItems))+'件</b>':'')+'<span style="float:right;font-weight:400;color:#8b949e;font-size:11px">'+_lcnt(call)+'</span></div>';
+    h+='<div class="gacho-grp" data-grp="'+esc(ck)+'" style="cursor:pointer;margin-top:8px;padding:5px 6px;background:rgba(88,166,255,.10);border:1px solid #2a3742;border-radius:6px;font-weight:800"><span style="width:12px;display:inline-block">'+(co?'▾':'▸')+'</span>🏢 '+esc(cli)+(cli==='第2回納品候補'&&_D2?' <b style="color:#22d3ee;font-weight:700">予備軍 '+(_poolReserveCount!=null?_poolReserveCount:(_D2.reserve?_D2.reserve.totalItems:_D2.totalItems))+'件</b>':'')+'<span style="float:right;font-weight:400;color:#8b949e;font-size:11px">'+(cli==='第2回納品候補'?_d2cnt(call,true):_lcnt(call))+'</span></div>';
     if(!co)return;
     var periods=Object.keys(_tree[cli]).sort(function(a,b){var pa=/精査/.test(a)?0:1,pb=/精査/.test(b)?0:1;return pa-pb||a.localeCompare(b);});
     periods.forEach(function(per){
@@ -1466,7 +1470,7 @@ function renderPanel(){
       // 空の納品済みグループ(中身0)は出さない。精査中(作業台)は新規の空画層が消えないよう対象外。
       if(!isWip&&!pall.some(function(l){return l.items.length;}))return;
       var evacBtn=''; // 🗄退避ボタンは撤去(2026-09-21・過去納品分タブへ移行済み)。evacuateLayers本体は残置
-      h+='<div class="gacho-grp" data-grp="'+esc(pk)+'" style="cursor:pointer;margin-left:12px;margin-top:4px;padding:4px 6px;background:rgba(255,255,255,.03);border-left:2px solid '+(isWip?'#f59e0b':'#3fb950')+';font-weight:700;color:'+(isWip?'#f0b429':'#7ee787')+'"><span style="width:12px;display:inline-block">'+(po?'▾':'▸')+'</span>🗓 '+esc(per)+evacBtn+'<span style="float:right;font-weight:400;color:#8b949e;font-size:11px">'+_lcnt(pall)+'</span></div>';
+      h+='<div class="gacho-grp" data-grp="'+esc(pk)+'" style="cursor:pointer;margin-left:12px;margin-top:4px;padding:4px 6px;background:rgba(255,255,255,.03);border-left:2px solid '+(isWip?'#f59e0b':'#3fb950')+';font-weight:700;color:'+(isWip?'#f0b429':'#7ee787')+'"><span style="width:12px;display:inline-block">'+(po?'▾':'▸')+'</span>🗓 '+esc(per)+evacBtn+'<span style="float:right;font-weight:400;color:#8b949e;font-size:11px">'+(cli==='第2回納品候補'?_d2cnt(pall,false):_lcnt(pall))+'</span></div>';
       if(!po)return;
       Object.keys(_tree[cli][per]).sort().forEach(function(rg){
         var rk=pk+'|R:'+rg; var ro=_gopen(rk);
