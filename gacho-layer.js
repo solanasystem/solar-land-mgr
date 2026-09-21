@@ -586,12 +586,19 @@ function completeDelivery2FromDb(){
 }
 /* 第2回納品候補の階層を、固定データ(items)に完全一致させる。ブラウザにある該当は移動/無い分はDBから補完/外れた分(後からNG等)は階層から外す。
    ピンク・納品退避は触らない。可逆。=移動/補完のちぐはぐを一括で正す確定操作。 */
-function rebuildDelivery2(){
-  var D=window.DELIVERY2;
-  if(!D||!D.items){toast('データ未読込＝中断');return;}
-  if(!confirm('第2回納品候補の階層を、確定データ '+D.totalItems+' 件に完全一致させます。\n・ブラウザにある該当分は移動、無い分はDBから補完\n・後からNGにした等で外れた分は階層から外します\n・手動ピック(ピンク)・納品退避は触りません\n・先に自動スナップショット＝可逆\n実行しますか？'))return;
-  var snap;try{snap=JSON.stringify({ts:_stamp(),state:state});localStorage.setItem(_D2_SNAP_KEY,snap);}catch(_){toast('スナップショット失敗＝中断');return;}
-  try{download('第2回再構築前スナップ_'+_stamp()+'.json',snap,'application/json');}catch(_){}
+/* v20260921(ドクター): 「予備軍」タブに統合。手動の「確定データに一致」ボタンは廃止し、予備軍を表示する時に自動で(silent)実行する。
+   silent時は確認ダイアログ/スナップショットDL/完了アラートを出さない。対象はDBの予備軍(status=reserve)だけ
+   (納品済みは「過去納品分」で見る)。全件のwindow.DELIVERY2.items等は重複防止用にそのまま維持。 */
+function rebuildDelivery2(opts){
+  opts=opts||{}; var silent=!!opts.silent;
+  var D0=window.DELIVERY2;
+  if(!D0||!D0.items){ if(!silent)toast('データ未読込＝中断'); return; }
+  var D=D0.reserve||D0; // 予備軍だけ(reserveが無い旧形式は全件)
+  if(!silent){
+    if(!confirm('第2回納品候補の階層を、確定データ '+D.totalItems+' 件に完全一致させます。\n・ブラウザにある該当分は移動、無い分はDBから補完\n・後からNGにした等で外れた分は階層から外します\n・手動ピック(ピンク)・納品退避は触りません\n・先に自動スナップショット＝可逆\n実行しますか？'))return;
+    var snap;try{snap=JSON.stringify({ts:_stamp(),state:state});localStorage.setItem(_D2_SNAP_KEY,snap);}catch(_){toast('スナップショット失敗＝中断');return;}
+    try{download('第2回再構築前スナップ_'+_stamp()+'.json',snap,'application/json');}catch(_){}
+  }
   var validF=D.byFeature||{},validB=D.byBoundary||{};
   var colF={},colB={};
   // 1) 一致itemを全レイヤー(非退避/非ピンク)から収集して取り出す。第2回宛先の非該当(=外れた分)は捨てる。
@@ -621,8 +628,26 @@ function rebuildDelivery2(){
   state.layers.forEach(function(l){if(!(l.meta&&l.meta.client==='第2回納品候補'))return;l.items.forEach(function(it){if(it.type==='boundary'){if(it.iid)db2[it.iid]=1;}else if(it.feature_id)df[it.feature_id]=1;});});
   var tot=Object.keys(df).length+Object.keys(db2).length;
   saveState();render();
-  try{alert('✓ 第2回納品候補を確定データに一致させました\n\n配置 '+placed+' 件\n第2回の実数 = '+tot+'（目標'+D.totalItems+'）\n\n違和感があれば「↩ 移行を元に戻す」。');}catch(_){}
-  toast('✓ 第2回 再構築 実数'+tot+'（目標'+D.totalItems+'）');
+  if(!silent){
+    try{alert('✓ 第2回納品候補を確定データに一致させました\n\n配置 '+placed+' 件\n第2回の実数 = '+tot+'（目標'+D.totalItems+'）\n\n違和感があれば「↩ 移行を元に戻す」。');}catch(_){}
+    toast('✓ 第2回 再構築 実数'+tot+'（目標'+D.totalItems+'）');
+  }
+}
+// 画面上の「第2回納品候補」階層が、DBの予備軍(reserve)と過不足なく一致しているか。一致なら再構築は不要。
+function _d2InSync(){
+  var D0=window.DELIVERY2; if(!D0||!D0.items)return true; // データ未読込は判断しない(何もしない)
+  var D=D0.reserve||D0; var vF=D.byFeature||{}, vB=D.byBoundary||{};
+  var want=Object.keys(vF).length+Object.keys(vB).length;
+  var seenF={},seenB={},have=0;
+  state.layers.forEach(function(l){
+    if(l.archived||!(l.meta&&l.meta.client==='第2回納品候補'))return;
+    (l.items||[]).forEach(function(it){
+      if(it.type==='boundary'){ if(it.iid&&!seenB[it.iid]){seenB[it.iid]=1;have++;if(!vB[it.iid])have+=1000000;} }
+      else if(it.feature_id&&!seenF[it.feature_id]){ seenF[it.feature_id]=1;have++;if(!vF[it.feature_id])have+=1000000; }
+    });
+  });
+  if(have!==want)return false; // 件数の過不足、または予備軍にない筆が階層に残っている
+  return true;
 }
 // 2026-08-27の93件誤爆確認用レイヤー(openD2TodayReviewLayer)は確認作業完了のため2026-08-28削除。
 /* v20260823(ドクター「静的ファイルへの依存自体をやめる」): window.DELIVERY2を、静的ファイル(delivery2-candidates.js)
@@ -641,20 +666,29 @@ async function loadDelivery2FromDb(){
     }
   }catch(e){ try{console.warn('[round2_pool] 取得失敗:',e&&e.message||e);}catch(_){} return; }
   var items=[],byFeature={},byBoundary={},locCount={},order={},prefOrder=[];
+  // v20260921(ドクター): 「予備軍」タブは予備軍(status=reserve)だけを描く。納品済み(shipped)は「過去納品分」で見る。
+  //   全件(items等)は重複防止用にそのまま維持し、予備軍だけの集合を reserve に別途持つ。
+  var rItems=[],rByFeature={},rByBoundary={};
   rows.forEach(function(r){
+    var isRes=(r.status==='reserve');
     if(r.kind==='boundary'){
-      items.push({k:'b',id:r.source_iid,lat:r.lat,lng:r.lng,area:r.area_m2,latlngs:r.latlngs,pref:r.pref,city:r.city});
-      byBoundary[r.source_iid]={pref:r.pref,city:r.city};
+      var bo={k:'b',id:r.source_iid,lat:r.lat,lng:r.lng,area:r.area_m2,latlngs:r.latlngs,pref:r.pref,city:r.city};
+      items.push(bo); byBoundary[r.source_iid]={pref:r.pref,city:r.city};
+      if(isRes){ rItems.push(bo); rByBoundary[r.source_iid]={pref:r.pref,city:r.city}; }
     }else{
-      items.push({k:'f',id:r.source_iid,lat:r.lat,lng:r.lng,pref:r.pref,city:r.city});
-      byFeature[r.source_iid]={pref:r.pref,city:r.city};
+      var fo={k:'f',id:r.source_iid,lat:r.lat,lng:r.lng,pref:r.pref,city:r.city};
+      items.push(fo); byFeature[r.source_iid]={pref:r.pref,city:r.city};
+      if(isRes){ rItems.push(fo); rByFeature[r.source_iid]={pref:r.pref,city:r.city}; }
     }
     locCount[r.pref]=locCount[r.pref]||{}; locCount[r.pref][r.city]=(locCount[r.pref][r.city]||0)+1;
     order[r.pref]=order[r.pref]||[]; if(order[r.pref].indexOf(r.city)<0)order[r.pref].push(r.city);
     if(prefOrder.indexOf(r.pref)<0)prefOrder.push(r.pref);
   });
-  window.DELIVERY2={gen:'live(round2_pool)',totalItems:items.length,totalLocations:items.length,items:items,byFeature:byFeature,byBoundary:byBoundary,locCount:locCount,order:order,prefOrder:prefOrder,manualGeoByCoord:{}};
+  window.DELIVERY2={gen:'live(round2_pool)',totalItems:items.length,totalLocations:items.length,items:items,byFeature:byFeature,byBoundary:byBoundary,locCount:locCount,order:order,prefOrder:prefOrder,manualGeoByCoord:{},
+    reserve:{totalItems:rItems.length,items:rItems,byFeature:rByFeature,byBoundary:rByBoundary}};
   try{ _dupGridCache=null; }catch(_){}
+  // 予備軍を表示中(state.showD2)なら、画面上の階層をDBの予備軍に自動で合わせる(手動の「確定データに一致」操作は廃止)
+  try{ if(state.showD2&&!_d2InSync())rebuildDelivery2({silent:true}); }catch(_){}
   try{ render(); }catch(_){}
 }
 window.__gachoReloadD2=loadDelivery2FromDb;
@@ -1352,16 +1386,18 @@ function renderPanel(){
     var _d2n=window.DELIVERY2.totalItems; // 地図に描画する全件(round2_pool round=2の全件・出荷済み含む=重複防止に使う既存の集計。件数の性質が違うため表示ラベルには使わない)
     var _rn=(_nextRoundNo!=null?_nextRoundNo:'?'); // ハードコード「第2回」廃止。DBから取得した次回番号(未取得時は?)
     var _rc=(_poolReserveCount!=null?_poolReserveCount:_d2n); // 表示用件数=納品確定済み(shipped)を差し引いたreserveの実数。未取得時のみ暫定で_d2nにフォールバック
-    h+='<div class="gacho-master"><button id="gachoD2Show" class="gacho-btn'+(state.showD2?' on':'')+'" style="'+(state.showD2?'background:rgba(34,197,94,.28);border-color:#22c55e':'')+'" title="第'+_rn+'回納品予定('+_rc+')の全レイヤーだけをON/OFF。他の作業台レイヤーには触らない">'+(state.showD2?'🟢 第'+_rn+'回納品予定('+_rc+')を表示中':'🟢 第'+_rn+'回納品予定('+_rc+')を地図に表示')+'</button></div>';
-    h+='<div class="gacho-master"><button id="gachoD2Rebuild" class="gacho-btn" style="background:rgba(8,145,178,.28);border-color:#22d3ee;font-weight:700" title="第'+_rn+'回納品予定の階層を確定データ('+_rc+')に完全一致。移動/補完/外れNGの除外を一括・可逆・推奨">🔄 第'+_rn+'回を確定データに一致（'+_rc+'）</button></div>';
-    // v20260821z3(ドクター): 🗂整理・➕補完は🔄に完全統合されたため撤去(断捨離)。今後OKを増やしたら🔄で再反映。
-    // v20260920(ドクター断捨離): 「🖐手作業ピックも県→市町村へ」(起動時に自動で同じ処理が走る)と
-    //   「🔎未昇格の新規を地図で確認」(適地フィルターとは無関係の昇格前プレビュー)を撤去。関数本体は残置(起動時処理/API用)。
-    // v20260823(ドクター「ピンク→緑への昇格をボタン1つで、AI外だし」): OK判定済みの手動ピックをround2_pool(緑・予備軍)へ一括昇格。
-    h+='<div class="gacho-master"><button id="gachoPromoteD2" class="gacho-btn" style="background:rgba(34,197,94,.2);border-color:#22c55e;font-weight:700" title="OK判定済みの手動ピック(ピンク/手作業)をround2_pool(第2回納品候補・緑)へ一括昇格。区域不明・昇格済みは対象外">⬆ OK済みピックを予備軍(緑)へ昇格</button></div>';
-    // ★2026-08-28(ドクター指示・⑥→⑦): 予備軍(round2_pool・クライアント未定)から特定クライアントへ抽出し
-    // 納品(client_delivery_items・仮納品)へ登録する。⑤→⑥昇格とは別の、独立した操作。
-    h+='<div class="gacho-master"><button id="gachoExtractClient" class="gacho-btn" style="background:rgba(168,85,247,.2);border-color:#a855f7;font-weight:700" title="予備軍(round2_pool)のうちクライアント未割当の案件を、選んだクライアントへ抽出して仮納品登録する">📤 予備軍をクライアントへ抽出</button></div>';
+    // v20260921(ドクター): 旧「第N回納品予定を表示」「確定データに一致」「OK済みピックを予備軍へ昇格」「予備軍をクライアントへ抽出」の
+    //   4ボタンを「予備軍(N)」1つのタブに統合。表示すると画面上の階層がDBの予備軍に自動で合う(手動の一致操作は廃止)。
+    //   ▽の中に「OK済みピックを予備軍へ昇格」だけ残す。「クライアントへ抽出」は使用実績0件のため撤去(関数本体は残置)。
+    //   納品済みは「過去納品分」で見る(ここは予備軍だけ)。
+    var _resN=(_poolReserveCount!=null?_poolReserveCount:(window.DELIVERY2.reserve?window.DELIVERY2.reserve.totalItems:_d2n));
+    h+='<div class="gacho-master" style="display:flex;gap:4px"><button id="gachoD2Show" class="gacho-btn" style="color:#f1f5f9;font-weight:700;'+(state.showD2?'background:rgba(34,197,94,.38);border-color:#22c55e':'')+'" title="次回(第'+_rn+'回)納品予定の予備軍だけをON/OFF。表示する時に画面上の階層を自動でDBの予備軍に合わせます。納品済みは「過去納品分」で見ます">'+(state.showD2?'🟢 予備軍（'+_resN+'）を表示中':'🟢 予備軍（'+_resN+'）を地図に表示')+'</button>'
+      +'<button id="gachoD2More" class="gacho-btn" style="flex:0 0 34px;color:#f1f5f9" title="予備軍の操作(昇格)">'+(state.d2Open?'△':'▽')+'</button></div>';
+    if(state.d2Open){
+      // v20260823(ドクター「ピンク→緑への昇格をボタン1つで、AI外だし」): OK判定済みの手動ピックをround2_pool(緑・予備軍)へ一括昇格。
+      h+='<div class="gacho-past" style="margin:0 0 6px 4px;padding:6px 8px;border:1px solid #30363d;border-radius:6px;background:rgba(255,255,255,.03)">'
+        +'<button id="gachoPromoteD2" class="gacho-btn wide" style="margin-top:0;color:#f1f5f9;font-weight:700;background:rgba(34,197,94,.2);border-color:#22c55e" title="OK判定済みの手動ピック(ピンク/手作業)をround2_pool(予備軍・緑)へ一括昇格。区域不明・昇格済みは対象外">⬆ OK済みピックを予備軍(緑)へ昇格</button></div>';
+    }
     // v20260920(ドクター断捨離): 「🧹旧レイヤーを退避で片付け」(起動時に一度だけ自動実行済み)と
     //   「↩移行を元に戻す」(移行完了・押すと画層が巻き戻る)を撤去。関数本体は残置。
     if(_d2Emptied.length){
@@ -1474,15 +1510,17 @@ function bindPanel(){
   var pastA=q('#gachoPastAll');if(pastA)pastA.onclick=function(){_setPastAll(true);};
   var pastN=q('#gachoPastNone');if(pastN)pastN.onclick=function(){_setPastAll(false);};
   all('.gachoPastBtn').forEach(function(b){ b.onclick=function(){ var no=parseInt(b.getAttribute('data-r'),10); if(isNaN(no))return; state.pastRounds=state.pastRounds||{}; state.pastRounds[no]=!_pastVis(no); saveState(); try{renderDelivered();}catch(_){} renderPanel(); }; });
+  // 予備軍: 表示する時に、画面上の階層がDBの予備軍と違っていれば自動で合わせる(silent)。▽でOK済みピックの昇格を開閉。
   var d2s=q('#gachoD2Show');if(d2s)d2s.onclick=function(){
-    state.showD2=!state.showD2;
+    var turningOn=!state.showD2;
+    if(turningOn){ try{ if(!_d2InSync())rebuildDelivery2({silent:true}); }catch(e){ try{toast('⚠ 予備軍の反映に失敗: '+(e&&e.message||e));}catch(_){} } }
+    state.showD2=turningOn;
     state.layers.forEach(function(l){ if(l.meta&&l.meta.client==='第2回納品候補')l.visible=state.showD2; });
     saveState();render();
   };
+  var d2m=q('#gachoD2More');if(d2m)d2m.onclick=function(){state.d2Open=!state.d2Open;saveState();renderPanel();};
   var pd2=q('#gachoPromoteD2');if(pd2)pd2.onclick=function(){promotePinkToRound2();};
-  var exc=q('#gachoExtractClient');if(exc)exc.onclick=function(){extractPoolToClient();};
   var d2d=q('#gachoD2Del');if(d2d)d2d.onclick=function(){deleteEmptiedD2();};
-  var d2r=q('#gachoD2Rebuild');if(d2r)d2r.onclick=function(){rebuildDelivery2();};
   var b0=q('.gacho-eye[data-b0]');if(b0)b0.onclick=function(){state.base0Visible=!state.base0Visible;saveState();render();applyBase0();};
   // ★画層検索: 打つとその画層だけ(パネル&地図)に絞る。renderPanelで作り直すのでフォーカス/キャレットを復元。
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
