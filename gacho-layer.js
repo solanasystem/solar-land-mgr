@@ -1325,7 +1325,9 @@ function renderPanel(){
   var _pastList=_pastRoundsList();
   if(_pastList.length){
     var _pastTot=0,_pastOn=0; _pastList.forEach(function(r){ _pastTot+=r.count; if(_pastVis(r.no))_pastOn+=r.count; });
-    h+='<div class="gacho-master"><button id="gachoPastToggle" class="gacho-btn wide'+(_pastOn?' on':'')+'" style="'+(_pastOn?'background:rgba(239,68,68,.22);border-color:#ef4444':'')+'" title="今までに納品した場所。回ごとに地図へ表示/非表示。新しい場所を開拓する時に、すでに開拓した場所が分かりダブらないための表示">🗂 過去納品分（表示'+_pastOn+'／全'+_pastTot+'）'+(state.pastOpen?' △':' ▽')+'</button></div>';
+    // ★文字色: .gacho-btn.on は「橙の塗り＋黒文字」専用のため、半透明の暗い背景に使うと黒文字で読めない(ドクター報告)。
+    //   ここでは on クラスを使わず、背景は暗色＋文字は明色を明示する。
+    h+='<div class="gacho-master"><button id="gachoPastToggle" class="gacho-btn wide" style="color:#f1f5f9;font-weight:700;'+(_pastOn?'background:rgba(239,68,68,.38);border-color:#ef4444':'')+'" title="今までに納品した場所。回ごとに地図へ表示/非表示。新しい場所を開拓する時に、すでに開拓した場所が分かりダブらないための表示">🗂 過去納品分（表示'+_pastOn+'／全'+_pastTot+'）'+(state.pastOpen?' △':' ▽')+'</button></div>';
     if(state.pastOpen){
       h+='<div class="gacho-past" style="margin:0 0 6px 4px;padding:6px 8px;border:1px solid #30363d;border-radius:6px;background:rgba(255,255,255,.03)">'
         +'<div style="display:flex;gap:6px;margin-bottom:5px"><button id="gachoPastAll" class="gacho-btn">👁 全て表示</button><button id="gachoPastNone" class="gacho-btn">🚫 全て隠す</button></div>';
@@ -1333,7 +1335,7 @@ function renderPanel(){
         var on=_pastVis(r.no), col=_PAST_COLORS[(r.no-1)%_PAST_COLORS.length];
         h+='<div style="display:flex;align-items:center;gap:6px;margin:3px 0"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+col+';flex:0 0 auto"></span>'
           +'<span style="flex:1;font-size:12px">第'+r.no+'回分（'+r.count+'件）<span style="color:#8b949e;font-size:10px"> '+esc(String(r.period||''))+'</span></span>'
-          +'<button class="gacho-btn gachoPastBtn'+(on?' on':'')+'" data-r="'+r.no+'" style="min-width:64px;'+(on?'background:'+col+'44;border-color:'+col:'')+'">'+(on?'表示中':'表示')+'</button></div>';
+          +'<button class="gacho-btn gachoPastBtn" data-r="'+r.no+'" style="min-width:64px;color:#f1f5f9;font-weight:700;'+(on?'background:'+col+'99;border-color:'+col:'')+'">'+(on?'表示中':'表示')+'</button></div>';
       });
       h+='</div>';
     }
