@@ -2316,7 +2316,25 @@ async function _sweepDeletedFlags(){
   }catch(_){}
 }
 window.__gachoSweepDeleted=_sweepDeletedFlags;
-function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_reArchiveFromSnapOnce();
+/* 2026-09-21(ドクター): 8/30の確認用「★仮★三重県｜鈴鹿市・四日市市 接道ゲート是正で新規適当433件」(紫)を廃止。
+   loadNeutralの画層はlocalStorage(state)に永続するため、ページ側のscript/データ撤去だけでは各ブラウザに残る→起動時に除去する。
+   除去は、この画層内の「szkN」接頭のAI候補(src=aiKI)のみ。判定(OK/NG)はDB側に残り、OK分は予備軍/過去納品分側で表示される。
+   手描き等が混ざっていれば画層自体は残す。 */
+function _purgeTempPurpleLayer(){
+  try{
+    var PFX='★仮★三重県｜鈴鹿市・四日市市 接道ゲート是正', ch=false;
+    state.layers=state.layers.filter(function(l){
+      if(String(l.name||'').indexOf(PFX)!==0)return true;
+      var n0=(l.items||[]).length;
+      l.items=(l.items||[]).filter(function(it){return !(it.src==='aiKI'&&typeof it.feature_id==='string'&&it.feature_id.indexOf('szkN')===0);});
+      if(l.items.length!==n0)ch=true;
+      if(l.items.length)return true;
+      if(state.solo===l.id)state.solo=null; ch=true; return false;
+    });
+    if(ch){saveState();try{render();}catch(_){}}
+  }catch(_){}
+}
+function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(boot,250);}_reArchiveFromSnapOnce();_purgeTempPurpleLayer();
   try{if(!localStorage.getItem('gacho_hidebase_z33')){state.base0Visible=false;saveState();localStorage.setItem('gacho_hidebase_z33','1');}}catch(_){} // v20260821z33(ドクター): ゴミ(素の候補フラグ)を一度だけ非表示に。👁0画層で戻せる
   try{if(!localStorage.getItem('gacho_recolor_manual_orange_1')){var _rc=0;state.layers.forEach(function(l){if(/^手作業｜/.test(l.name||'')&&l.color==='#ff1493'){l.color='#f97316';_rc++;}});if(_rc)saveState();localStorage.setItem('gacho_recolor_manual_orange_1','1');}}catch(_){} // v20260822zr(ドクター): 手動ピック(判定)とピンクが同色で見分かない不具合を是正=既存「手作業｜県｜市町村」だけオレンジへ一度限り
   try{if(!localStorage.getItem('gacho_archive_orphan_flag_1')){var _oc=0;state.layers.forEach(function(l){if(l.name==='手作業ピック'&&!l.archived){l.archived=true;l.visible=false;if(state.solo===l.id)state.solo=null;_oc++;}});if(_oc)saveState();localStorage.setItem('gacho_archive_orphan_flag_1','1');}}catch(_){} // v20260822zs(ドクター): 撤去済み旧フラグ機能がブラウザに残した孤立画層「手作業ピック」(現行コードに作成箇所なし)だけを名指しで退避・一度限り・可逆
