@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260922f / 🛣「道路を衛星に重ねる」の道の色を選べる設計に(ドクター「時と場合で白・シアンなど、重なるフィルターの色により道の色を選択したい。モーダル内でクリックして選べるように」)。真因=v20260822pが地理院標準地図を乗算(multiply)で重ねていたため、白い路面＋黒い縁線の細い道路が黒い2本線に見えていた。新実装 road-overlay.js(共通・単一実装): 地理院標準タイルにSVGフィルター(反転→輝度化→薄い塗り切捨て→選択色で着色)を掛け screen合成=道路の縁線と地名だけが選んだ色で衛星上に出る。適地候補パネルの「道路を衛星に重ねる」の直下に色見本(白/シアン/黄/マゼンタ/緑/赤)＋任意色ピッカー。クリックで即その色でON。色はlocalStorage永続。データ源(地理院)は不変=網羅度維持。 -->
 <!-- BUILD: farmland-tracker-analysis v20260922e / 🛣移動タイムライン画層を追加(ドクター「バラバラのweb画面ではなくシステム上にGoogleタイムラインと同じ青い線画を」)。timeline-layer.js(共通include・単一実装)が左パネル最下部に「🛣 移動タイムライン」トグル＋操作欄(Timeline.json読込/再読込・日付◀▶・この日へ移動・全期間の訪問地)を自動挿入し、iPhone GoogleマップからエクスポートしたTimeline.json(visit/activity/timelinePath)を専用pane(z615)に青線=軌跡・白丸=滞在・灰破線=移動区間で描画。データはIndexedDBにブラウザ内保持(Supabase/サーバー送信なし)。地図へのドラッグ＆ドロップ読込可。既存レイヤー/データ無変更。 -->
 <!-- BUILD: farmland-tracker-analysis v20260922d / 🩹ツールバー3メニュー(👁表示/✏️編集ツール/⚙取込・診断)を押してもドロップダウンが見えない(ドクター報告)の根治。真因=.toolbarがv20260822kでoverflow-x:auto(常に1行)になり、CSS仕様でoverflow-yもautoになってツールバーの高さでクリップ→top:100%に絶対配置したドロップダウンが丸ごと切り取られていた(v20260822rの3メニュー化直後から1カ月見えていなかった)。根治=ドロップダウンをbody直下にposition:fixedで置き、開く時にトリガー位置へ合わせる(resize追従)。ボタン要素・id・onclick・閉じる判定は無変更。 -->
 <!-- BUILD: farmland-tracker-analysis v20260922c / 🧹左下の常時表示を整理(ドクター「不要な内容は非表示にしてくれ」)。①地図性能バッジ(map-perf-hud.js)=既定非表示・計測もしない。必要時は⚙取込・診断メニューの「⏱ 地図性能バッジ」でON/OFF(localStorage永続)。②「SW記録: 最新id/既読id/新規0件」バッジ(ai-learn-hook.js・全ページ共通)=通常時非表示・新規記録あり/通信失敗/初回既読化のときだけ表示。緑ポップアップと10秒監視は従来どおり。③🧠AI学習ボタンはDr.が押す操作ボタンのため据え置き。 -->
@@ -8752,6 +8753,7 @@ if(typeof map!=='undefined'&&map&&map.on){
 <script src="cyan-candidates.js?v=20260822a"></script><!-- ドクター2026-08-22: 手作業探索の目印(既得地/青)で使用。保存値108は古いスナップショット(build_cyan_candidates.py生成)=最新の🔬適地フィルター実行とは別物 -->
 <script src="delivery-round-utils.js?v=20260916a"></script><!-- ★2026-09-09(ドクター指示): 「第N回納品予定」を確定納品件数+1から動的算出する共通ロジック。gacho-layer.jsの_loadNextRoundNo()が使う -->
 <script src="gacho-layer.js?v=20260922a"></script>
+<script src="road-overlay.js?v=20260922f"></script><!-- ★2026-09-22(ドクター指示): 🛣道路を衛星に重ねる=線の色を選べる共通実装(反転→線だけ残す→着色→screen合成)。適地候補パネルの色見本から呼ぶ -->
 <script src="timeline-layer.js?v=20260922e"></script><!-- ★2026-09-22(ドクター指示): 🛣移動タイムライン画層=iPhone GoogleマップのTimeline.jsonを地図上に青線(軌跡)/白丸(滞在)で表示。左パネル最下部にトグル＋操作欄を自動挿入。データはブラウザ内(IndexedDB)のみ・送信なし。共通include -->
 <script src="map-perf-hud.js?v=20260922c"></script><!-- ★2026-09-22(ドクター指示): 移動/ズーム1回ごとの所要時間(JS/固まり/タイル/通信/最重処理)を左下バッジに表示。console不要の実環境診断。共通include。v20260922c=既定非表示・⚙取込・診断メニュー「⏱ 地図性能バッジ」でON/OFF -->
 
@@ -9164,15 +9166,14 @@ if(typeof map!=='undefined'&&map&&map.on){
     running=false;
   }
   function showPanel(){ var p=_ref.panel; if(!p)return; var h=document.getElementById('cyanDock'); try{p.style.top=(h.getBoundingClientRect().bottom+6)+'px';}catch(_){p.style.top='92px';} p.style.left='10px'; p.style.display='block'; }
-  // 衛星画像の上に「地図の道路」を重ねる(接道確認用・ドクター)。GSI地図タイルを mix-blend:multiply で重ね、白背景は透け道路/ラベルだけ衛星の上に出す。
-  var _roadOv=null, _roadOn=false;
-  function toggleRoad(force){
+  // 衛星画像の上に「地図の道路」を重ねる(接道確認用・ドクター)。実装は road-overlay.js(共通・単一実装)へ移管(v20260922f)。
+  //   旧: GSI地図タイルを multiply で重ね→細い道路が黒い2本線に見えた。新: 反転→線だけ残す→選んだ色で着色→screen合成。色はパネルの色見本で選択。
+  function toggleRoad(force){ try{ if(window.__roadOverlay) window.__roadOverlay.toggle(force); }catch(e){} }
+  function syncRoadUI(s){
     try{
-      if(!map.getPane('cyRoadPane')){ var pn=map.createPane('cyRoadPane'); pn.style.zIndex=250; pn.style.mixBlendMode='multiply'; pn.style.pointerEvents='none'; }
-      _roadOn=(force!=null)?force:!_roadOn;
-      if(_roadOn){ if(!_roadOv)_roadOv=L.tileLayer(BASE_TILES.map,{pane:'cyRoadPane',opacity:1,maxZoom:22,maxNativeZoom:18}); _roadOv.addTo(map); }
-      else if(_roadOv){ map.removeLayer(_roadOv); }
-      if(_ref.roadSw){_ref.roadSw.textContent=_roadOn?'ON':'OFF';_ref.roadSw.style.color=_roadOn?'#fcd34d':'#8b949e';}
+      if(_ref.roadSw){_ref.roadSw.textContent=s.on?'ON':'OFF';_ref.roadSw.style.color=s.on?'#fcd34d':'#8b949e';}
+      if(_ref.roadSwatches){ for(var i=0;i<_ref.roadSwatches.length;i++){ var b=_ref.roadSwatches[i]; var sel=(b.getAttribute('data-c')===s.color); b.style.outline=sel?'2px solid #e6edf3':'none'; b.style.transform=sel?'scale(1.12)':'none'; } }
+      if(_ref.roadCustom && _ref.roadCustom.value!==s.color) _ref.roadCustom.value=s.color;
     }catch(e){}
   }
   // モーダル(スコアカード)を見出しドラッグで移動可能にする(中央で邪魔にならない・ドクター)。
@@ -9221,7 +9222,11 @@ if(typeof map!=='undefined'&&map&&map.on){
       +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:9px"><button id="cyPrev" style="border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:12px;font-weight:700;padding:6px 10px;cursor:pointer">◀ 前</button><span id="cyCnt" style="flex:1;text-align:center;color:#00e5ff;font-size:12px;font-weight:700">0 / 0</span><button id="cyNext" style="border:1px solid #00e5ff;background:rgba(0,229,255,.18);color:#e6edf3;border-radius:6px;font-size:12px;font-weight:800;padding:6px 12px;cursor:pointer">次 ▶</button></div>'
       +'<div style="color:#8b949e;font-size:10px;margin-bottom:3px">地図切替（接道確認は地図が見やすい）</div>'
       +'<div style="display:flex;gap:5px;margin-bottom:6px"><button class="cyBase" data-m="map" style="flex:1;border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;padding:5px;cursor:pointer">🗺 地図</button><button class="cyBase" data-m="satellite" style="flex:1;border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;padding:5px;cursor:pointer">🛰 GSI衛星</button><button class="cyBase" data-m="esri" style="flex:1;border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:11px;font-weight:700;padding:5px;cursor:pointer">🆕 最新衛星</button></div>'
-      +'<button id="cyRoad" style="width:100%;border:1px solid #f0b429;background:#2a2206;color:#fcd34d;border-radius:6px;font-size:11px;font-weight:800;padding:6px;cursor:pointer;margin-bottom:6px">🛣 道路を衛星に重ねる：<span id="cyRoadSw" style="color:#8b949e">OFF</span></button>'
+      +'<button id="cyRoad" style="width:100%;border:1px solid #f0b429;background:#2a2206;color:#fcd34d;border-radius:6px;font-size:11px;font-weight:800;padding:6px;cursor:pointer;margin-bottom:4px">🛣 道路を衛星に重ねる：<span id="cyRoadSw" style="color:#8b949e">OFF</span></button>'
+      // v20260922f(ドクター): 道の色を時と場合(重なるフィルターの色)で選ぶ色見本。クリックで即その色でON。カスタム色はカラーピッカー。
+      +'<div id="cyRoadColors" style="display:flex;align-items:center;gap:5px;margin-bottom:8px;flex-wrap:wrap"><span style="color:#8b949e;font-size:10px;white-space:nowrap">道の色</span>'
+      +(function(){ var P=(window.__roadOverlay&&window.__roadOverlay.PRESETS)||[['白','#ffffff'],['シアン','#00e5ff'],['黄','#fcd34d'],['マゼンタ','#ff4dd2'],['緑','#4ade80'],['赤','#ff5252']]; return P.map(function(p){ return '<button class="cyRoadC" data-c="'+p[1]+'" title="'+p[0]+'" style="width:20px;height:20px;border-radius:50%;border:1px solid #30363d;background:'+p[1]+';cursor:pointer;padding:0"></button>'; }).join(''); })()
+      +'<input type="color" id="cyRoadCustom" title="任意の色" style="width:24px;height:22px;padding:0;border:1px solid #30363d;border-radius:5px;background:#161b22;cursor:pointer"></div>'
       +'<div style="color:#8b949e;font-size:10px;margin-bottom:3px">納品（仮納品）</div>'
       +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:6px"><span style="color:#22d3ee;font-size:11px;white-space:nowrap">客</span><select id="cyanClientSel" style="flex:1;padding:5px;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:6px;font-size:11px"><option value="">— クライアント —</option></select></div>'
       +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:9px"><select id="cyanDeliverySel" style="flex:1;padding:5px;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:6px;font-size:11px"><option value="">— 納品ロット —</option></select><a href="nouhin-promote.html" target="_blank" rel="noopener" style="padding:5px 9px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap">🏭 昇格</a></div>'
@@ -9246,6 +9251,10 @@ if(typeof map!=='undefined'&&map&&map.on){
     regList.addEventListener('click',function(e){ var row=e.target.closest?e.target.closest('.cyanRow'):null; if(!row)return; var di=parseInt(row.getAttribute('data-idx'),10); if(!isNaN(di))goTo(di); });
     _ref.roadSw=panel.querySelector('#cyRoadSw');
     var roadBtn=panel.querySelector('#cyRoad'); if(roadBtn)roadBtn.onclick=function(){ toggleRoad(); };
+    _ref.roadSwatches=panel.querySelectorAll('.cyRoadC'); _ref.roadCustom=panel.querySelector('#cyRoadCustom');
+    for(var ri=0;ri<_ref.roadSwatches.length;ri++){ _ref.roadSwatches[ri].onclick=function(){ try{ window.__roadOverlay.setColor(this.getAttribute('data-c')); }catch(_){} }; }
+    if(_ref.roadCustom){ _ref.roadCustom.oninput=function(){ try{ window.__roadOverlay.setColor(this.value); }catch(_){} }; }
+    try{ if(window.__roadOverlay){ window.__roadOverlay.onChange(syncRoadUI); syncRoadUI(window.__roadOverlay.state()); } }catch(_){}
     var baseBtns=panel.querySelectorAll('.cyBase');
     for(var bi=0;bi<baseBtns.length;bi++){ (function(b){ b.onclick=function(){ try{ if(typeof switchGIS==='function')switchGIS(b.getAttribute('data-m')); }catch(_){} for(var j=0;j<baseBtns.length;j++){baseBtns[j].style.background='#161b22';baseBtns[j].style.borderColor='#30363d';} b.style.background='rgba(0,229,255,.18)'; b.style.borderColor='#00e5ff'; }; })(baseBtns[bi]); }
   }
