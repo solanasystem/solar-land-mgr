@@ -1960,7 +1960,9 @@ function _scoreCardHtml(l,it){
   // v20260823(ドクター「グーグルアースも全てに入れておいてくれ」): スコアカード側に1回だけ入れる=呼び出し元(108/御所218/AIKI/gappitsu_hold等)全部に自動で効く。
   var earthLink=(it.lat!=null&&it.lng!=null)?('<div style="margin:4px 0 6px"><a href="https://earth.google.com/web/@'+it.lat+','+it.lng+',0a,1000d,35y,0h,0t,0r" target="_blank" rel="noopener" style="color:#58a6ff">🌍 Googleアース</a></div>'):'';
   return _gmImgHtml(it)+earthLink+'<div class="gsc">'+rows+vd+drawBtn+'<button class="gsc-fix" onclick="window.__gacho.applyScore(\''+l.id+'\',\''+iid+'\')" title="この筆を人間判定OKとして確定(予備軍候補・ai_ok_labelsへ記録)">✅ この筆をOK（確定）</button>'
-    +'<button class="gsc-fix" style="background:#7f1d1d;border-color:#f85149;margin-top:5px" onclick="window.__gacho.deleteFlag(\''+l.id+'\',\''+iid+'\')">🗑 この筆を削除（OKから外す）</button></div>';
+    // v20260922h(ドクター「確認は良いがクリックする場所が離れていて操作性が極めて悪い」): ブラウザ標準confirm(画面上部)を廃止し、
+    //   押した削除ボタンのその場を「削除する／やめる」に置き換える(視線・マウスを動かさず2クリック目で確定)。
+    +'<div class="gsc-del-wrap" style="margin-top:5px"><button class="gsc-fix" style="background:#7f1d1d;border-color:#f85149;margin-top:0" onclick="window.__gacho.askDelete(\''+l.id+'\',\''+iid+'\',this)">🗑 この筆を削除（OKから外す）</button></div></div>';
 }
 /* ===== v20260820m(ドクター): 判定済み(OK/NG/閲覧)フラグの見た目を変える=一度見たか一目で判る =====
    ページ側マーカー(開拓候補/公式放棄地/紫151/御所218)はfeature_idでonReview登録→判定時とマーカー再生成時に減光＋色枠。
@@ -1994,10 +1996,29 @@ window.__gacho={
   onReview:function(fid,marker){if(!fid||!marker)return;_reviewMarks[fid]=marker;var st=_reviewStateOf(fid);if(st)_restyleMark(fid,st);},
   removeItem:function(lid,itemIid){var m=getMap();if(m)m.closePopup();var l=byId(lid);if(!l)return;l.items=l.items.filter(function(it){return it.iid!==itemIid;});saveState();setTimeout(function(){render();},0);},
   /* v20260821z22(ドクター): 全筆に削除ボタン。この筆をOK/NGから外し、DBのOK記録(gacho_ok/手描き境界)も削除=カウントから確実に外す。1筆ずつ・確認付き。 */
-  deleteFlag:function(lid,itemIid){
+  /* v20260922h(ドクター): 削除の確認をその場(押したボタンの位置)で行う。ブラウザconfirmは画面上部に出て操作性が悪いため廃止。
+     ボタンを「削除しますか？ [🗑 削除する] [やめる]」に差し替え、削除する→deleteFlag(確認済み)、やめる→元のボタンに戻す。 */
+  askDelete:function(lid,itemIid,btn){
+    try{
+      var wrap=btn&&btn.parentNode; if(!wrap){ this.deleteFlag(lid,itemIid,true); return; }
+      wrap.innerHTML='<div style="border:1px solid #f85149;border-radius:6px;padding:6px 8px;background:#2a0f0f">'
+        +'<div style="font-size:11px;color:#fca5a5;margin-bottom:5px;line-height:1.4">この筆を削除しますか？<br><span style="color:#8b949e">OK/NG判定とDBのOK記録を外し、地図・作業台から消します</span></div>'
+        +'<div style="display:flex;gap:6px">'
+        +'<button class="gsc-fix" style="flex:1;background:#b91c1c;border-color:#f85149;margin-top:0" onclick="window.__gacho.deleteFlag(\''+lid+'\',\''+itemIid+'\',true)">🗑 削除する</button>'
+        +'<button class="gsc-fix" style="flex:1;background:#161b22;border-color:#30363d;color:#e6edf3;margin-top:0" onclick="window.__gacho.cancelDelete(\''+lid+'\',\''+itemIid+'\',this)">やめる</button>'
+        +'</div></div>';
+    }catch(_){ this.deleteFlag(lid,itemIid,true); }
+  },
+  cancelDelete:function(lid,itemIid,btn){
+    try{ var wrap=btn.closest('.gsc-del-wrap'); if(!wrap)return;
+      wrap.innerHTML='<button class="gsc-fix" style="background:#7f1d1d;border-color:#f85149;margin-top:0" onclick="window.__gacho.askDelete(\''+lid+'\',\''+itemIid+'\',this)">🗑 この筆を削除（OKから外す）</button>';
+    }catch(_){}
+  },
+  deleteFlag:function(lid,itemIid,confirmed){
     var m=getMap();var l=byId(lid);if(!l)return;var it=null;l.items.forEach(function(x){if(x.iid===itemIid)it=x;});
     if(!it)return;
-    if(!confirm('この筆を削除します。\n・OK/NG判定を外し、DBのOK記録も削除＝カウントから外れます\n・地図/作業台からこの筆を消します\nよろしいですか？'))return;
+    // confirmed=true はモーダル内のその場確認(askDelete)を通過済み。それ以外の呼び出し元(旧互換)は従来のconfirmを使う。
+    if(!confirmed && !confirm('この筆を削除します。\n・OK/NG判定を外し、DBのOK記録も削除＝カウントから外れます\n・地図/作業台からこの筆を消します\nよろしいですか？'))return;
     var fid=it.feature_id, d=_gDb();
     _delRowsCache=null; // 削除済み一覧のキャッシュを破棄(次の掃引でDBから取り直す)
     try{
