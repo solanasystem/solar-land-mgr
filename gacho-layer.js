@@ -1996,6 +1996,7 @@ window.__gacho={
     if(!it)return;
     if(!confirm('この筆を削除します。\n・OK/NG判定を外し、DBのOK記録も削除＝カウントから外れます\n・地図/作業台からこの筆を消します\nよろしいですか？'))return;
     var fid=it.feature_id, d=_gDb();
+    _delRowsCache=null; // 削除済み一覧のキャッシュを破棄(次の掃引でDBから取り直す)
     try{
       if(d&&fid){ d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
         // ★除外リストに登録=リロードで元データから再描画されても、この筆は除外され二度と戻らない。
@@ -2315,20 +2316,38 @@ function _restoreClearedAutoOk(){try{var raw=localStorage.getItem(_MIG_SNAP_KEY)
 function _fullRestoreOnce(){try{if(localStorage.getItem('trackerGacho_fullRestore_20260821'))return;var raw=localStorage.getItem(_MIG_SNAP_KEY);if(!raw)return;var snap=JSON.parse(raw);if(!snap||!snap.state||!snap.state.layers||!snap.state.layers.length)return;state=snap.state;saveState();localStorage.setItem('trackerGacho_fullRestore_20260821','1');try{console.log('[全復元] 08:58スナップショットへ復元');}catch(_){}}catch(_){}}
 /* ★削除した筆を二度と復活させない(ドクター): 除外リスト(gacho_ng|deleted)を読み、gachoレイヤーから除去＋ページ側マーカーを掃引。起動時＋数秒おき(遅延描画対策)。 */
 var _deletedFidSet={};
-async function _sweepDeletedFlags(){
-  try{ var d=_gDb(); if(!d)return;
-    var r=await d.from('farmland_ng_list').select('feature_id,lat,lng').eq('ng_reason','gacho_ng|deleted');
-    var rows=(r&&r.data)||[]; var any=false;
+/* ★2026-09-22(ドクター「拡大縮小・移動にラグ」の根治): 旧実装は地図移動/拡大縮小のたびに①削除済み一覧(約700行)をDBから再取得し②行ごとに地図の全レイヤーを総なめ
+   (700回×約4,400レイヤー≒1.4秒メインスレッド停止)していた。→ ①一覧は20秒キャッシュ(DBから取るのは20秒に1回・全件ページング取得=1000行上限で黙って欠けない)
+   ②地図の掃引は一括版(__gachoRemoveFeatureMarkers=1回の走査)③移動/拡大縮小での掃引は300msデバウンス+実行中は重ねない。 */
+var _delRowsCache=null,_delRowsAt=0,_delSweepBusy=false,_delSweepTimer=null;
+async function _loadDeletedRows(force){
+  var d=_gDb(); if(!d)return null;
+  if(!force&&_delRowsCache&&(Date.now()-_delRowsAt)<20000)return _delRowsCache;
+  var rows=[],frm=0;
+  while(true){
+    var r=await d.from('farmland_ng_list').select('feature_id,lat,lng').eq('ng_reason','gacho_ng|deleted').order('id',{ascending:true}).range(frm,frm+999);
+    if(r&&r.error)throw new Error(r.error.message);
+    var b=(r&&r.data)||[]; rows=rows.concat(b); if(b.length<1000)break; frm+=1000;
+  }
+  _delRowsCache=rows; _delRowsAt=Date.now(); return rows;
+}
+async function _sweepDeletedFlags(force){
+  if(_delSweepBusy)return; _delSweepBusy=true;
+  try{
+    var all=await _loadDeletedRows(force===true); if(!all)return;
+    var any=false;
     // ★OK保護: 現在OK(gacho_ok=_gDbOk)の筆は絶対に掃引しない(再OKした削除済みを誤消去しない)。
-    rows=rows.filter(function(x){ return x.feature_id!=null && !(_gDbOk&&_gDbOk[x.feature_id]); });
+    var rows=all.filter(function(x){ return x.feature_id!=null && !(_gDbOk&&_gDbOk[x.feature_id]); });
     rows.forEach(function(x){ _deletedFidSet[x.feature_id]=1; });
     // gachoレイヤーから削除済みfidを除去(OKでないもののみ=上でOK除外済み)。境界(type=boundary)や手描きは触らない。
     state.layers.forEach(function(l){ if(!l.items)return; var before=l.items.length; l.items=l.items.filter(function(it){ if(it.type==='boundary')return true; if(it.status==='ok')return true; return !(it.feature_id&&_deletedFidSet[it.feature_id]); }); if(l.items.length!==before)any=true; });
     if(any){saveState();try{render();}catch(_){}}
-    // ページ側マーカーを掃引(座標も渡す)
-    rows.forEach(function(x){ try{ if(typeof window.__gachoRemoveFeatureMarker==='function')window.__gachoRemoveFeatureMarker(x.feature_id,x.lat,x.lng); }catch(_){} });
-  }catch(_){}
+    // ページ側マーカーを掃引(一括版=地図の全レイヤーを1回だけ走査。無ければ従来の単体版へ)
+    if(typeof window.__gachoRemoveFeatureMarkers==='function'){ try{window.__gachoRemoveFeatureMarkers(rows);}catch(_){} }
+    else rows.forEach(function(x){ try{ if(typeof window.__gachoRemoveFeatureMarker==='function')window.__gachoRemoveFeatureMarker(x.feature_id,x.lat,x.lng); }catch(_){} });
+  }catch(_){} finally{ _delSweepBusy=false; }
 }
+function _sweepDeletedFlagsSoon(){ clearTimeout(_delSweepTimer); _delSweepTimer=setTimeout(function(){_sweepDeletedFlags();},300); }
 window.__gachoSweepDeleted=_sweepDeletedFlags;
 /* 2026-09-21(ドクター): 8/30の確認用「★仮★三重県｜鈴鹿市・四日市市 接道ゲート是正で新規適当433件」(紫)を廃止。
    loadNeutralの画層はlocalStorage(state)に永続するため、ページ側のscript/データ撤去だけでは各ブラウザに残る→起動時に除去する。
@@ -2381,7 +2400,7 @@ function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(
   // notifyRound2PoolChanged()の通知を受けてボタンの(N)を再描画する=このファイルは件数を数え直さない。
   try{ document.addEventListener('round2pool:changed',function(e){ if(e&&e.detail&&typeof e.detail.reserve==='number'){ _poolReserveCount=e.detail.reserve; try{render();}catch(_){} } }); }catch(_){}
   // 削除した筆を復活させない: 起動時＋遅延描画に追随して掃引
-  try{ _sweepDeletedFlags(); setTimeout(_sweepDeletedFlags,1800); setTimeout(_sweepDeletedFlags,4500); setTimeout(_sweepDeletedFlags,9000); setInterval(_sweepDeletedFlags,20000); m.on('moveend zoomend',function(){_sweepDeletedFlags();}); }catch(_){}
+  try{ _sweepDeletedFlags(); setTimeout(_sweepDeletedFlags,1800); setTimeout(_sweepDeletedFlags,4500); setTimeout(_sweepDeletedFlags,9000); setInterval(_sweepDeletedFlags,20000); m.on('moveend zoomend',_sweepDeletedFlagsSoon); }catch(_){}
   // 絶対に消えない: 起動時に未保存をDBへ再送→15秒毎に再試行→オンライン復帰で即再送。HUDで未保存件数を常時表示。
   try{ _updateSaveHud(); _flushOutbox(); setTimeout(_flushOutbox,3000); setInterval(_flushOutbox,15000);
     if(typeof window!=='undefined'){window.addEventListener('online',function(){_flushOutbox();}); window.addEventListener('focus',function(){_flushOutbox();});}

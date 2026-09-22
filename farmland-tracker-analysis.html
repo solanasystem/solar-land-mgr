@@ -1936,6 +1936,36 @@ window.__gachoRemoveFeatureMarker = function(fid,lat,lng){
     return removed;
   }catch(_){return 0;}
 };
+// ★2026-09-22(ドクター「拡大縮小・移動にラグ」の根治): 削除済み筆の掃引(gacho _sweepDeletedFlags)は、地図移動/拡大縮小のたび
+//   「削除済み約700行 × 地図上の全レイヤー(約4,400)」を行ごとに総なめしていた(700回×全走査≒1.4秒、メインスレッド停止)。
+//   → 削除済みの筆ID集合と座標グリッドを1回作り、地図上のレイヤーを1回だけ走査する一括版に置換(計算量 行数×レイヤー数 → 行数+レイヤー数)。
+//   判定条件は単体版(__gachoRemoveFeatureMarker)と同一: feature_id一致 or 座標が±1.2e-5度以内。
+window.__gachoRemoveFeatureMarkers = function(rows){
+  try{
+    var m=(typeof map!=='undefined'&&map)?map:(window.map||null); if(!m||!m.eachLayer||!rows||!rows.length)return 0;
+    var EPS=1.2e-5, removed=0, fids={}, grid={};
+    rows.forEach(function(x){
+      if(x.feature_id!=null)fids[x.feature_id]=1;
+      if(x.lat!=null&&x.lng!=null){ var la=+x.lat, ln=+x.lng; var k=Math.floor(la/EPS)+','+Math.floor(ln/EPS); (grid[k]=grid[k]||[]).push([la,ln]); }
+    });
+    function idM(mk){ try{ var a=mk.feature_id,b=mk._fid,c=mk.options&&mk.options.feature_id,d=mk.feature&&mk.feature.properties&&mk.feature.properties.feature_id;
+      return (a!=null&&fids[a]===1)||(b!=null&&fids[b]===1)||(c!=null&&fids[c]===1)||(d!=null&&fids[d]===1); }catch(_){return false;} }
+    function posM(mk){ try{ if(!mk.getLatLng)return false; var p=mk.getLatLng(); var ci=Math.floor(p.lat/EPS), cj=Math.floor(p.lng/EPS);
+      for(var i=ci-1;i<=ci+1;i++)for(var j=cj-1;j<=cj+1;j++){ var arr=grid[i+','+j]; if(!arr)continue;
+        for(var t=0;t<arr.length;t++){ if(Math.abs(p.lat-arr[t][0])<EPS&&Math.abs(p.lng-arr[t][1])<EPS)return true; } }
+      return false; }catch(_){return false;} }
+    var seen=new Set();
+    function scan(layer){
+      try{
+        if(!layer||seen.has(layer))return; seen.add(layer);
+        if(idM(layer)||posM(layer)){ try{layer.remove();}catch(_){ try{m.removeLayer(layer);}catch(__){} } removed++; return; }
+        if(layer.eachLayer){ var kids=[]; layer.eachLayer(function(k){kids.push(k);}); kids.forEach(scan); }
+      }catch(_){}
+    }
+    var top=[]; m.eachLayer(function(l){top.push(l);}); top.forEach(scan);
+    return removed;
+  }catch(_){return 0;}
+};
 // v20260821z12(ドクター): ピンの下の農水省筆ポリゴンを取得＝勘で描かず「実測の形」で敷地境界に。gacho側 useFudeAsBoundary から呼ぶ。
 window.__getFudeParcelAt = async function(lat,lng){
   try{
@@ -8707,7 +8737,7 @@ if(typeof map!=='undefined'&&map&&map.on){
      ファイル自体は移行直前の最終スナップショットとして残す(参照はしない)。 -->
 <script src="cyan-candidates.js?v=20260822a"></script><!-- ドクター2026-08-22: 手作業探索の目印(既得地/青)で使用。保存値108は古いスナップショット(build_cyan_candidates.py生成)=最新の🔬適地フィルター実行とは別物 -->
 <script src="delivery-round-utils.js?v=20260916a"></script><!-- ★2026-09-09(ドクター指示): 「第N回納品予定」を確定納品件数+1から動的算出する共通ロジック。gacho-layer.jsの_loadNextRoundNo()が使う -->
-<script src="gacho-layer.js?v=20260921c"></script>
+<script src="gacho-layer.js?v=20260922a"></script>
 <!-- 2026-08-28 ドクター指示「桑名、いなべは不要だ」で表示停止。③接道④連系が未検証(生成元kuwana_inabe_pipeline.pyは①②のみ)のまま画層に出ていた件の是正。
      ai_kuwana_inabe.js自体・output/kuwana_inabe_*.geojsonは残置(後で戻せる)。再開する場合は横断監査20260828参照。
 <script src="ai_kuwana_inabe.js?v=20260816b"></script>
