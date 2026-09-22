@@ -1870,7 +1870,11 @@ function _persistJudgment(fid,lat,lng,status){
 }
 /* ===== v20260819h (ドクター): 1筆ごとの8項目スコアカード(〇/△/✖)。✖が1つでも→除外(NG)。
    構造化ラベルをそのまま学習へ: NG=farmland_ng_list.ng_reason='gacho_ng|コード', OK=ai_ok_labels.memo。
-   候補はゲート通過済なので#1-6,8は既定〇、現況#7は△(要目視)で初期化。 ===== */
+   候補はゲート通過済なので#1-6,8は既定〇、現況#7は△(要目視)で初期化。
+   ★v20260922g(ドクター指示「4は直ぐに着手せよ」・2026-09-22): 〇△✖の“入力”は撤去。理由=学習(旧RF再学習・新しい人間判定の
+   読込とも)が読むのは「OKかNGか」だけで、どの項目が✖かのコード(gacho_ng|c1,c2…)はどのプログラムも読んでいなかった(事実確認済み)。
+   8項目はゲート結果(なぜ候補か)の“読み取り専用表示”として残し、判定は「✅ この筆をOK（確定）」=OK / 「🗑 この筆を削除」=NG の
+   2ボタンだけにする。setCrit/setSub/_hasXは他呼び出し元との互換のため関数は残置(UIからは呼ばれない)。 ===== */
 var GCRIT=[
  {k:'c1',t:'農振・青地',o:'外',x:'掛かる'},
  {k:'c2',t:'ハザード',o:'外',x:'掛かる'},
@@ -1902,8 +1906,9 @@ function _score(it){if(!it.score||it.score._auto)it.score=_defScore(it);return i
 function _hasX(s){for(var k in s){if(s[k]==='x')return true;}return false;}
 function _scoreCodes(it,s){var codes=[];for(var i=0;i<GCRIT.length;i++){if(s[GCRIT[i].k]==='x')codes.push(GCRIT[i].k);}var ex=(it.ngsub&&it.ngsub.length)?('['+it.ngsub.join('/')+']'):'';return codes.join(',')+(ex?(' '+ex):'');}
 function _okPattern(s){return GCRIT.map(function(c){return c.k+':'+(s[c.k]||'t');}).join(',');}
-function _persistJudgmentScored(it,s){
-  var d=_gDb();if(!d||!it||!it.feature_id)return;var fid=it.feature_id,lat=it.lat,lng=it.lng;var ng=_hasX(s);
+function _persistJudgmentScored(it,s,force){
+  // force='ok'|'ng' が渡された時はそれを正とする(v20260922g: 〇△✖入力撤去後は確定ボタン=常にOK)。無指定は旧挙動(✖ありならNG)。
+  var d=_gDb();if(!d||!it||!it.feature_id)return;var fid=it.feature_id,lat=it.lat,lng=it.lng;var ng=(force?(force==='ng'):_hasX(s));
   try{
     // ★2026-08-29是正: 反対側レコードの削除は_obExec内に統合済み(再試行対象)。ここでの投げっぱなし
     // 直接delete呼び出しは撤去。
@@ -1944,19 +1949,17 @@ function _gmImgHtml(it){
 }
 function _scoreCardHtml(l,it){
   var s=_score(it),iid=(it.iid||'');
-  var rows=GCRIT.map(function(c){
-    var v=s[c.k]||'t';
-    function b(val,lab,col){var on=(v===val);return '<button onclick="window.__gacho.setCrit(\''+l.id+'\',\''+iid+'\',\''+c.k+'\',\''+val+'\',this)" class="gsc-b" style="'+(on?('background:'+col+';color:#0d1117;font-weight:700;'):'')+'" title="'+esc(val==='o'?c.o:(val==='x'?c.x:'△'))+'">'+lab+'</button>';}
-    var sub='';
-    if(c.k==='c7'){sub='<div class="gsc-sub" id="gsub_'+iid+'" style="'+(v==='x'?'':'display:none;')+'">'+GC7SUB.map(function(t){var on=(it.ngsub&&it.ngsub.indexOf(t)>=0);return '<button onclick="window.__gacho.setSub(\''+l.id+'\',\''+iid+'\',\''+t+'\',this)" class="gsc-sb'+(on?' on':'')+'">'+esc(t)+'</button>';}).join('')+'</div>';}
-    return '<div class="gsc-row"><span class="gsc-t">'+esc(c.t)+'</span><span class="gsc-bs">'+b('o','〇','#3fb950')+b('t','△','#eab308')+b('x','✖','#f85149')+'</span></div>'+sub;
-  }).join('');
-  var vd='<div class="gsc-vd" id="gscvd_'+iid+'">'+(_hasX(s)?'<b style="color:#f85149">✖あり → 除外(NG)</b>':'<b style="color:#3fb950">✖なし → OK可</b>')+'</div>';
+  // v20260922g: 8項目はゲート結果の読み取り専用表示(〇=通過/△=未確認/✖=該当)。クリック入力は撤去(判定は下の2ボタンのみ)。
+  var rows='<div class="gsc-ro" title="自動ゲートの結果(なぜ候補か)。判定は下の OK／削除 ボタンで行います">'+GCRIT.map(function(c){
+    var v=s[c.k]||'t'; var col=(v==='o'?'#3fb950':(v==='x'?'#f85149':'#eab308')); var lab=(v==='o'?'〇':(v==='x'?'✖':'△')); var st=(v==='o'?c.o:(v==='x'?c.x:'未確認'));
+    return '<span class="gsc-ro-i" style="display:inline-flex;align-items:center;gap:3px;margin:1px 6px 1px 0;font-size:11px;white-space:nowrap"><b style="color:'+col+'">'+lab+'</b>'+esc(c.t)+'<span style="color:#8b949e">('+esc(st)+')</span></span>';
+  }).join('')+'</div>';
+  var vd='';
   var drawBtn='<button class="gsc-draw" style="background:#062b12;border-color:#22c55e;color:#86efac" onclick="window.__gacho.useFudeAsBoundary(\''+l.id+'\',\''+iid+'\')" title="ピンの下の筆(農水省筆ポリゴン)を実測の形で敷地境界に。無ければ既知面積の下敷き">📐 この筆を敷地境界にする（実測）</button>'
     +'<button class="gsc-draw" onclick="window.__gacho.drawArea(\''+l.id+'\',\''+iid+'\')" title="実測が無い/形を変えたい時: 隣接を含め手描き→面積を再計算(⑥面積に反映)">✏️ 手描きで敷地境界（面積を増やす）</button>';
   // v20260823(ドクター「グーグルアースも全てに入れておいてくれ」): スコアカード側に1回だけ入れる=呼び出し元(108/御所218/AIKI/gappitsu_hold等)全部に自動で効く。
   var earthLink=(it.lat!=null&&it.lng!=null)?('<div style="margin:4px 0 6px"><a href="https://earth.google.com/web/@'+it.lat+','+it.lng+',0a,1000d,35y,0h,0t,0r" target="_blank" rel="noopener" style="color:#58a6ff">🌍 Googleアース</a></div>'):'';
-  return _gmImgHtml(it)+earthLink+'<div class="gsc">'+rows+vd+drawBtn+'<button class="gsc-fix" onclick="window.__gacho.applyScore(\''+l.id+'\',\''+iid+'\')">この判定を確定</button>'
+  return _gmImgHtml(it)+earthLink+'<div class="gsc">'+rows+vd+drawBtn+'<button class="gsc-fix" onclick="window.__gacho.applyScore(\''+l.id+'\',\''+iid+'\')" title="この筆を人間判定OKとして確定(予備軍候補・ai_ok_labelsへ記録)">✅ この筆をOK（確定）</button>'
     +'<button class="gsc-fix" style="background:#7f1d1d;border-color:#f85149;margin-top:5px" onclick="window.__gacho.deleteFlag(\''+l.id+'\',\''+iid+'\')">🗑 この筆を削除（OKから外す）</button></div>';
 }
 /* ===== v20260820m(ドクター): 判定済み(OK/NG/閲覧)フラグの見た目を変える=一度見たか一目で判る =====
@@ -2047,9 +2050,11 @@ window.__gacho={
     if(itr&&itr.feature_id&&itr.status!=='ok'&&itr.status!=='ng')_restyleMark(itr.feature_id,'viewed'); // v20260820m: 触った時点で「閲覧済み」表示(確定前でも一度見た印)
   },
   setSub:function(lid,iid,t,btn){var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){it.ngsub=it.ngsub||[];var i=it.ngsub.indexOf(t);if(i>=0)it.ngsub.splice(i,1);else it.ngsub.push(t);}});saveState();try{btn.classList.toggle('on');}catch(_){}},
-  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);it.status=(_hasX(s)?'ng':'ok');it.viewed=true;it.userJudged=true;if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1;
+  applyScore:function(lid,iid){var m=getMap();var l=byId(lid);if(!l)return;l.items.forEach(function(it){if(it.iid===iid){var s=_score(it);
+    // v20260922g: 〇△✖入力の撤去に伴い「確定」=常にOK(NGは🗑削除ボタン)。旧: ✖が1つでもあればNG。
+    it.status='ok';it.viewed=true;it.userJudged=true;if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1;
     if(it.type==='boundary'){ try{_saveBoundaryToDb(it);}catch(_){} } // v20260823(ドクター「モーダルを統一」): 境界も同じスコアカードを使うため、境界のDB保存も忘れず呼ぶ
-    else { _persistJudgmentScored(it,s); }
+    else { _persistJudgmentScored(it,s,'ok'); }
     try{_gachoPurgeNearbyUnjudged(it.lat,it.lng,it.iid);}catch(_){}
     _restyleMark(it.feature_id,it.status);try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
