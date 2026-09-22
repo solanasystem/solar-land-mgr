@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260922d / 🩹ツールバー3メニュー(👁表示/✏️編集ツール/⚙取込・診断)を押してもドロップダウンが見えない(ドクター報告)の根治。真因=.toolbarがv20260822kでoverflow-x:auto(常に1行)になり、CSS仕様でoverflow-yもautoになってツールバーの高さでクリップ→top:100%に絶対配置したドロップダウンが丸ごと切り取られていた(v20260822rの3メニュー化直後から1カ月見えていなかった)。根治=ドロップダウンをbody直下にposition:fixedで置き、開く時にトリガー位置へ合わせる(resize追従)。ボタン要素・id・onclick・閉じる判定は無変更。 -->
 <!-- BUILD: farmland-tracker-analysis v20260922c / 🧹左下の常時表示を整理(ドクター「不要な内容は非表示にしてくれ」)。①地図性能バッジ(map-perf-hud.js)=既定非表示・計測もしない。必要時は⚙取込・診断メニューの「⏱ 地図性能バッジ」でON/OFF(localStorage永続)。②「SW記録: 最新id/既読id/新規0件」バッジ(ai-learn-hook.js・全ページ共通)=通常時非表示・新規記録あり/通信失敗/初回既読化のときだけ表示。緑ポップアップと10秒監視は従来どおり。③🧠AI学習ボタンはDr.が押す操作ボタンのため据え置き。 -->
 <!-- BUILD: farmland-tracker-analysis v20260917b / 🔬「AI分析結果（検証中）」レイヤーを再配線。適地候補749件相当の母集団(computeCyanLiveと同一ロジックで再現・ライブ734件=DBが継続変化しているため差分あり、data/ai_eye_749.geojson meta.population_note参照)へ reject_classifier.pkl(手動NG/OK判定を教師にした分類器)で①適当/②検討/③不可の3値+reject score(確度)+ゲート理由を付与し検証表示。旧v20260816aの自作aiAnalysisPane(v20260816eで画層システムに置換済み・現存せず)は復活させず、現行の画層API window.__gacho.loadNeutral()一本で「AI分析結果（検証中・749相当・シアン）」レイヤーとして追加(既存の①適当/②検討2分割レイヤー群と同一パターン踏襲)。data/ai_eye_749.geojsonを新規追加のみ・既存レイヤー/候補/ai_ok_labels/farmland_ng_list/納品/予備軍/本番DBは無変更(SELECTのみで生成)。 -->
 <!-- BUILD: farmland-tracker-analysis v20260917a / 🩹「変電所のフラグをクリックしてもモーダルが開かない」の真因と根治(ドクター報告・分析ページで実クリック再現)。真因=gachoPane(z660)等の上位paneに置かれたcanvas renderer(9/7〜9/9の大量マーカーCanvas化)が画面全体を覆い、描画物に当たらないクリック/ホバーまで吸い込む→その下のsubPane(z635)の変電所/空容量マーカーは一切反応しない(本ページにはこのcanvasが無いので開いていた)。根治=mapコンテナのキャプチャ段階で「対象がLeafletのcanvasで、そのrendererの描画物にヒットしていない」イベント(click/dblclick/mousedown/mouseup/contextmenu/mousemove)を、canvasを一時的にpointer-events:noneにして真下の要素へ再送する共通シム(_canvasClickThrough)。canvas自身の描画物へのクリックは従来どおり。mousemoveは真下の要素が変わった時にmouseover/mouseoutも合成(ホバーのツールチップが効く)。pane順序は変えない。 -->
@@ -899,14 +900,25 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 (function consolidateToolbar(){
   var tb=document.querySelector('.toolbar'); if(!tb){return setTimeout(consolidateToolbar,200);}
   if(document.getElementById('tbMenuDisp'))return;
+  // ★v20260922d 真因と根治(ドクター「この上部のボタンは押しても表示が見えない」): .toolbar は v20260822k で
+  //   overflow-x:auto(常に1行)になっており、CSS仕様で overflow-y も auto 扱い=ツールバーの高さでクリップされる。
+  //   ドロップダウンは top:100%(ツールバーの外側)に絶対配置していたため、開いても丸ごと切り取られて見えなかった
+  //   (v20260822r の3メニュー化直後から)。根治=ドロップダウンを body 直下に position:fixed で置き、開く時に
+  //   トリガーの位置(getBoundingClientRect)へ合わせる。クリップも z-index の下敷きも受けない。
+  //   ボタン(id/onclick/状態)は従来どおり同じ要素を移動しているだけ・閉じる判定(.tbMenuDD一括)も互換。
+  var openDD=null;
+  function place(dd,trg){ var r=trg.getBoundingClientRect(), b=tb.getBoundingClientRect(); dd.style.left=Math.round(r.left)+'px'; dd.style.top=Math.round(Math.max(r.bottom+4,b.bottom+2))+'px'; } // ツールバー直下(地図の上)に出す
   function menu(mid,label,ids){
     var wrap=document.createElement('span'); wrap.style.cssText='position:relative;display:inline-flex';
     var trg=document.createElement('button'); trg.className='btn btn-ghost'; trg.id=mid; trg.style.cssText='font-size:12px;padding:5px 12px'; trg.innerHTML=label+' ▾';
-    var dd=document.createElement('div'); dd.className='tbMenuDD'; dd.style.cssText='display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:1400;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:180px;box-shadow:0 6px 18px rgba(0,0,0,.5);flex-direction:column;gap:5px';
+    var dd=document.createElement('div'); dd.className='tbMenuDD'; dd.setAttribute('data-for',mid); dd.style.cssText='display:none;position:fixed;left:0;top:0;z-index:100000;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:180px;box-shadow:0 6px 18px rgba(0,0,0,.5);flex-direction:column;gap:5px';
     ids.forEach(function(id){ var el=document.getElementById(id); if(el){ el.style.width='100%'; el.style.textAlign='left'; el.style.margin='0'; dd.appendChild(el); } });
-    trg.onclick=function(e){ e.stopPropagation(); var open=(dd.style.display==='none'); document.querySelectorAll('.tbMenuDD').forEach(function(x){x.style.display='none';}); dd.style.display=open?'flex':'none'; };
-    wrap.appendChild(trg); wrap.appendChild(dd); return wrap;
+    dd.addEventListener('click',function(e){ e.stopPropagation(); }); // メニュー内のボタン操作で閉じない(従来はwrap内で同じ挙動)
+    trg.onclick=function(e){ e.stopPropagation(); var open=(dd.style.display==='none'); document.querySelectorAll('.tbMenuDD').forEach(function(x){x.style.display='none';}); if(open){ place(dd,trg); dd.style.display='flex'; openDD={dd:dd,trg:trg}; } else { openDD=null; } };
+    document.body.appendChild(dd); // ツールバーの overflow クリップの外へ
+    wrap.appendChild(trg); return wrap;
   }
+  window.addEventListener('resize',function(){ if(openDD&&openDD.dd.style.display!=='none') place(openDD.dd,openDD.trg); });
   var mDisp=menu('tbMenuDisp','👁 表示',['btnNgFilter','btnOwnerColor']);
   var mEdit=menu('tbMenuEdit','✏️ 編集ツール',['btnRectNg','btnAutoJudge']);
   var mMisc=menu('tbMenuMisc','⚙ 取込・診断',['btnCollect','btnDiagnose']);
