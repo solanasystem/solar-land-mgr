@@ -1,4 +1,8 @@
-/* map-perf-hud.js — 地図の移動/ズーム1回ごとの所要時間を画面に常時表示する共通計測バッジ (v20260922b)
+/* map-perf-hud.js — 地図の移動/ズーム1回ごとの所要時間を画面に表示する共通計測バッジ (v20260922c)
+ *
+ * v20260922c(ドクター「不要な内容は非表示にしてくれ」): 既定=非表示(計測もしない)。ラグ根治(v20260922a)後は
+ *   常時出す必要が無いため、必要な時だけ ⚙取込・診断メニューの「⏱ 地図性能バッジ」で ON/OFF する。
+ *   状態は localStorage['mapPerfHud']('1'=表示)。ONにすると同メニュー内の表示が「表示中」に変わる。console不要。
  *
  * 目的(ドクター指示 2026-09-22): 「拡大縮小/移動で表示完了まで時間が掛かる」の真犯人を、
  *   ドクターの実ブラウザで数字として見えるようにする。DevTools/console操作は一切不要
@@ -210,14 +214,50 @@
     m.on('layeradd', own(function(){ wrapMap(m); }));
     ui();
   }
-  function boot(){
-    try { if (localStorage.getItem('mapPerfHud') === '0') return; } catch(_) {}
+  /* ---- 表示ON/OFF(既定OFF・localStorage永続・メニューから切替) ---- */
+  var attached = false;
+  function isOn(){ try { return localStorage.getItem('mapPerfHud') === '1'; } catch(_) { return false; } }
+  function startMeasure(){
+    if (attached) { if (badge) { badge.style.display = ''; } return; }
     var tries = 0;
     (function wait(){
       var m = window.map;
-      if (m && m.on && m._events) { try { attach(m); } catch(e) { try { console.warn('map-perf-hud attach failed', e); } catch(_) {} } return; }
+      if (m && m.on && m._events) { try { attach(m); attached = true; } catch(e) { try { console.warn('map-perf-hud attach failed', e); } catch(_) {} } return; }
       if (++tries < 100) _st.call(window, wait, 200);
     })();
+  }
+  HUD.setVisible = function(on){
+    try { localStorage.setItem('mapPerfHud', on ? '1' : '0'); } catch(_) {}
+    if (on) startMeasure();
+    else { if (badge) badge.style.display = 'none'; if (panel) panel.style.display = 'none'; }
+    paintToggle();
+  };
+  HUD.isVisible = isOn;
+  /* ⚙取込・診断メニュー(farmland-tracker-analysis.html consolidateToolbar)があれば切替ボタンを1つ差し込む。無いページでは何もしない */
+  var toggleBtn = null;
+  function paintToggle(){ if (toggleBtn) toggleBtn.textContent = '⏱ 地図性能バッジ: ' + (isOn() ? '表示中(押すと非表示)' : '非表示(押すと表示)'); }
+  function injectToggle(){
+    var tries = 0;
+    (function wait(){
+      var trg = document.getElementById('tbMenuMisc');
+      var dd = trg && trg.parentNode ? trg.parentNode.querySelector('.tbMenuDD') : null;
+      if (dd) {
+        if (document.getElementById('btnMapPerfHudToggle')) return;
+        toggleBtn = document.createElement('button');
+        toggleBtn.id = 'btnMapPerfHudToggle';
+        toggleBtn.className = 'btn btn-ghost';
+        toggleBtn.style.cssText = 'width:100%;text-align:left;margin:0;font-size:12px';
+        toggleBtn.title = '地図の移動/ズーム1回ごとの所要時間(JS/固まり/タイル/通信/最重処理)を左下に表示する診断バッジ';
+        toggleBtn.onclick = function(e){ e.stopPropagation(); HUD.setVisible(!isOn()); };
+        dd.appendChild(toggleBtn); paintToggle();
+        return;
+      }
+      if (++tries < 50) _st.call(window, wait, 200);
+    })();
+  }
+  function boot(){
+    injectToggle();
+    if (isOn()) startMeasure();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

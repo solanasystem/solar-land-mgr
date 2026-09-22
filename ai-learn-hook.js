@@ -2,6 +2,9 @@
    目的: AIの「SWルームを読む/記録する」を"人間が押す・目で確認できる"検証可能な形にする。
    ①AI学習ボタン(全ページ): 押すと ai_learn_events に記録(=AIが各作業前に読む合図) + SWルームの"正"の要点を表示。
    ②緑ポップアップ: sw_records(AIがSWへ記録した証跡6項目)を監視し、新規記録を緑で表示=口だけでないの証拠。
+   ★2026-09-22(ドクター「不要な内容は非表示にしてくれ」): 左下の「SW記録: 最新id/既読id/新規0件」常時バッジは
+     既定非表示にし、新規記録あり・通信失敗・初回既読化のときだけ出す(通常時は何も出ない)。監視(10秒ポーリング)と
+     緑ポップアップ自体は従来どおり。
    ★ページのsupabaseクライアントに依存せず、公開anonキーで直接REST fetch(確実・タイミング非依存)。
    ドクター指示 2026-08-27。正=analysis_room/text/土地判断ノウハウ_教え込みログ。 */
 (function(){
@@ -103,12 +106,14 @@
     diagEl.style.cssText = 'position:fixed;left:14px;bottom:52px;z-index:2147483000;'+
       'background:#0f172a;color:#94a3b8;border:1px solid #334155;border-radius:8px;'+
       'padding:4px 9px;font-size:10px;font-family:monospace;box-shadow:0 2px 8px rgba(0,0,0,.3);'+
-      'max-width:260px;';
+      'max-width:260px;display:none;';   // 既定非表示(2026-09-22)。setDiag(…, show=true)の時だけ出す
     diagEl.textContent = 'SW記録: 起動中…';
     document.body.appendChild(diagEl);
   }
-  function setDiag(text, ok){
+  // show: true=表示(新規あり/失敗/初回) / false・省略=非表示(通常の「新規0件」は出さない)
+  function setDiag(text, ok, show){
     if(!diagEl) return;
+    diagEl.style.display = show ? '' : 'none';
     diagEl.textContent = 'SW記録: ' + text;
     diagEl.style.borderColor = ok===false ? '#dc2626' : (ok===true ? '#16a34a' : '#334155');
     diagEl.style.color = ok===false ? '#fca5a5' : (ok===true ? '#86efac' : '#94a3b8');
@@ -121,20 +126,21 @@
       return r.json();
     }).then(function(rows){
       var now = new Date().toLocaleTimeString('ja-JP');
-      if(!rows || !rows.length){ setDiag('0件('+now+')', true); return; }
+      if(!rows || !rows.length){ setDiag('0件('+now+')', true, false); return; }
       var seen = lastSeen();
       if (seen === 0){
         setSeen(rows[0].id);
-        setDiag('初回起動・id'+rows[0].id+'を既読化('+now+')。以降の新規のみポップアップ', true);
+        setDiag('初回起動・id'+rows[0].id+'を既読化('+now+')。以降の新規のみポップアップ', true, true);
         return;
       }
       var fresh = rows.filter(function(x){ return x.id > seen; }).sort(function(a,b){return a.id-b.id;});
-      setDiag('最新id'+rows[0].id+' / 既読id'+seen+' / 新規'+fresh.length+'件('+now+')', true);
+      // 新規0件の通常状態は非表示。新規がある時だけバッジも出す(緑ポップアップと併記)
+      setDiag('最新id'+rows[0].id+' / 既読id'+seen+' / 新規'+fresh.length+'件('+now+')', true, fresh.length > 0);
       if(!fresh.length) return;
       setSeen(fresh[fresh.length-1].id);
       fresh.forEach(showGreenPopup);
     }).catch(function(e){
-      setDiag('通信失敗: '+((e&&e.message)||e)+'('+new Date().toLocaleTimeString('ja-JP')+')', false);
+      setDiag('通信失敗: '+((e&&e.message)||e)+'('+new Date().toLocaleTimeString('ja-JP')+')', false, true);
     });
   }
 
