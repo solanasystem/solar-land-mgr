@@ -1998,20 +1998,32 @@ window.__gacho={
   /* v20260821z22(ドクター): 全筆に削除ボタン。この筆をOK/NGから外し、DBのOK記録(gacho_ok/手描き境界)も削除=カウントから確実に外す。1筆ずつ・確認付き。 */
   /* v20260922h(ドクター): 削除の確認をその場(押したボタンの位置)で行う。ブラウザconfirmは画面上部に出て操作性が悪いため廃止。
      ボタンを「削除しますか？ [🗑 削除する] [やめる]」に差し替え、削除する→deleteFlag(確認済み)、やめる→元のボタンに戻す。 */
+  /* ★v20260922i(ドクター報告「削除を選んでも反応しない」・本番で再現/原因確定):
+     onclick内で同期的に wrap.innerHTML を差し替えると、クリックされたボタンがDOMから外れた状態でイベントが地図コンテナへ
+     バブルする。Leafletは「ポップアップ内クリックか」をイベントターゲットから親をたどって判定するため、外れたボタンからは
+     ポップアップに辿り着けず地図クリック扱い→ preclick でポップアップが閉じ、確認ボタンが一度も見えなかった。
+     対策=①イベント伝播をその場で止める ②DOM差し替えはイベント処理完了後(setTimeout 0)に行う。やめる(cancelDelete)も同じ。 */
+  _stopClickBubble:function(){ try{ var ev=window.event; if(ev&&window.L&&L.DomEvent){ L.DomEvent.stopPropagation(ev); } }catch(_){} },
   askDelete:function(lid,itemIid,btn){
+    var self=this; self._stopClickBubble();
     try{
-      var wrap=btn&&btn.parentNode; if(!wrap){ this.deleteFlag(lid,itemIid,true); return; }
-      wrap.innerHTML='<div style="border:1px solid #f85149;border-radius:6px;padding:6px 8px;background:#2a0f0f">'
-        +'<div style="font-size:11px;color:#fca5a5;margin-bottom:5px;line-height:1.4">この筆を削除しますか？<br><span style="color:#8b949e">OK/NG判定とDBのOK記録を外し、地図・作業台から消します</span></div>'
-        +'<div style="display:flex;gap:6px">'
-        +'<button class="gsc-fix" style="flex:1;background:#b91c1c;border-color:#f85149;margin-top:0" onclick="window.__gacho.deleteFlag(\''+lid+'\',\''+itemIid+'\',true)">🗑 削除する</button>'
-        +'<button class="gsc-fix" style="flex:1;background:#161b22;border-color:#30363d;color:#e6edf3;margin-top:0" onclick="window.__gacho.cancelDelete(\''+lid+'\',\''+itemIid+'\',this)">やめる</button>'
-        +'</div></div>';
-    }catch(_){ this.deleteFlag(lid,itemIid,true); }
+      var wrap=btn&&btn.parentNode; if(!wrap){ self.deleteFlag(lid,itemIid,true); return; }
+      setTimeout(function(){ try{
+        wrap.innerHTML='<div style="border:1px solid #f85149;border-radius:6px;padding:6px 8px;background:#2a0f0f">'
+          +'<div style="font-size:11px;color:#fca5a5;margin-bottom:5px;line-height:1.4">この筆を削除しますか？<br><span style="color:#8b949e">OK/NG判定とDBのOK記録を外し、地図・作業台から消します</span></div>'
+          +'<div style="display:flex;gap:6px">'
+          +'<button class="gsc-fix" style="flex:1;background:#b91c1c;border-color:#f85149;margin-top:0" onclick="window.__gacho.deleteFlag(\''+lid+'\',\''+itemIid+'\',true)">🗑 削除する</button>'
+          +'<button class="gsc-fix" style="flex:1;background:#161b22;border-color:#30363d;color:#e6edf3;margin-top:0" onclick="window.__gacho.cancelDelete(\''+lid+'\',\''+itemIid+'\',this)">やめる</button>'
+          +'</div></div>';
+      }catch(_){} },0);
+    }catch(_){ self.deleteFlag(lid,itemIid,true); }
   },
   cancelDelete:function(lid,itemIid,btn){
+    this._stopClickBubble();
     try{ var wrap=btn.closest('.gsc-del-wrap'); if(!wrap)return;
-      wrap.innerHTML='<button class="gsc-fix" style="background:#7f1d1d;border-color:#f85149;margin-top:0" onclick="window.__gacho.askDelete(\''+lid+'\',\''+itemIid+'\',this)">🗑 この筆を削除（OKから外す）</button>';
+      setTimeout(function(){ try{
+        wrap.innerHTML='<button class="gsc-fix" style="background:#7f1d1d;border-color:#f85149;margin-top:0" onclick="window.__gacho.askDelete(\''+lid+'\',\''+itemIid+'\',this)">🗑 この筆を削除（OKから外す）</button>';
+      }catch(_){} },0);
     }catch(_){}
   },
   deleteFlag:function(lid,itemIid,confirmed){

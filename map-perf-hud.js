@@ -223,7 +223,8 @@
     (function wait(){
       var m = window.map;
       if (m && m.on && m._events) { try { attach(m); attached = true; } catch(e) { try { console.warn('map-perf-hud attach failed', e); } catch(_) {} } return; }
-      if (++tries < 100) _st.call(window, wait, 200);
+      // v20260922c: 旧20秒上限ではDr.環境(初期読込が長い)で地図生成前に諦めてバッジが出なかった→最長10分待つ
+      if (++tries < 1200) _st.call(window, wait, 500);
     })();
   }
   HUD.setVisible = function(on){
