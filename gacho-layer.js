@@ -1741,8 +1741,15 @@ function _applyDbStatusToItems(){
   }});});
   if(ch){saveState();render();}
 }
+/* ★v20260923c(ドクター「OKが820→800に減った」→案A): 候補読込(loadNeutral)がDB判定読込(loadDbJudgments)の完了を待たずに
+   走ると、OK済みの筆が「未判定」として扱われ、その筆自身のOK座標が"既知の判定済み地点"に一致して重複として捨てられる。
+   順序が逆の再読込では戻る＝OK数が再読込ごとに揺れる。→ 初回のDB判定読込が終わるまで候補読込を待たせる(順序を固定)。
+   DB未接続/応答なしで永久に止まらないよう、最長15秒で解放(その場合はconsoleに警告)。 */
+var _dbJudgResolve=null, _dbJudgmentsReady=new Promise(function(r){ _dbJudgResolve=r; });
+function _dbJudgReadyDone(){ try{ if(_dbJudgResolve){ var f=_dbJudgResolve; _dbJudgResolve=null; f(); } }catch(_){} }
+function _dbJudgmentsReadyRace(){ return Promise.race([_dbJudgmentsReady, new Promise(function(r){ setTimeout(function(){ if(_dbJudgResolve){ try{console.warn('[画層] DB判定の読込が15秒以内に終わらないため候補読込を先に進めます');}catch(_){} } r(); },15000); })]); }
 async function loadDbJudgments(){
-  var d=_gDb(); if(!d)return;
+  var d=_gDb(); if(!d){ _dbJudgReadyDone(); return; }
   try{
     _gDbOk={}; _gDbNg={};
     var frm=0;
@@ -1755,6 +1762,7 @@ async function loadDbJudgments(){
     try{ for(var _fid in _reviewMarks){ _restyleMark(_fid,_reviewStateOf(_fid)); } }catch(_){}
     try{ render(); }catch(_){}
   }catch(e){}
+  finally{ _dbJudgReadyDone(); } // v20260923c: 初回完了(成功/失敗どちらでも)で候補読込を解放
 }
 window.__gachoReloadJudgments=loadDbJudgments;
 /* ★v20260822a(ドクター「ブラウザに残すから消える」): 手動ピック(feature_id='cc'+id)の判定が過去にlocalStorageだけに残っている分を、起動時にDBへ固定(バックフィル)する。
@@ -2280,8 +2288,9 @@ window.__gacho={
       toast('📐 農地ナビ紐付: 面積 '+a+(info.address?'／'+info.address:'')+((info.area!=null&&Number(info.area)<800)?'（<800㎡:合筆/手書き検討）':''));
     }
   },
-  loadNeutral:function(items,layerName,color,prefix){
+  loadNeutral:async function(items,layerName,color,prefix){
     if(!items||!items.length)return;
+    await _dbJudgmentsReadyRace(); // v20260923c(案A): DBのOK/NG記録が揃ってから候補を読む(順序固定・呼び出し側は全て投げっ放しなので互換)
     var l=state.layers.filter(function(x){return x.name===layerName;})[0];
     if(state.removedLayers&&state.removedLayers[layerName])return; // ★削除済み画層名は自動読込で復活させない(ドクター:消したレイヤーが復活する)
     if(l&&l.archived)return; // ★退避済み画層は自動読込で復活/再投入しない(栗本さん:退避が毎回復活するのを防ぐ)。戻すのは↩のみ
