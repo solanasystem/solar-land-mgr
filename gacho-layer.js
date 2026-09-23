@@ -1158,6 +1158,7 @@ function _gmHoverBind(layer,lat,lng){
 function renderLayerGroups(){
   var m=getMap();if(!m)return;ensurePane(m);
   _reviewMarkerByIid={}; // v20260820t: 送り機能用に毎描画で作り直す
+  _rvMarkerByIid={}; // v20260923a: 未判定レビュー送り用(iid→マーカー)も毎描画で作り直す
   Object.keys(_groups).forEach(function(id){try{m.removeLayer(_groups[id]);}catch(_){}delete _groups[id];});
   state.layers.forEach(function(l){
     if(l.archived)return; // 退避済は地図に描かない
@@ -1197,6 +1198,7 @@ function renderLayerGroups(){
         var _sty=it.status==='ok'?{radius:isB?6:7,color:'#22c55e',weight:3,fillColor:l.color,fillOpacity:0}:{radius:isB?6:7,color:'#fff',weight:2,fillColor:l.color,fillOpacity:0.95}; // v20260903(ドクター): OK=枠緑・中透明のはずがfillOpacity0.30(中まで塗り)のバグ。0に是正
         var mk=L.circleMarker([it.lat,it.lng],Object.assign({pane:'gachoPane',renderer:_getGachoRenderer()},_sty));
         if(_reviewFilter&&it.iid&&!isB)_reviewMarkerByIid[it.iid]=mk; // v20260820t: 送り機能でopenPopup(境界は常時表示のため対象外)
+        if(it.iid&&!isB)_rvMarkerByIid[it.iid]=mk; // v20260923a: 未判定レビュー送りでopenPopup
         if(it.status!=='ng') _gmHoverBind(mk,it.lat,it.lng); // ①ホバー最新衛星(NG済は除外=課金しない・キー無ければno-op)
         mk.bindPopup(popupHtml);
         mk.on('popupopen',function(){if(!it.viewed){it.viewed=true;saveState();}}); // v20260821h(ドクター): クリックで色を変えない
@@ -1220,7 +1222,7 @@ function renderLayerGroups(){
   updateAreaLabels();
 }
 
-function render(){renderPanel();renderLayerGroups();try{renderDelivered();}catch(_){}}
+function render(){renderPanel();renderLayerGroups();try{renderDelivered();}catch(_){}try{_rvBar();}catch(_){}} // v20260923a: レビュー中バー(残件)も毎描画で更新
 /* 納品済300を地図に一律グレーで表示(二度出し防止・ドクター2026-08-21)。既定OFF・候補より下pane・クリック不要の背景。 */
 var _deliveredLayer=null;
 /* ===== 過去納品分(第N回ごと)=「過去納品分」1つのタブにまとめた表示(ドクター2026-09-20) =====
@@ -1321,6 +1323,58 @@ function reviewNext(){
   if(mk){setTimeout(function(){try{mk.openPopup();}catch(_){}},280);}
   toast('未確認の既OK 残'+list.length+'件 ／ この筆を確認→✓OK/🚫NG（送り='+(pend.length-1)+'件）');
 }
+/* ★v20260923a(ドクター指示 2026-09-23「進めろ」): 「▶ 未判定レビュー送り」＝どの画層にも効く汎用機能。
+   背景: 豊橋・豊川①は未判定1,257件だが、パネルは未判定数を出さず「▶次へ」も無い(旧reviewNextは“既OK限定”で
+   2026-08-22の断捨離でボタンが消え孤立)。今の候補は中立(未判定)読込なので旧関数では1件も拾えない。
+   仕様: 画層行に「未判定 N件」＋「▶ 次へ」。押すと現在地から一番近い未判定筆へ飛び、通常の土地モーダルを開く(複製しない)。
+   モーダルで ✅OK/🗑削除(=gachoJudgedイベント)されたら自動で次へ。見送りはバーの「⏭ 次へ(見送り)」(一巡管理)。
+   進捗(どの画層・見送り済み)はlocalStorageに保持=翌日も続きから。色・母集団・AI採点・判定ルールは一切変えない。 */
+var RV_KEY='trackerGachoReview_v1';
+var _rv={lid:null,seenBy:{}};
+try{ var _rvs=JSON.parse(localStorage.getItem(RV_KEY)||'null'); if(_rvs&&typeof _rvs==='object'){ _rv.lid=_rvs.lid||null; _rv.seenBy=_rvs.seenBy||{}; } }catch(_){}
+var _rvMarkerByIid={}; // renderLayerGroupsで毎描画作り直す(iid→マーカー)。送りでopenPopupに使う
+function _rvSave(){ try{ localStorage.setItem(RV_KEY,JSON.stringify(_rv)); }catch(_){} }
+function _isUnjudged(it){ return it.type!=='boundary' && !it.noMap && it.status!=='ok' && it.status!=='ng' && it.lat!=null && it.lng!=null; }
+function _rvList(l){ return (l&&l.items||[]).filter(_isUnjudged); }
+function _rvCount(l){ return _rvList(l).length; }
+function reviewStop(){ _rv.lid=null; _rvSave(); try{_rvBar();}catch(_){} try{renderPanel();}catch(_){} }
+function reviewNextIn(lid){
+  var m=getMap(); if(!m)return; var l=byId(lid); if(!l){ reviewStop(); return; }
+  var list=_rvList(l);
+  if(!list.length){ toast('「'+l.name+'」の未判定は 0件。完了です'); reviewStop(); return; }
+  var seen=_rv.seenBy[lid]||{};
+  var pend=list.filter(function(it){ return !seen[it.iid]; });
+  if(!pend.length){ seen={}; pend=list; toast('一巡しました。残 '+list.length+' 件を最初から再度回ります'); }
+  // 現在地から一番近い未判定筆を選ぶ(隣同士を連続して回る=地図の飛び幅が小さくタイル取得も減る)
+  var c=m.getCenter(), cl=Math.cos(c.lat*Math.PI/180), best=null, bd=Infinity;
+  pend.forEach(function(it){ var dy=(Number(it.lat)-c.lat), dx=(Number(it.lng)-c.lng)*cl; var d=dy*dy+dx*dx; if(d<bd){bd=d;best=it;} });
+  var it=best; seen[it.iid]=1; _rv.seenBy[lid]=seen; _rv.lid=lid; _rvSave();
+  var needRender=false;
+  if(!l.visible){ l.visible=true; needRender=true; }
+  if(state.solo&&state.solo!==lid){ state.solo=null; needRender=true; }
+  if(needRender){ saveState(); render(); }
+  try{ m.closePopup(); m.setView([Number(it.lat),Number(it.lng)],Math.max(m.getZoom(),17),{animate:false}); }catch(_){}
+  var mk=_rvMarkerByIid[it.iid];
+  if(mk){ setTimeout(function(){ try{ mk.openPopup(); }catch(_){} },250); }
+  else { toast('この筆のマーカーが地図に無いため開けません（画層の表示設定を確認）'); }
+  try{_rvBar();}catch(_){}
+  try{renderPanel();}catch(_){}
+}
+function _rvBar(){
+  var el=document.getElementById('gachoRvBar');
+  var l=_rv.lid?byId(_rv.lid):null;
+  if(!l){ if(el)el.remove(); return; }
+  if(!el){ el=document.createElement('div'); el.id='gachoRvBar'; document.body.appendChild(el); }
+  var n=_rvCount(l);
+  el.innerHTML='<span>▶ レビュー中：<b style="color:'+esc(l.color||'#facc15')+'">'+esc(l.name)+'</b></span>'
+    +'<span>残り <b style="font-size:15px;color:#facc15">'+n.toLocaleString()+'</b> 件</span>'
+    +'<button id="gachoRvNext" title="この筆は判定せず次へ(一巡後にまた出ます)">⏭ 次へ（見送り）</button>'
+    +'<button id="gachoRvStop" title="レビューを終了(進捗は保持)">■ 終了</button>';
+  var bn=document.getElementById('gachoRvNext'); if(bn)bn.onclick=function(){ reviewNextIn(_rv.lid); };
+  var bs=document.getElementById('gachoRvStop'); if(bs)bs.onclick=function(){ reviewStop(); };
+}
+// 判定(✅OK/🗑削除)が確定したら自動で次の未判定へ(レビュー中のみ)。既存のgachoJudgedイベントを使う=判定コード無改変。
+try{ document.addEventListener('gachoJudged',function(){ if(!_rv.lid)return; setTimeout(function(){ try{ reviewNextIn(_rv.lid); }catch(_){} },450); }); }catch(_){}
 /* 今の作業台の確定OK/NGの重複なし実数。納品300(名前｜納品＋座標)・自動OK(未判定)は除外。カウンターと削除トーストが同じ定義を使う=数字が一致・削除で必ず減る。 */
 function _liveCounts(){
   var delivSet=null;
@@ -1434,7 +1488,12 @@ function renderPanel(){
     //   候補レイヤーだけ 見た/OK/NG/計 を出す=根拠のある数字だけ表示。
     var cnt;
     if(_isRef(l)){ cnt=l.items.length?('計'+l.items.length+'<span style="color:#8b949e;font-weight:400"> （参照・判定対象外）</span>'):'0'; }
-    else { cnt=l.items.length?('👁見た'+vc+' ／ <span style="color:#3fb950">OK'+okc+'</span>・<span style="color:#f85149">NG'+ngc+'</span> ／ 計'+l.items.length):'0'; }
+    else {
+      // v20260923a: 未判定数を必ず出す(ドクター「残りが何件あるのか判断できない」)。未判定>0なら「▶ 次へ」でレビュー送り開始。
+      var uc=_rvCount(l);
+      cnt=l.items.length?('👁見た'+vc+' ／ <span style="color:#3fb950">OK'+okc+'</span>・<span style="color:#f85149">NG'+ngc+'</span>・<span style="color:#facc15">未判定'+uc+'</span> ／ 計'+l.items.length
+        +(uc?'<button class="gacho-rv'+(_rv.lid===l.id?' on':'')+'" data-rv="'+l.id+'" title="次の未判定筆へ飛んでモーダルを開く(現在地から近い順・OK/削除で自動送り)">'+(_rv.lid===l.id?'▶ 次へ（レビュー中）':'▶ 次へ')+'</button>':'')):'0';
+    }
     var r='<div class="gacho-row'+(l.active?' active':'')+'" style="margin-left:26px">'
       +'<span class="gacho-eye" data-eye="'+l.id+'">'+(l.visible?'👁':'🚫')+'</span>'
       +'<span class="gacho-dot" style="background:'+l.color+'" title="この画層の色（緑=適当/橙=検討 等）"></span>'
@@ -1531,6 +1590,7 @@ function bindPanel(){
   var srch=q('#gachoSearch');if(srch)srch.oninput=function(){_gFilter=this.value;renderPanel();try{renderLayerGroups();}catch(_){}var s=document.getElementById('gachoSearch');if(s){s.focus();try{s.setSelectionRange(s.value.length,s.value.length);}catch(_){}}};
   var srchc=q('#gachoSearchClr');if(srchc)srchc.onclick=function(){_gFilter='';renderPanel();try{renderLayerGroups();}catch(_){}};
   all('.gacho-eye[data-eye]').forEach(function(el){el.onclick=function(){var l=byId(el.getAttribute('data-eye'));if(l){l.visible=!l.visible;saveState();render();}};});
+  all('.gacho-rv[data-rv]').forEach(function(el){el.onclick=function(e){try{e.stopPropagation();}catch(_){}reviewNextIn(el.getAttribute('data-rv'));};}); // v20260923a: 未判定レビュー送り
   /* v20260818g: 色丸のクリックで色が順送りに変わる挙動を廃止(栗本さん「クリック毎に色が変わって分かり難い」)。
      色は緑=適当/橙=検討など意味を持つため、誤クリックで壊さない。色丸は表示専用のインジケータにする。 */
   all('.gacho-name[data-sel]').forEach(function(el){el.onclick=function(){setActive(el.getAttribute('data-sel'));};});
@@ -1986,6 +2046,7 @@ function _restyleMark(fid,st){var mk=_reviewMarks[fid];if(!mk)return;
   if(mk.setStyle){var s=_reviewStyle(st);if(s){try{mk.setStyle(s);}catch(_){}}}
 }
 window.__gacho={
+  reviewNext:function(lid){ reviewNextIn(lid||_rv.lid); }, reviewStop:reviewStop, reviewCount:function(lid){ var l=byId(lid); return l?_rvCount(l):null; }, // v20260923a: 未判定レビュー送り
   // v20260820g: 外部(分析ページ本体)のマーカーにも最新衛星ホバーを付けられる公開API。
   //   例) window.__gacho.hoverBind(mk, lat, lng)。農地ナビフラグ/過去AI候補に付けて手作業調査の武器にする。
   hoverBind:function(mk,lat,lng){try{_gmHoverBind(mk,lat,lng);}catch(_){}},
@@ -2334,6 +2395,9 @@ function injectStyle(){if(document.getElementById('gachoStyle'))return;var st=do
 +'.gacho-exp{display:flex;align-items:center;gap:4px;margin-top:8px;font-size:11px;color:#8b949e;}'
 +'.gacho-exp .gacho-btn{flex:1;margin-top:0;}'
 +'.gacho-cnt{padding:1px 6px 5px 30px;font-size:11px;color:#8b949e;font-weight:700;}'
++'.gacho-rv{margin-left:8px;padding:2px 8px;border:1px solid #facc15;background:rgba(250,204,21,.14);color:#fde68a;border-radius:5px;font-size:11px;font-weight:900;cursor:pointer;vertical-align:middle}.gacho-rv:hover{background:rgba(250,204,21,.30)}.gacho-rv.on{background:#facc15;color:#1a1300}' // v20260923a
++'#gachoRvBar{position:fixed;top:58px;left:50%;transform:translateX(-50%);z-index:9500;display:flex;gap:12px;align-items:center;padding:6px 14px;background:rgba(10,16,26,.95);border:1px solid #facc15;border-radius:9px;font-size:12px;color:#e6edf3;box-shadow:0 2px 12px rgba(0,0,0,.55);white-space:nowrap}'
++'#gachoRvBar button{padding:4px 10px;border:1px solid #30363d;background:#161b22;color:#e6edf3;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer}#gachoRvBar #gachoRvNext{border-color:#facc15;background:rgba(250,204,21,.18);color:#fde68a}#gachoRvBar button:hover{filter:brightness(1.25)}'
 +'.gacho-total{margin:2px 0 6px;padding:5px 8px;background:rgba(31,111,235,.14);border:1px solid rgba(31,111,235,.4);border-radius:6px;font-size:12px;font-weight:700;color:#e6edf3;text-align:center;}'
 +'.gacho-hint{color:#6e7681;margin-top:8px;font-size:10px;line-height:1.4;}'
 +'.gacho-area-lbl{background:rgba(0,0,0,.6);border:none;color:#fff;font-weight:700;font-size:11px;box-shadow:none;}'
