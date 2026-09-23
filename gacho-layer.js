@@ -2094,6 +2094,7 @@ window.__gacho={
     if(!confirmed && !confirm('この筆を削除します。\n・OK/NG判定を外し、DBのOK記録も削除＝カウントから外れます\n・地図/作業台からこの筆を消します\nよろしいですか？'))return;
     var fid=it.feature_id, d=_gDb();
     _delRowsCache=null; // 削除済み一覧のキャッシュを破棄(次の掃引でDBから取り直す)
+    if(fid)_deletedFidSet[fid]=1; // v20260923b(案A): 削除件数は押した瞬間に+1(正=DB gacho_ng|deleted と同じ集合)
     try{
       if(d&&fid){ d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
         // ★除外リストに登録=リロードで元データから再描画されても、この筆は除外され二度と戻らない。
@@ -2106,7 +2107,9 @@ window.__gacho={
     try{if(typeof window.__gachoRemoveFeatureMarker==='function')window.__gachoRemoveFeatureMarker(fid,(it.lat!=null?Number(it.lat):null),(it.lng!=null?Number(it.lng):null));}catch(_){} // マップ横断でfid/座標一致マーカーを地図から除去
     if(m)m.closePopup();saveState();render();
     try{if(fid)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:fid,status:'ng'}}));}catch(_){}
-    try{var _c=_liveCounts();toast('🗑 削除 → 今の確定OK '+_c.ok+' ・ NG '+_c.ng);}catch(_){toast('🗑 削除しました');}
+    /* v20260923b(ドクター「NG 299が増えない」→案A): NG=画層内に残る状態NGの筆数(削除で画層から消えるため増えない・定義は変えない)。
+       削除=DBの farmland_ng_list ng_reason='gacho_ng|deleted' と同じ集合(_deletedFidSet: 起動時/20秒ごとにDBから同期＋押した瞬間に+1)。 */
+    try{var _c=_liveCounts();var _dn=Object.keys(_deletedFidSet).length;toast('🗑 削除 → 今の確定OK '+_c.ok+' ・ NG '+_c.ng+' ・ 削除 '+_dn.toLocaleString());}catch(_){toast('🗑 削除しました');}
   },
   /* v20260818c: 手動ピック等の画層から、判定関数isMatchに合致する項目(=納品済)を別画層dstNameへ移して退避(archived)。
      作業台の手動ピックには「今調査中の分だけ」を残し、旧納品分と連動して動かなくする。isMatch(item)→true=退避対象。返り値=移動件数。 */
