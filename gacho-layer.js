@@ -851,6 +851,15 @@ async function promotePinkToRound2(){
   // ⑥→⑦の操作で決める。ここでclient_idを書き込むのは段階の先取りだったため削除した。
   if(!confirm('OK判定済みのうち新規 '+newCount+'件を、予備軍(round2_pool・緑)へ昇格します。\n（既に昇格済みの'+alreadyById+'件・同一箇所への重複描画'+dupContent+'件は対象外＝二重登録しません）\n・区域不明(県市町村未解決)は対象外にします\n実行しますか？'))return;
 
+  var res2=await _insertRound2Rows(deduped);
+  var msg='⬆ 昇格 '+res2.inserted+'件（区域不明でスキップ'+res2.skippedUnknown+'件・昇格済みでスキップ'+alreadyById+'件・重複描画でスキップ'+dupContent+'件'+(res2.errs.length?'・エラー'+res2.errs.length+'件':'')+'）';
+  try{alert(msg);}catch(_){}
+  toast(msg);
+}
+/* ★v20260923d(ドクター「自動にしろ」): 昇格の本体(面積補完→区域解決→round2_pool挿入→単一の正へ通知)を1関数に分離。
+   「⬆昇格」ボタン(一括)と ✅OK直後の自動登録(1件)が同じ関数を通る=複製しない・二重登録/区域不明の扱いが一致。 */
+async function _insertRound2Rows(deduped){
+  var d=_gDb(); if(!d)return {inserted:0,skippedUnknown:0,errs:['DB未接続']};
   // 面積が無いfeature項目(通常筆のgacho_ok)はfarmland_snapshotsから引く(ai_ok_labelsは面積を持たないため)。
   var needArea=deduped.filter(function(p){return p.kind==='feature'&&p.area==null;}).map(function(p){return p.sourceIid;});
   var areaMap={};
@@ -876,7 +885,7 @@ async function promotePinkToRound2(){
     rows.push({kind:p.kind,source_iid:sourceIid,lat:p.lat,lng:p.lng,area_m2:(area!=null?area:null),latlngs:(p.latlngs||null),pref:pref,city:city,status:'reserve',round:2});
   }
 
-  if(!rows.length){toast('昇格対象0件(区域不明'+skippedUnknown+'件・昇格済み'+alreadyById+'件・重複描画'+dupContent+'件はスキップ)');return;}
+  if(!rows.length)return {inserted:0,skippedUnknown:skippedUnknown,errs:[]};
 
   var inserted=0,errs=[];
   var BATCH=100;
@@ -893,9 +902,31 @@ async function promotePinkToRound2(){
   // 通知するだけ。表示の再取得・再描画は round2pool:changed の購読側(初期化で登録)が行うため、
   // ここで件数キャッシュを手動更新する必要はない=昇格の呼び忘れでズレる構造を根絶。
   try{ if(typeof window.notifyRound2PoolChanged==='function')await window.notifyRound2PoolChanged(d); }catch(_){}
-  var msg='⬆ 昇格 '+inserted+'件（区域不明でスキップ'+skippedUnknown+'件・昇格済みでスキップ'+alreadyById+'件・重複描画でスキップ'+dupContent+'件'+(errs.length?'・エラー'+errs.length+'件':'')+'）';
-  try{alert(msg);}catch(_){}
-  toast(msg);
+  return {inserted:inserted,skippedUnknown:skippedUnknown,errs:errs};
+}
+/* ★v20260923d(ドクター「自動にしろ」・2026-09-23): ✅OKを押した瞬間に、その1筆を予備軍(round2_pool)へ登録する。
+   背景: 12:44の昇格(800→860)後にOKした18筆が予備軍に入らず「追加されていない」。従来は✅OK=ai_ok_labels記録のみで、
+   予備軍入りは「⬆昇格」ボタンを押した時だけだった(8/28に⑤→⑥を別操作に分けた設計)。最終形態「OKにした筆は自動で予備軍へ」に合わせる。
+   判定は昇格ボタンと同じ: source_iid一致=登録済み／空間重複(_gachoDedupSpatial)／区域不明はスキップ。挿入は_insertRound2Rowsを共用。
+   失敗してもOK記録(ai_ok_labels)には影響しない(OKは先に確定済み)。「⬆昇格」ボタンは残す(未登録分の再試行用)。 */
+async function _autoPromoteOne(it){
+  try{
+    var d=_gDb(); if(!d||!it||it.lat==null||it.lng==null)return;
+    var kind=(it.type==='boundary')?'boundary':'feature';
+    var sid=(kind==='boundary')?it.iid:it.feature_id; if(!sid)return;
+    if(kind==='boundary'&&!(it.latlngs&&it.latlngs.length>=3))return;
+    var ex=await d.from('round2_pool').select('id').eq('source_iid',sid).limit(1);
+    if(ex&&ex.data&&ex.data.length)return; // 昇格済み=二重登録しない
+    var la=Number(it.lat),ln=Number(it.lng),D=0.002;
+    var nr=await d.from('round2_pool').select('source_iid,kind,lat,lng,latlngs').gte('lat',la-D).lte('lat',la+D).gte('lng',ln-D).lte('lng',ln+D);
+    var cand={kind:kind,sourceIid:sid,lat:la,lng:ln,area:(it.area!=null?Number(it.area):null),latlngs:(kind==='boundary'?it.latlngs:null)};
+    var deduped=_gachoDedupSpatial([cand],(nr&&nr.data)||[]);
+    if(!deduped.length){ toast('予備軍: 同じ場所が登録済みのため追加なし'); return; }
+    var res=await _insertRound2Rows(deduped);
+    if(res.inserted){ toast('⬆ 予備軍へ自動登録 → 予備軍 '+(_poolReserveCount!=null?_poolReserveCount.toLocaleString():'?')+' 件'); }
+    else if(res.skippedUnknown){ toast('⚠ 予備軍へ未登録: 区域(県/市町村)を解決できません。後で「⬆昇格」で再試行'); }
+    else if(res.errs&&res.errs.length){ toast('⚠ 予備軍登録エラー: '+res.errs[0]); }
+  }catch(e){ try{toast('⚠ 予備軍への自動登録に失敗: '+(e&&e.message||e)+'（OK記録は保存済み・「⬆昇格」で再試行可）');}catch(_){} }
 }
 window.__gachoPromoteToRound2=promotePinkToRound2;
 /* ===== ⑥→⑦(ドクター指示・2026-08-28): 予備軍(round2_pool・クライアント未定の共有プール)から
@@ -2144,6 +2175,7 @@ window.__gacho={
     it.viewed=true;
     if(it.type==='boundary'){ try{_saveBoundaryToDb(it);}catch(_){} } // v20260821z11: 境界のOK/NG確定をDBへ(消えない・アウトボックス)
     else { _persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed'); }
+    if(it.status==='ok')try{_autoPromoteOne(it);}catch(_){} // v20260923d: OK確定=予備軍へ自動登録
     if(it.status)try{_gachoPurgeNearbyUnjudged(it.lat,it.lng,it.iid);}catch(_){}
     try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}
   }});saveState();setTimeout(function(){render();},0);},
@@ -2160,6 +2192,7 @@ window.__gacho={
     it.status='ok';it.viewed=true;it.userJudged=true;if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1;
     if(it.type==='boundary'){ try{_saveBoundaryToDb(it);}catch(_){} } // v20260823(ドクター「モーダルを統一」): 境界も同じスコアカードを使うため、境界のDB保存も忘れず呼ぶ
     else { _persistJudgmentScored(it,s,'ok'); }
+    try{_autoPromoteOne(it);}catch(_){} // v20260923d: ✅OK=予備軍へ自動登録(投げっ放し・失敗してもOK記録は保存済み)
     try{_gachoPurgeNearbyUnjudged(it.lat,it.lng,it.iid);}catch(_){}
     _restyleMark(it.feature_id,it.status);try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
