@@ -858,17 +858,37 @@ async function promotePinkToRound2(){
 }
 /* ★v20260923d(ドクター「自動にしろ」): 昇格の本体(面積補完→区域解決→round2_pool挿入→単一の正へ通知)を1関数に分離。
    「⬆昇格」ボタン(一括)と ✅OK直後の自動登録(1件)が同じ関数を通る=複製しない・二重登録/区域不明の扱いが一致。 */
+function _chibanOfAddress(addr){
+  var m=/([0-9０-９]+(?:[-‐−－][0-9０-９]+)*)\s*$/.exec(addr||''); return m?m[1]:null;
+}
 async function _insertRound2Rows(deduped){
   var d=_gDb(); if(!d)return {inserted:0,skippedUnknown:0,errs:['DB未接続']};
-  // 面積が無いfeature項目(通常筆のgacho_ok)はfarmland_snapshotsから引く(ai_ok_labelsは面積を持たないため)。
-  var needArea=deduped.filter(function(p){return p.kind==='feature'&&p.area==null;}).map(function(p){return p.sourceIid;});
-  var areaMap={};
-  for(var ai=0;ai<needArea.length;ai+=100){
-    var achunk=needArea.slice(ai,ai+100);
+  // ★2026-09-24是正(ドクター「アドホックな対応で終わっているのであれば直し、システムへ実装しAIから外に出せ」):
+  //   No.267調査で座標と地番の非紐付けが発覚→172件の紐付けは一回限りのスクリプト(bind_pool_chiban.py)で対処したが、
+  //   予備軍への「昇格」自体(この関数・毎回のOK確定/一括昇格の唯一の経路)がchiban/addressを一切書いていなかった。
+  //   放置すると今後OKにする筆も毎回同じ問題が再発する。build_pool.py/import_pool.pyの是正(農地ナビAddress保存)と
+  //   対にして、ここで恒久的に読む形にする＝手作業の一回限りスクリプトに依存しない。
+  // 面積・住所が無いfeature項目(通常筆のgacho_ok)はfarmland_snapshotsから引く(ai_ok_labelsは面積/住所を持たないため)。
+  var needInfo=deduped.filter(function(p){return p.kind==='feature'&&(p.area==null||!p.chiban);}).map(function(p){return p.sourceIid;});
+  var areaMap={},addrMap={};
+  for(var ai=0;ai<needInfo.length;ai+=100){
+    var achunk=needInfo.slice(ai,ai+100);
     try{
-      var ar=await d.from('farmland_snapshots').select('feature_id,area_sqm').in('feature_id',achunk);
-      ((ar&&ar.data)||[]).forEach(function(x){areaMap[x.feature_id]=x.area_sqm;});
+      var ar=await d.from('farmland_snapshots').select('feature_id,area_sqm,address').in('feature_id',achunk);
+      ((ar&&ar.data)||[]).forEach(function(x){areaMap[x.feature_id]=x.area_sqm; if(x.address)addrMap[x.feature_id]=x.address;});
     }catch(e){}
+  }
+  // boundary(手描き境界)はfeature_idを持たないため、座標近傍(10m以内)の農地ナビ点(farmland_points)から地番を推定する。
+  var boundaryTargets=deduped.filter(function(p){return p.kind==='boundary'&&!p.chiban&&p.lat!=null&&p.lng!=null;});
+  var boundaryAddr={};
+  for(var bi=0;bi<boundaryTargets.length;bi++){
+    var bp=boundaryTargets[bi]; var la=Number(bp.lat),ln=Number(bp.lng),dg=0.0002;
+    try{
+      var pr=await d.from('farmland_points').select('lat,lng,address').gte('lat',la-dg).lte('lat',la+dg).gte('lng',ln-dg).lte('lng',ln+dg).limit(20);
+      var cands=(pr&&pr.data)||[]; var best=null,bd=1e9;
+      cands.forEach(function(c){ var dd=Math.hypot((c.lat-la)*111320,(c.lng-ln)*111320*Math.cos(la*Math.PI/180)); if(dd<bd){bd=dd;best=c;} });
+      if(best&&bd<=10) boundaryAddr[bp.sourceIid]=best.address;
+    }catch(_){}
   }
 
   var rows=[],skippedUnknown=0;
@@ -882,7 +902,9 @@ async function _insertRound2Rows(deduped){
     }
     if(!pref||!city||pref==='区域不明'||city==='区域不明'){skippedUnknown++;continue;}
     var area=(p.area!=null?p.area:areaMap[sourceIid]);
-    rows.push({kind:p.kind,source_iid:sourceIid,lat:p.lat,lng:p.lng,area_m2:(area!=null?area:null),latlngs:(p.latlngs||null),pref:pref,city:city,status:'reserve',round:2});
+    var address=(p.kind==='feature'?addrMap[sourceIid]:boundaryAddr[sourceIid])||null;
+    var chiban=p.chiban||_chibanOfAddress(address);
+    rows.push({kind:p.kind,source_iid:sourceIid,lat:p.lat,lng:p.lng,area_m2:(area!=null?area:null),latlngs:(p.latlngs||null),pref:pref,city:city,status:'reserve',round:2,chiban:chiban,address:address});
   }
 
   if(!rows.length)return {inserted:0,skippedUnknown:skippedUnknown,errs:[]};
