@@ -1848,15 +1848,30 @@ function _resolveManualGeo(la,ln){
   });
 }
 /* ドクター2026-08-23: 手動ピックが300/337/108と重複表示される件=表示だけ除外(DBは無変更)。
-   300/337/108を約1kmグリッドでバケット化→30m以内なら地図に載せない。1回作れば使い回す(_dupGridCache)。 */
+   300/337/108を約1kmグリッドでバケット化→近ければ地図に載せない。1回作れば使い回す(_dupGridCache)。
+   ★2026-09-24是正(ドクター報告「隣に筆がある場合も実際にあり得るから30m以内だから削除するのは原理的におかしい」):
+   豊橋市実測で隣接筆の中心間距離=中央値36m・4割が30m以内と判明。旧30m一律ルールは実在する別筆を誤って除外していた。
+   →①feature_id(地番)が既知の判定済みと完全一致する場合のみ真の重複として除外。②fidが無い/不一致の場合のみ、
+   大幅に縮小したフォールバック距離(既定8m・gate_rules.json dedup.radius_m_unknownと同期)を使う。
+   設計=analysis_room/tracker_filter/候補表示④統合_シアン緑一本化＋重複判定修正_設計_20260924.md */
+var _dedupRadiusM=8.0; // 既定値(gate_rules.json dedup.radius_m_unknownと同一)。fetch成功時に上書き(単一の正への追従)。
+(function _loadDedupRadius(){
+  try{ fetch('data/dedup_radius.json').then(function(r){return r.ok?r.json():null;}).then(function(j){ if(j&&typeof j.radius_m_unknown==='number'&&j.radius_m_unknown>0)_dedupRadiusM=j.radius_m_unknown; }).catch(function(){}); }catch(_){}
+})();
 var _dupGridCache=null;
 function _dupGridKey(la,ln){return Math.round(la*100)+','+Math.round(ln*100);}
-function _dupGridAdd(grid,la,ln){if(la==null||ln==null)return;var k=_dupGridKey(la,ln);(grid[k]=grid[k]||[]).push([la,ln]);}
-function _isNearKnown300_337_108(la,ln,grid){
-  if(la==null||ln==null||!grid)return false;
+function _dupGridAdd(grid,la,ln,fid){
+  if(la==null||ln==null)return;
+  var k=_dupGridKey(la,ln);(grid[k]=grid[k]||[]).push([la,ln]);
+  if(fid){ if(!grid.__fids)grid.__fids={}; grid.__fids[fid]=1; }
+}
+function _isNearKnown300_337_108(la,ln,grid,fid){
+  if(!grid)return false;
+  if(fid&&grid.__fids&&grid.__fids[fid])return true; // ①地番(feature_id)完全一致=真の重複
+  if(la==null||ln==null)return false;
   var ci=Math.round(la*100),cj=Math.round(ln*100);
   for(var i=ci-1;i<=ci+1;i++){for(var j=cj-1;j<=cj+1;j++){var arr=grid[i+','+j];if(!arr)continue;
-    for(var t=0;t<arr.length;t++){if(_distM(la,ln,arr[t][0],arr[t][1])<=30)return true;}
+    for(var t=0;t<arr.length;t++){if(_distM(la,ln,arr[t][0],arr[t][1])<=_dedupRadiusM)return true;} // ②fid不明時のみ縮小フォールバック
   }}
   return false;
 }
@@ -1865,29 +1880,30 @@ function _localJudgedGrid(){
   var g={};
   try{ state.layers.forEach(function(l){ if(l.archived)return; (l.items||[]).forEach(function(it){
     if(!it.status||it.src==='aiKI'||it.lat==null||it.lng==null)return;
-    _dupGridAdd(g,it.lat,it.lng);
+    _dupGridAdd(g,it.lat,it.lng,it.feature_id);
   }); }); }catch(_){}
   return g;
 }
 async function _buildDupGrid(){
   if(_dupGridCache)return _dupGridCache;
   var grid={};
-  try{ if(window.CYAN&&window.CYAN.items)window.CYAN.items.forEach(function(x){_dupGridAdd(grid,x.la,x.ln);}); }catch(_){}
-  try{ if(window.DELIVERY2&&window.DELIVERY2.items)window.DELIVERY2.items.forEach(function(x){_dupGridAdd(grid,x.lat,x.lng);}); }catch(_){}
-  try{ var d=_gDb(); if(d){ var frm=0; while(true){ var r=await d.from('client_delivery_items').select('lat,lng').eq('status','confirmed').range(frm,frm+999); var rows=(r&&r.data)||[]; rows.forEach(function(x){_dupGridAdd(grid,x.lat,x.lng);}); if(rows.length<1000)break; frm+=1000; } } }catch(_){}
+  try{ if(window.CYAN&&window.CYAN.items)window.CYAN.items.forEach(function(x){_dupGridAdd(grid,x.la,x.ln,x.f);}); }catch(_){}
+  try{ if(window.DELIVERY2&&window.DELIVERY2.items)window.DELIVERY2.items.forEach(function(x){_dupGridAdd(grid,x.lat,x.lng,x.k==='f'?x.id:null);}); }catch(_){}
+  try{ var d=_gDb(); if(d){ var frm=0; while(true){ var r=await d.from('client_delivery_items').select('lat,lng').eq('status','confirmed').range(frm,frm+999); var rows=(r&&r.data)||[]; rows.forEach(function(x){_dupGridAdd(grid,x.lat,x.lng);}); if(rows.length<1000)break; frm+=1000; } } }catch(_){} // fid列なし=距離フォールバックのみ
   // ★2026-08-29(ドクター報告「NGにしたのに、別のシアン/黄色の候補として同じ場所が出てくる」・「その都度直せ」):
   // ①適当/②検討/cyan等、独立した複数のAI候補パイプラインが互いの判定を見ていなかった。同じ座標が既に
   // ai_ok_labels(OK)/farmland_ng_list(NG)で"判定済み"なら、どのパイプライン由来でも候補として出さない
   // ようこのグリッドへ判定済み座標も加える＝loadNeutral()が読むこの1つのグリッドが「唯一の除外基準」になる。
-  try{ var d2=_gDb(); if(d2){ var frmN=0; while(true){ var rN=await d2.from('farmland_ng_list').select('lat,lng').range(frmN,frmN+999); var rowsN=(rN&&rN.data)||[]; rowsN.forEach(function(x){_dupGridAdd(grid,x.lat,x.lng);}); if(rowsN.length<1000)break; frmN+=1000; } } }catch(_){}
-  try{ var d3=_gDb(); if(d3){ var frmO=0; while(true){ var rO=await d3.from('ai_ok_labels').select('lat,lng').range(frmO,frmO+999); var rowsO=(rO&&rO.data)||[]; rowsO.forEach(function(x){_dupGridAdd(grid,x.lat,x.lng);}); if(rowsO.length<1000)break; frmO+=1000; } } }catch(_){}
+  // ★2026-09-24: feature_id/member_fidsも併せて取得し、地番完全一致による真の重複判定に使う(距離のみに頼らない)。
+  try{ var d2=_gDb(); if(d2){ var frmN=0; while(true){ var rN=await d2.from('farmland_ng_list').select('feature_id,lat,lng').range(frmN,frmN+999); var rowsN=(rN&&rN.data)||[]; rowsN.forEach(function(x){_dupGridAdd(grid,x.lat,x.lng,x.feature_id);}); if(rowsN.length<1000)break; frmN+=1000; } } }catch(_){}
+  try{ var d3=_gDb(); if(d3){ var frmO=0; while(true){ var rO=await d3.from('ai_ok_labels').select('lat,lng,member_fids').range(frmO,frmO+999); var rowsO=(rO&&rO.data)||[]; rowsO.forEach(function(x){ var fid=(x.member_fids&&x.member_fids[0])||null; _dupGridAdd(grid,x.lat,x.lng,fid); }); if(rowsO.length<1000)break; frmO+=1000; } } }catch(_){}
   _dupGridCache=grid; return grid;
 }
 // ★2026-08-29(ドクター指示「その都度、不具合を見つけたら処理しなければ直らない。直ぐに処理だ」):
 // 判定を確定した瞬間に、①適当/②検討/cyan等どの画層にいようと、同じ座標30m以内にある「まだ未判定」の
 // 候補を全画層横断でその場で除去する。loadNeutral()側の恒久チェックは次回読込時に効くが、これは
 // 今まさに開いているセッション内で即座に反映するための即時版。判定済み(status有り)の項目は一切触らない。
-function _gachoPurgeNearbyUnjudged(lat,lng,exceptIid){
+function _gachoPurgeNearbyUnjudged(lat,lng,exceptIid,exceptFid){
   if(lat==null||lng==null)return;
   var removed=0;
   state.layers.forEach(function(l){
@@ -1897,7 +1913,9 @@ function _gachoPurgeNearbyUnjudged(lat,lng,exceptIid){
       if(it.iid===exceptIid){keep.push(it);return;}
       if(it.status){keep.push(it);return;} // 既に判定済みの項目は他パイプライン由来でも消さない
       if(it.lat==null||it.lng==null){keep.push(it);return;}
-      if(_distM(lat,lng,it.lat,it.lng)<=30){removed++;return;}
+      // ★2026-09-24: fid完全一致(同じ筆が別画層に重複)なら距離に関係なく除去。fid不明/不一致は縮小フォールバック距離のみ。
+      if(exceptFid&&it.feature_id&&it.feature_id===exceptFid){removed++;return;}
+      if(_distM(lat,lng,it.lat,it.lng)<=_dedupRadiusM){removed++;return;}
       keep.push(it);
     });
     l.items=keep;
@@ -1919,7 +1937,7 @@ async function rebuildManualPicksFromDb(silent){
       //   境界(手描き線)も含め、300/337/108と重複していれば表示だけ除外する。337側に既に同じ形が入っているので線が二重に残らない。
       if(!(l.meta&&l.meta.manual)&&!l.judgeOnly&&!/手動ピック/.test(l.name||''))return;
       var keep=[]; (l.items||[]).forEach(function(it){
-        if(_isNearKnown300_337_108(it.lat,it.ln!=null?it.ln:it.lng,dupGrid)){dupRemoved++;return;}
+        if(_isNearKnown300_337_108(it.lat,it.ln!=null?it.ln:it.lng,dupGrid,it.feature_id)){dupRemoved++;return;}
         keep.push(it);
       }); l.items=keep;
     });
@@ -1934,7 +1952,7 @@ async function rebuildManualPicksFromDb(silent){
       var fid='cc'+p.id; var st=_gDbOk[fid]?'ok':(_gDbNg[fid]?'ng':null);
       if(!st)continue; if(existing[fid])continue;
       var la=Number(p.latitude),ln=Number(p.longitude); if(isNaN(la)||isNaN(ln))continue;
-      if(_isNearKnown300_337_108(la,ln,dupGrid)){dupRemoved++;continue;} // 300/337/108と重複=表示しない(DBはそのまま)
+      if(_isNearKnown300_337_108(la,ln,dupGrid,fid)){dupRemoved++;continue;} // 300/337/108と重複=表示しない(DBはそのまま)
       var geo=null;
       // ①DBのaddressに「県+市町村」が既にあれば最優先(逆ジオ済み・durable)
       if(p.address){ var mm=String(p.address).match(/(.{2,3}[県都府道])(.+?[市町村区])/); if(mm)geo={pref:mm[1],city:mm[2]}; }
@@ -2176,7 +2194,7 @@ window.__gacho={
     if(it.type==='boundary'){ try{_saveBoundaryToDb(it);}catch(_){} } // v20260821z11: 境界のOK/NG確定をDBへ(消えない・アウトボックス)
     else { _persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed'); }
     if(it.status==='ok')try{_autoPromoteOne(it);}catch(_){} // v20260923d: OK確定=予備軍へ自動登録
-    if(it.status)try{_gachoPurgeNearbyUnjudged(it.lat,it.lng,it.iid);}catch(_){}
+    if(it.status)try{_gachoPurgeNearbyUnjudged(it.lat,it.lng,it.iid,it.feature_id);}catch(_){}
     try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}
   }});saveState();setTimeout(function(){render();},0);},
   setCrit:function(lid,iid,ck,val,btn){var l=byId(lid);if(!l)return;var itr=null;l.items.forEach(function(it){if(it.iid===iid){itr=it;var s=_score(it);s[ck]=val;delete s._auto;it.viewed=true;if(ck==='c7'&&val!=='x')it.ngsub=[];}});saveState();
@@ -2193,7 +2211,7 @@ window.__gacho={
     if(it.type==='boundary'){ try{_saveBoundaryToDb(it);}catch(_){} } // v20260823(ドクター「モーダルを統一」): 境界も同じスコアカードを使うため、境界のDB保存も忘れず呼ぶ
     else { _persistJudgmentScored(it,s,'ok'); }
     try{_autoPromoteOne(it);}catch(_){} // v20260923d: ✅OK=予備軍へ自動登録(投げっ放し・失敗してもOK記録は保存済み)
-    try{_gachoPurgeNearbyUnjudged(it.lat,it.lng,it.iid);}catch(_){}
+    try{_gachoPurgeNearbyUnjudged(it.lat,it.lng,it.iid,it.feature_id);}catch(_){}
     _restyleMark(it.feature_id,it.status);try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
   /* v20260821z12(ドクター): ピンの下の農水省筆ポリゴン(実測の形)を取得→そのまま敷地境界に=勘で描かない。
@@ -2376,7 +2394,7 @@ window.__gacho={
       //   手動ピック/手描き/予備軍等(AI候補以外)と同じ場所(30m)の未判定AI候補は、同じ筆の二重表示になる(例: 手動ピック✓OK+①適当が同一筆に重なる)。
       //   → 局所の判定済み座標も除外基準に加える(判定済み=既知という既存方針の延長・表示側のみ・DB/元データは無変更)。
       var lg=_localJudgedGrid();
-      var _known=function(it){return _isNearKnown300_337_108(it.lat,it.lng,dupGrid)||_isNearKnown300_337_108(it.lat,it.lng,lg);};
+      var _known=function(it){return _isNearKnown300_337_108(it.lat,it.lng,dupGrid,it.feature_id)||_isNearKnown300_337_108(it.lat,it.lng,lg,it.feature_id);};
       pending.forEach(function(it){
         if(!it.status&&_known(it)){skippedDup++;return;}
         l.items.push(it); added++;
