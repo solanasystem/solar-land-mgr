@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260925h / 🚫サーバー側の隠れ上限(RPC 1,000行)を撤廃(Dr.が画面で発見「画面内 1,000 筆」=広い画面で台帳ポリゴンの残りが描かれない)。PostgRESTはRPCの返却行数をmax-rows=1,000で切るため、row_limitを外しても1,000件超の画面では残りが黙って消えていた(農地フラグ/TrackB/台帳ポリゴンの3層とも)。共通ヘルパー rpc-bbox-all.js: 結果が1,000行に達したらbboxを4分割して再帰取得しidで合流(並び順に依存しない)。実測: 知多全域bboxで台帳ポリゴン4,534/4,534・農地ナビ点79,939/79,939を全件取得。原則(Dr.)=表示量はズーム閾値と画面範囲で絞り、件数の上限は置かない。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925g / 🔀筆ポリゴンの排他トグル(Dr.「農水省と農業委員会の筆ポリゴンはトグルスイッチにして、片方が表示されている時もう片方が非表示になるように」)。🌾筆ポリゴン(農水省・衛星由来の耕区・面積は台帳の約2倍でIoU中央値0.11=別物・SW id=158)と🧭農地ナビ区画(台帳ポリゴン・農業委員会)は重ねると混同するため、どちらかをONにするともう片方を自動OFF(toggleAgriFude ↔ navi-polygon-layer.js v20260925b)。位置ずれの実測(Esri vs 地理院写真=1m以内・SW id=159)は画像側に問題なし。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925f / 🧭農地ナビ区画(台帳ポリゴン)層を追加(Dr.「合筆できなかったのは境界の形が判らないから」→「進めてくれ」)。農地ナビをズーム16・筆ポリゴン表示中でDLした農地ポリゴン(台帳1筆の境界・DaichoIdで農地ピンと1対1)を farmland_polygons(sql/farmland_polygons_setup.sql)へ投入し、共通include navi-polygon-layer.js が左パネル「筆ポリゴン」の直下に「🧭 農地ナビ区画（台帳ポリゴン）」トグルを自動挿入・ズーム15以上で画面内全件(上限なし)を描画。クリック=所在/登記面積/地目/農振/都計/区分＋画面内の隣接筆(境界共有)と合計面積(2筆で800㎡以上は緑太字・同一耕作者を明示)=合筆の当たりを画面で確認できる。まずは南知多・美浜(河和)で確認。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925e / 🚫取得上限の全撤去(ドクター「上限を設けるな。意味がない」「画面のズーム領域で表示個数を制限させる考え方の方が理にかなっている。勝手に上限を設けたことで情報の損失、機械ロスが発生している」)。原則=表示量はズーム閾値と画面範囲(bbox)で絞る。データ件数の固定上限は置かない。今回撤去: TrackB層 get_trackb_in_bbox row_limit 3,000／取込結果一覧(位置なし・不一致)の100件切り／共通gacho-layer.jsの手描き境界地番推定 .limit(20)(→v20260925a)／記録スクリプトcase-candidates-recorder.jsの農地ナビ面積スナップ row_limit 300(→v20260925a)。v20260925c/dで撤去済: 筆ポリゴン層resultRecordCount2000固定＋ページ回数上限、農地フラグ層row_limit 10,000。 -->
@@ -1843,11 +1844,11 @@ async function _fetchAndRenderFarmland() {
   var b = map.getBounds().pad(0.1);
   // v20260925d(ドクター「上限は悪でしかない」): row_limit 10,000 の取得上限を撤廃(ズーム15以上の画面内は全件)。
   //   知多半島の農地ナビ点を投入した結果(美浜町だけで22,313点)、密な範囲では1万件を超えて黙って欠落し得た。
-  var res = await db.rpc('get_farmland_in_bbox', {
-    lat_min: b.getSouth(), lat_max: b.getNorth(),
-    lng_min: b.getWest(),  lng_max: b.getEast(),
-    row_limit: 100000000
-  });
+  // v20260925h(Dr.が画面で発見・SW id=161): サーバー(PostgREST max-rows)がRPCの返却を1,000行で切るため、row_limitを外しても
+  //   1,000件超の画面では残りが黙って消えていた。共通ヘルパー rpc-bbox-all.js(上限に当たったらbboxを4分割して再帰)で全件にする。
+  var _fbb = { lat_min: b.getSouth(), lat_max: b.getNorth(), lng_min: b.getWest(), lng_max: b.getEast() };
+  var res = (window.rpcBboxAll) ? await window.rpcBboxAll(db, 'get_farmland_in_bbox', _fbb, { row_limit: 100000000 }, 'id')
+                                : await db.rpc('get_farmland_in_bbox', Object.assign({ row_limit: 100000000 }, _fbb));
   if (res.error || !res.data) return;
   // v20260925b(ドクター「なぜこの現象が起こったのか」): ズーム15以上で0件なら「この範囲は農地ナビ点が未投入」の可能性を
   //   画面バッジで常時表示する(consoleではなく画面で気付ける=知多半島で候補だけ出てフラグが無かった症状の自己診断)。
@@ -2197,11 +2198,10 @@ function _doRenderTrackb() {
 async function _fetchAndRenderTrackb() {
   var b = map.getBounds().pad(0.1);
   // v20260925e(ドクター「上限を設けるな。意味がない」): row_limit 3,000 の取得上限を撤廃(画面内は全件)。
-  var res = await db.rpc('get_trackb_in_bbox', {
-    lat_min: b.getSouth(), lat_max: b.getNorth(),
-    lng_min: b.getWest(),  lng_max: b.getEast(),
-    row_limit: 100000000
-  });
+  // v20260925h: サーバーのRPC上限1,000行を超える画面でも全件(rpc-bbox-all.js で4分割再帰)。
+  var _tbb = { lat_min: b.getSouth(), lat_max: b.getNorth(), lng_min: b.getWest(), lng_max: b.getEast() };
+  var res = (window.rpcBboxAll) ? await window.rpcBboxAll(db, 'get_trackb_in_bbox', _tbb, { row_limit: 100000000 }, 'id')
+                                : await db.rpc('get_trackb_in_bbox', Object.assign({ row_limit: 100000000 }, _tbb));
   if (res.error || !res.data) return;
   if (trackbLayer) { map.removeLayer(trackbLayer); trackbLayer = null; }
   var features = res.data.map(function(row){
@@ -8789,7 +8789,8 @@ if(typeof map!=='undefined'&&map&&map.on){
 <script src="gacho-layer.js?v=20260925a"></script><!-- v20260925a: 手描き境界の地番推定(farmland_points近傍)の.limit(20)上限を撤廃 --><!-- v20260924b: 予備軍への昇格(_insertRound2Rows・OK確定時/一括昇格の唯一の共通経路)がchiban/addressを一切書いていなかった根本原因を是正。feature=farmland_snapshots.addressを読み、boundary=farmland_points近傍(10m)から推定。今後のOK確定は自動で地番付き(No.267型の再発防止・アドホックな一回スクリプトに依存しない) --><!-- v20260924a: 重複判定(近傍除外)をfeature_id完全一致優先へ是正・距離フォールバックを30m→8m(gate_rules.json dedup節と同期・data/dedup_radius.json) --><!-- v20260923d: ✅OK確定で予備軍(round2_pool)へ自動登録(昇格と同じ判定を共通関数_insertRound2Rowsで) --><!-- v20260923c: 候補読込(loadNeutral)をDB判定読込の完了待ちに(OK数が再読込で揺れる順序競合の根治・案A) --><!-- v20260923b: 削除トーストに「削除 N」を追加(案A・NGの定義は不変) --><!-- v20260923a: 画層に「未判定N件＋▶次へ」＝未判定レビュー送り(現在地から近い順・OK/削除で自動送り・レビュー中バー・進捗保持) --><!-- v20260922i: 土地モーダル「🗑 この筆を削除」でポップアップが閉じて削除できない不具合を修正(askDelete/cancelDelete) -->
 <script src="road-overlay.js?v=20260922f"></script><!-- ★2026-09-22(ドクター指示): 🛣道路を衛星に重ねる=線の色を選べる共通実装(反転→線だけ残す→着色→screen合成)。適地候補パネルの色見本から呼ぶ -->
 <script src="timeline-layer.js?v=20260922e"></script>
-<script src="navi-polygon-layer.js?v=20260925b"></script><!-- v20260925b: 農水省筆ポリゴンと排他表示 --><!-- ★2026-09-25(Dr.「進めてくれ」): 🧭農地ナビ区画(台帳ポリゴン)層=農地ナビからズーム16・筆ポリゴン表示中でDLした農地ポリゴン(DaichoIdで農地ピンと1対1)をfarmland_polygonsから画面bboxで全件描画(上限なし)。クリックで地番/面積/隣接筆と合計面積(合筆の当たり)。左パネルの筆ポリゴンの直下にトグルを自動挿入。共通include・単一実装 --><!-- ★2026-09-22(ドクター指示): 🛣移動タイムライン画層=iPhone GoogleマップのTimeline.jsonを地図上に青線(軌跡)/白丸(滞在)で表示。左パネル最下部にトグル＋操作欄を自動挿入。データはブラウザ内(IndexedDB)のみ・送信なし。共通include -->
+<script src="rpc-bbox-all.js?v=20260925a"></script><!-- ★2026-09-25(Dr.が画面で発見「画面内 1,000 筆」): PostgRESTはRPCの返却を1,000行で切る。bbox系RPC(農地フラグ/TrackB/台帳ポリゴン)を上限に当たったら4分割再帰で全件取得する共通ヘルパー -->
+<script src="navi-polygon-layer.js?v=20260925c"></script><!-- v20260925c: rpc-bbox-all.jsで全件取得 / v20260925b: 農水省筆ポリゴンと排他表示 --><!-- ★2026-09-25(Dr.「進めてくれ」): 🧭農地ナビ区画(台帳ポリゴン)層=農地ナビからズーム16・筆ポリゴン表示中でDLした農地ポリゴン(DaichoIdで農地ピンと1対1)をfarmland_polygonsから画面bboxで全件描画(上限なし)。クリックで地番/面積/隣接筆と合計面積(合筆の当たり)。左パネルの筆ポリゴンの直下にトグルを自動挿入。共通include・単一実装 --><!-- ★2026-09-22(ドクター指示): 🛣移動タイムライン画層=iPhone GoogleマップのTimeline.jsonを地図上に青線(軌跡)/白丸(滞在)で表示。左パネル最下部にトグル＋操作欄を自動挿入。データはブラウザ内(IndexedDB)のみ・送信なし。共通include -->
 <script src="map-perf-hud.js?v=20260922c"></script><!-- ★2026-09-22(ドクター指示): 移動/ズーム1回ごとの所要時間(JS/固まり/タイル/通信/最重処理)を左下バッジに表示。console不要の実環境診断。共通include。v20260922c=既定非表示・⚙取込・診断メニュー「⏱ 地図性能バッジ」でON/OFF -->
 
 <!-- 2026-08-28 ドクター指示「桑名、いなべは不要だ」で表示停止。③接道④連系が未検証(生成元kuwana_inabe_pipeline.pyは①②のみ)のまま画層に出ていた件の是正。

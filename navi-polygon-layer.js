@@ -68,7 +68,11 @@
     var b = mp.getBounds().pad(0.05);
     var res;
     try {
-      res = await d.rpc('get_farmland_polygons_in_bbox', { lat_min: b.getSouth(), lat_max: b.getNorth(), lng_min: b.getWest(), lng_max: b.getEast() });
+      var bbox = { lat_min: b.getSouth(), lat_max: b.getNorth(), lng_min: b.getWest(), lng_max: b.getEast() };
+      // v20260925c(Dr.が画面で発見「画面内 1,000 筆」=サーバーのRPC上限1,000で残りが消えていた): 上限に当たったら
+      //   bboxを4分割して再帰取得する共通ヘルパー rpc-bbox-all.js で全件にする。無ければ従来の1回呼び出し。
+      res = (window.rpcBboxAll) ? await window.rpcBboxAll(d, 'get_farmland_polygons_in_bbox', bbox, {}, 'daicho_id')
+                                : await d.rpc('get_farmland_polygons_in_bbox', bbox);
     } catch (e) { if (cnt) cnt.textContent = '取得失敗: ' + (e && e.message || e); return; }
     if (!res || res.error) { if (cnt) cnt.textContent = '取得失敗: ' + (res && res.error && res.error.message || '—') + '（farmland_polygons/RPC未作成なら sql/farmland_polygons_setup.sql）'; return; }
     var rows = res.data || [];
