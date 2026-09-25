@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260925c / 🌾筆ポリゴン層(農水省FudePolygon 2026 FeatureServer)の取得上限バグを是正(ドクター「なぜ筆ポリゴンが表示されないのか」の調査で発見)。旧=resultRecordCount 2000固定・ページング無し、サーバー側maxRecordCount=1000のため1,000筆超の画面では残りが黙って欠落していた。是正=resultOffsetでexceededTransferLimitが消えるまで全件取得(上限を設けない・no-display-fetch-caps)。※美浜町363-1/363-11の形が出ない件は上限ではなく、この2026公開版データにその2筆の形が無い(周囲60mに採草放牧地1筆のみ・363-11周囲30mは0件)ため。農地ナビの区画線は農地ナビ独自の区画データ。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925b / 🔋(ドクター「繋げてくれ」)ヘッダーの🔋低圧蓄電池レイヤーに、登記地図補集合スキャン(非農地・非森林・非建物・非道路・非駐車場・非海岸)の空き地候補 source_type='touki_vacant_aichi'(豊橋/田原3,043筆・area_pipelineでimport→navi→①ハザード/②農振→③接道→④連系→区域区分cpzを通したもの)を統合。用途別レイヤーの母集団クエリを_useQuery()に1本化(件数用/描画用の複製を解消)。＋🌾農地フラグ層がズーム15以上で0件の時「農地ナビ点が未投入の可能性」を画面バッジで自己診断(知多半島で候補だけ出てフラグ/面積が出なかった症状の再発検知・SW記録id=149)。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925a / 🔋(ドクター「この画面の上部へ低圧蓄電池用地の切替スイッチが必要だな」)ヘッダーの用途別レイヤー切替(☀太陽光1筆/🔗太陽光合筆/🔋低圧蓄電池・v20260806b実装済み)を再表示。v20260810aで「badgeが破綻する」を理由に一旦display:noneへ隠していたuseLayerGroupを display:flex に戻すのみ(新規コード追加なし・既存の単一実装を再利用)。表示される🔋低圧蓄電池候補は従来定義(市街化調整以外×<800㎡×連系可、grid_status/city_planning_zone基準)のまま。今回の登記地図補集合スキャン(非農地非森林非建物非道路非駐車場、touki_chizu/aichi_raw/exhaustive_scan5.py産の候補)はまだDB未投入・このレイヤーには含まれない(別件)。 -->
 <!-- BUILD: farmland-tracker-analysis v20260922h / 🩹土地モーダル「🗑 この筆を削除」の確認をその場で(ドクター「確認は良いがクリックする場所が離れていて操作性が極めて悪い」)。ブラウザ標準confirm(画面上部中央に出る)を廃止し、押した削除ボタンの位置が「削除しますか？ [🗑 削除する][やめる]」に切り替わる。削除する→従来のdeleteFlag処理(OK記録削除・除外リスト登録・地図から除去)、やめる→元のボタンへ戻る。gacho-layer.js askDelete/cancelDelete 新設、deleteFlag(…,confirmed)。 -->
@@ -2056,15 +2057,28 @@ async function _fetchAndRenderAgriFude() {
   var b = map.getBounds();
   // ★農水省公式FeatureServerをライブ取得。geometryはJSON envelope+outSR=4326(comma文字列だとInvalid query paramで空になる)。
   var env = { xmin: b.getWest(), ymin: b.getSouth(), xmax: b.getEast(), ymax: b.getNorth(), spatialReference: { wkid: 4326 } };
-  var qp = new URLSearchParams({
-    where: '1=1', geometry: JSON.stringify(env), geometryType: 'esriGeometryEnvelope',
-    spatialRel: 'esriSpatialRelIntersects', outFields: 'land_type', returnGeometry: 'true',
-    outSR: '4326', f: 'json', resultRecordCount: '2000'
-  });
-  var res;
-  try { res = await fetch(FUDE_ARCGIS_URL + '/query?' + qp.toString()).then(function(r){ return r.json(); }); }
-  catch (e) { return; }
-  if (!res || !res.features) return;
+  // v20260925c(ドクター「なぜ筆ポリゴンが表示されないのか」の調査で発見・no-display-fetch-caps): 旧コードは
+  //   resultRecordCount=2000 固定・ページング無しだったが、このFeatureServerの maxRecordCount は 1000。
+  //   1,000筆を超える画面(密な水田地帯)では先頭1,000筆だけが返り残りが黙って欠落していた(exceededTransferLimit未処理)。
+  //   是正=resultOffsetで exceededTransferLimit が消えるまで全件取得(上限を設けない)。
+  //   ※美浜町363-1/363-11が出ない件は上限ではなく、農水省筆ポリゴン2026公開版にその2筆の形が無い(周囲60mに採草放牧地1筆のみ)ため。
+  var res = { features: [] };
+  try {
+    var offset = 0, PAGE = 1000, guard = 0;
+    while (guard++ < 200) {
+      var qp = new URLSearchParams({
+        where: '1=1', geometry: JSON.stringify(env), geometryType: 'esriGeometryEnvelope',
+        spatialRel: 'esriSpatialRelIntersects', outFields: 'land_type', returnGeometry: 'true',
+        outSR: '4326', f: 'json', resultOffset: String(offset), resultRecordCount: String(PAGE)
+      });
+      var page = await fetch(FUDE_ARCGIS_URL + '/query?' + qp.toString()).then(function(r){ return r.json(); });
+      if (!page || !page.features) break;
+      res.features = res.features.concat(page.features);
+      if (!page.exceededTransferLimit || page.features.length === 0) break;
+      offset += page.features.length;
+    }
+  } catch (e) { if (!res.features.length) return; }
+  if (!res.features) return;
   if (agriFudeLayer) { map.removeLayer(agriFudeLayer); agriFudeLayer = null; }
   // Esri polygon rings → GeoJSON Polygon(表示目的なので巻き方向は不問。Leafletが描く)。
   var features = res.features.map(function(row){ return {
