@@ -15,6 +15,10 @@
   var enabled = false, layer = null, canvasR = null, timer = null, lastCount = null;
   var COLOR = { '1': { c: '#38bdf8', f: '#38bdf8', n: '農業委員会管理' }, '2': { c: '#f87171', f: '#f87171', n: '登記簿から作成' }, 'x': { c: '#c084fc', f: '#c084fc', n: 'その他' } };
   function col(sec){ return COLOR[sec] || COLOR.x; }
+  // v20260925d(Dr.決定 SW id=167「農地ナビの青地も表示させて絶対に間違いのない土地選びをする」): 塗りは農地ナビの農振区分で色分け。
+  //   青地(1)=青 / 白地(2)=白 / 農振外(3,5)=桃 / 設定なし(0)=灰。線の色は従来どおりポリゴン区分(農業委員会管理/登記簿由来/その他)。
+  var NOSHIN = { '1': { f: '#3b82f6', o: 0.35, n: '青地（農用地区域内）' }, '2': { f: '#ffffff', o: 0.18, n: '白地（農振内・農用地区域外）' }, '3': { f: '#f472b6', o: 0.22, n: '農振外' }, '5': { f: '#f472b6', o: 0.22, n: 'その他' }, 'x': { f: '#9ca3af', o: 0.18, n: '設定なし（属性未整備）' } };
+  function nos(code){ return NOSHIN[String(code)] || NOSHIN.x; }
   function m(){ return (typeof map !== 'undefined' && map) ? map : window.map; }
   function client(){ return (typeof db !== 'undefined' && db) ? db : (window.db || null); }
   function toast(s, t){ try { if (typeof showToast === 'function') showToast(s, t || 'success'); } catch(_){} }
@@ -30,7 +34,14 @@
     legend.id = 'naviPolyLegend';
     legend.style.cssText = 'display:none;margin-top:4px;padding:8px 6px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);';
     legend.innerHTML =
-      '<div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">ポリゴン区分（農地ナビ）</div>' +
+      '<div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">塗り＝農振区分（農地ナビ筆属性＝青地の正）</div>' +
+      '<div style="display:flex;flex-direction:column;gap:4px;font-size:10px;margin-bottom:6px;">' +
+        '<div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#3b82f6;opacity:0.6;flex-shrink:0"></div>青地（農用地区域内）＝太陽光NG</div>' +
+        '<div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#ffffff;opacity:0.7;border:1px solid #999;flex-shrink:0"></div>白地（農振内・農用地区域外）</div>' +
+        '<div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#f472b6;opacity:0.6;flex-shrink:0"></div>農振外・その他</div>' +
+        '<div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#9ca3af;opacity:0.6;flex-shrink:0"></div>設定なし（属性未整備＝要確認）</div>' +
+      '</div>' +
+      '<div style="font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">線＝ポリゴン区分（農地ナビ）</div>' +
       '<div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">' +
         '<div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#38bdf8;opacity:0.35;border:1px solid #38bdf8;flex-shrink:0"></div>農業委員会管理のポリゴン</div>' +
         '<div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#f87171;opacity:0.35;border:1px solid #f87171;flex-shrink:0"></div>不動産登記簿から作成</div>' +
@@ -103,7 +114,7 @@
     } catch(_) {}
     layer = L.geoJSON({ type: 'FeatureCollection', features: feats }, {
       renderer: canvasR, pane: PANE,
-      style: function(f){ var k = col(f.properties.polygon_section); return { color: k.c, weight: 1.2, fillColor: k.f, fillOpacity: 0.12 }; },
+      style: function(f){ var k = col(f.properties.polygon_section), z = nos(f.properties.noushin_code); return { color: k.c, weight: 1.2, fillColor: z.f, fillOpacity: z.o }; },
       onEachFeature: function(f, ly){
         var r = f.properties;
         try { if (window.__gacho && window.__gacho.hoverBind) window.__gacho.hoverBind(ly, r.lat, r.lng); } catch(_) {}
