@@ -14,7 +14,14 @@
   // 公開anonキー(全クライアントページで既に公開済み=埋め込み可)。RLSはanon SELECT(sw_records)/anon INSERT(ai_learn_events)。
   var SUPA = 'https://fygnrjjifoasozbhkxlk.supabase.co';
   var ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z25yamppZm9hc296YmhreGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDYzNTEsImV4cCI6MjA5MDE4MjM1MX0.A1fAMcu7wGBBP4xHUKkrExIuy7MFbmarAtLQahwZiso';
-  var HDR = { 'apikey': ANON, 'Authorization': 'Bearer ' + ANON, 'Content-Type': 'application/json' };
+  // ★2026-09-25(データ分離 第1波B-2): 運用表(sw_records/ai_learn_events)の匿名アクセスを閉じるため、
+  //   ログイン済みの鍵(ページのsupabase-jsが保存しているセッション)があればそれで通信する。毎回その場で読む(更新に追従)。
+  var AUTH_KEY = 'sb-fygnrjjifoasozbhkxlk-auth-token';
+  function authHdr(){
+    var tok = ANON;
+    try { var s = JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); if (s && s.access_token) tok = s.access_token; } catch(_){}
+    return { 'apikey': ANON, 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' };
+  }
 
   // ---- 判断基準の"正"の骨子(①〜⑦)。全文は私設リポの教え込みログ(核心IP・ここには要点のみ) ----
   var SEIKI = [
@@ -60,7 +67,7 @@
     var ts = new Date();
     // 合図をDBへ記録(AIが各作業前に読む)。失敗しても表示は出す。
     try {
-      fetch(SUPA + '/rest/v1/ai_learn_events', { method:'POST', headers:HDR,
+      fetch(SUPA + '/rest/v1/ai_learn_events', { method:'POST', headers:authHdr(),
         body: JSON.stringify({ page: pageName(), note: 'AI学習ボタン押下' }) }).catch(function(){});
     } catch(_){}
     showSeikiModal(ts);
@@ -121,7 +128,7 @@
 
   function pollRecords(){
     var url = SUPA + '/rest/v1/sw_records?select=id,ts,index_section,category,item,detail,impl_page&order=id.desc&limit=5';
-    fetch(url, { headers: HDR }).then(function(r){
+    fetch(url, { headers: authHdr() }).then(function(r){
       if(!r.ok) throw new Error('HTTP '+r.status);
       return r.json();
     }).then(function(rows){
