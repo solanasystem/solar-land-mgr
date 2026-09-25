@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260925j / 🔎ヘッダー検索の表示と検索先を是正(Dr.「この狭い高さの中でスクロールして確認しなければならない仕組みはNGだ」)。①.toolbarをoverflow-y:hiddenにしてツールバー内の縦スクロールを根絶。②検索結果ドロップダウン(#chibanResults)をbody直下のposition:fixedにして入力欄の直下=地図の上に出す(v20260922dの3メニューと同じ方式・Dr.「地図上にダウンリストを出せばいい」)。③「美浜町河和」で「該当なし」になる件: 従来はNominatim(行政境界/地物)とAMX地番(数字が必要)だけだったので、農地ナビ点(farmland_points)の所在地を語で部分一致検索し大字単位で候補表示(件数はサーバー総数を併記・1,000筆超は語を足して絞るよう案内)を追加。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925i / 🟦青地の正を農地ナビ筆属性へ(Dr.決定・SW id=167「A12はアバウトに場所を掴む用途。1筆の青地/白地判定は任せられない。青地も除外せずシステムに取り込み、農地ナビの青地を表示して絶対に間違いのない土地選びをする」)。core側: build_poolが青地を落とさず属性を持って取込、import_poolが属性からnoshin_status(1=NOSHIN/2,3,5=CLEAR/設定なし=NULL)、A12バッチは属性不明の筆にだけPENDING_A12(要確認)/CLEAR_A12(概略可)を付け属性を上書きしない、score_ai/cleanupはgate_rules noshin_source_policyを読む。web: 候補系クエリの noshin_status='CLEAR' を ['CLEAR','CLEAR_A12'] に(開拓候補/公式放棄地/用途別)、🧭台帳ポリゴンの塗りを農振区分(青地=青/白地=白/農振外=桃/設定なし=灰)に(navi-polygon-layer.js v20260925d)。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925h / 🚫サーバー側の隠れ上限(RPC 1,000行)を撤廃(Dr.が画面で発見「画面内 1,000 筆」=広い画面で台帳ポリゴンの残りが描かれない)。PostgRESTはRPCの返却行数をmax-rows=1,000で切るため、row_limitを外しても1,000件超の画面では残りが黙って消えていた(農地フラグ/TrackB/台帳ポリゴンの3層とも)。共通ヘルパー rpc-bbox-all.js: 結果が1,000行に達したらbboxを4分割して再帰取得しidで合流(並び順に依存しない)。実測: 知多全域bboxで台帳ポリゴン4,534/4,534・農地ナビ点79,939/79,939を全件取得。原則(Dr.)=表示量はズーム閾値と画面範囲で絞り、件数の上限は置かない。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925g / 🔀筆ポリゴンの排他トグル(Dr.「農水省と農業委員会の筆ポリゴンはトグルスイッチにして、片方が表示されている時もう片方が非表示になるように」)。🌾筆ポリゴン(農水省・衛星由来の耕区・面積は台帳の約2倍でIoU中央値0.11=別物・SW id=158)と🧭農地ナビ区画(台帳ポリゴン・農業委員会)は重ねると混同するため、どちらかをONにするともう片方を自動OFF(toggleAgriFude ↔ navi-polygon-layer.js v20260925b)。位置ずれの実測(Esri vs 地理院写真=1m以内・SW id=159)は画像側に問題なし。 -->
@@ -344,7 +345,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 #btnRectNg.active{background:rgba(248,81,73,.18);color:#f85149;border-color:rgba(248,81,73,.5);}
 #btnOwnerColor.active{background:rgba(168,85,247,.18);color:#c084fc;border-color:rgba(168,85,247,.5);}
 .btn-primary{background:var(--accent);color:#000;border-color:var(--accent);}
-.toolbar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;align-items:center;gap:12px;flex-wrap:nowrap;overflow-x:auto;flex-shrink:0;z-index:999;}
+.toolbar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;align-items:center;gap:12px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;flex-shrink:0;z-index:999;} /* v20260925j: overflow-yをhiddenに=ツールバー内の縦スクロール(狭い高さの中でスクロール)を根絶。ドロップダウン類はbody直下のposition:fixed(Dr.「地図上にダウンリストを出せばいい」id=132) */
 .toolbar>*{flex:0 0 auto;}
 .toolbar-label{font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;white-space:nowrap;}
 .date-select{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-family:var(--font-main);font-size:12px;cursor:pointer;}
@@ -405,7 +406,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);height:
 .chiban-search input:focus{border-color:var(--accent);}
 .chiban-search input::placeholder{color:var(--text-muted);font-size:11px;}
 .chiban-search-icon{position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:12px;pointer-events:none;color:var(--text-muted);}
-.chiban-results{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:280px;overflow-y:auto;display:none;z-index:1002;box-shadow:0 6px 20px rgba(0,0,0,0.5);}
+.chiban-results{position:fixed;left:0;top:0;width:360px;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:60vh;overflow-y:auto;display:none;z-index:100000;box-shadow:0 6px 20px rgba(0,0,0,0.5);} /* v20260925j: ツールバーの中(狭い高さ)ではなく地図の上に出す(body直下・fixed・位置は入力欄に合わせる) */
 /* 市区町村境界の点滅アニメーション（マゼンタ） */
 @keyframes boundary-pulse {
   0%   { stroke-opacity: 1.0; fill-opacity: 0.12; }
@@ -7304,13 +7305,51 @@ async function _searchChiban(q,res){
       }
     }
   }catch(e){console.warn('[search] AMX chiban error:',e);}
+  /* ===== 4) \u8fb2\u5730\u30ca\u30d3\u70b9(farmland_points)\u306e\u6240\u5728\u5730\u691c\u7d22 v20260925j (Dr.\u300c\u7f8e\u6d5c\u753a\u6cb3\u548c\u300d\u304c\u898b\u3064\u304b\u3089\u306a\u304b\u3063\u305f\u4ef6) =====
+     \u4f4f\u6240\u3092\u7a7a\u767d\u533a\u5207\u308a\u306e\u8a9e\u3067\u90e8\u5206\u4e00\u81f4(ilike %\u8a9e1%\u8a9e2%)\u3057\u3001\u5927\u5b57(\u300c\u5b57\u300d\u307e\u305f\u306f\u6570\u5b57\u306e\u624b\u524d\u307e\u3067)\u5358\u4f4d\u306b\u307e\u3068\u3081\u3066\u5019\u88dc\u306b\u51fa\u3059\u3002
+     \u30af\u30ea\u30c3\u30af\u3067\u305d\u306e\u5927\u5b57\u306e\u4e2d\u5fc3\u3078\u79fb\u52d5\u3002\u4ef6\u6570\u306f\u30b5\u30fc\u30d0\u30fc\u306e\u6b63\u78ba\u306a\u7dcf\u6570(count=exact)\u3092\u4f75\u8a18\u3057\u30011,000\u7b46\u3092\u8d85\u3048\u308b\u5e83\u3044\u8a9e\u306e\u6642\u306f
+     \u300c\u8a9e\u3092\u8db3\u3057\u3066\u7d5e\u308b\u300d\u3088\u3046\u6848\u5185\u3059\u308b(\u9ed9\u3063\u3066\u5207\u3089\u306a\u3044)\u3002 */
+  try{
+    var toks=q.replace(/\u3000/g,' ').split(' ').map(function(t){return t.trim();}).filter(function(t){return t&&!/^[0-9\-]+$/.test(t);});
+    if(toks.length&&toks.join('').length>=2){
+      var pat='%'+toks.map(function(t){return t.replace(/[%_]/g,'');}).join('%')+'%';
+      // ※count:'exact' は1.6M行の全件カウントになり statement timeout(実測)になるため使わない。先頭1,000筆で大字をまとめ、
+      //   1,000筆に達した時は「以上」と明示して語の追加を促す(黙って切らない)。
+      var qr=await db.from('farmland_points').select('address,lat,lng').ilike('address',pat).range(0,999);
+      var rows=(qr&&qr.data)||[]; var total=rows.length;
+      if(rows.length){
+        var groups={};
+        rows.forEach(function(r){
+          var a=String(r.address||'');
+          var m=a.match(/^(.*?(?:\u5b57|\u5927\u5b57)[^0-9\uff10-\uff19]*)/); // \u300c\u2026\u5b57\u25cb\u25cb\u300d\u307e\u3067
+          var key=m?m[1]:a.replace(/[0-9\uff10-\uff19\-].*$/,'');
+          var g=groups[key]||(groups[key]={n:0,la:0,ln:0}); g.n++; g.la+=Number(r.lat); g.ln+=Number(r.lng);
+        });
+        var keys=Object.keys(groups).sort(function(a,b){return groups[b].n-groups[a].n;});
+        html+='<div class="chiban-result-item" style="color:var(--text-muted);font-size:10px;cursor:default;">\ud83c\udf3e \u8fb2\u5730\u30ca\u30d3 \u8a72\u5f53 '+(rows.length>=1000?'1,000\u7b46\u4ee5\u4e0a\uff08\u5148\u982d1,000\u7b46\u306e\u5927\u5b57\u3092\u8868\u793a\u3002\u8a9e\u3092\u8db3\u3057\u3066\u7d5e\u308b\u3068\u5168\u4ef6\uff09':Number(total).toLocaleString()+' \u7b46')+'</div>';
+        keys.forEach(function(k){
+          var g=groups[k]; var la=(g.la/g.n).toFixed(6), ln=(g.ln/g.n).toFixed(6);
+          html+='<div class="chiban-result-item" style="color:#a3e635" onmousedown="event.stopPropagation();jumpToChiban('+la+','+ln+',\''+k.replace(/'/g,"\\'")+'\')">\ud83c\udf3e '+k+' <span style="color:var(--text-muted)">('+g.n.toLocaleString()+'\u7b46)</span></div>';
+        });
+      }
+    }
+  }catch(e){console.warn('[search] farmland_points error:',e);}
   if(!html){
     res.innerHTML='<div class="chiban-result-item" style="color:var(--text-muted);font-size:11px;cursor:default;">\u8a72\u5f53\u3059\u308b\u5730\u540d\u30fb\u5730\u756a\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3067\u3057\u305f</div>';
-    res.style.display='block';
+    _placeChibanResults(); res.style.display='block';
     return;
   }
-  res.innerHTML=html;res.style.display='block';
+  res.innerHTML=html;_placeChibanResults();res.style.display='block';
 }
+/* v20260925j: \u691c\u7d22\u7d50\u679c\u30c9\u30ed\u30c3\u30d7\u30c0\u30a6\u30f3\u3092\u30c4\u30fc\u30eb\u30d0\u30fc\u306e\u5916(body\u76f4\u4e0b\u30fbposition:fixed)\u306b\u7f6e\u304d\u3001\u5165\u529b\u6b04\u306e\u76f4\u4e0b(\u5730\u56f3\u306e\u4e0a)\u306b\u51fa\u3059\u3002
+   Dr.\u300c\u3053\u306e\u72ed\u3044\u9ad8\u3055\u306e\u4e2d\u3067\u30b9\u30af\u30ed\u30fc\u30eb\u3057\u3066\u78ba\u8a8d\u3057\u306a\u3051\u308c\u3070\u306a\u3089\u306a\u3044\u4ed5\u7d44\u307f\u306fNG\u3060\u300d\u300c\u5730\u56f3\u4e0a\u306b\u30c0\u30a6\u30f3\u30ea\u30b9\u30c8\u3092\u51fa\u305b\u3070\u3044\u3044\u300d(id=132) */
+function _placeChibanResults(){
+  var res=document.getElementById('chibanResults'), inp=document.getElementById('chibanInput'); if(!res||!inp)return;
+  if(res.parentNode!==document.body)document.body.appendChild(res);
+  var r=inp.getBoundingClientRect(); var tb=document.querySelector('.toolbar'); var b=tb?tb.getBoundingClientRect():r;
+  res.style.left=Math.round(r.left)+'px'; res.style.top=Math.round(Math.max(r.bottom+4,b.bottom+2))+'px'; res.style.width=Math.max(300,Math.round(r.width+140))+'px';
+}
+window.addEventListener('resize',function(){ var res=document.getElementById('chibanResults'); if(res&&res.style.display==='block')_placeChibanResults(); });
 function jumpToBoundary(idx,label){
   var geojson=_boundaryCache[idx];if(!geojson)return;
   if(_boundaryLayer){map.removeLayer(_boundaryLayer);}
