@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<!-- BUILD: client-shared-notes v20260925a / 当社用: 客が「当社へ共有」をオンにして復号・共有した案件情報の閲覧(読むだけ)。
+     設計: 客(SUNトラスト等)が自社画面(client-case-master.html)で復号した平文のコピーが client_shared_notes に入る。
+     当社(admin/manager)はこの画面で読むだけ。書込・削除はできない(RLS)。黒木・他の客・匿名は見えない。
+     合意書(情報の取扱いに関する合意書・2026-09-25成立)に基づく。共有のオン/オフは客だけが切り替える。 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>共有された案件情報 // GRID LAND MGR</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="common-auth.js?v=20260813kuroki"></script>
+<script src="client-shared-fetch.js"></script>
+<style>
+  :root{--void:#020817;--deep:#0c1733;--steel:#15203d;--line:#2a3a5c;--plasma:#00d4ff;--mint:#34d399;--gold:#f59e0b;--rose:#f472b6;--text:#eef2ff;--muted:#8492b3;}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--void);color:var(--text);font-family:'Zen Kaku Gothic New',sans-serif;min-height:100vh}
+  .top{display:flex;align-items:center;gap:14px;padding:14px 22px;background:#060e26;border-bottom:1px solid var(--line)}
+  .top b{color:var(--plasma)} .sp{flex:1}
+  .btn{padding:7px 13px;border-radius:8px;border:1px solid var(--plasma);background:rgba(0,212,255,.08);color:var(--plasma);font-size:12px;font-weight:700;cursor:pointer;text-decoration:none}
+  .btn.sm{padding:4px 9px;font-size:11px}
+  main{max-width:1360px;margin:0 auto;padding:22px}
+  h1{font-size:22px;margin-bottom:6px} .sub{color:var(--muted);font-size:13px;line-height:1.7;margin-bottom:14px}
+  .state{display:flex;gap:14px;flex-wrap:wrap;align-items:center;padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:var(--deep);margin-bottom:14px;font-size:13px;line-height:1.7}
+  .on{color:var(--mint);font-weight:800} .off{color:var(--muted);font-weight:800}
+  select,input{background:var(--steel);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:8px 10px;font-size:13px}
+  .tblwrap{max-height:68vh;overflow:auto;border:1px solid var(--line);border-radius:8px}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{position:sticky;top:0;background:#0a1330;color:var(--muted);font-size:12px;white-space:nowrap}
+  .memo{max-width:340px;white-space:pre-wrap;word-break:break-all}
+  .log{margin-top:16px;font-size:12px;color:var(--muted);line-height:1.8}
+  .empty{padding:30px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="top">
+  <div><b>GRID LAND</b> MGR // 共有された案件情報（当社用・読むだけ）</div><div class="sp"></div>
+  <a class="btn" href="client-management.html">◀ 顧客管理</a>
+</div>
+<main>
+  <h1>🔓 共有された案件情報</h1>
+  <div class="sub">客が「当社への共有」をオンにして、自社画面で復号した内容です。<b>読むだけ</b>で、当社からは変更・削除できません。共有のオン/オフは客だけが切り替えられます（取り消されると、ここから消えます）。</div>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+    <select id="clientSel" onchange="loadClient()"></select>
+    <input id="q" placeholder="所在・地番・氏名などで絞り込み" oninput="renderTable()" style="min-width:280px">
+    <span id="cnt" style="color:var(--muted);font-size:13px"></span>
+  </div>
+  <div class="state" id="state">読み込み中…</div>
+  <div class="tblwrap"><table><thead><tr>
+    <th>No</th><th>所在</th><th>地番</th><th>面積(㎡)</th><th>地目</th><th>地権者</th><th>連絡先</th><th>地権者住所</th><th>状況</th><th>メモ</th><th>登記簿</th><th>共有日時</th>
+  </tr></thead><tbody id="tbody"><tr><td colspan="12" class="empty">読み込み中…</td></tr></tbody></table></div>
+  <div class="log" id="log"></div>
+</main>
+<script>
+var db=(window.__auth&&window.__auth.sb)?window.__auth.sb:null;
+var CID=null, ITEMS={}, SHARED=[];
+function esc(v){return (v==null)?'':String(v).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function fmt(t){ if(!t) return ''; try{ return new Date(t).toLocaleString('ja-JP'); }catch(e){ return t; } }
+function denied(msg){ document.querySelector('main').innerHTML='<div class="empty">'+esc(msg)+'</div>'; }
+async function boot(){
+  var A=window.__auth;
+  if(!A||!(A.isAdmin()||A.isManager())){ denied('この画面は社内（admin / manager）専用です。'); return; }
+  var r=await db.from('clients').select('id,name').order('name');
+  var rows=(r&&r.data)||[];
+  var sel=document.getElementById('clientSel');
+  sel.innerHTML=rows.map(function(c){return '<option value="'+esc(c.id)+'">'+esc(c.name)+'</option>';}).join('');
+  var want=new URLSearchParams(location.search).get('client');
+  if(want) sel.value=want;
+  await loadClient();
+}
+async function loadClient(){
+  CID=document.getElementById('clientSel').value; if(!CID) return;
+  document.getElementById('tbody').innerHTML='<tr><td colspan="12" class="empty">読み込み中…</td></tr>';
+  var st=await db.from('client_share_state').select('enabled,changed_at,changed_by').eq('client_id',CID).limit(1);
+  var s=(st&&st.data&&st.data[0])||null;
+  document.getElementById('state').innerHTML = s
+    ? (s.enabled ? '<span class="on">🟢 共有: オン</span>' : '<span class="off">⚪ 共有: オフ（取り消し済み）</span>')+'　最終変更: '+esc(fmt(s.changed_at))+'（'+esc(s.changed_by||'')+'）'
+    : '<span class="off">⚪ 共有: 未設定（客がまだオンにしていません）</span>';
+  var it=await _fetchAllPaged(function(){ return db.from('client_delivery_items').select('id,pref,city,town,chiban,area_m2,chimoku,address').eq('client_id',CID); });
+  ITEMS={}; ((it&&it.data)||[]).forEach(function(x){ ITEMS[x.id]=x; });
+  var sh=await _fetchAllPaged(function(){ return db.from('client_shared_notes').select('delivery_id,plaintext,shared_at').eq('client_id',CID).order('shared_at',{ascending:false}); });
+  SHARED=(sh&&sh.data)||[];
+  var lg=await db.from('client_share_log').select('action,detail,actor,at').eq('client_id',CID).order('at',{ascending:false}).limit(8);
+  document.getElementById('log').innerHTML='<b>共有の記録（新しい順）</b><br>'+(((lg&&lg.data)||[]).map(function(x){return esc(fmt(x.at))+' — '+esc(x.action==='enable'?'共有をオン':(x.action==='disable'?'共有を取り消し':x.action))+'（'+esc(x.actor||'')+'）'+(x.detail&&x.detail.count!=null?' '+x.detail.count+'件':'');}).join('<br>')||'（記録なし）');
+  renderTable();
+}
+function renderTable(){
+  var q=(document.getElementById('q').value||'').trim().toLowerCase();
+  var rows=SHARED.map(function(r){ var it=ITEMS[r.delivery_id]||{}; var n=r.plaintext||{}; return {r:r,it:it,n:n}; });
+  if(q) rows=rows.filter(function(x){ return JSON.stringify([x.it,x.n]).toLowerCase().indexOf(q)>=0; });
+  document.getElementById('cnt').textContent=rows.length+' 件（共有 '+SHARED.length+' 件）';
+  if(!rows.length){ document.getElementById('tbody').innerHTML='<tr><td colspan="12" class="empty">共有された案件情報はありません。</td></tr>'; return; }
+  document.getElementById('tbody').innerHTML=rows.map(function(x,i){
+    var docs=(x.n._registryDocs||[]);
+    var docBtns=docs.map(function(d,k){ return '<button class="btn sm" onclick="openDoc(\''+esc(x.r.delivery_id)+'\','+k+')">📄 '+esc((d.name||'書類').slice(0,14))+'</button>'; }).join(' ');
+    return '<tr><td>'+(i+1)+'</td><td>'+esc([x.it.pref,x.it.city,x.it.town].filter(Boolean).join(''))+'</td><td>'+esc(x.it.chiban)+'</td><td>'+esc(x.it.area_m2)+'</td><td>'+esc(x.it.chimoku)+'</td>'
+      +'<td>'+esc(x.n.name)+'</td><td>'+esc(x.n.tel)+'</td><td>'+esc(x.n.addr)+'</td><td>'+esc(x.n.status)+'</td><td class="memo">'+esc(x.n.memo)+'</td><td>'+(docBtns||'—')+'</td><td>'+esc(fmt(x.r.shared_at))+'</td></tr>';
+  }).join('');
+}
+async function openDoc(deliveryId,k){
+  var r=SHARED.filter(function(x){return x.delivery_id===deliveryId;})[0]; var d=r&&r.plaintext&&(r.plaintext._registryDocs||[])[k];
+  if(!d||!d.path){ alert('書類の場所が見つかりません'); return; }
+  var su=await db.storage.from('registry-docs').createSignedUrl(d.path,600);
+  if(su.error||!su.data){ alert('書類を取得できません: '+(su.error&&su.error.message||'unknown')); return; }
+  window.open(su.data.signedUrl,'_blank');
+}
+boot();
+</script>
+</body>
+</html>

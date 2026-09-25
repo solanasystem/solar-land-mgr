@@ -79,6 +79,8 @@
   .docrow{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:13px;}
   .conf{font-family:var(--mono);font-size:11px;padding:1px 7px;border-radius:10px;margin-left:6px;}
   .conf.hi{color:var(--mint);border:1px solid var(--mint);} .conf.lo{color:var(--rose);border:1px solid var(--rose);}
+.sharebar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0 4px;padding:10px 14px;border:1px solid var(--line);border-radius:8px;background:rgba(245,158,11,0.05);font-size:13px;line-height:1.6;}
+  .sharebar .btn{white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -95,6 +97,11 @@
 <main>
   <h1>📇 案件マスター <span id="lockBadge" class="lockbadge locked">🔒 施錠中</span></h1>
   <div class="sub">確定納品（御社への提供情報）に、御社だけが読める<b>地権者情報</b>を暗号で記録します。入力は<b>御社のブラウザ内で暗号化</b>され、運用者（当社）には暗号文しか届きません＝<b>当社は復号できません</b>。</div>
+  <div class="sharebar" id="shareBar" style="display:none">
+    <span id="shareStatus"></span>
+    <button class="btn gold" id="shareOnBtn" onclick="shareEnable()" title="解除して当社に見える状態にします">🔓 当社へ共有する（全件・以降の更新も自動）</button>
+    <button class="btn" id="shareOffBtn" style="display:none;border-color:var(--rose);color:var(--rose)" onclick="shareDisable()">共有を取り消す</button>
+  </div>
   <div class="bar">
     <span class="cnt" id="cnt">—</span>
     <input class="search" id="search" type="text" name="glm_site_filter" autocomplete="off" autocapitalize="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')" placeholder="所在・地番・案件番号で絞り込み（Enterで検索）" onkeydown="if(event.key==='Enter')renderTable()">
@@ -285,6 +292,76 @@ async function loadRoundNumbers(){
     rows.forEach(function(row,i){ ROUND_NO[row.id]=i+1; });
   }catch(e){}
 }
+/* ===== 当社への共有(暗号化解除) =====
+   設計(2026-09-25・情報の取扱いに関する合意書 成立): 客が自社画面で復号し、平文のコピーを client_shared_notes に保存して
+   当社(admin/manager)が閲覧できる状態にする。オンの間は保存のたびに自動で反映。取り消すと当社側の平文コピーを全削除
+   (元の暗号ノートはそのまま)。共有のオン/オフは客だけが切り替えられる(RLS)。表が未作成の環境ではこの帯は表示されない。 */
+var SHARE={enabled:false, ready:false};
+function savedMsg(){ return SHARE.enabled ? '暗号化して保存しました（共有オン: 当社にも見えます）' : '暗号化して保存しました（当社には暗号文のみ）'; }
+function _shareActor(){ try{ return localStorage.getItem('glm_user')||'client'; }catch(e){ return 'client'; } }
+function shareRender(){
+  var bar=document.getElementById('shareBar'); if(!bar) return;
+  if(!SHARE.ready||!DEK){ bar.style.display='none'; return; }
+  bar.style.display='';
+  document.getElementById('shareStatus').innerHTML = SHARE.enabled
+    ? '🟢 <b>当社への共有: オン</b> — 保存した内容は、復号された状態で当社にも見えます（以降の保存も自動で反映されます）。'
+    : '⚪ <b>当社への共有: オフ</b> — 現在、当社は暗号文しか見られません。';
+  document.getElementById('shareOnBtn').style.display=SHARE.enabled?'none':'';
+  document.getElementById('shareOffBtn').style.display=SHARE.enabled?'':'none';
+}
+async function shareInit(){
+  try{
+    var r=await db.from('client_share_state').select('enabled').eq('client_id',CID).limit(1);
+    if(r.error) throw r.error;
+    SHARE.enabled=!!(r.data&&r.data[0]&&r.data[0].enabled); SHARE.ready=true;
+  }catch(e){ SHARE.ready=false; }
+  shareRender();
+}
+async function shareLog(action,detail){
+  try{ await db.from('client_share_log').insert({client_id:CID,action:action,detail:detail||{},actor:_shareActor()}); }catch(e){}
+}
+async function shareEnable(){
+  var ids=Object.keys(NOTES);
+  if(!confirm('【当社への共有をオンにします】\n\n・現在の地権者情報（全'+ids.length+'件）を、この画面の中で復号し、当社が読める状態で保存します。\n・以降、保存するたびに自動で反映されます。\n・いつでも「共有を取り消す」で、当社側の共有コピーを削除できます（元の暗号ノートはそのまま残ります）。\n\n共有しますか？')) return;
+  var now=new Date().toISOString();
+  try{
+    for(var i=0;i<ids.length;i+=100){
+      var rows=ids.slice(i,i+100).map(function(id){ return {client_id:CID,delivery_id:id,plaintext:NOTES[id],shared_at:now}; });
+      var u=await db.from('client_shared_notes').upsert(rows,{onConflict:'client_id,delivery_id'});
+      if(u.error) throw u.error;
+    }
+    var st=await db.from('client_share_state').upsert({client_id:CID,enabled:true,changed_at:now,changed_by:_shareActor()},{onConflict:'client_id'});
+    if(st.error) throw st.error;
+    await shareLog('enable',{count:ids.length});
+    SHARE.enabled=true; shareRender(); toast('当社への共有をオンにしました（'+ids.length+'件）');
+  }catch(e){
+    try{ await db.from('client_shared_notes').delete().eq('client_id',CID); }catch(e2){}   // 途中失敗時は共有コピーを残さない
+    toast('共有に失敗しました: '+(e&&e.message||e));
+  }
+}
+async function shareDisable(){
+  if(!confirm('【共有を取り消します】\n\n当社側に保存された共有コピー（復号済みの内容）を全て削除し、以降は共有しません。元の暗号ノートはそのまま残ります。\n※取り消し前に当社が見た内容までは取り消せません。\n\n取り消しますか？')) return;
+  var now=new Date().toISOString();
+  try{
+    var st=await db.from('client_share_state').upsert({client_id:CID,enabled:false,changed_at:now,changed_by:_shareActor()},{onConflict:'client_id'});
+    if(st.error) throw st.error;
+    SHARE.enabled=false;                                    // 先にオフにする(以降の保存で再び共有されないように)
+    var d=await db.from('client_shared_notes').delete().eq('client_id',CID);
+    if(d.error) throw d.error;
+    await shareLog('disable',{});
+    shareRender(); toast('共有を取り消しました。当社側の共有コピーを削除しました');
+  }catch(e){ shareRender(); toast('取り消しに失敗しました: '+(e&&e.message||e)+'（もう一度お試しください）'); }
+}
+// 暗号ノートを保存した直後に呼ぶ(4か所)。オンの間だけ平文のコピーも更新する。失敗しても暗号ノートの保存は完了している。
+function sharePush(id,obj){
+  try{
+    if(!SHARE.enabled) return Promise.resolve();
+    return Promise.resolve(db.from('client_shared_notes').upsert({client_id:CID,delivery_id:id,plaintext:obj,shared_at:new Date().toISOString()},{onConflict:'client_id,delivery_id'}))
+      .then(function(r){ if(r&&r.error) toast('⚠ 当社への共有の反映に失敗しました（暗号ノートの保存は完了しています）'); })
+      .catch(function(){ toast('⚠ 当社への共有の反映に失敗しました（暗号ノートの保存は完了しています）'); });
+  }catch(e){ return Promise.resolve(); }   // 例外は外へ出さない(暗号ノートの保存の成否に影響させない)
+}
+
 async function loadNotesAndRender(){
   NOTES={}; var fail=0, ok=0;
   try{
@@ -297,6 +374,7 @@ async function loadNotesAndRender(){
   }catch(e){}
   if(fail>0){ toast('⚠ 地権者情報 '+fail+'件が読み取れませんでした（データ破損の可能性）。復旧コードでの再解錠をお試しの上、解決しない場合は当社にご連絡ください。'); }
   renderTable();
+  shareInit();
 }
 // ③判定セル(OK/NG)。マップと同じ case_proposals.judgment を共有＝どちらで押しても両画面に出る。平文なので解錠不要。
 function judgeCell(id){
@@ -379,7 +457,7 @@ async function saveEdit(){
     var payload={client_id:CID,delivery_id:_detId,ciphertext:e.ciphertext,iv:e.iv,updated_at:new Date().toISOString(),updated_by:(localStorage.getItem('glm_user')||'client')};
     var up=await db.from('client_secure_notes').upsert(payload,{onConflict:'client_id,delivery_id'});
     if(up.error){toast('保存失敗: '+up.error.message);return;}
-    NOTES[_detId]=obj; toast('暗号化して保存しました（当社には暗号文のみ）'); renderTable();
+    NOTES[_detId]=obj; sharePush(_detId,obj); toast(savedMsg()); renderTable();
   }catch(e){toast('保存失敗: '+(e&&e.message||e));}
 }
 
@@ -412,7 +490,7 @@ async function deleteDoc(docIndex){
     var payload={client_id:CID,delivery_id:_detId,ciphertext:e.ciphertext,iv:e.iv,updated_at:new Date().toISOString(),updated_by:(localStorage.getItem('glm_user')||'client')};
     var up=await db.from('client_secure_notes').upsert(payload,{onConflict:'client_id,delivery_id'});
     if(up.error){toast('削除失敗: '+up.error.message);return;}
-    NOTES[_detId]=obj;
+    NOTES[_detId]=obj; sharePush(_detId,obj);
     try{ await db.storage.from('registry-docs').remove([d.path]); }catch(e2){} // 実体削除(失敗しても一覧からは消えているので致命的ではない)
     toast('書類を削除しました'); renderDocList(); renderTable();
   }catch(e){toast('削除失敗: '+(e&&e.message||e));}
@@ -437,7 +515,7 @@ async function uploadDoc(){
     var payload={client_id:CID,delivery_id:_detId,ciphertext:e.ciphertext,iv:e.iv,updated_at:new Date().toISOString(),updated_by:(localStorage.getItem('glm_user')||'client')};
     var upn=await db.from('client_secure_notes').upsert(payload,{onConflict:'client_id,delivery_id'});
     if(upn.error) throw new Error('保存失敗: '+upn.error.message);
-    NOTES[_detId]=obj; statusEl.textContent='✓ アップロード完了'; renderDocList(); renderTable(); inp.value='';
+    NOTES[_detId]=obj; sharePush(_detId,obj); statusEl.textContent='✓ アップロード完了'; renderDocList(); renderTable(); inp.value='';
   }catch(e){ statusEl.textContent='✗ '+(e&&e.message||e); }
 }
 
@@ -556,7 +634,7 @@ async function confirmReview(){
     var payload={client_id:CID,delivery_id:_detId,ciphertext:e.ciphertext,iv:e.iv,updated_at:new Date().toISOString(),updated_by:(localStorage.getItem('glm_user')||'client')};
     var up=await db.from('client_secure_notes').upsert(payload,{onConflict:'client_id,delivery_id'});
     if(up.error){toast('保存失敗: '+up.error.message);return;}
-    NOTES[_detId]=obj; toast('暗号化して保存しました（当社には暗号文のみ）');
+    NOTES[_detId]=obj; sharePush(_detId,obj); toast(savedMsg());
     document.getElementById('f_name').value=obj.name; document.getElementById('f_addr').value=obj.addr; document.getElementById('f_memo').value=obj.memo;
     closeReview(); renderDocList(); renderTable();
   }catch(e){toast('保存失敗: '+(e&&e.message||e));}
