@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260925d / 🚫取得上限の撤廃(ドクター「2000の上限も外せ、その上限はある意味で悪でしかない」)。①🌾筆ポリゴン層(農水省FeatureServer)のページング回数上限(200)を撤去=exceededTransferLimitが消えるまで全件。②🌾農地フラグ層(get_farmland_in_bbox)のrow_limit 10,000を撤廃(知多投入で美浜町だけ22,313点=密な画面で欠落し得た)。ズーム15以上の画面内は全件を出す。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925c / 🌾筆ポリゴン層(農水省FudePolygon 2026 FeatureServer)の取得上限バグを是正(ドクター「なぜ筆ポリゴンが表示されないのか」の調査で発見)。旧=resultRecordCount 2000固定・ページング無し、サーバー側maxRecordCount=1000のため1,000筆超の画面では残りが黙って欠落していた。是正=resultOffsetでexceededTransferLimitが消えるまで全件取得(上限を設けない・no-display-fetch-caps)。※美浜町363-1/363-11の形が出ない件は上限ではなく、この2026公開版データにその2筆の形が無い(周囲60mに採草放牧地1筆のみ・363-11周囲30mは0件)ため。農地ナビの区画線は農地ナビ独自の区画データ。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925b / 🔋(ドクター「繋げてくれ」)ヘッダーの🔋低圧蓄電池レイヤーに、登記地図補集合スキャン(非農地・非森林・非建物・非道路・非駐車場・非海岸)の空き地候補 source_type='touki_vacant_aichi'(豊橋/田原3,043筆・area_pipelineでimport→navi→①ハザード/②農振→③接道→④連系→区域区分cpzを通したもの)を統合。用途別レイヤーの母集団クエリを_useQuery()に1本化(件数用/描画用の複製を解消)。＋🌾農地フラグ層がズーム15以上で0件の時「農地ナビ点が未投入の可能性」を画面バッジで自己診断(知多半島で候補だけ出てフラグ/面積が出なかった症状の再発検知・SW記録id=149)。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925a / 🔋(ドクター「この画面の上部へ低圧蓄電池用地の切替スイッチが必要だな」)ヘッダーの用途別レイヤー切替(☀太陽光1筆/🔗太陽光合筆/🔋低圧蓄電池・v20260806b実装済み)を再表示。v20260810aで「badgeが破綻する」を理由に一旦display:noneへ隠していたuseLayerGroupを display:flex に戻すのみ(新規コード追加なし・既存の単一実装を再利用)。表示される🔋低圧蓄電池候補は従来定義(市街化調整以外×<800㎡×連系可、grid_status/city_planning_zone基準)のまま。今回の登記地図補集合スキャン(非農地非森林非建物非道路非駐車場、touki_chizu/aichi_raw/exhaustive_scan5.py産の候補)はまだDB未投入・このレイヤーには含まれない(別件)。 -->
@@ -1837,10 +1838,12 @@ function _doRenderFarmland() {
 }
 async function _fetchAndRenderFarmland() {
   var b = map.getBounds().pad(0.1);
+  // v20260925d(ドクター「上限は悪でしかない」): row_limit 10,000 の取得上限を撤廃(ズーム15以上の画面内は全件)。
+  //   知多半島の農地ナビ点を投入した結果(美浜町だけで22,313点)、密な範囲では1万件を超えて黙って欠落し得た。
   var res = await db.rpc('get_farmland_in_bbox', {
     lat_min: b.getSouth(), lat_max: b.getNorth(),
     lng_min: b.getWest(),  lng_max: b.getEast(),
-    row_limit: 10000
+    row_limit: 100000000
   });
   if (res.error || !res.data) return;
   // v20260925b(ドクター「なぜこの現象が起こったのか」): ズーム15以上で0件なら「この範囲は農地ナビ点が未投入」の可能性を
@@ -2064,8 +2067,10 @@ async function _fetchAndRenderAgriFude() {
   //   ※美浜町363-1/363-11が出ない件は上限ではなく、農水省筆ポリゴン2026公開版にその2筆の形が無い(周囲60mに採草放牧地1筆のみ)ため。
   var res = { features: [] };
   try {
-    var offset = 0, PAGE = 1000, guard = 0;
-    while (guard++ < 200) {
+    // v20260925d(ドクター「2000の上限も外せ、その上限はある意味で悪でしかない」): ページ回数の上限も置かない。
+    //   サーバーが exceededTransferLimit を返す限り取り続け、進まなくなった時だけ止める(無限ループ防止のみ)。
+    var offset = 0, PAGE = 1000;
+    while (true) {
       var qp = new URLSearchParams({
         where: '1=1', geometry: JSON.stringify(env), geometryType: 'esriGeometryEnvelope',
         spatialRel: 'esriSpatialRelIntersects', outFields: 'land_type', returnGeometry: 'true',
