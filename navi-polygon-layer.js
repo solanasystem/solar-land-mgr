@@ -37,7 +37,7 @@
         '<div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;background:#c084fc;opacity:0.35;border:1px solid #c084fc;flex-shrink:0"></div>その他</div>' +
       '</div>' +
       '<div id="naviPolyCount" style="font-size:10px;color:var(--text);margin-top:6px;"></div>' +
-      '<div style="font-size:9px;color:var(--text-muted);margin-top:4px;line-height:1.3;">※ ズーム15以上・画面内は全件表示（上限なし）<br>※ 出典: eMAFF農地ナビ 農地ポリゴン（ズーム16・筆ポリゴン表示中でDLしたもの）<br>※ クリック=地番/面積/隣接筆と合計面積（合筆の当たり）</div>';
+      '<div style="font-size:9px;color:var(--text-muted);margin-top:4px;line-height:1.3;">※ ズーム15以上・画面内は全件表示（上限なし）<br>※ 出典: eMAFF農地ナビ 農地ポリゴン（ズーム16・筆ポリゴン表示中でDLしたもの）<br>※ クリック=地番/面積/隣接筆と合計面積（合筆の当たり）<br>※ 農水省の🌾筆ポリゴン（耕区）とは排他表示（片方をONにするともう片方はOFF）</div>';
     anchor.parentNode.insertBefore(btn, anchor.nextSibling);
     anchor.parentNode.insertBefore(legend, btn.nextSibling);
   }
@@ -51,6 +51,9 @@
       mp.off('moveend', schedule); mp.off('zoomend', schedule);
       toast('農地ナビ区画を非表示にしました'); return;
     }
+    // v20260925b(Dr.「農水省と農業委員会の筆ポリゴンはトグルスイッチにして、片方が表示されている時もう片方は非表示に」):
+    //   こちらをONにする時、農水省筆ポリゴン(耕区)がONなら消す(排他表示)。逆方向はページ側 toggleAgriFude() が担当。
+    try { if (typeof agriFudeEnabled !== 'undefined' && agriFudeEnabled && typeof toggleAgriFude === 'function') toggleAgriFude(); } catch(_e) {}
     enabled = true; if (btn) btn.classList.add('active'); if (legend) legend.style.display = 'block';
     mp.on('moveend', schedule); mp.on('zoomend', schedule);
     schedule();
