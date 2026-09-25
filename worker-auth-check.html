@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Worker認証確認(一時)</title>
+<style>body{font-family:sans-serif;background:#0b1020;color:#e6edf7;padding:24px;line-height:1.7}
+.box{max-width:720px;margin:0 auto}.ok{color:#4ade80;font-weight:700}.ng{color:#f87171;font-weight:700}
+pre{background:#111a33;padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-all}</style></head>
+<body><div class="box">
+<h2>AI転記Worker 認証確認(一時ページ・確認後に削除)</h2>
+<p>ログイン済みの状態で開いてください。Workerに「画像なし」で問い合わせるだけで、AI(Anthropic)は呼びません(費用は発生しません)。</p>
+<div id="out">確認中…</div>
+</div>
+<script>
+(function(){
+  var WORKER='https://suntrust-registry-ai.takumi-kurimoto.workers.dev';
+  var out=document.getElementById('out');
+  function show(cls,msg,detail){ out.innerHTML='<p class="'+cls+'">'+msg+'</p><pre>'+(detail||'')+'</pre>'; }
+  var tok=null;
+  try{ var s=JSON.parse(localStorage.getItem('sb-fygnrjjifoasozbhkxlk-auth-token')||'null'); tok=s&&s.access_token; }catch(e){}
+  if(!tok){ show('ng','ログイン情報が見つかりません。先に本番(login.html)でログインしてから、このページを開き直してください。'); return; }
+  fetch(WORKER,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+tok},body:JSON.stringify({images:[]})})
+    .then(function(r){ return r.text().then(function(t){ return {status:r.status,text:t}; }); })
+    .then(function(x){
+      var passed = (x.status===400 && /images required/.test(x.text));
+      if(passed) show('ok','✓ 合格: Workerがログイン情報を確認できました(この利用者は許可され、画像なしのため 400 images required が返りました)。',x.status+' '+x.text);
+      else if(x.status===403) show('ng','✗ 不合格: Workerが本人確認できません(403)。SUPABASE_URL / SUPABASE_ANON_KEY の設定値、または利用者の登録を確認します。',x.status+' '+x.text);
+      else show('ng','? 想定外の応答です。この画面を見せてください。',x.status+' '+x.text);
+    })
+    .catch(function(e){ show('ng','通信に失敗しました: '+(e&&e.message||e)); });
+})();
+</script></body></html>
