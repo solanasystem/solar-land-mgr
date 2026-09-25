@@ -766,7 +766,7 @@
     try {
       var d = 0.0009; // 約100mのbbox
       var res = await _db.rpc('get_farmland_in_bbox', {
-        lat_min: lat - d, lat_max: lat + d, lng_min: lng - d, lng_max: lng + d, row_limit: 300
+        lat_min: lat - d, lat_max: lat + d, lng_min: lng - d, lng_max: lng + d, row_limit: 100000000   // v20260925a: 300件の上限を撤廃(ドクター「上限を設けるな」)
       });
       if (res.error || !res.data || !res.data.length) return null;
       var best = null, bestD = Infinity, cosLat = Math.cos(lat * Math.PI / 180);

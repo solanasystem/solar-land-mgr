@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260925e / 🚫取得上限の全撤去(ドクター「上限を設けるな。意味がない」「画面のズーム領域で表示個数を制限させる考え方の方が理にかなっている。勝手に上限を設けたことで情報の損失、機械ロスが発生している」)。原則=表示量はズーム閾値と画面範囲(bbox)で絞る。データ件数の固定上限は置かない。今回撤去: TrackB層 get_trackb_in_bbox row_limit 3,000／取込結果一覧(位置なし・不一致)の100件切り／共通gacho-layer.jsの手描き境界地番推定 .limit(20)(→v20260925a)／記録スクリプトcase-candidates-recorder.jsの農地ナビ面積スナップ row_limit 300(→v20260925a)。v20260925c/dで撤去済: 筆ポリゴン層resultRecordCount2000固定＋ページ回数上限、農地フラグ層row_limit 10,000。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925d / 🚫取得上限の撤廃(ドクター「2000の上限も外せ、その上限はある意味で悪でしかない」)。①🌾筆ポリゴン層(農水省FeatureServer)のページング回数上限(200)を撤去=exceededTransferLimitが消えるまで全件。②🌾農地フラグ層(get_farmland_in_bbox)のrow_limit 10,000を撤廃(知多投入で美浜町だけ22,313点=密な画面で欠落し得た)。ズーム15以上の画面内は全件を出す。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925c / 🌾筆ポリゴン層(農水省FudePolygon 2026 FeatureServer)の取得上限バグを是正(ドクター「なぜ筆ポリゴンが表示されないのか」の調査で発見)。旧=resultRecordCount 2000固定・ページング無し、サーバー側maxRecordCount=1000のため1,000筆超の画面では残りが黙って欠落していた。是正=resultOffsetでexceededTransferLimitが消えるまで全件取得(上限を設けない・no-display-fetch-caps)。※美浜町363-1/363-11の形が出ない件は上限ではなく、この2026公開版データにその2筆の形が無い(周囲60mに採草放牧地1筆のみ・363-11周囲30mは0件)ため。農地ナビの区画線は農地ナビ独自の区画データ。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925b / 🔋(ドクター「繋げてくれ」)ヘッダーの🔋低圧蓄電池レイヤーに、登記地図補集合スキャン(非農地・非森林・非建物・非道路・非駐車場・非海岸)の空き地候補 source_type='touki_vacant_aichi'(豊橋/田原3,043筆・area_pipelineでimport→navi→①ハザード/②農振→③接道→④連系→区域区分cpzを通したもの)を統合。用途別レイヤーの母集団クエリを_useQuery()に1本化(件数用/描画用の複製を解消)。＋🌾農地フラグ層がズーム15以上で0件の時「農地ナビ点が未投入の可能性」を画面バッジで自己診断(知多半島で候補だけ出てフラグ/面積が出なかった症状の再発検知・SW記録id=149)。 -->
@@ -2190,10 +2191,11 @@ function _doRenderTrackb() {
 }
 async function _fetchAndRenderTrackb() {
   var b = map.getBounds().pad(0.1);
+  // v20260925e(ドクター「上限を設けるな。意味がない」): row_limit 3,000 の取得上限を撤廃(画面内は全件)。
   var res = await db.rpc('get_trackb_in_bbox', {
     lat_min: b.getSouth(), lat_max: b.getNorth(),
     lng_min: b.getWest(),  lng_max: b.getEast(),
-    row_limit: 3000
+    row_limit: 100000000
   });
   if (res.error || !res.data) return;
   if (trackbLayer) { map.removeLayer(trackbLayer); trackbLayer = null; }
@@ -3510,7 +3512,7 @@ function showCaseSyncReport(d){
   if(d.noPosition.length>0){
     html+='<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-size:11px;color:var(--text-muted);padding:6px 0;">\ud83d\udccd \u7def\u5ea6\u7d4c\u5ea6\u672a\u5165\u529b\u306e\u6848\u4ef6\u4e00\u89a7</summary>';
     html+='<div style="max-height:180px;overflow-y:auto;background:var(--surface2);border-radius:6px;padding:8px;">';
-    d.noPosition.slice(0,100).forEach(function(c){
+    d.noPosition.forEach(function(c){   // v20260925e: 100件で切っていた一覧上限を撤廃(全件表示)
       html+='<div style="font-size:10px;padding:3px 4px;border-bottom:1px dashed var(--border);font-family:var(--font-mono);"><span style="color:var(--accent);">'+c.status+'</span> '+c.id.substring(0,8)+'...</div>';
     });
     if(d.noPosition.length>100)html+='<div style="font-size:10px;color:var(--text-muted);margin-top:6px;">\u4ed6 '+(d.noPosition.length-100)+' \u4ef6</div>';
@@ -3519,7 +3521,7 @@ function showCaseSyncReport(d){
   if(d.noMatch.length>0){
     html+='<details><summary style="cursor:pointer;font-size:11px;color:var(--text-muted);padding:6px 0;">\ud83d\udccd \u8fd1\u96a3\u8fb2\u5730\u306a\u3057\u306e\u6848\u4ef6\u4e00\u89a7</summary>';
     html+='<div style="max-height:180px;overflow-y:auto;background:var(--surface2);border-radius:6px;padding:8px;">';
-    d.noMatch.slice(0,100).forEach(function(c){
+    d.noMatch.forEach(function(c){   // v20260925e: 100件で切っていた一覧上限を撤廃(全件表示)
       html+='<div style="font-size:10px;padding:3px 4px;border-bottom:1px dashed var(--border);"><span style="color:var(--accent);font-family:var(--font-mono);">'+c.status+'</span> <span style="font-family:var(--font-mono);">'+c.id.substring(0,8)+'...</span> '+(c.loc||'')+'</div>';
     });
     if(d.noMatch.length>100)html+='<div style="font-size:10px;color:var(--text-muted);margin-top:6px;">\u4ed6 '+(d.noMatch.length-100)+' \u4ef6</div>';
@@ -7529,7 +7531,7 @@ window.toggleEdgePanel = function(id){
   });
 })();
 </script>
-<script src="case-candidates-recorder.js?v=20260816w"></script>
+<script src="case-candidates-recorder.js?v=20260925a"></script>
 <script src="nara_revival.js?v=20260808a"></script><!-- 復活(cyan)レイヤーのデータ(file://でも読める) -->
 <script src="gappitsu_ai.js?v=20260808a"></script><!-- 合筆・太陽光候補のreject AI判定(①適当/②検討/③不可) -->
 <script src="solar1_ai.js?v=20260808a"></script><!-- 太陽光(1筆)のreject AI判定(feature_id別・①適当/②検討/③不可) -->
@@ -8779,7 +8781,7 @@ if(typeof map!=='undefined'&&map&&map.on){
      ファイル自体は移行直前の最終スナップショットとして残す(参照はしない)。 -->
 <script src="cyan-candidates.js?v=20260822a"></script><!-- ドクター2026-08-22: 手作業探索の目印(既得地/青)で使用。保存値108は古いスナップショット(build_cyan_candidates.py生成)=最新の🔬適地フィルター実行とは別物 -->
 <script src="delivery-round-utils.js?v=20260916a"></script><!-- ★2026-09-09(ドクター指示): 「第N回納品予定」を確定納品件数+1から動的算出する共通ロジック。gacho-layer.jsの_loadNextRoundNo()が使う -->
-<script src="gacho-layer.js?v=20260924b"></script><!-- v20260924b: 予備軍への昇格(_insertRound2Rows・OK確定時/一括昇格の唯一の共通経路)がchiban/addressを一切書いていなかった根本原因を是正。feature=farmland_snapshots.addressを読み、boundary=farmland_points近傍(10m)から推定。今後のOK確定は自動で地番付き(No.267型の再発防止・アドホックな一回スクリプトに依存しない) --><!-- v20260924a: 重複判定(近傍除外)をfeature_id完全一致優先へ是正・距離フォールバックを30m→8m(gate_rules.json dedup節と同期・data/dedup_radius.json) --><!-- v20260923d: ✅OK確定で予備軍(round2_pool)へ自動登録(昇格と同じ判定を共通関数_insertRound2Rowsで) --><!-- v20260923c: 候補読込(loadNeutral)をDB判定読込の完了待ちに(OK数が再読込で揺れる順序競合の根治・案A) --><!-- v20260923b: 削除トーストに「削除 N」を追加(案A・NGの定義は不変) --><!-- v20260923a: 画層に「未判定N件＋▶次へ」＝未判定レビュー送り(現在地から近い順・OK/削除で自動送り・レビュー中バー・進捗保持) --><!-- v20260922i: 土地モーダル「🗑 この筆を削除」でポップアップが閉じて削除できない不具合を修正(askDelete/cancelDelete) -->
+<script src="gacho-layer.js?v=20260925a"></script><!-- v20260925a: 手描き境界の地番推定(farmland_points近傍)の.limit(20)上限を撤廃 --><!-- v20260924b: 予備軍への昇格(_insertRound2Rows・OK確定時/一括昇格の唯一の共通経路)がchiban/addressを一切書いていなかった根本原因を是正。feature=farmland_snapshots.addressを読み、boundary=farmland_points近傍(10m)から推定。今後のOK確定は自動で地番付き(No.267型の再発防止・アドホックな一回スクリプトに依存しない) --><!-- v20260924a: 重複判定(近傍除外)をfeature_id完全一致優先へ是正・距離フォールバックを30m→8m(gate_rules.json dedup節と同期・data/dedup_radius.json) --><!-- v20260923d: ✅OK確定で予備軍(round2_pool)へ自動登録(昇格と同じ判定を共通関数_insertRound2Rowsで) --><!-- v20260923c: 候補読込(loadNeutral)をDB判定読込の完了待ちに(OK数が再読込で揺れる順序競合の根治・案A) --><!-- v20260923b: 削除トーストに「削除 N」を追加(案A・NGの定義は不変) --><!-- v20260923a: 画層に「未判定N件＋▶次へ」＝未判定レビュー送り(現在地から近い順・OK/削除で自動送り・レビュー中バー・進捗保持) --><!-- v20260922i: 土地モーダル「🗑 この筆を削除」でポップアップが閉じて削除できない不具合を修正(askDelete/cancelDelete) -->
 <script src="road-overlay.js?v=20260922f"></script><!-- ★2026-09-22(ドクター指示): 🛣道路を衛星に重ねる=線の色を選べる共通実装(反転→線だけ残す→着色→screen合成)。適地候補パネルの色見本から呼ぶ -->
 <script src="timeline-layer.js?v=20260922e"></script><!-- ★2026-09-22(ドクター指示): 🛣移動タイムライン画層=iPhone GoogleマップのTimeline.jsonを地図上に青線(軌跡)/白丸(滞在)で表示。左パネル最下部にトグル＋操作欄を自動挿入。データはブラウザ内(IndexedDB)のみ・送信なし。共通include -->
 <script src="map-perf-hud.js?v=20260922c"></script><!-- ★2026-09-22(ドクター指示): 移動/ズーム1回ごとの所要時間(JS/固まり/タイル/通信/最重処理)を左下バッジに表示。console不要の実環境診断。共通include。v20260922c=既定非表示・⚙取込・診断メニュー「⏱ 地図性能バッジ」でON/OFF -->

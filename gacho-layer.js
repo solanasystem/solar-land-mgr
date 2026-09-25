@@ -884,7 +884,7 @@ async function _insertRound2Rows(deduped){
   for(var bi=0;bi<boundaryTargets.length;bi++){
     var bp=boundaryTargets[bi]; var la=Number(bp.lat),ln=Number(bp.lng),dg=0.0002;
     try{
-      var pr=await d.from('farmland_points').select('lat,lng,address').gte('lat',la-dg).lte('lat',la+dg).gte('lng',ln-dg).lte('lng',ln+dg).limit(20);
+      var pr=await d.from('farmland_points').select('lat,lng,address').gte('lat',la-dg).lte('lat',la+dg).gte('lng',ln-dg).lte('lng',ln+dg);   // v20260925a: .limit(20)の上限を撤廃(ドクター「上限を設けるな」)
       var cands=(pr&&pr.data)||[]; var best=null,bd=1e9;
       cands.forEach(function(c){ var dd=Math.hypot((c.lat-la)*111320,(c.lng-ln)*111320*Math.cos(la*Math.PI/180)); if(dd<bd){bd=dd;best=c;} });
       if(best&&bd<=10) boundaryAddr[bp.sourceIid]=best.address;
