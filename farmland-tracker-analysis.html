@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD: farmland-tracker-analysis v20260925b / 🔋(ドクター「繋げてくれ」)ヘッダーの🔋低圧蓄電池レイヤーに、登記地図補集合スキャン(非農地・非森林・非建物・非道路・非駐車場・非海岸)の空き地候補 source_type='touki_vacant_aichi'(豊橋/田原3,043筆・area_pipelineでimport→navi→①ハザード/②農振→③接道→④連系→区域区分cpzを通したもの)を統合。用途別レイヤーの母集団クエリを_useQuery()に1本化(件数用/描画用の複製を解消)。＋🌾農地フラグ層がズーム15以上で0件の時「農地ナビ点が未投入の可能性」を画面バッジで自己診断(知多半島で候補だけ出てフラグ/面積が出なかった症状の再発検知・SW記録id=149)。 -->
 <!-- BUILD: farmland-tracker-analysis v20260925a / 🔋(ドクター「この画面の上部へ低圧蓄電池用地の切替スイッチが必要だな」)ヘッダーの用途別レイヤー切替(☀太陽光1筆/🔗太陽光合筆/🔋低圧蓄電池・v20260806b実装済み)を再表示。v20260810aで「badgeが破綻する」を理由に一旦display:noneへ隠していたuseLayerGroupを display:flex に戻すのみ(新規コード追加なし・既存の単一実装を再利用)。表示される🔋低圧蓄電池候補は従来定義(市街化調整以外×<800㎡×連系可、grid_status/city_planning_zone基準)のまま。今回の登記地図補集合スキャン(非農地非森林非建物非道路非駐車場、touki_chizu/aichi_raw/exhaustive_scan5.py産の候補)はまだDB未投入・このレイヤーには含まれない(別件)。 -->
 <!-- BUILD: farmland-tracker-analysis v20260922h / 🩹土地モーダル「🗑 この筆を削除」の確認をその場で(ドクター「確認は良いがクリックする場所が離れていて操作性が極めて悪い」)。ブラウザ標準confirm(画面上部中央に出る)を廃止し、押した削除ボタンの位置が「削除しますか？ [🗑 削除する][やめる]」に切り替わる。削除する→従来のdeleteFlag処理(OK記録削除・除外リスト登録・地図から除去)、やめる→元のボタンへ戻る。gacho-layer.js askDelete/cancelDelete 新設、deleteFlag(…,confirmed)。 -->
 <!-- BUILD: farmland-tracker-analysis v20260922g / 🧹土地モーダル(8項目スコアカード)の〇△✖“入力”を撤去(ドクター「AI学習の役目を終えた〇△✖は残す必要がない」→「4は直ぐに着手せよ」)。事実=学習(旧RF再学習も新しい人間判定の読込も)が読むのはOK/NGだけで、どの項目が✖かのコードはどのプログラムも読んでいなかった。gacho-layer.js flagScoreCard(単一実装・全フラグ共通): 8項目はゲート結果の読み取り専用1行(〇=通過/△=未確認/✖=該当)に、「この判定を確定」→「✅ この筆をOK（確定）」=常にOK、「🗑 この筆を削除」=NG。敷地境界(実測)/手描きボタンは維持。setCrit/setSub関数は互換のため残置。 -->
@@ -1841,6 +1842,10 @@ async function _fetchAndRenderFarmland() {
     row_limit: 10000
   });
   if (res.error || !res.data) return;
+  // v20260925b(ドクター「なぜこの現象が起こったのか」): ズーム15以上で0件なら「この範囲は農地ナビ点が未投入」の可能性を
+  //   画面バッジで常時表示する(consoleではなく画面で気付ける=知多半島で候補だけ出てフラグが無かった症状の自己診断)。
+  if (!res.data.length) { showFarmlandCount('農地ナビ点 0件 ─ この範囲は農地ナビ(farmland_points)が未投入の可能性。areas.jsonのnavi_glob＋run_pipeline \'navi\'ステップで投入'); }
+  else { hideFarmlandCount(); }
   if (farmlandLayer) { map.removeLayer(farmlandLayer); farmlandLayer = null; }
   // 農地フラグ(青地判定)は専用pane(farmlandPane zIndex465=筆ポリゴン450より上)へ描画。
   //   既定のL.canvas()はoverlayPane(400)で、筆ポリゴンの塗り(450)に潜って見えなくなる不具合を解消(栗本さん報告)。
@@ -4624,17 +4629,23 @@ async function _getGappitsuFids(){   // v20260807a: 合筆確定(gappitsu_confir
     (gj||[]).forEach(function(c){(c.mem||[]).forEach(function(m){ if(m&&m[3]!=null)_gapFids[m[3]]=1; });}); }catch(_e){}
   return _gapFids;
 }
+// v20260925b(ドクター「繋げてくれ」): 用途別レイヤーの母集団クエリを1本化(件数用と描画用で同じ条件が2箇所に複製されていた=乖離の温床)。
+//   🔋低圧蓄電池(n=3)には、登記地図補集合スキャン(非農地・非森林・非建物・非道路・非駐車場・非海岸)の候補
+//   source_type='touki_vacant_aichi'(area_pipelineでimport→navi→①ハザード/②農振→③接道→④連系→区域区分cpzを通したもの)を加える。
+//   ☀太陽光(n=1)は農地ナビ由来のみ(従来どおり)。判定条件(hazard/noshin/dedup/grid/infra/面積/区域)は両用途で共通の1箇所。
+var USE_SOURCE_TYPES={1:['emaff_yukyu','emaff_solar'],3:['emaff_yukyu','emaff_solar','touki_vacant_aichi']};
+function _useQuery(n,cols){
+  var q=db.from('farmland_snapshots').select(cols).in('source_type',USE_SOURCE_TYPES[n]||USE_SOURCE_TYPES[1])
+    .eq('hazard_status','CLEAR').eq('noshin_status','CLEAR').eq('dedup_status','NEW').neq('grid_status','ng').neq('infra_status','FAIL');
+  if(n===1){ q=q.or('shading_status.is.null,shading_status.neq.NG').gte('area_sqm',800).gt('lng',133); }
+  else { q=q.lt('area_sqm',800).neq('city_planning_zone','control'); }
+  return q;
+}
 async function _loadUseCounts(){
   try{
     var ngRes=await _fetchAllPaged(function(){return db.from('farmland_ng_list').select('feature_id,lat,lng');},'feature_id');
     var ngRows=(ngRes&&ngRes.data)||[]; var ngSet={}; ngRows.forEach(function(r){ngSet[r.feature_id]=1;}); _buildNgGrid(ngRows);
-    function baseQ(n){
-      var q=db.from('farmland_snapshots').select('feature_id,lat,lng').in('source_type',['emaff_yukyu','emaff_solar'])
-        .eq('hazard_status','CLEAR').eq('noshin_status','CLEAR').eq('dedup_status','NEW').neq('grid_status','ng').neq('infra_status','FAIL');
-      if(n===1){ q=q.or('shading_status.is.null,shading_status.neq.NG').gte('area_sqm',800).gt('lng',133); }
-      else { q=q.lt('area_sqm',800).neq('city_planning_zone','control'); }
-      return q;
-    }
+    function baseQ(n){ return _useQuery(n,'feature_id,lat,lng'); }
     function cnt(rows){ return (rows||[]).filter(function(s){return s.lat!=null&&s.lng!=null&&!ngSet[s.feature_id]&&!_isNearNg(s.lat,s.lng);}).length; }
     // ① 太陽光(1筆) = 母集団 + 手動記録。★手動⇔機械の二重計上を除去(手動と18m以内の機械は数えない)。
     // v20260824(アドホック横断監査): case_candidatesが未ページングで1000件上限の恐れがあったためページング化
@@ -4669,14 +4680,8 @@ function _useOff(n){
 async function _loadUse(n){
   showToast((n===1?'☀太陽光(1筆)':'🔋低圧蓄電池')+'を読み込み中...','success');
   try{
-    var COLS='feature_id,city,lat,lng,area_sqm,city_planning_zone';
-    var res=await _fetchAllPaged(function(){
-      var q=db.from('farmland_snapshots').select(COLS).in('source_type',['emaff_yukyu','emaff_solar'])
-        .eq('hazard_status','CLEAR').eq('noshin_status','CLEAR').eq('dedup_status','NEW').neq('grid_status','ng').neq('infra_status','FAIL');
-      if(n===1){ q=q.or('shading_status.is.null,shading_status.neq.NG').gte('area_sqm',800).gt('lng',133); }
-      else { q=q.lt('area_sqm',800).neq('city_planning_zone','control'); }
-      return q;
-    },'feature_id');
+    var COLS='feature_id,city,lat,lng,area_sqm,city_planning_zone,source_type,address';
+    var res=await _fetchAllPaged(function(){ return _useQuery(n,COLS); },'feature_id');   // v20260925b: 件数用と同じ1本のクエリ
     if(res&&res.error)throw new Error(res.error.message||res.error);
     var ngRes=await _fetchAllPaged(function(){return db.from('farmland_ng_list').select('feature_id,lat,lng');},'feature_id');
     var ngRows=(ngRes&&ngRes.data)||[]; var ngSet={}; ngRows.forEach(function(r){ngSet[r.feature_id]=1;}); _buildNgGrid(ngRows);
