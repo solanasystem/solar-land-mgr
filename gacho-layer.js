@@ -153,13 +153,14 @@ function addClick(e){
   if(!l){l={id:uid(),name:'手動ピック（判定）',color:'#ff1493',visible:true,active:true,items:[]};state.layers.push(l);}
   state.layers.forEach(function(x){x.active=(x.id===l.id);});
   if(l.archived)l.archived=false; l.visible=true;
-  l.items.push({iid:iid(),lat:la,lng:ln,address:'手動ピック '+la.toFixed(5)+', '+ln.toFixed(5),src:'manualpick',status:null});
+  var _pk={iid:iid(),lat:la,lng:ln,address:'手動ピック '+la.toFixed(5)+', '+ln.toFixed(5),src:'manualpick',status:null};
+  l.items.push(_pk);
   saveState();render();
   toast('📍 手動ピックのフラグを表示（'+la.toFixed(5)+', '+ln.toFixed(5)+'）／画層「'+l.name+'」。クリックで✓OK/🚫NG');
   // DB記録(case_candidates)は裏でベストエフォート。失敗してもフラグは残す。
   var rec=window.CaseCandidatesRecorder;
   if(rec&&rec.recordDirect){
-    try{rec.recordDirect(la,ln,'').then(function(r){if(!(r&&r.ok))toast('（フラグは表示済／DB記録は保留: '+((r&&r.error)||'未確定')+'）');}).catch(function(){});}catch(_){}
+    try{rec.recordDirect(la,ln,'').then(function(r){ if(r&&r.ok&&r.id!=null){ _attachCcId(_pk,r.id); } else toast('（フラグは表示済／DB記録は保留: '+((r&&r.error)||'未確定')+'）'); }).catch(function(){});}catch(_){}
   }
 }
 function cleanupAdd(){var m=getMap();if(m){m.off('click',addClick);m.getContainer().style.cursor='';}_addMode=false;renderPanel();}
@@ -1866,6 +1867,77 @@ function _backfillManualJudgmentsToDb(){
   }catch(e){}
 }
 window.__gachoBackfillManual=_backfillManualJudgmentsToDb;
+
+/* ===== ★2026-09-26(ドクター「手動ピックにOKしたのに予備軍に上がらない・何件も溜まっている」根治) =====
+   原因: クリックで作る手動ピックのフラグ(addClick/addManualPick)は、記録(case_candidates)のIDを持たないまま作られていた(8/16以降)。
+   保存関数(_persistJudgment/_persistJudgmentScored)と予備軍への自動登録(_autoPromoteOne)は feature_id が無いと何もせず終わるため、
+   OKはブラウザの画面の中だけに残り、DBにも予備軍にも入らなかった。→ 記録成功時にフラグへ feature_id='cc'+id を付与し、以後は通常の筆と同じ保存経路に乗せる。
+   過去にブラウザだけに残ったID無しのOK/NGは、座標でcase_candidatesと紐付けて起動時にDBへ固定する。 */
+var _ccIdxCache=null,_ccIdxAt=0,_noFidWarnAt=0;
+async function _loadCcIndex(force){
+  var d=_gDb(); if(!d)return null;
+  if(!force&&_ccIdxCache&&(Date.now()-_ccIdxAt)<60000)return _ccIdxCache;
+  var rows=[],frm=0;
+  while(true){
+    var r=await d.from('case_candidates').select('id,latitude,longitude').order('id',{ascending:true}).range(frm,frm+999);
+    if(r&&r.error)throw new Error(r.error.message);
+    var b=(r&&r.data)||[]; rows=rows.concat(b); if(b.length<1000)break; frm+=1000;
+  }
+  _ccIdxCache=rows; _ccIdxAt=Date.now(); return rows;
+}
+function _mBetween(a,b,c,dd){ var R=6371000,p1=a*Math.PI/180,p2=c*Math.PI/180,h=Math.pow(Math.sin((p2-p1)/2),2)+Math.cos(p1)*Math.cos(p2)*Math.pow(Math.sin((dd-b)*Math.PI/360),2); return 2*R*Math.asin(Math.sqrt(h)); }
+function _nearestCc(rows,lat,lng,maxM){
+  var best=null,bd=1e9;
+  for(var i=0;i<rows.length;i++){ var x=rows[i]; var la=Number(x.latitude),ln=Number(x.longitude); if(isNaN(la)||isNaN(ln))continue;
+    if(Math.abs(la-lat)>0.0002||Math.abs(ln-lng)>0.0003)continue;   // 粗い絞り(約20m)
+    var dm=_mBetween(lat,lng,la,ln); if(dm<bd){bd=dm;best=x;} }
+  return (best&&bd<=maxM)?best:null;
+}
+function _warnNoFid(){
+  if(Date.now()-_noFidWarnAt<8000)return; _noFidWarnAt=Date.now();
+  try{ toast('⚠ このピックはDB記録がまだ確定していないため、OK/NGはDBに保存されていません。記録が完了すると自動で保存・予備軍へ登録されます'); }catch(_){}
+}
+// フラグに記録IDを付与し、既に付いているOK/NGをDBへ保存(OKなら予備軍へ自動登録)。
+function _attachCcId(it,ccId){
+  try{
+    if(!it||ccId==null)return false; var fid='cc'+ccId; if(it.feature_id===fid)return false;
+    it.feature_id=fid; saveState();
+    if(it.status==='ok'||it.status==='ng'){
+      _persistJudgment(fid,it.lat,it.lng,it.status);
+      if(it.status==='ok'){ try{_autoPromoteOne(it);}catch(_){} }
+    }
+    return true;
+  }catch(_){ return false; }
+}
+// OK/NGを押した時にIDが無ければ、座標でcase_candidatesを引いて付与する(記録がまだ済んでいなければ、記録完了時に付与される)。
+async function _ensureCcId(it){
+  try{
+    if(!it||it.feature_id||it.type==='boundary'||it.lat==null||it.lng==null)return false;
+    var rows=await _loadCcIndex(true); if(!rows)return false;
+    var hit=_nearestCc(rows,Number(it.lat),Number(it.lng),6);
+    if(hit)return _attachCcId(it,hit.id);
+    _warnNoFid(); return false;
+  }catch(_){ return false; }
+}
+// 起動時: ブラウザの画面の中にだけ残っているID無しのOK/NG(手動ピック)を、座標でDBの記録と紐付けてDBへ固定する。
+async function _attachCcIdsToManualPicks(){
+  try{
+    var targets=[];
+    state.layers.forEach(function(l){ if(l.archived)return; (l.items||[]).forEach(function(it){
+      if(it.feature_id||it.type==='boundary')return; if(it.status!=='ok'&&it.status!=='ng')return;
+      if(it.lat==null||it.lng==null)return;
+      if(it.src==='manualpick'||it.src==='農地ナビ紐付'||/手動ピック/.test(l.name||''))targets.push(it);
+    }); });
+    if(!targets.length)return 0;
+    var rows=await _loadCcIndex(true); if(!rows)return 0;
+    var n=0,ok=0;
+    for(var i=0;i<targets.length;i++){ var it=targets[i]; var hit=_nearestCc(rows,Number(it.lat),Number(it.lng),6);
+      if(hit){ if(_attachCcId(it,hit.id)){ n++; if(it.status==='ok')ok++; } } }
+    if(n>0){ try{toast('🔒 手動ピックのID無し判定 '+n+'件（OK '+ok+'）をDBへ固定しました。OKは予備軍へ自動登録します');}catch(_){} }
+    return n;
+  }catch(e){ return 0; }
+}
+window.__gachoAttachCcIds=_attachCcIdsToManualPicks;
 /* ★v20260822b(ドクター「新しい場所で保存したら各市町村レイヤーへ移るんだろうな」):
    手動ピックの判定済み(cc+id)を、DBを正として県→市町村(手作業｜県｜市町村)へ自動整理。起動時に毎回DBから組み直す=localStorageを消しても復元。
    新しい場所=座標→市町村の対応が無い分はGSI逆ジオで解決し、DB(case_candidates.address)へ書き戻す=次回から対応表無しでも即座に正しい市町村へ入る。 */
@@ -2028,7 +2100,7 @@ async function rebuildManualPicksFromDb(silent){
 }
 window.__gachoRebuildManual=rebuildManualPicksFromDb;
 function _persistJudgment(fid,lat,lng,status){
-  var d=_gDb(); if(!d||!fid)return;
+  var d=_gDb(); if(!d)return; if(!fid){ _warnNoFid(); return; }
   try{
     // ★2026-08-29是正: 反対側レコードの削除は_obExec内で本体書込と同じ再試行対象になったため、
     // ここでの「投げっぱなし」直接delete呼び出しは撤去(失敗しても再試行されず矛盾が残る不具合の温床だった)。
@@ -2249,8 +2321,8 @@ window.__gacho={
     else { it.status=val; it.userJudged=true; if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1; }
     it.viewed=true;
     if(it.type==='boundary'){ try{_saveBoundaryToDb(it);}catch(_){} } // v20260821z11: 境界のOK/NG確定をDBへ(消えない・アウトボックス)
-    else { _persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed'); }
-    if(it.status==='ok')try{_autoPromoteOne(it);}catch(_){} // v20260923d: OK確定=予備軍へ自動登録
+    else { if(!it.feature_id){ try{_ensureCcId(it);}catch(_){} } else { _persistJudgment(it.feature_id,it.lat,it.lng,it.status);_restyleMark(it.feature_id,it.status||'viewed'); } }
+    if(it.status==='ok'&&it.feature_id)try{_autoPromoteOne(it);}catch(_){} // v20260923d: OK確定=予備軍へ自動登録(ID無しの手動ピックは_ensureCcIdが付与後に登録)
     if(it.status)try{_gachoPurgeNearbyUnjudged(it.lat,it.lng,it.iid,it.feature_id);}catch(_){}
     try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}
   }});saveState();setTimeout(function(){render();},0);},
@@ -2266,8 +2338,8 @@ window.__gacho={
     // v20260922g: 〇△✖入力の撤去に伴い「確定」=常にOK(NGは🗑削除ボタン)。旧: ✖が1つでもあればNG。
     it.status='ok';it.viewed=true;it.userJudged=true;if(_reviewFilter)_reviewTouched[it.feature_id||it.iid]=1;
     if(it.type==='boundary'){ try{_saveBoundaryToDb(it);}catch(_){} } // v20260823(ドクター「モーダルを統一」): 境界も同じスコアカードを使うため、境界のDB保存も忘れず呼ぶ
-    else { _persistJudgmentScored(it,s,'ok'); }
-    try{_autoPromoteOne(it);}catch(_){} // v20260923d: ✅OK=予備軍へ自動登録(投げっ放し・失敗してもOK記録は保存済み)
+    else { if(!it.feature_id){ try{_ensureCcId(it);}catch(_){} } else _persistJudgmentScored(it,s,'ok'); }
+    if(it.feature_id)try{_autoPromoteOne(it);}catch(_){} // v20260923d: ✅OK=予備軍へ自動登録(投げっ放し・失敗してもOK記録は保存済み)
     try{_gachoPurgeNearbyUnjudged(it.lat,it.lng,it.iid,it.feature_id);}catch(_){}
     _restyleMark(it.feature_id,it.status);try{if(it.feature_id)document.dispatchEvent(new CustomEvent('gachoJudged',{detail:{fid:it.feature_id,status:it.status}}));}catch(_){}}});saveState();if(m)m.closePopup();setTimeout(function(){render();},0);},
   drawOn:function(lid){var l=byId(lid);if(!l)return;var m=getMap();if(m)m.closePopup();state.layers.forEach(function(x){x.active=(x.id===lid);});saveState();render();if(!_drawMode)toggleDraw();},
@@ -2370,13 +2442,18 @@ window.__gacho={
   },
   /* AI候補等を画層に中立(未判定)で一括読込。feature_idで重複防止。以後は画層のフラグ=標準モーダル・OK/NGがその場で効く。 */
   // 手動ピックを常時可視の画層(gachoPane)へ積む。0画層OFF(base0非表示)でも必ず見える=「フラグが立たない」の根治。
-  addManualPick:function(lat,lng,memo){
+  addManualPick:function(lat,lng,memo,ccId){
     var la=Number(lat),ln=Number(lng);if(isNaN(la)||isNaN(ln))return null;
     var name='手動ピック（判定）';
     var l=state.layers.filter(function(x){return x.name===name&&!x.archived;})[0];
     if(!l){l={id:uid(),name:name,color:'#ff1493',visible:true,active:false,items:[]};state.layers.push(l);}
     l.visible=true;
+    if(ccId!=null){ // ★2026-09-26 記録ID付き: 同じ場所(3m)にID無しのフラグ(addClickの即時フラグ)があればそれに付与=二重に作らない
+      var _ex=null; (l.items||[]).forEach(function(x){ if(!_ex&&!x.feature_id&&x.src!=='農地ナビ紐付'&&x.lat!=null&&_mBetween(la,ln,Number(x.lat),Number(x.lng))<=3)_ex=x; });
+      if(_ex){ _attachCcId(_ex,ccId); return _ex.iid; }
+    }
     var it={iid:iid(),lat:la,lng:ln,address:(memo&&String(memo).trim())||('手動ピック '+la.toFixed(5)+', '+ln.toFixed(5)),src:'manualpick',status:null};
+    if(ccId!=null)it.feature_id='cc'+ccId;
     l.items.push(it);saveState();setTimeout(function(){render();},0);
     toast('📍 手動ピックのフラグを表示（'+la.toFixed(5)+', '+ln.toFixed(5)+'）／画層「'+name+'」');
     return it.iid;
@@ -2613,7 +2690,7 @@ function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(
     });
     if(_cc){ saveState(); try{console.log('[画層] 色の不一致を'+_cc+'件、起動時に正規化しました');}catch(_){} }
   }catch(_){}
-  injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments().then(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}});setTimeout(loadDbJudgments,2500);setTimeout(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}},4200);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
+  injectStyle();buildPanel();/* v20260821z11(ドクター): _upgradeHandDrawnOk撤去=描いた瞬間にOKにしない。面積確認→✓OKで確定 */ensurePane(m);render();applyBase0();try{loadDbJudgments().then(function(){ var _after=function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}}; try{ _attachCcIdsToManualPicks().then(_after,_after); }catch(_){ _after(); } });setTimeout(loadDbJudgments,2500);setTimeout(function(){try{_backfillManualJudgmentsToDb();}catch(_){}try{rebuildManualPicksFromDb(true);}catch(_){}},4200);}catch(_){}m.on('zoomend',updateAreaLabels);updateAreaLabels();
   try{loadBoundariesFromDb();setTimeout(loadBoundariesFromDb,2600);}catch(_){} // v20260821q: DBから手描き境界を復元(消えない)
   try{loadDelivery2FromDb();setTimeout(loadDelivery2FromDb,2600);}catch(_){} // v20260823: 362はround2_poolからライブ取得(静的ファイル依存を撤去)
   try{loadPastDeliveries();setTimeout(loadPastDeliveries,3200);}catch(_){} // v20260920: 過去納品分(第N回)を確定済み納品からライブ取得

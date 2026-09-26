@@ -814,7 +814,7 @@
           // ★常時可視の画層(gachoPane)にも積む=「0画層｜既存すべて」OFF(candidatePane非表示)でも必ずフラグが見える。栗本さん:手動ピックのフラグが立たない の根治。
           try {
             var _la = data[0].latitude, _ln = data[0].longitude;
-            var _iid = (window.__gacho && window.__gacho.addManualPick) ? window.__gacho.addManualPick(_la, _ln, memo) : null;
+            var _iid = (window.__gacho && window.__gacho.addManualPick) ? window.__gacho.addManualPick(_la, _ln, memo, data[0].id) : null;
             // STEP1: 農地ナビへスナップして面積/住所を後追いで反映(瞬間フラグは維持)
             if (_iid) _snapFarmland(_la, _ln).then(function(sn){
               if (sn && window.__gacho && window.__gacho.setPickInfo) window.__gacho.setPickInfo(_iid, sn);
