@@ -1179,11 +1179,15 @@ function _gmEnsureCss(){
     +'.leaflet-tooltip.gm-hover-tt:before{display:none;}'
     +'.gm-hover img{display:block;width:460px;height:460px;object-fit:cover;border-radius:8px;border:2px solid #22c55e;box-shadow:0 6px 18px rgba(0,0,0,.55);background:#161b22;}'
     +'.gm-hover-cap{font-size:10px;color:#e6edf3;background:rgba(0,0,0,.72);border-radius:0 0 7px 7px;padding:2px 6px;text-align:center;}'
-    +'.gm-float{position:absolute;z-index:2000;pointer-events:none;}'
+    +'.gm-float{position:absolute;z-index:2000;pointer-events:auto;}'
+    +'.gm-hover-btns{display:flex;gap:4px;padding:4px 0 0;}'
+    +'.gm-hover-btns a{flex:1;text-align:center;padding:6px 4px;border-radius:6px;font-size:12px;font-weight:800;text-decoration:none;color:#f1f5f9;background:rgba(15,23,42,.92);border:1px solid #38bdf8;cursor:pointer;}'
+    +'.gm-hover-btns a:hover{background:#0c4a6e;}'
     +'.gm-hover-err{width:200px;padding:14px;font-size:11px;color:#f85149;background:#161b22;border:1px solid #f85149;border-radius:8px;text-align:center;}';
   document.head.appendChild(s);
 }
 function _gmHideFloat(){var e=document.getElementById('gmFloatBox');if(e&&e.parentNode)e.parentNode.removeChild(e);}
+var _gmHideT=null; // マーカー→モーダル間の猶予タイマー
 var _GM_HOVER_DELAY=500; // 乗せてこの時間(ms)静止で表示。素早い通過では取得しない=無駄課金防止(ドクター)。float方式は発火が確実なので遅延が正しく効く。
 function _gmHoverBind(layer,lat,lng){
   if(!_gmKey()||lat==null||lng==null)return; // キー未設定 or 座標無し=OFF
@@ -1195,6 +1199,7 @@ function _gmHoverBind(layer,lat,lng){
   var timer=null;
   layer.on('mouseover',function(){
     if(timer)clearTimeout(timer);
+    if(_gmHideT){clearTimeout(_gmHideT);_gmHideT=null;}
     timer=setTimeout(function(){
       timer=null;
       var m=getMap();if(!m)return;
@@ -1210,11 +1215,22 @@ function _gmHoverBind(layer,lat,lng){
       img.src=url;
       var cap=document.createElement('div');cap.className='gm-hover-cap';cap.textContent='🛰 最新衛星(Google)・目視専用';
       box.appendChild(img);box.appendChild(cap);
+      // v20260926f(ドクター): ホバーのモーダル内から直接 Googleマップ／ストリートビュー／Earth を開けるボタン(従来は左ボタン長押しで登録してからでないと開けなかった)。
+      //   URLは既存ポップアップ(合筆モーダル等)と同じ形式。目視用リンクのみ(画像取得や学習には使わない)。
+      var btns=document.createElement('div');btns.className='gm-hover-btns';
+      var _lk=[['🌐 Googleマップ','https://www.google.com/maps/search/?api=1&query='+lat+','+lng],
+               ['🚶 ストリートビュー','https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+lat+','+lng],
+               ['🌍 Earth','https://earth.google.com/web/@'+lat+','+lng+',150a,300d,35y,0h,55t,0r']];
+      _lk.forEach(function(x){ var a=document.createElement('a');a.href=x[1];a.target='_blank';a.rel='noopener';a.textContent=x[0]; btns.appendChild(a); });
+      box.appendChild(btns);
+      // カーソルをモーダルへ移してもすぐ消えない(マーカーから離れて0.4秒の猶予)。モーダルから出たら消える。
+      box.addEventListener('mouseenter',function(){ if(_gmHideT){clearTimeout(_gmHideT);_gmHideT=null;} });
+      box.addEventListener('mouseleave',function(){ _gmHideT=setTimeout(_gmHideFloat,150); });
       C.appendChild(box);
       try{window.__gmLoads=(window.__gmLoads||0)+1;}catch(_){} // 実取得(課金)回数の目安
     },_GM_HOVER_DELAY);
   });
-  layer.on('mouseout',function(){ if(timer){clearTimeout(timer);timer=null;} _gmHideFloat(); });
+  layer.on('mouseout',function(){ if(timer){clearTimeout(timer);timer=null;} if(_gmHideT)clearTimeout(_gmHideT); _gmHideT=setTimeout(_gmHideFloat,400); });
 }
 
 function renderLayerGroups(){
