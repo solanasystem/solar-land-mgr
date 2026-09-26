@@ -1318,6 +1318,7 @@ function _deliveredRoundNo(la,ln){
   return 0;
 }
 window.__gachoDeliveredRound=_deliveredRoundNo;
+window.__gachoPastColor=function(no){ return _PAST_COLORS[(no-1)%_PAST_COLORS.length]; }; // 過去納品分の第N回と同じ色(単一の正)
 /* 旧「太陽光(合筆)」層(gappitsu_confirmed.json)で✅現況OKを押した合筆を予備軍へ登録する。従来はai_ok_labelsに書くだけで予備軍への経路が無かった。
    納品済みの場所は登録しない(二重納品防止)。登録は _autoPromoteOne(空間重複/区域解決/挿入を共用)。 */
 async function _promoteGappitsuCluster(c){
