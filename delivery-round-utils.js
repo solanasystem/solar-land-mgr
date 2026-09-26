@@ -70,7 +70,20 @@ async function notifyRound2PoolChanged(db){
   try{ document.dispatchEvent(new CustomEvent('round2pool:changed',{detail:{reserve:_r2Reserve}})); }catch(_){}
   return _r2Reserve;
 }
+/* ★2026-09-26(ドクター「予備軍へ上げた土地を削除したらオンタイムで数字が減る様に・アドホック禁止」):
+   判定(削除/NG/OK/クリア/手描き境界の削除)がDBに確定した後に必ず呼ぶ。予備軍の整合はDB側のtrigger(ng_list_sync_round2)と
+   RPC(round2_pool_remove)が行うため、ここでは単一の正(getPoolReserveCount)から件数を取り直して全表示へ通知し、
+   画面の予備軍の階層も取り直させる(round2pool:reload)だけ。連続確定は400msにまとめる。 */
+var _r2JudgeTimer=null;
+function refreshRound2AfterJudgment(db){
+  clearTimeout(_r2JudgeTimer);
+  _r2JudgeTimer=setTimeout(async function(){
+    try{ await notifyRound2PoolChanged(db); }catch(_){}
+    try{ document.dispatchEvent(new CustomEvent('round2pool:reload')); }catch(_){}
+  },400);
+}
 if(typeof window!=='undefined'){
+  window.refreshRound2AfterJudgment=refreshRound2AfterJudgment;
   window.getNextRoundInfo=getNextRoundInfo;
   window.getPastDeliveryRounds=getPastDeliveryRounds;
   window.getPoolReserveCount=getPoolReserveCount;

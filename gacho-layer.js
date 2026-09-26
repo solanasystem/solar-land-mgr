@@ -972,7 +972,7 @@ async function extractPoolToClient(){
   try{
     var frm=0;
     while(true){
-      var r=await d.from('round2_pool').select('id,kind,source_iid,lat,lng,area_m2,latlngs,pref,city,chiban,address,status').is('client_id',null).eq('round',2).range(frm,frm+999);
+      var r=await d.from('round2_pool').select('id,kind,source_iid,lat,lng,area_m2,latlngs,pref,city,chiban,address,status').is('client_id',null).eq('round',2).eq('status','reserve').range(frm,frm+999);
       if(r&&r.error)throw new Error(r.error.message);
       var b=(r&&r.data)||[]; unassigned=unassigned.concat(b); if(b.length<1000)break; frm+=1000;
     }
@@ -1680,6 +1680,22 @@ function _sbToast(msg,type){ try{ if(typeof window.showToast==='function'){windo
 var _OUTBOX_KEY='trackerGacho_outbox_v1';
 function _obGet(){try{return JSON.parse(localStorage.getItem(_OUTBOX_KEY)||'[]');}catch(_){return [];}}
 function _obSet(a){try{localStorage.setItem(_OUTBOX_KEY,JSON.stringify(a));}catch(_){}}
+/* ★2026-09-26 予備軍の楽観的な除去: 削除した筆(fid)/手描き境界(iid)/座標18m以内が、画面が持つ予備軍(DELIVERY2.reserve)に入っていれば
+   その場で外して件数を-1する。真の状態はDBのtrigger/RPCとrefreshRound2AfterJudgmentが実数で確定・上書きする(ここは即時の見た目だけ)。 */
+function _poolOptimisticRemove(fid,iid,lat,lng){
+  try{
+    var D2=window.DELIVERY2; if(!D2||!D2.reserve||!D2.reserve.items)return 0;
+    var before=D2.reserve.items.length;
+    var near=function(a,b,c,dd){ if(a==null||b==null||c==null||dd==null)return false; var R=6371000,p1=a*Math.PI/180,p2=c*Math.PI/180,h=Math.pow(Math.sin((p2-p1)/2),2)+Math.cos(p1)*Math.cos(p2)*Math.pow(Math.sin((dd-b)*Math.PI/360),2); return 2*R*Math.asin(Math.sqrt(h))<=18; };
+    D2.reserve.items=D2.reserve.items.filter(function(x){ return !((fid&&x.k==='f'&&x.id===fid)||(iid&&x.k==='b'&&x.id===iid)||near(lat,lng,x.lat,x.lng)); });
+    var n=before-D2.reserve.items.length; if(n<=0)return 0;
+    if(fid&&D2.reserve.byFeature)delete D2.reserve.byFeature[fid]; if(iid&&D2.reserve.byBoundary)delete D2.reserve.byBoundary[iid];
+    D2.reserve.totalItems=D2.reserve.items.length;
+    if(_poolReserveCount!=null)_poolReserveCount=Math.max(0,_poolReserveCount-n);
+    try{render();}catch(_){}
+    return n;
+  }catch(_){ return 0; }
+}
 function _obAdd(e){try{e.id=uid();e.ts=_stamp();var a=_obGet();a.push(e);_obSet(a);_updateSaveHud();_flushOutbox();}catch(_){}}
 var _obFlushing=false;
 // v20260823(ドクター「重複要件はカウントと分析を全てぶち壊す元凶だ」): boundary/okは今までplain insertで、
@@ -1706,6 +1722,22 @@ function _obExec(d,e){
   if(e.kind==='clear')return d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[e.fid]).then(function(){
     return d.from('farmland_ng_list').delete().eq('feature_id',e.fid).like('ng_reason','gacho_ng%');
   });
+  /* ★2026-09-26 削除もアウトボックス(成功するまで再試行)へ。従来は投げっぱなし(.then(function(){},function(){}))でDB失敗が無音だった。
+     筆(fid)=OK記録を除去→除外リスト(gacho_ng|deleted)へ登録=DB triggerが予備軍を自動でarchivedにする。
+     手描き境界(iid)=OK記録を除去→RPC round2_pool_remove(境界は除外リストを通らないため予備軍から直接外す)。どこかで失敗したら例外→再試行。 */
+  if(e.kind==='delete'){
+    var _chk=function(res){ if(res&&res.error)throw new Error(res.error.message||'db error'); return res; };
+    var chain=Promise.resolve({});
+    if(e.fid){
+      chain=chain.then(function(){return d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[e.fid]);}).then(_chk)
+        .then(function(){return d.from('farmland_ng_list').upsert({feature_id:e.fid,lat:e.lat,lng:e.lng,ng_reason:'gacho_ng|deleted'},{onConflict:'feature_id'});}).then(_chk);
+    }
+    if(e.iid){
+      chain=chain.then(function(){return d.from('ai_ok_labels').delete().eq('source','handdraw_boundary').contains('member_fids',[e.iid]);}).then(_chk)
+        .then(function(){return d.rpc('round2_pool_remove',{p_source_iid:e.iid,p_lat:e.lat,p_lng:e.lng,p_reason:'ui:boundary-delete'});}).then(_chk);
+    }
+    return chain;
+  }
   return null;
 }
 function _flushOutbox(){
@@ -1713,14 +1745,16 @@ function _flushOutbox(){
     var a=_obGet(); if(!a.length){_updateSaveHud();return;}
     var d=_gDb(); if(!d){_updateSaveHud();return;}        // DB未接続=残して後で再試行(絶対に消さない)
     if(_obFlushing)return; _obFlushing=true;
-    var pending=a.slice(),i=0,ok={};
-    function fin(){ try{_obSet(_obGet().filter(function(x){return !ok[x.id];}));}catch(_){} _obFlushing=false; _updateSaveHud(); }
+    var pending=a.slice(),i=0,ok={},needPoolRefresh=false;
+    var POOL_KINDS={ng:1,ok:1,clear:1,'delete':1,boundary:1};   // 予備軍の中身が変わり得る判定
+    function fin(){ try{_obSet(_obGet().filter(function(x){return !ok[x.id];}));}catch(_){} _obFlushing=false; _updateSaveHud();
+      if(needPoolRefresh){ try{ if(typeof window.refreshRound2AfterJudgment==='function')window.refreshRound2AfterJudgment(d); }catch(_){} } }
     function step(){
       if(i>=pending.length)return fin();
       var e=pending[i++]; var qb;
       try{ qb=_obExec(d,e); }catch(_){ return step(); }
       if(!qb){ ok[e.id]=1; return step(); }               // 不明kindは破棄
-      try{ qb.then(function(res){ if(!(res&&res.error))ok[e.id]=1; step(); },function(){ step(); }); }
+      try{ qb.then(function(res){ if(!(res&&res.error)){ ok[e.id]=1; if(POOL_KINDS[e.kind])needPoolRefresh=true; } step(); },function(){ step(); }); }
       catch(_){ step(); }
     }
     step();
@@ -2175,10 +2209,11 @@ window.__gacho={
     _delRowsCache=null; // 削除済み一覧のキャッシュを破棄(次の掃引でDBから取り直す)
     if(fid)_deletedFidSet[fid]=1; // v20260923b(案A): 削除件数は押した瞬間に+1(正=DB gacho_ng|deleted と同じ集合)
     try{
-      if(d&&fid){ d.from('ai_ok_labels').delete().eq('source','gacho_ok').contains('member_fids',[fid]).then(function(){},function(){});
-        // ★除外リストに登録=リロードで元データから再描画されても、この筆は除外され二度と戻らない。
-        d.from('farmland_ng_list').upsert({feature_id:fid,lat:(it.lat!=null?Number(it.lat):null),lng:(it.lng!=null?Number(it.lng):null),ng_reason:'gacho_ng|deleted'},{onConflict:'feature_id'}).then(function(){},function(){}); }
-      if(d&&it.type==='boundary'&&it.iid){ d.from('ai_ok_labels').delete().eq('source','handdraw_boundary').contains('member_fids',[it.iid]).then(function(){},function(){}); }
+      // ★2026-09-26: 削除は保存キュー(アウトボックス)経由=DBに入るまで消えず再試行。除外リストへの登録でDB triggerが予備軍の行を自動で外す(手描き境界はRPC)。
+      var _bIid=(it.type==='boundary'&&it.iid)?it.iid:null;
+      if(fid||_bIid){ _obAdd({kind:'delete',fid:(fid||null),iid:_bIid,lat:(it.lat!=null?Number(it.lat):null),lng:(it.lng!=null?Number(it.lng):null)}); }
+      // 押した瞬間に、その筆が予備軍に入っていれば件数を-1(楽観的更新)。DBに確定後にrefreshRound2AfterJudgmentが実数で上書きする。
+      _poolOptimisticRemove(fid,_bIid,(it.lat!=null?Number(it.lat):null),(it.lng!=null?Number(it.lng):null));
     }catch(_){}
     if(fid){try{delete _gDbOk[fid];_gDbNg[fid]=1;}catch(_){}}
     state.layers.forEach(function(L){L.items=L.items.filter(function(x){return x.iid!==itemIid && !(fid&&x.feature_id===fid);});}); // 全gachoレイヤーから除去(別レイヤーの重複も)
@@ -2586,6 +2621,13 @@ function boot(){var m=getMap();if(!m||typeof L==='undefined'){return setTimeout(
   // v20260916: 予備軍(reserve)件数の「単一の正」を購読。round2_poolがどの経路で変わっても、
   // notifyRound2PoolChanged()の通知を受けてボタンの(N)を再描画する=このファイルは件数を数え直さない。
   try{ document.addEventListener('round2pool:changed',function(e){ if(e&&e.detail&&typeof e.detail.reserve==='number'){ _poolReserveCount=e.detail.reserve; try{render();}catch(_){} } }); }catch(_){}
+  // ★2026-09-26 予備軍が変わった時(削除/NG/OKの確定後・他の端末での変更)は、画面の予備軍の階層もDBから取り直す。
+  var _d2LastReload=0;
+  function _reloadD2IfStale(force){ try{ var D2=window.DELIVERY2; var dbN=(typeof getRound2Reserve==='function')?getRound2Reserve():null;
+    var mine=(D2&&D2.reserve)?D2.reserve.totalItems:null; if(!force&&(dbN==null||mine==null||dbN===mine))return;
+    if(Date.now()-_d2LastReload<8000)return; _d2LastReload=Date.now(); loadDelivery2FromDb(); }catch(_){} }
+  try{ document.addEventListener('round2pool:reload',function(){ _reloadD2IfStale(true); }); }catch(_){}
+  try{ setInterval(function(){ try{ var dd=_gDb(); if(dd&&typeof window.notifyRound2PoolChanged==='function'){ window.notifyRound2PoolChanged(dd).then(function(){ _reloadD2IfStale(false); }); } }catch(_){} },20000); }catch(_){}
   // 削除した筆を復活させない: 起動時＋遅延描画に追随して掃引
   try{ _sweepDeletedFlags(); setTimeout(_sweepDeletedFlags,1800); setTimeout(_sweepDeletedFlags,4500); setTimeout(_sweepDeletedFlags,9000); setInterval(_sweepDeletedFlags,20000); m.on('moveend zoomend',_sweepDeletedFlagsSoon); }catch(_){}
   // 絶対に消えない: 起動時に未保存をDBへ再送→15秒毎に再試行→オンライン復帰で即再送。HUDで未保存件数を常時表示。
