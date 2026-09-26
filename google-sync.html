@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Googleマップ連動窓 - GRID LAND MGR</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;background:#0d1117;color:#e6edf3;font-family:system-ui,"Segoe UI","Hiragino Sans","Noto Sans JP",sans-serif}
+  #map{position:absolute;inset:0}
+  #bar{position:absolute;z-index:5;top:8px;left:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:rgba(13,17,23,.88);border:1px solid #30363d;border-radius:8px;padding:6px 8px;font-size:12px}
+  #bar button{font-size:12px;font-weight:700;padding:5px 10px;border-radius:6px;border:1px solid #38bdf8;background:#0f172a;color:#f1f5f9;cursor:pointer}
+  #bar button.on{background:#0c4a6e}
+  #st{color:#8b949e}
+  #msg{position:absolute;z-index:10;inset:0;display:none;align-items:center;justify-content:center;background:rgba(13,17,23,.96);padding:24px;text-align:center;line-height:1.8;font-size:14px}
+  #msg div{max-width:560px}
+  #msg b{color:#fbbf24}
+</style>
+</head>
+<body>
+<div id="bar">
+  <span>🗺 Googleマップ連動窓</span>
+  <button id="bSat" class="on">衛星</button>
+  <button id="bMap">地図</button>
+  <button id="bSv">🚶 ストリートビュー</button>
+  <span id="st">システムの地図の動きに追従します(この窓を動かすとシステム側も動きます)</span>
+</div>
+<div id="map"></div>
+<div id="msg"><div id="msgBody"></div></div>
+<script src="gmap-config.js"></script>
+<script>
+(function(){
+  'use strict';
+  var KEY=window.GMAP_STATIC_KEY||'';
+  var ch=null; try{ ch=new BroadcastChannel('gridland-mapsync'); }catch(_){}
+  var map=null, marker=null, sv=null, svs=null, applying=false, lastSend=0, syncOn=true;
+  function showMsg(html){ document.getElementById('msgBody').innerHTML=html; document.getElementById('msg').style.display='flex'; }
+  function setSt(t){ document.getElementById('st').textContent=t; }
+  if(!KEY){ showMsg('Googleのキー(gmap-config.js)が未設定です。'); return; }
+  if(!ch){ showMsg('このブラウザは窓どうしの連動(BroadcastChannel)に対応していません。'); return; }
+  // 認証/API未有効の時は画面で案内する(consoleを見せない)
+  window.gm_authFailure=function(){
+    showMsg('<div><b>Googleマップを表示できません</b><br>キーで「Maps JavaScript API」がまだ有効になっていないか、キーの制限にこのAPIが含まれていません。<br>Google Cloud の「APIとサービス」→「ライブラリ」で <b>Maps JavaScript API</b> を有効にし、キーのAPI制限に追加してください。<br>有効にしたら、この窓を再読み込み(F5)してください。</div>');
+  };
+  window.__initGm=function(){
+    map=new google.maps.Map(document.getElementById('map'),{
+      center:{lat:35.0,lng:136.5},zoom:17,mapTypeId:'satellite',tilt:0,
+      streetViewControl:true,fullscreenControl:false,gestureHandling:'greedy',clickableIcons:false
+    });
+    marker=new google.maps.Marker({map:map,position:map.getCenter(),clickable:false,
+      icon:{path:google.maps.SymbolPath.CIRCLE,scale:7,strokeColor:'#ef4444',strokeWeight:3,fillOpacity:0}});
+    svs=new google.maps.StreetViewService(); sv=map.getStreetView();
+    function send(){
+      if(applying||!syncOn)return;
+      var now=Date.now(); if(now-lastSend<60)return; lastSend=now;
+      var c=map.getCenter(); marker.setPosition(c);
+      ch.postMessage({src:'google',lat:c.lat(),lng:c.lng(),z:map.getZoom()});
+    }
+    map.addListener('center_changed',send); map.addListener('zoom_changed',send);
+    map.addListener('idle',function(){ lastSend=0; send(); });
+    ch.onmessage=function(ev){
+      var m=ev.data; if(!m||m.src!=='tracker'||!isFinite(m.lat)||!isFinite(m.lng))return;
+      applying=true;
+      try{
+        var ll={lat:m.lat,lng:m.lng};
+        marker.setPosition(ll);
+        if(sv&&sv.getVisible()){
+          svs.getPanorama({location:ll,radius:80},function(d,s){ if(s==='OK'&&d&&d.location){ sv.setPosition(d.location.latLng); } });
+        }else{
+          map.setCenter(ll); if(isFinite(m.z))map.setZoom(Math.round(m.z));
+        }
+        setSt('追従中 '+m.lat.toFixed(5)+', '+m.lng.toFixed(5)+'  z'+Math.round(m.z));
+      }finally{ setTimeout(function(){ applying=false; },80); }
+    };
+    // APIが未有効(ApiNotActivatedMapError)の時はgm_authFailureが呼ばれず灰色のままになるため、4秒経っても地図タイルが出なければ画面で案内する
+    setTimeout(function(){
+      if(!document.querySelector('#map img[src*="googleapis"],#map img[src*="gstatic"],#map canvas')){ window.gm_authFailure(); }
+    },4000);
+    // 起動直後にシステム側へ現在位置を要求
+    ch.postMessage({src:'google',hello:true});
+    document.getElementById('bSat').onclick=function(){ map.setMapTypeId('satellite'); this.classList.add('on'); document.getElementById('bMap').classList.remove('on'); };
+    document.getElementById('bMap').onclick=function(){ map.setMapTypeId('roadmap'); this.classList.add('on'); document.getElementById('bSat').classList.remove('on'); };
+    document.getElementById('bSv').onclick=function(){
+      var btn=this;
+      if(sv.getVisible()){ sv.setVisible(false); btn.classList.remove('on'); return; }
+      svs.getPanorama({location:map.getCenter(),radius:80},function(d,s){
+        if(s==='OK'&&d&&d.location){ sv.setPosition(d.location.latLng); sv.setVisible(true); btn.classList.add('on'); }
+        else setSt('この位置の近く(80m以内)にストリートビューがありません');
+      });
+    };
+  };
+  var s=document.createElement('script');
+  s.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(KEY)+'&callback=__initGm&loading=async&language=ja&region=JP';
+  s.async=true; s.onerror=function(){ showMsg('Googleマップの読み込みに失敗しました。通信状態を確認してください。'); };
+  document.head.appendChild(s);
+})();
+</script>
+</body>
+</html>
