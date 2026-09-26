@@ -574,7 +574,7 @@ function completeDelivery2FromDb(){
   var before=_d2TotalItems(),added=0;
   D.items.forEach(function(x){
     if(x.k==='b'){ if(haveB[x.id])return; _d2Dest(x.pref,x.city).items.push({iid:x.id,type:'boundary',latlngs:x.latlngs,area:x.area,lat:x.lat,lng:x.lng,address:'敷地境界',status:'ok',userJudged:true,src:'handdraw'}); haveB[x.id]=1; added++; }
-    else { if(haveF[x.id])return; _d2Dest(x.pref,x.city).items.push({iid:iid(),feature_id:x.id,lat:x.lat,lng:x.lng,address:'OK候補',status:'ok',userJudged:true,src:'d2complete'}); haveF[x.id]=1; added++; }
+    else { if(haveF[x.id])return; _d2Dest(x.pref,x.city).items.push({iid:iid(),feature_id:x.id,lat:x.lat,lng:x.lng,area:(x.area!=null?Number(x.area):null),address:'OK候補',status:'ok',userJudged:true,src:'d2complete'}); haveF[x.id]=1; added++; }
   });
   var after=_d2TotalItems();
   if(after!==before+added){ try{var s=JSON.parse(localStorage.getItem(_D2_SNAP_KEY));if(s&&s.state)state=s.state;}catch(_){} saveState();render(); toast('⚠ 補完数が不一致＝異常。元に戻しました'); return; }
@@ -620,7 +620,7 @@ function rebuildDelivery2(opts){
   D.items.forEach(function(x){
     var it;
     if(x.k==='b'){ it=colB[x.id]||{iid:x.id,type:'boundary',latlngs:x.latlngs,area:x.area,lat:x.lat,lng:x.lng,address:'敷地境界',status:'ok',userJudged:true,src:'handdraw'}; it.status=(it.status==='ng'?'ng':'ok'); }
-    else { it=colF[x.id]||{iid:iid(),feature_id:x.id,lat:x.lat,lng:x.lng,address:'OK候補',status:'ok',userJudged:true,src:'d2'}; it.status='ok'; it.userJudged=true; }
+    else { it=colF[x.id]||{iid:iid(),feature_id:x.id,lat:x.lat,lng:x.lng,address:'OK候補',status:'ok',userJudged:true,src:'d2'}; it.status='ok'; it.userJudged=true; if(it.area==null&&x.area!=null)it.area=Number(x.area); }
     _d2Dest(x.pref,x.city).items.push(it); placed++;
   });
   // 3) 空になった第2回宛先レイヤーを除去
@@ -677,7 +677,7 @@ async function loadDelivery2FromDb(){
       items.push(bo); byBoundary[r.source_iid]={pref:r.pref,city:r.city};
       if(isRes){ rItems.push(bo); rByBoundary[r.source_iid]={pref:r.pref,city:r.city}; }
     }else{
-      var fo={k:'f',id:r.source_iid,lat:r.lat,lng:r.lng,pref:r.pref,city:r.city};
+      var fo={k:'f',id:r.source_iid,lat:r.lat,lng:r.lng,area:r.area_m2,pref:r.pref,city:r.city}; // 面積も持つ(従来はfeatureだけ落としていて、ポップアップが『面積不明』になっていた)
       items.push(fo); byFeature[r.source_iid]={pref:r.pref,city:r.city};
       if(isRes){ rItems.push(fo); rByFeature[r.source_iid]={pref:r.pref,city:r.city}; }
     }
