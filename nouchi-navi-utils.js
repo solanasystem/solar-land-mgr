@@ -36,7 +36,7 @@
           var parts=muni[code]||[];
           var pref=PREFN[code.slice(0,2)]||'';
           var city='';
-          for(var i=0;i<parts.length;i++){var p=parts[i];if(/[市町村区]/.test(p)&&!/[県都府道]/.test(p)){city=p;break;}}
+          for(var i=0;i<parts.length;i++){var p=parts[i];if(/[市町村区]/.test(p)&&!/^(北海道|東京都|京都府|大阪府|.{2,3}県)$/.test(p)){city=p;break;}}
           var oaza=res.lv01Nm||'';
           var addr=(pref+city+oaza).trim();
           _cache[key]=addr||null;
