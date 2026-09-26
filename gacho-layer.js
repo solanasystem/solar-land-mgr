@@ -932,6 +932,14 @@ async function _insertRound2Rows(deduped){
    予備軍入りは「⬆昇格」ボタンを押した時だけだった(8/28に⑤→⑥を別操作に分けた設計)。最終形態「OKにした筆は自動で予備軍へ」に合わせる。
    判定は昇格ボタンと同じ: source_iid一致=登録済み／空間重複(_gachoDedupSpatial)／区域不明はスキップ。挿入は_insertRound2Rowsを共用。
    失敗してもOK記録(ai_ok_labels)には影響しない(OKは先に確定済み)。「⬆昇格」ボタンは残す(未登録分の再試行用)。 */
+/* 自動登録のトースト集約: 連続して登録された分(起動時の手動ピック回収など)を1.5秒まとめて1つの要約にする(件ごとに積み重ならない) */
+var _apN=0,_apT=null;
+function _apToastSummary(n){
+  _apN+=(typeof n==='number'?n:1);
+  if(_apT)clearTimeout(_apT);
+  _apT=setTimeout(function(){ var c=_apN; _apN=0; _apT=null;
+    try{ toast('⬆ 予備軍へ自動登録 '+c+'件 → 予備軍 '+(_poolReserveCount!=null?_poolReserveCount.toLocaleString():'?')+' 件'); }catch(_){} },1500);
+}
 async function _autoPromoteOne(it){
   try{
     var d=_gDb(); if(!d||!it||it.lat==null||it.lng==null)return;
@@ -946,7 +954,7 @@ async function _autoPromoteOne(it){
     var deduped=_gachoDedupSpatial([cand],(nr&&nr.data)||[]);
     if(!deduped.length){ toast('予備軍: 同じ場所が登録済みのため追加なし'); return; }
     var res=await _insertRound2Rows(deduped);
-    if(res.inserted){ toast('⬆ 予備軍へ自動登録 → 予備軍 '+(_poolReserveCount!=null?_poolReserveCount.toLocaleString():'?')+' 件'); }
+    if(res.inserted){ _apToastSummary(res.inserted); }
     else if(res.skippedUnknown){ toast('⚠ 予備軍へ未登録: 区域(県/市町村)を解決できません。後で「⬆昇格」で再試行'); }
     else if(res.errs&&res.errs.length){ toast('⚠ 予備軍登録エラー: '+res.errs[0]); }
   }catch(e){ try{toast('⚠ 予備軍への自動登録に失敗: '+(e&&e.message||e)+'（OK記録は保存済み・「⬆昇格」で再試行可）');}catch(_){} }
