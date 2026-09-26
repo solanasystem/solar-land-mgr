@@ -1307,6 +1307,27 @@ async function loadPastDeliveries(){
   }catch(e){ try{console.warn('[過去納品分] 取得失敗:',e&&e.message||e);}catch(_){} }
 }
 window.__gachoReloadPast=loadPastDeliveries;
+/* 納品済みの判定の単一の正: DBの確定納品(過去納品分=第N回)の位置から40m以内なら、その回の番号を返す(無ければ0)。
+   ★『サントラスト納品リスト入り』の印(ai_ok_labels suntrust_nara)は納品済みではない(追加ボタンの記録)ため使わない(2026-09-26 橋本市の合筆で発覚)。 */
+function _deliveredRoundNo(la,ln){
+  try{
+    var rs=_pastRoundsList(),R=40;
+    for(var i=0;i<rs.length;i++){ var pts=rs[i].pts||[];
+      for(var j=0;j<pts.length;j++){ var dla=(pts[j][0]-la)*111000,dlo=(pts[j][1]-ln)*111000*Math.cos(la*Math.PI/180); if(dla*dla+dlo*dlo<=R*R)return rs[i].no; } }
+  }catch(_){}
+  return 0;
+}
+window.__gachoDeliveredRound=_deliveredRoundNo;
+/* 旧「太陽光(合筆)」層(gappitsu_confirmed.json)で✅現況OKを押した合筆を予備軍へ登録する。従来はai_ok_labelsに書くだけで予備軍への経路が無かった。
+   納品済みの場所は登録しない(二重納品防止)。登録は _autoPromoteOne(空間重複/区域解決/挿入を共用)。 */
+async function _promoteGappitsuCluster(c){
+  if(!c||c.lat==null||c.lng==null)return {ok:false,why:'座標なし'};
+  var no=_deliveredRoundNo(Number(c.lat),Number(c.lng));
+  if(no)return {ok:false,delivered:no};
+  await _autoPromoteOne({type:'feature',feature_id:'gap'+c.id,lat:Number(c.lat),lng:Number(c.lng),area:(c.total!=null?Number(c.total):null)});
+  return {ok:true};
+}
+window.__gachoPromoteGappitsu=_promoteGappitsuCluster;
 function renderDelivered(){
   var m=getMap(); if(!m)return;
   if(_deliveredLayer){try{m.removeLayer(_deliveredLayer);}catch(_){}_deliveredLayer=null;}

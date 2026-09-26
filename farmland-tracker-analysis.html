@@ -4547,6 +4547,7 @@ async function _renderGappitsu(){
   if(gappitsuLayer){map.removeLayer(gappitsuLayer);gappitsuLayer=null;}
   if(!map.getPane('candPane')){var p=map.createPane('candPane');p.style.zIndex=640;}
   gappitsuLayer=L.layerGroup([],{pane:'candPane'});
+  try{ if(window.__gachoReloadPast)await window.__gachoReloadPast(); }catch(_e0){}   // 納品済みの色分け用(確定納品の位置)
   // 削除済み(構成筆がNG入り)の合筆は表示しない。栗本さん指示: 消したものは復活させない。
   var _gapNg={};
   try{
@@ -4567,7 +4568,8 @@ async function _renderGappitsu(){
   var _shown=0;
   gappitsuCache.forEach(function(c){
     if((c.mem||[]).some(function(m){return m&&m[3]&&_gapNg[m[3]];}))return; // 削除済みは非表示
-    var col=(c.n===2)?'#f59e0b':'#fbbf24';
+    var _dn=(window.__gachoDeliveredRound?window.__gachoDeliveredRound(Number(c.lat),Number(c.lng)):0);   // 確定納品の位置に一致=第N回で納品済み
+    var col=_dn?'#94a3b8':((c.n===2)?'#f59e0b':'#fbbf24');
     var lls=[];
     (c.mem||[]).forEach(function(m){
       lls.push([m[0],m[1]]);
@@ -4591,7 +4593,7 @@ async function _renderGappitsu(){
       +'<span style="color:#93c5fd">市街化調整 × 放棄（手放しやすい）</span>'
       +_aiHtml
       +'<div style="display:flex;gap:5px;margin-top:9px"><a href="'+gm+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #1a73e8;background:#0b2447;color:#8ab4f8;border-radius:5px;font-size:11px;text-decoration:none">🌐地図</a><a href="'+sv+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:5px;font-size:11px;text-decoration:none">🚶SV</a><a href="'+e3+'" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:5px;border:1px solid #16a34a;background:#0b2e1a;color:#86efac;border-radius:5px;font-size:11px;text-decoration:none">🌍Earth</a></div>'
-      +'<button onclick="registerGappitsuOK(&quot;'+String(c.id)+'&quot;,'+c.lat+','+c.lng+',this)" style="margin-top:9px;width:100%;padding:6px 8px;border:1px solid #22c55e;background:#0b2e1a;color:#86efac;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">✅ 現況OK（正例に登録）</button>'
+      +(_dn?'<div style="margin-top:8px;padding:8px;border-radius:6px;background:#334155;border:2px solid #94a3b8;color:#e2e8f0;font-size:12px;font-weight:900;text-align:center">🚚 第'+_dn+'回で納品済み（新規候補にはしません）</div>':'<button onclick="registerGappitsuOK(&quot;'+String(c.id)+'&quot;,'+c.lat+','+c.lng+',this)" style="margin-top:9px;width:100%;padding:6px 8px;border:1px solid #22c55e;background:#0b2e1a;color:#86efac;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">✅ 現況OK（正例に登録）</button>')
       +((typeof SUNTRUST_GAP!=='undefined'&&SUNTRUST_GAP&&SUNTRUST_GAP[String(c.id)])?'<div style="margin-top:6px;padding:8px;border-radius:6px;background:#065f46;border:2px solid #10b981;color:#a7f3d0;font-size:12px;font-weight:900;text-align:center">✅ サントラスト納品リスト入り</div>':'<button onclick="addGappitsuToSuntrust(&quot;'+String(c.id)+'&quot;,this)" style="margin-top:6px;width:100%;padding:8px;border:2px solid #10b981;background:#064e3b;color:#6ee7b7;border-radius:6px;font-size:12px;font-weight:900;cursor:pointer">📦 サントラスト納品（正規）に追加</button>')
       +'<button onclick="deleteGappitsuNG(&quot;'+String(c.id)+'&quot;,this)" style="margin-top:6px;width:100%;padding:6px 8px;border:1px solid #B71C1C;background:#3a1414;color:#ff8a80;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">🗑 削除（AI判定に同意・除外）</button>'
       +'</div>';
@@ -4640,6 +4642,9 @@ async function registerGappitsuOK(cid,lat,lng,btn){
     try{ var _bd=document.querySelector('.leaflet-popup-content [data-gapbadge]'); if(_bd)_bd.outerHTML='<div data-gapbadge="1" style="margin-top:8px;padding:6px 8px;border-radius:6px;background:#0b2e1a;border:1px solid #22c55e"><span style="color:#22c55e;font-weight:800;font-size:12px">✅ 現況OK（あなたが確認済・AI判定を上書き）</span></div>'; }catch(_x){}
     if(btn){btn.textContent='✅ 登録済み';btn.style.background='#166534';btn.style.color='#dcfce7';btn.disabled=true;}
     if(typeof showToast==='function')showToast('現況OKに登録（AI判定を緑=適当に上書き）','success');
+    // ★2026-09-26: 旧合筆層の現況OKも予備軍へ自動登録(従来は経路が無かった)。納品済みの場所は登録しない。失敗しても現況OK記録は保存済み。
+    try{ var _pc=(typeof gappitsuCache!=='undefined'&&gappitsuCache)?gappitsuCache.filter(function(x){return String(x.id)===String(cid);})[0]:null;
+      if(_pc&&window.__gachoPromoteGappitsu)window.__gachoPromoteGappitsu(_pc); }catch(_pe){}
   }catch(e){
     if(btn){btn.disabled=false;btn.textContent='✅ 現況OK（正例に登録）';}
     var msg=(e&&e.message)||JSON.stringify(e);
